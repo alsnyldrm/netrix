@@ -73,11 +73,7 @@ Beceriyi uygulamadan önce oturumdaki beceri kataloğundan ilgili `SKILL.md` dos
 
 | Görev | Beceri | NETRIX'teki kullanım |
 | --- | --- | --- |
-| Ürün arayüzü ve etkileşim tasarımı | `impeccable` | Operasyon ekranları, bilgi hiyerarşisi, boş/hata/yüklenme durumları ve tasarım incelemesi |
-| UX ve erişilebilirlik | `ui-ux-pro-max` | Envanter tabloları, IPAM formları, topoloji ve trafik ekranlarında kullanılabilirlik |
-| Görsel sistem | `design-system` | Renk, tipografi, boşluk ve durum token'ları; ortak bileşen kuralları |
-| Arayüz uygulaması | `frontend-design`, `ui-styling` | Özgün NETRIX arayüzü; frontend teknolojisi seçildikten sonra uygun bileşen ve stiller |
-| Marka ve görsel kimlik | `brand`, `design` | NETRIX marka dili, ikon ve görsel kimlik; ihtiyaç halinde |
+| Tüm tasarım, arayüz, UX ve görsel kimlik işleri | `ui-ux-pro-max` | En küçük görsel değişiklik dahil tüm ekranlar, bileşenler, hizalama, tipografi, ikonlar, uygulama simgesi ve favicon |
 | PostgreSQL şeması ve performans | `postgresql-table-design`, `sql-optimization-patterns` | IPAM ilişkileri, kısıtlar, indeksler ve sorgu planları |
 | Şema sürümleme | `database-migration` | Alembic değişiklikleri ve veri dönüşümleri |
 | Kimlik ve sır yönetimi | `auth-implementation-patterns`, `secrets-management` | Merkezi yetkilendirme, cihaz erişim bilgileri ve anahtar yönetimi |
@@ -87,7 +83,11 @@ Beceriyi uygulamadan önce oturumdaki beceri kataloğundan ilgili `SKILL.md` dos
 | Teşhis ve teslim | `systematic-debugging`, `verification-before-completion` | Hata kök nedeni ve kanıta dayalı teslim kontrolü |
 | Ajan yönergeleri | `writing-for-agents` | Bu dosyanın ve görev yönergelerinin bakımı |
 
-Tasarımda proje sahibinin son talebi uyarınca yalnızca `ui-ux-pro-max` ana iş akışıdır; özgün navigasyon, sayfalar, uygulama simgesi ve favicon bu beceriyle hazırlanır. Aynı ekranı farklı becerilerle tekrar tekrar tasarlama. Backend geliştirmesinde tasarım becerilerini gereksiz yere devreye alma.
+### Zorunlu tasarım ve hizalama kuralları
+
+- Uygulamadaki tüm tasarımları yalnızca **UI UX Pro Max (`ui-ux-pro-max`)** ile yap. Yeni ekranlardan mevcut bir butonun boşluğuna, tek bir ikonun konumuna veya bir noktalama işaretinin görünümüne kadar en küçük tasarım değişikliğinde bile bu beceriyi oku ve uygula; değişikliğin küçüklüğü istisna değildir. Görsel değişiklik içermeyen backend işlerinde tasarım becerisi gerekmez.
+- Arayüzün en küçük ayrıntısına kadar simetri ve tutarlı hizalama zorunludur. Butonlar, form alanları, tablo hücreleri, ikonlar, başlıklar ve metinler ortak hizalama eksenlerine ve düzenli boşluklara uysun. Virgül ve nokta dahil noktalama işaretleri bile metnin taban çizgisi ve tipografik aralıklarıyla uyumlu olsun. Hizasız buton, alan veya başka bir öğe bırakma.
+- Her görsel değişikliği teslim etmeden önce etkilenen ekranları masaüstü ve mobil boyutlarda tarayıcıda kontrol et; kenar hizalarını, metin taban çizgilerini, ikon/metin merkezlerini ve eşdeğer öğeler arasındaki boşluk simetrisini doğrula. Tespit edilen hizasızlıkları giderdikten sonra işi tamamlanmış say.
 
 ### MCP sunucuları ve bağlantı durumu
 
@@ -117,5 +117,5 @@ GitHub bağlantısının desteklemediği depo oluşturma ve Git aktarımı işle
 - Docker uygulama portunu mevcut atamaları ve dinleyen portları inceleyerek sıradaki boş uygulama portundan seç; host Nginx bu porta proxy yapsın.
 - Nginx host network modundadır. Kullanıcı yolu `/op/nginx/conf/conf` olarak iletti; sunucuda doğrulanan gerçek dizin `/opt/nginx/conf/conf.d`. NETRIX'e ayrı conf ekle; sertifika yollarını mevcut sitelerden doğrula. `nginx -t` başarılı olmadan reload yapma; mevcut siteleri değiştirme.
 - Dış erişim HTTPS/443 üzerinden olur; domain `netrix.fbu.edu.tr` (proje sahibi doğruladı). İç proxy portu sunucuda boş olduğu doğrulanan `127.0.0.1:8101`; mevcut wildcard sertifika yolları `/etc/nginx/certs/fbu.edu.tr.crt` ve `/etc/nginx/certs/fbu.edu.tr.key`.
-- Tasarım tamamen `ui-ux-pro-max` ile yapılır. Sidebar, sayfa ve menüler alışılmış düzenlerden ayrılan fakat klavye, erişilebilirlik ve mobil kullanımını koruyan özgün bir görsel sisteme sahip olsun. Uygulama ikonu ve favicon aynı kimliği kullansın.
+- Tasarımda yukarıdaki zorunlu tasarım ve hizalama kurallarını uygula. Sidebar, sayfa ve menüler alışılmış düzenlerden ayrılan fakat klavye, erişilebilirlik ve mobil kullanımını koruyan özgün bir görsel sisteme sahip olsun. Uygulama ikonu ve favicon aynı kimliği kullansın.
 - Aktif keşif ve gerçek cihaz sorguları ancak kullanıcı tarafından tanımlanan yetkili kapsama ve açık tetiklemeye dayanır. Boş kurulumda uydurma cihaz, metrik veya başarılı yedek gösterme.
