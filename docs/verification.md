@@ -48,3 +48,13 @@ Proje sahibinin son dağıtım talebi uygulandı: `netrix` adlı Docker Compose 
 - Güncellenen `scripts/backup.py` mevcut container'ın MariaDB istemcisini kullanarak üretim yedeği aldı: `/opt/netrix/backups/netrix-after-single-20261029.sql`, izin 0600 ve dosya boş değil. Ek yardımcı container oluşturulmadı. Yeni geri yükleme istemcisinin onay kontrolü, argv içinde sır bulunmaması ve özel client dosyasının temizlenmesi birim testlerinde doğrulandı; güncellenmiş araçla canlı geri yükleme uygulanmadı.
 - Üretimde container yeniden başlatıldıktan sonra Docker healthcheck ve dört süreç sağlıklı. HTTPS readiness mevcut kurum sertifika zinciriyle doğrulandı. Normal DNS ve mevcut sertifika anahtarıyla salt okunur Playwright kontrolü HTTP 200, giriş/kurulum ekranı, favicon, DB/Redis sağlığı ve JavaScript hata bulunmaması kontrollerini geçti. İlk yönetici oluşturulmadı; yetkili ağ kapsamı veya gerçek tarama eklenmedi.
 - Güncel `pytest -q`: 53 geçti; `ruff check backend tests scripts` ve `git diff --check` geçti. Yeni imaj frontend üretim derlemesini de içerir; container içinde `pip check` kırık bağımlılık bulmadı.
+
+## Arayüz yeniden tasarımı (29 Ekim 2026)
+
+Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık + koyu tema), IBM Plex Sans/Mono (self-hosted), gruplu tek sidebar (daraltılabilir, mobilde çekmece), yeni giriş ekranı, sayfa geçişleri ve yeni favicon/uygulama simgesi. Ayrıntılar `design-system/netrix/MASTER.md` içindedir.
+
+- TypeScript + Vite üretim derlemesi ve Prettier kontrolü geçti.
+- `scripts/browser_check.py` yerel atılabilir fixture'da geçti: 20 ekran, 4 boyut, yatay taşma yok, JavaScript hatası yok; mobil çekmece, tema anahtarı ve daraltılmış sidebar akışları eklendi.
+- `scripts/accessibility_check.py` (axe-core, WCAG A/AA) açık temada ve aynı betiğin koyu tema varyantıyla ihlalsiz geçti. Metin token'ları üç yüzey renginde de en az 4.5:1 kontrast verir.
+- `pytest -q` Windows geliştirme ortamında çalıştırıldı: 52 geçti, 1 başarısız (`test_backup_uses_private_client_file_without_secret_arguments`, POSIX 0600 dosya izni Windows'ta uygulanamaz). Asyncio'nun Windows'taki loopback socketpair'i ağ korumasına takıldığı için yalnızca socketpair'i saran yerel bir test eklentisi kullanıldı; backend değişmedi. Linux container'da yeniden çalıştırılmadı.
+- `ruff check backend tests scripts` ve `git diff --check` geçti. Bu değişiklik deploy edilmedi.

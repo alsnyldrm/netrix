@@ -26,14 +26,15 @@ with sync_playwright() as p:
         if page.get_by_text("İlk bağlantıyı kuralım.").count()
         else "Çalışma alanına gir",
     ).click()
-    expect(page.get_by_role("heading", name="Ağınızın bütün resmi.")).to_be_visible()
+    expect(page.get_by_role("heading", name="Ağınızın bütün resmi")).to_be_visible()
     page.wait_for_load_state("networkidle")
     Path("artifacts").mkdir(exist_ok=True)
     expect(page.locator(".connection-label")).to_have_text("Bağlı", timeout=10000)
     page.screenshot(path="artifacts/overview-desktop.png", full_page=True)
     # Use live DOM names discovered from the command palette and navigation.
-    page.get_by_role("button", name="Envanter", exact=True).first.click()
-    expect(page.get_by_role("heading", name="Cihaz envanteri.")).to_be_visible()
+    page.get_by_role("button", name="Cihaz envanteri", exact=True).click()
+    expect(page.get_by_role("heading", name="Cihaz envanteri", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Cihaz envanteri", exact=True)).to_have_attribute("aria-current", "page")
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     expect(page.get_by_role("dialog")).to_be_visible()
     fixture_name = "Browser fixture " + uuid4().hex[:8]
@@ -77,7 +78,7 @@ with sync_playwright() as p:
     expect(page.get_by_role("dialog")).to_be_visible()
     page.get_by_label("Sayfa veya cihaz ara").fill("Ağ keşfi")
     page.get_by_role("button", name="Ağ keşfi Keşif & bağlantı").click()
-    expect(page.get_by_role("heading", name="Ağ keşfi.")).to_be_visible()
+    expect(page.get_by_role("heading", name="Ağ keşfi", exact=True)).to_be_visible()
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     page.keyboard.press("Escape")
     expect(page.get_by_role("dialog")).to_have_count(0)
@@ -92,7 +93,24 @@ with sync_playwright() as p:
             page.goto(BASE + "/#overview")
             page.wait_for_load_state("networkidle")
             page.screenshot(path="artifacts/overview-mobile.png", full_page=True)
+            # Mobil çekmece menü: açılır, sayfaya gider ve kapanır.
+            expect(page.get_by_role("button", name="Ağ blokları", exact=True)).not_to_be_visible()
+            page.get_by_role("button", name="Menüyü aç").click()
+            page.get_by_role("button", name="Ağ blokları", exact=True).click()
+            expect(page.get_by_role("heading", name="Ağ blokları", exact=True)).to_be_visible()
+            expect(page.get_by_role("button", name="Ağ blokları", exact=True)).not_to_be_visible()
     page.set_viewport_size({"width": 1440, "height": 900})
+    # Tema anahtarı açık ve koyu tema arasında geçer.
+    start = page.evaluate("document.documentElement.dataset.theme")
+    page.locator(".topbar .theme-toggle").click()
+    assert page.evaluate("document.documentElement.dataset.theme") != start
+    page.locator(".topbar .theme-toggle").click()
+    assert page.evaluate("document.documentElement.dataset.theme") == start
+    # Daraltılmış sidebar ikonlarla gezinmeye devam eder.
+    page.get_by_role("button", name="Menüyü daralt").click()
+    page.get_by_role("button", name="Trafik gözlemevi", exact=True).click()
+    expect(page.get_by_role("heading", name="Trafik gözlemevi", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Menüyü genişlet").click()
     page.get_by_role("button", name="Güvenli çıkış").click()
     expect(page.get_by_role("heading", name="Tekrar hoş geldiniz.")).to_be_visible()
     assert not errors, errors
@@ -108,6 +126,9 @@ with sync_playwright() as p:
                     "command palette",
                     "escape dialog",
                     "mobile overflow",
+                    "mobile drawer",
+                    "theme toggle",
+                    "collapsed sidebar",
                 ],
                 "console_errors": errors,
             }

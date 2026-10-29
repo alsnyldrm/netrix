@@ -36,7 +36,6 @@ import {
   Trash,
   CheckCircle,
   Waveform,
-  Database,
   Key,
   TerminalWindow,
   PlugsConnected,
@@ -45,18 +44,31 @@ import {
   Users,
   Buildings,
   Link as LinkIcon,
-  SunHorizon,
   Circle,
   Info,
   ArrowDown,
   ArrowUp,
   LockKey,
+  HardDrives,
+  TreeStructure,
+  ListNumbers,
+  Rows,
+  Path,
+  Broadcast,
+  Graph,
+  ClockCounterClockwise,
+  Bell,
+  Sun,
+  Moon,
+  List,
+  CaretDoubleLeft,
 } from "@phosphor-icons/react";
 import type { Icon as IconType } from "@phosphor-icons/react";
-import "@fontsource/fira-sans/400.css";
-import "@fontsource/fira-sans/500.css";
-import "@fontsource/fira-sans/600.css";
-import "@fontsource/fira-code/400.css";
+import "@fontsource/ibm-plex-sans/400.css";
+import "@fontsource/ibm-plex-sans/500.css";
+import "@fontsource/ibm-plex-sans/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
 
 type Row = Record<string, any>;
@@ -111,7 +123,7 @@ const PAGES: Page[] = [
     title: "Cihaz envanteri",
     desc: "Bütün modüllerin paylaştığı tek ve merkezi cihaz kaydı.",
     group: "Envanter",
-    icon: Stack,
+    icon: HardDrives,
     resource: "devices",
     columns: [
       ["name", "Cihaz"],
@@ -214,7 +226,7 @@ const PAGES: Page[] = [
     title: "Ağ blokları",
     desc: "IPv4 ve IPv6 alanlarınızı görünür ve düzenli tutun.",
     group: "IP adres yönetimi",
-    icon: GlobeHemisphereWest,
+    icon: TreeStructure,
     resource: "prefixes",
     columns: [
       ["cidr", "Ağ bloğu"],
@@ -240,7 +252,7 @@ const PAGES: Page[] = [
     title: "IP adresleri",
     desc: "Rezervasyonlar, atamalar ve IPv4 / IPv6 adres planınız.",
     group: "IP adres yönetimi",
-    icon: Database,
+    icon: ListNumbers,
     resource: "addresses",
     columns: [
       ["address", "IP adresi"],
@@ -264,7 +276,7 @@ const PAGES: Page[] = [
     title: "VLAN alanları",
     desc: "Aynı VLAN numarasını farklı domainlerde güvenle yönetin.",
     group: "IP adres yönetimi",
-    icon: Stack,
+    icon: Rows,
     resource: "vlans",
     columns: [
       ["vid", "VLAN ID"],
@@ -282,7 +294,7 @@ const PAGES: Page[] = [
     title: "Yönlendirme alanları",
     desc: "Çakışan adres alanlarını VRF ile birbirinden ayırın.",
     group: "IP adres yönetimi",
-    icon: GitBranch,
+    icon: Path,
     resource: "vrfs",
     columns: [
       ["name", "VRF"],
@@ -298,7 +310,7 @@ const PAGES: Page[] = [
     title: "Ağ keşfi",
     desc: "Yalnızca sizin tanımladığınız sınırlar içinde keşfedin.",
     group: "Keşif & bağlantı",
-    icon: GlobeHemisphereWest,
+    icon: Broadcast,
     resource: "scopes",
     columns: [
       ["name", "Keşif kapsamı"],
@@ -338,7 +350,7 @@ const PAGES: Page[] = [
     title: "Bağlantı haritası",
     desc: "LLDP / CDP kanıtlarından oluşan ağınızın görünümü.",
     group: "Keşif & bağlantı",
-    icon: GitBranch,
+    icon: Graph,
     resource: "links",
     columns: [
       ["device_id", "Kaynak cihaz"],
@@ -354,7 +366,7 @@ const PAGES: Page[] = [
     title: "Değişiklik günlüğü",
     desc: "IP, hostname, port, bağlantı ve alarm değişikliklerinin geçmişi.",
     group: "Keşif & bağlantı",
-    icon: Clock,
+    icon: ClockCounterClockwise,
     resource: "events",
     columns: [
       ["created_at", "Zaman"],
@@ -406,7 +418,7 @@ const PAGES: Page[] = [
     title: "Alarm akışı",
     desc: "Eşik aşımlarını ve iyileşmeleri bağlamıyla takip edin.",
     group: "Operasyon",
-    icon: WarningCircle,
+    icon: Bell,
     resource: "alerts",
     columns: [
       ["message", "Alarm"],
@@ -532,13 +544,65 @@ const PAGES: Page[] = [
   },
 ];
 const GROUPS = [
-  { title: "Genel bakış", icon: SquaresFour, label: "01" },
-  { title: "Envanter", icon: Stack, label: "02" },
-  { title: "IP adres yönetimi", icon: Database, label: "03" },
-  { title: "Keşif & bağlantı", icon: GitBranch, label: "04" },
-  { title: "Operasyon", icon: Waveform, label: "05" },
-  { title: "Yönetim", icon: GearSix, label: "06" },
+  "Genel bakış",
+  "Envanter",
+  "IP adres yönetimi",
+  "Keşif & bağlantı",
+  "Operasyon",
+  "Yönetim",
 ];
+type Theme = "light" | "dark";
+const readPref = (key: string) => {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+const writePref = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* Tercih kaydedilemezse oturum içinde geçerli kalır. */
+  }
+};
+function useTheme(): [Theme, () => void] {
+  const [theme, setTheme] = useState<Theme>(() =>
+    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  );
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#0b1220" : "#f8fafc");
+  }, [theme]);
+  const toggle = useCallback(() => {
+    setTheme((t) => {
+      const next = t === "dark" ? "light" : "dark";
+      writePref("netrix-theme", next);
+      return next;
+    });
+  }, []);
+  return [theme, toggle];
+}
+function ThemeToggle({
+  theme,
+  onToggle,
+}: {
+  theme: Theme;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      className="icon-button theme-toggle"
+      onClick={onToggle}
+      aria-label={theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
+      title={theme === "dark" ? "Açık tema" : "Koyu tema"}
+    >
+      {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
+    </button>
+  );
+}
 const LABELS: Record<string, string> = {
   hostname_change: "Hostname değişimi",
   ip_assignment_change: "IP ataması",
@@ -639,10 +703,11 @@ function Badge({ value }: { value: any }) {
 function Brand({ small = false }: { small?: boolean }) {
   return (
     <div className="brand">
-      <img src="/favicon.svg" alt="" />
+      <img src="/favicon.svg" alt="" width="32" height="32" />
       {!small && (
-        <span>
-          netrix<span className="brand-dot">.</span>
+        <span className="brand-text">
+          <b>NETRIX</b>
+          <small>Ağ keşif ve yönetim</small>
         </span>
       )}
     </div>
@@ -661,8 +726,8 @@ function Empty({
 }) {
   return (
     <div className="empty">
-      <div className="empty-orbit">
-        <Icon size={30} weight="light" />
+      <div className="empty-icon">
+        <Icon size={26} />
       </div>
       <h3>{title}</h3>
       <p>{desc}</p>
@@ -709,10 +774,7 @@ function Dialog({
       }}
     >
       <div className="dialog-header">
-        <div>
-          <span className="eyebrow">NETRIX / ÇALIŞMA ALANI</span>
-          <h2>{title}</h2>
-        </div>
+        <h2>{title}</h2>
         <button
           className="icon-button"
           aria-label="Pencereyi kapat"
@@ -725,7 +787,15 @@ function Dialog({
     </dialog>
   );
 }
-function Auth({ onLogin }: { onLogin: (u: Row) => void }) {
+function Auth({
+  onLogin,
+  theme,
+  onTheme,
+}: {
+  onLogin: (u: Row) => void;
+  theme: Theme;
+  onTheme: () => void;
+}) {
   const [setup, setSetup] = useState(false);
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -762,46 +832,20 @@ function Auth({ onLogin }: { onLogin: (u: Row) => void }) {
   };
   return (
     <div className="auth-shell">
-      <div className="auth-story">
-        <Brand />
-        <div className="auth-orbit" aria-hidden="true">
-          <div />
-          <div />
-          <div />
-          <svg viewBox="0 0 400 300">
-            <path d="M70 220L190 80L320 190L70 220L190 165L320 190M190 80V165" />
-            <circle cx="70" cy="220" r="9" />
-            <circle cx="190" cy="80" r="12" />
-            <circle cx="320" cy="190" r="9" />
-            <circle cx="190" cy="165" r="6" />
-          </svg>
-        </div>
-        <div className="auth-copy">
-          <span className="eyebrow">NETWORK INTELLIGENCE, BY DESIGN</span>
-          <h1>
-            Her bağlantının
-            <br />
-            bir hikâyesi var<span>.</span>
-          </h1>
-          <p>
-            Ağınızı keşfedin. Değişimi izleyin.
-            <br />
-            Kontrolü tek bir yerde tutun.
-          </p>
-        </div>
-        <div className="auth-footer">
-          <span>NETRIX / NETWORK OPERATIONS</span>
-          <span>01 — ∞</span>
-        </div>
-      </div>
-      <main className="auth-form">
-        <div>
-          <span className="eyebrow mint">SİZİN AĞINIZ. SİZİN KONTROLÜNÜZ.</span>
-          <h2>{setup ? "İlk bağlantıyı kuralım." : "Tekrar hoş geldiniz."}</h2>
-          <p>
+      <main className="auth-main">
+        <header className="auth-top">
+          <Brand />
+          <ThemeToggle theme={theme} onToggle={onTheme} />
+        </header>
+        <div className="auth-card">
+          <span className="eyebrow">
+            {setup ? "İlk kurulum" : "Güvenli giriş"}
+          </span>
+          <h1>{setup ? "İlk bağlantıyı kuralım." : "Tekrar hoş geldiniz."}</h1>
+          <p className="auth-lead">
             {setup
               ? "Yönetici hesabınızı oluşturun ve çalışma alanınızı başlatın."
-              : "Ağ operasyon merkezinize güvenle giriş yapın."}
+              : "Ağ operasyon merkezinize kurumsal hesabınızla giriş yapın."}
           </p>
           {checking ? (
             <div className="loading">Sunucuya bağlanılıyor…</div>
@@ -885,10 +929,49 @@ function Auth({ onLogin }: { onLogin: (u: Row) => void }) {
             <LockKey size={16} /> Şifreli bağlantı · Merkezi yetkilendirme
           </div>
         </div>
-        <span className="auth-version">
-          NETRIX v1.0 / AKILLI AĞ KEŞİF VE YÖNETİM PLATFORMU
-        </span>
+        <footer className="auth-version">
+          NETRIX v1.0 · Network Intelligence, Discovery &amp; Management
+        </footer>
       </main>
+      <aside className="auth-visual" aria-hidden="true">
+        <svg className="auth-graph" viewBox="0 0 480 360">
+          <g className="auth-links">
+            <path d="M240 70L110 170M240 70L370 170M110 170L80 290M110 170L190 290M370 170L300 290M370 170L420 290M240 70V180M240 180L190 290M240 180L300 290" />
+          </g>
+          <g className="auth-nodes">
+            <rect x="218" y="48" width="44" height="44" rx="10" />
+            <rect x="90" y="150" width="40" height="40" rx="10" />
+            <rect x="350" y="150" width="40" height="40" rx="10" />
+            <circle cx="240" cy="180" r="10" />
+            {[80, 190, 300, 420].map((x) => (
+              <circle key={x} cx={x} cy="290" r="8" />
+            ))}
+          </g>
+        </svg>
+        <div className="auth-modules">
+          {[
+            [
+              TreeStructure,
+              "IPAM & keşif",
+              "Subnet, VLAN ve LLDP/CDP komşulukları",
+            ],
+            [
+              TerminalWindow,
+              "Konfigürasyon",
+              "Şifreli sürüm arşivi ve satır farkları",
+            ],
+            [ChartLineUp, "İzleme", "SNMPv3 trafik, port durumu ve alarmlar"],
+          ].map(([Icon, title, desc]: any) => (
+            <div key={title}>
+              <Icon size={20} />
+              <span>
+                <b>{title}</b>
+                <small>{desc}</small>
+              </span>
+            </div>
+          ))}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -1142,7 +1225,7 @@ function Topology({
               height="22"
               patternUnits="userSpaceOnUse"
             >
-              <circle cx="1" cy="1" r="1" fill="#2b3c42" />
+              <circle cx="1" cy="1" r="1" />
             </pattern>
           </defs>
           <rect width="800" height="350" fill="url(#dots)" />
@@ -1162,12 +1245,12 @@ function Topology({
           ))}
         </svg>
         <div className="network-seed">
-          <img src="/favicon.svg" alt="" />
+          <Graph size={26} />
           <span>İlk sinyali bekliyor</span>
           <small>Keşfedilen bağlantılar burada hayat bulacak.</small>
         </div>
         <span className="diagram-label">
-          BAŞLANGIÇ ŞEMASI / HENÜZ CİHAZ YOK
+          Başlangıç şeması · henüz cihaz yok
         </span>
       </div>
     );
@@ -1185,7 +1268,7 @@ function Topology({
             height="22"
             patternUnits="userSpaceOnUse"
           >
-            <circle cx="1" cy="1" r="1" fill="#2b3c42" />
+            <circle cx="1" cy="1" r="1" />
           </pattern>
         </defs>
         <rect width="800" height="370" fill="url(#networkdots)" />
@@ -1202,19 +1285,12 @@ function Topology({
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="#75b491"
+                className="topo-link"
                 strokeDasharray={link.confidence < 0.9 ? "5 6" : undefined}
-                opacity=".6"
               />
               {to < 0 && (
                 <>
-                  <circle
-                    cx={b.x}
-                    cy={b.y}
-                    r="6"
-                    fill="#142029"
-                    stroke="#78958a"
-                  />
+                  <circle cx={b.x} cy={b.y} r="6" className="topo-remote" />
                   <text x={b.x + 10} y={b.y + 4} className="svg-label">
                     {link.remote_name}
                   </text>
@@ -1242,13 +1318,14 @@ function Topology({
               width="46"
               height="46"
               rx="12"
-              fill="#172a24"
-              stroke={node.reachability === "reachable" ? "#a9f4bc" : "#52616a"}
+              className={
+                "topo-node " +
+                (node.reachability === "reachable" ? "reachable" : "")
+              }
             />
             <path
               d={`M${positions[i].x - 9} ${positions[i].y - 6}h18v12h-18z`}
-              fill="none"
-              stroke="#a9f4bc"
+              className="topo-glyph"
             />
             <text
               x={positions[i].x}
@@ -1315,54 +1392,51 @@ function Overview({
     <>
       <div className="overview-heading">
         <div>
-          <span className="eyebrow">KONTROL SİZDE / NETRIX OPERASYON</span>
-          <h1>
-            Ağınızın bütün resmi<span>.</span>
-          </h1>
-          <p>Bağlantıları anlayın. Değişimi yakalayın. Güvenle yönetin.</p>
+          <span className="eyebrow">Operasyon panoraması</span>
+          <h1>Ağınızın bütün resmi</h1>
+          <p>Bağlantıları anlayın, değişimi yakalayın, güvenle yönetin.</p>
         </div>
         <div className="day-marker">
-          <SunHorizon size={28} weight="light" />
+          <Clock size={18} />
           <span>
-            {new Date()
-              .toLocaleDateString("tr-TR", { day: "2-digit", month: "long" })
-              .toLocaleUpperCase("tr-TR")}
+            {new Date().toLocaleDateString("tr-TR", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}
           </span>
-          <small>
-            {new Date().toLocaleDateString("tr-TR", { weekday: "long" })}
-          </small>
         </div>
       </div>
       <div className="metrics">
         {[
           {
-            label: "ENVANTERDEKİ CİHAZ",
+            label: "Envanterdeki cihaz",
             value: c.devices || 0,
             note: (c.reachable || 0) + " cihazdan başarılı gözlem",
-            icon: Stack,
+            icon: HardDrives,
             key: "devices",
           },
           {
-            label: "IP ADRES ALANI",
+            label: "IP adres alanı",
             value: c.prefixes || 0,
             note: (c.addresses || 0) + " adres kayıt altında",
-            icon: GlobeHemisphereWest,
+            icon: TreeStructure,
             key: "prefixes",
           },
           {
-            label: "KONFİGÜRASYON",
+            label: "Konfigürasyon sürümü",
             value: c.snapshots || 0,
             note: "Şifreli sürüm arşivi",
             icon: ShieldCheck,
             key: "configuration",
           },
           {
-            label: "AKTİF ALARM",
+            label: "Aktif alarm",
             value: c.firing_alerts || 0,
             note: c.monitored
               ? c.monitored + " cihaz izleniyor"
               : "Henüz izlenen cihaz yok",
-            icon: Waveform,
+            icon: Bell,
             key: "alerts",
           },
         ].map((m, i) => (
@@ -1372,8 +1446,10 @@ function Overview({
             onClick={() => navigate(m.key)}
           >
             <div>
+              <span className="metric-icon">
+                <m.icon size={20} />
+              </span>
               <span>{m.label}</span>
-              <m.icon size={21} />
             </div>
             <strong>{m.value.toLocaleString("tr-TR")}</strong>
             <footer>
@@ -1387,7 +1463,7 @@ function Overview({
         <section className="panel map-panel">
           <header className="panel-header">
             <div>
-              <span className="eyebrow">01 / KEŞFET</span>
+              <span className="eyebrow">Keşif</span>
               <h2>Bağlantı panoraması</h2>
             </div>
             <button
@@ -1416,15 +1492,11 @@ function Overview({
           </footer>
         </section>
         <section className="panel setup-panel">
-          <span className="eyebrow">ÇALIŞMA ALANINIZ</span>
-          <div className="setup-symbol">
-            <PlugsConnected size={30} weight="light" />
-            <span>BAĞLANMAYA HAZIR</span>
-          </div>
+          <span className="eyebrow">Başlangıç</span>
           <h2>
             {c.devices
               ? "Operasyona devam edin."
-              : "Büyük resim, ilk\nbağlantıyla başlar."}
+              : "Büyük resim, ilk bağlantıyla başlar."}
           </h2>
           <p>
             {c.devices
@@ -1464,7 +1536,7 @@ function Overview({
         <section className="panel">
           <header className="panel-header">
             <div>
-              <span className="eyebrow">02 / TAKİP ET</span>
+              <span className="eyebrow">Takip</span>
               <h2>Son hareketler</h2>
             </div>
             <button className="text-button" onClick={() => navigate("jobs")}>
@@ -1487,25 +1559,23 @@ function Overview({
             </div>
           ) : (
             <div className="quiet-state">
-              <Clock size={24} weight="light" />
+              <ClockCounterClockwise size={22} />
               <div>
                 <b>Temiz bir başlangıç.</b>
                 <p>Keşifler, değişiklikler ve ağ olayları burada yer alacak.</p>
               </div>
-              <span className="mono">— / —</span>
             </div>
           )}
         </section>
         <section className="quick-card">
-          <span className="eyebrow">SIRADAKİ ADIMINIZ</span>
+          <span className="eyebrow">Sıradaki adım</span>
           <h2>Her cihazı tanıyın.</h2>
           <p>
             Merkezi envanterinizi oluşturarak ağınıza bir kimlik kazandırın.
           </p>
-          <button className="text-button" onClick={() => onAdd("devices")}>
-            Cihaz ekle <Plus size={18} />
+          <button className="secondary" onClick={() => onAdd("devices")}>
+            <Plus size={17} /> Cihaz ekle
           </button>
-          <Stack className="quick-watermark" size={110} weight="thin" />
         </section>
       </div>
     </>
@@ -1624,10 +1694,10 @@ function Traffic({
       </div>
       <div className="traffic-stats">
         {[
-          { label: "GİRİŞ", value: speed(last?.in_bps), icon: ArrowDown },
-          { label: "ÇIKIŞ", value: speed(last?.out_bps), icon: ArrowUp },
+          { label: "Giriş", value: speed(last?.in_bps), icon: ArrowDown },
+          { label: "Çıkış", value: speed(last?.out_bps), icon: ArrowUp },
           {
-            label: "ÖRNEK KALİTESİ",
+            label: "Örnek kalitesi",
             value: last
               ? last.quality === "valid"
                 ? "Doğrulandı"
@@ -1635,7 +1705,7 @@ function Traffic({
               : "Veri yok",
             icon: CheckCircle,
           },
-          { label: "SON GÖZLEM", value: date(last?.created_at), icon: Clock },
+          { label: "Son gözlem", value: date(last?.created_at), icon: Clock },
         ].map((s) => (
           <div className="panel" key={s.label}>
             <s.icon size={20} />
@@ -1647,7 +1717,7 @@ function Traffic({
       <section className="panel chart-panel">
         <header className="panel-header">
           <div>
-            <span className="eyebrow">TRAFİK / BİT SANİYE</span>
+            <span className="eyebrow">Trafik · bit/saniye</span>
             <h2>Bağlantınızın ritmi</h2>
           </div>
           <div className="chart-legend">
@@ -1683,7 +1753,7 @@ function Traffic({
                   y1={50 + i * 47.5}
                   x2="880"
                   y2={50 + i * 47.5}
-                  stroke="#263239"
+                  className="chart-grid"
                   strokeDasharray="3 5"
                 />
                 <text x="5" y={55 + i * 47.5}>
@@ -1691,18 +1761,8 @@ function Traffic({
                 </text>
               </g>
             ))}
-            <path
-              d={points("in_bps")}
-              fill="none"
-              stroke="#a9f4bc"
-              strokeWidth="2.5"
-            />
-            <path
-              d={points("out_bps")}
-              fill="none"
-              stroke="#7db8e5"
-              strokeWidth="2"
-            />
+            <path d={points("in_bps")} className="chart-in" strokeWidth="2.5" />
+            <path d={points("out_bps")} className="chart-out" strokeWidth="2" />
             <text x="55" y="275">
               {date(items[0].created_at)}
             </text>
@@ -1915,6 +1975,11 @@ function App() {
   const [jobKind, setJobKind] = useState("backup");
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
+  const [theme, toggleTheme] = useTheme();
+  const [collapsed, setCollapsed] = useState(
+    () => readPref("netrix-sidebar") === "collapsed",
+  );
+  const [drawer, setDrawer] = useState(false);
   const page = PAGES.find((p) => p.key === current) || PAGES[0];
   useEffect(() => {
     const expired = () => setUser(null);
@@ -1943,6 +2008,7 @@ function App() {
     setQuery("");
     setError("");
     setCommand(false);
+    setDrawer(false);
   }, []);
   useEffect(() => {
     const handler = () => {
@@ -2178,14 +2244,17 @@ function App() {
   };
   if (boot)
     return (
-      <div className="boot-screen">
+      <div className="boot-screen" role="status">
         <Brand />
+        <span className="boot-bar" aria-hidden="true" />
         <span>Çalışma alanınız hazırlanıyor…</span>
       </div>
     );
   if (!user)
     return (
       <Auth
+        theme={theme}
+        onTheme={toggleTheme}
         onLogin={(u) => {
           setUser(u);
           reload();
@@ -2193,159 +2262,148 @@ function App() {
       />
     );
   return (
-    <div className="app-shell">
+    <div
+      className={
+        "app-shell" +
+        (collapsed ? " collapsed" : "") +
+        (drawer ? " drawer-open" : "")
+      }
+    >
       <a className="skip-link" href="#main">
         İçeriğe atla
       </a>
-      <nav className="nav-rail" aria-label="Modüller">
-        <button
-          className="rail-brand"
-          onClick={() => navigate("overview")}
-          aria-label="NETRIX ana sayfa"
-        >
-          <Brand small />
-        </button>
-        <div className="rail-groups">
+      <aside className="sidebar" aria-label="Ana menü">
+        <div className="sidebar-head">
+          <button
+            className="sidebar-brand"
+            onClick={() => navigate("overview")}
+            aria-label="NETRIX ana sayfa"
+          >
+            <Brand small={collapsed} />
+          </button>
+          <button
+            className="icon-button sidebar-collapse"
+            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            aria-expanded={!collapsed}
+            onClick={() => {
+              writePref("netrix-sidebar", collapsed ? "expanded" : "collapsed");
+              setCollapsed(!collapsed);
+            }}
+          >
+            <CaretDoubleLeft size={16} />
+          </button>
+          <button
+            className="icon-button sidebar-close"
+            aria-label="Menüyü kapat"
+            onClick={() => setDrawer(false)}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <nav className="sidebar-nav" aria-label="Sayfalar">
           {GROUPS.map((g) => (
-            <button
-              key={g.title}
-              title={g.title}
-              aria-label={g.title}
-              aria-pressed={group === g.title}
-              className={group === g.title ? "active" : ""}
-              onClick={() => {
-                setGroup(g.title);
-                const p = PAGES.find((p) => p.group === g.title);
-                if (p) navigate(p.key);
-              }}
-            >
-              <g.icon
-                size={23}
-                weight={group === g.title ? "duotone" : "regular"}
-              />
-              <span>{g.label}</span>
-            </button>
-          ))}
-        </div>
-        <button
-          className="rail-help"
-          onClick={() => navigate("settings")}
-          title="Sistem durumu"
-          aria-label="Sistem durumu"
-        >
-          <span className={"connection-dot " + (connected ? "online" : "")} />
-        </button>
-        <button
-          className="avatar"
-          onClick={() => navigate("settings")}
-          aria-label="Hesabım"
-        >
-          {user.display_name
-            ?.split(" ")
-            .map((n: string) => n[0])
-            .slice(0, 2)
-            .join("")}
-        </button>
-      </nav>
-      <aside className="workspace-menu">
-        <Brand />
-        <div className="workspace-badge">
-          <span className="workspace-emblem">N</span>
-          <div>
-            <b>Ağ operasyonları</b>
-            <small>Merkezi çalışma alanı</small>
-          </div>
-          <span className="mono">01</span>
-        </div>
-        <div className="menu-section-label">
-          ÇALIŞMA ALANI{" "}
-          <span>
-            {String(GROUPS.findIndex((g) => g.title === group) + 1).padStart(
-              2,
-              "0",
-            )}
-          </span>
-        </div>
-        <h2>{group}</h2>
-        <nav aria-label="Çalışma alanı sayfaları">
-          {PAGES.filter(
-            (p) =>
-              p.group === group &&
-              (!["users", "audit"].includes(p.key) || isAdmin),
-          ).map((p) => (
-            <button
-              key={p.key}
-              className={current === p.key ? "selected" : ""}
-              onClick={() => navigate(p.key)}
-            >
-              <p.icon size={18} />
-              <span>{p.title}</span>
-              {current === p.key && <ArrowUpRight size={15} />}
-            </button>
+            <div className="nav-group" key={g}>
+              <span className="nav-group-title">{g}</span>
+              {PAGES.filter(
+                (p) =>
+                  p.group === g &&
+                  (!["users", "audit"].includes(p.key) || isAdmin),
+              ).map((p) => (
+                <button
+                  key={p.key}
+                  className={
+                    "nav-item" + (current === p.key ? " selected" : "")
+                  }
+                  aria-current={current === p.key ? "page" : undefined}
+                  title={collapsed ? p.title : undefined}
+                  onClick={() => navigate(p.key)}
+                >
+                  <p.icon
+                    size={19}
+                    weight={current === p.key ? "fill" : "regular"}
+                  />
+                  <span>{p.title}</span>
+                  {p.key === "alerts" && !!dashboard.counts?.firing_alerts && (
+                    <b className="nav-count">
+                      {dashboard.counts.firing_alerts}
+                    </b>
+                  )}
+                  {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
+                    <b className="nav-count neutral">
+                      {dashboard.counts.running_jobs}
+                    </b>
+                  )}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
-        <div className="menu-context">
-          <span className="eyebrow">BAĞLANTI NOKTALARI</span>
-          <button onClick={() => navigate("devices")}>
-            <span>Envanter</span>
-            <b>{dashboard.counts?.devices || 0}</b>
-          </button>
-          <button onClick={() => navigate("jobs")}>
-            <span>Bekleyen işler</span>
-            <b>{dashboard.counts?.running_jobs || 0}</b>
-          </button>
-          <button onClick={() => navigate("alerts")}>
-            <span>Aktif alarmlar</span>
-            <b className={dashboard.counts?.firing_alerts ? "amber" : ""}>
-              {dashboard.counts?.firing_alerts || 0}
-            </b>
-          </button>
-        </div>
-        <div className="menu-bottom">
-          <div>
-            <span className="connection-dot online" />
-            <span>NETRIX PLATFORM</span>
-            <small>v1.0</small>
-          </div>
-          <p>
-            Ağınızı anlamanın
-            <br />
-            daha açık bir yolu.
-          </p>
-          <button onClick={logout}>
-            <SignOut size={16} />
-            Güvenli çıkış
+        <div className="sidebar-user">
+          <span className="avatar" aria-hidden="true">
+            {user.display_name
+              ?.split(" ")
+              .map((n: string) => n[0])
+              .slice(0, 2)
+              .join("")}
+          </span>
+          <span className="sidebar-user-text">
+            <b>{user.display_name}</b>
+            <small>{tag(user.role)}</small>
+          </span>
+          <button
+            className="icon-button"
+            onClick={logout}
+            aria-label="Güvenli çıkış"
+            title="Güvenli çıkış"
+          >
+            <SignOut size={18} />
           </button>
         </div>
       </aside>
+      <div
+        className="sidebar-scrim"
+        aria-hidden="true"
+        onClick={() => setDrawer(false)}
+      />
       <div className="main-shell">
         <header className="topbar">
+          <button
+            className="icon-button menu-button"
+            aria-label="Menüyü aç"
+            aria-expanded={drawer}
+            onClick={() => setDrawer(true)}
+          >
+            <List size={20} />
+          </button>
           <div className="breadcrumbs">
-            <span>Çalışma alanı</span>
+            <span>{page.group}</span>
             <CaretRight size={12} />
-            <b>{page.group}</b>
+            <b>{page.title}</b>
           </div>
           <div className="topbar-actions">
             <button
               className="command-trigger"
+              aria-label="Komut paletini aç (Ctrl K)"
               onClick={() => {
                 setCommandQuery("");
                 setCommand(true);
               }}
             >
               <MagnifyingGlass size={17} />
-              <span>Bir yere git veya cihaz bul</span>
-              <kbd>⌘ K</kbd>
+              <span>Sayfa veya cihaz ara</span>
+              <kbd>Ctrl K</kbd>
             </button>
-            <div className="connection-label">
+            <div className="connection-label" title="Canlı bildirim bağlantısı">
               <span
                 className={"connection-dot " + (connected ? "online" : "")}
               />
               {connected ? "Bağlı" : "Yeniden bağlanıyor"}
             </div>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
               className="icon-button"
               aria-label="Verileri yenile"
+              title="Verileri yenile"
               onClick={reload}
             >
               <ArrowsClockwise size={19} />
@@ -2353,474 +2411,468 @@ function App() {
           </div>
         </header>
         <main id="main" tabIndex={-1}>
-          <div className="mobile-pages">
-            <select
-              aria-label="Sayfa seç"
-              value={current}
-              onChange={(e) => navigate(e.target.value)}
-            >
-              {PAGES.filter(
-                (p) => !["users", "audit"].includes(p.key) || isAdmin,
-              ).map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          {page.key !== "overview" && (
-            <div className="page-heading">
-              <div>
-                <span className="eyebrow">
-                  {page.group.toLocaleUpperCase("tr-TR")} / NETRIX
-                </span>
-                <h1>
-                  {page.title}
-                  <span>.</span>
-                </h1>
-                <p>{page.desc}</p>
-              </div>
-              {canWrite && (
-                <div className="page-actions">
-                  {page.fields &&
-                    (isAdmin ||
-                      !["credentials", "users"].includes(page.key)) && (
-                      <button className="primary" onClick={() => add(page.key)}>
-                        <Plus size={18} />
-                        Yeni kayıt
-                      </button>
-                    )}
-                  {["configuration", "monitoring"].includes(page.key) && (
-                    <button
-                      className="primary"
-                      onClick={() => {
-                        setJobKind(
-                          page.key === "monitoring" ? "monitor" : "backup",
-                        );
-                        setJobTarget("");
-                        setJobModal(true);
-                      }}
-                    >
-                      <Play size={16} />
-                      {page.key === "configuration" ? "Yedek al" : "Ölçüm al"}
-                    </button>
-                  )}
+          <div className="page-view" key={current}>
+            {page.key !== "overview" && (
+              <div className="page-heading">
+                <div>
+                  <h1>{page.title}</h1>
+                  <p>{page.desc}</p>
                 </div>
-              )}
-            </div>
-          )}
-          {error && (
-            <div className="error page-error" role="alert">
-              <WarningCircle size={18} />
-              {error}
-              <button className="text-button" onClick={reload}>
-                Yeniden dene
-              </button>
-            </div>
-          )}
-          {page.key === "overview" ? (
-            <Overview
-              dashboard={dashboard}
-              refs={refs}
-              navigate={navigate}
-              onAdd={add}
-              onDevice={inspectDevice}
-            />
-          ) : page.key === "monitoring" ? (
-            <Traffic refs={refs} refresh={refresh} />
-          ) : page.key === "settings" ? (
-            <Settings onLogout={() => setUser(null)} />
-          ) : (
-            <>
-              {page.key === "topology" && (
-                <section className="panel topology-panel">
-                  <Topology
-                    devices={refs.devices || []}
-                    links={refs.links || []}
-                    onDevice={inspectDevice}
-                  />
-                  <div className="info-note">
-                    <Info size={19} />
-                    <p>
-                      Kesik çizgiler aday komşulukları gösterir. İsim
-                      eşleşmeleri fiziksel bağlantı kanıtı sayılmaz; güven
-                      düzeyi tabloda belirtilir. Son gözlem tarihi kayıt
-                      ayrıntılarındadır.
-                    </p>
-                  </div>
-                </section>
-              )}
-              {page.key === "discovery" && (
-                <div className="scope-banner">
-                  <div className="scope-banner-icon">
-                    <GlobeHemisphereWest size={29} weight="light" />
-                  </div>
-                  <div>
-                    <b>Keşfin sınırlarını siz çizin.</b>
-                    <p>
-                      Açık hedefler, hariç tutulan ağlar ve SNMPv3 ile kontrollü
-                      veri toplama.
-                    </p>
-                  </div>
-                  <span className="scope-limit">
-                    4 EŞZAMANLI HEDEF <span>/</span> 1024 ADRES SINIRI
-                  </span>
-                </div>
-              )}
-              {page.key === "configuration" && (
-                <div className="info-note config-note">
-                  <LockKey size={20} />
-                  <p>
-                    Konfigürasyonlar şifreli saklanır. Görüntülenen sürümlerde
-                    ve farklarda hassas satırlar otomatik maskelenir.
-                  </p>
-                </div>
-              )}
-              <section className="panel table-panel">
-                <div className="toolbar">
-                  <div className="table-title">
-                    <page.icon size={19} />
-                    <b>{page.title}</b>
-                    <span className="count-pill">{total}</span>
-                  </div>
-                  <label className="search-box">
-                    <MagnifyingGlass size={17} />
-                    <input
-                      aria-label="Kayıtlarda ara"
-                      placeholder="Kayıtlarda ara…"
-                      value={query}
-                      onChange={(e) => {
-                        setQuery(e.target.value);
-                        setOffset(0);
-                      }}
-                    />
-                  </label>
-                </div>
-                {loading ? (
-                  <div className="loading">
-                    <ArrowsClockwise size={22} />
-                    Kayıtlar yükleniyor…
-                  </div>
-                ) : items.length ? (
-                  <div className="table-scroll">
-                    <table>
-                      <thead>
-                        <tr>
-                          {page.columns?.map(([key, title]) => (
-                            <th key={key}>{title}</th>
-                          ))}
-                          <th className="actions-heading">İşlemler</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {items.map((row) => (
-                          <tr key={row.id}>
-                            {page.columns?.map(([key]) => (
-                              <td
-                                key={key}
-                                className={
-                                  [
-                                    "management_ip",
-                                    "cidr",
-                                    "address",
-                                    "if_index",
-                                  ].includes(key)
-                                    ? "mono"
-                                    : ""
-                                }
-                              >
-                                {key === "name" && page.key === "devices" ? (
-                                  <button
-                                    className="device-link"
-                                    onClick={() => inspectDevice(row)}
-                                  >
-                                    <span className="device-icon">
-                                      <Stack size={18} />
-                                    </span>
-                                    <span>
-                                      <b>{row.name}</b>
-                                      <small>
-                                        {row.model || "Model belirtilmedi"}
-                                      </small>
-                                    </span>
-                                  </button>
-                                ) : (
-                                  cell(key, row[key], row)
-                                )}
-                              </td>
-                            ))}
-                            <td>
-                              <div className="row-actions">
-                                {page.key === "devices" && (
-                                  <button
-                                    className="icon-button"
-                                    aria-label={row.name + " ayrıntıları"}
-                                    onClick={() => inspectDevice(row)}
-                                  >
-                                    <Eye size={17} />
-                                  </button>
-                                )}
-                                {page.key === "discovery" && canWrite && (
-                                  <button
-                                    className="icon-button mint"
-                                    aria-label={row.name + " keşfini başlat"}
-                                    disabled={!row.enabled}
-                                    onClick={() => runJob("discovery", row.id)}
-                                  >
-                                    <Play size={18} />
-                                  </button>
-                                )}
-                                {page.key === "jobs" &&
-                                  canWrite &&
-                                  ["queued", "running"].includes(
-                                    row.status,
-                                  ) && (
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Görevi iptal et"
-                                      onClick={async () => {
-                                        try {
-                                          await api(
-                                            "/jobs/" + row.id + "/cancel",
-                                            "POST",
-                                          );
-                                          reload();
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <Stop size={17} />
-                                    </button>
-                                  )}
-                                {page.key === "configuration" && canWrite && (
-                                  <>
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Konfigürasyonu görüntüle"
-                                      onClick={async () => {
-                                        try {
-                                          const d = await api(
-                                            "/snapshots/" + row.id + "/content",
-                                          );
-                                          setConfig({
-                                            title: "Maskelenmiş konfigürasyon",
-                                            content: d.content,
-                                          });
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <Eye size={17} />
-                                    </button>
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Sürüm farkını görüntüle"
-                                      onClick={async () => {
-                                        try {
-                                          const d = await api(
-                                            "/snapshots/" + row.id + "/diff",
-                                          );
-                                          setConfig({
-                                            title: "Konfigürasyon farkı",
-                                            content:
-                                              d.diff ||
-                                              "Bu sürümde görünür bir satır değişikliği yok.",
-                                          });
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <GitBranch size={17} />
-                                    </button>
-                                  </>
-                                )}
-                                {page.key === "alerts" &&
-                                  canWrite &&
-                                  !row.acknowledged_at && (
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Alarmı görüldü işaretle"
-                                      onClick={async () => {
-                                        try {
-                                          await api(
-                                            "/alerts/" +
-                                              row.id +
-                                              "/acknowledge",
-                                            "POST",
-                                          );
-                                          reload();
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <Check size={18} />
-                                    </button>
-                                  )}
-                                {page.key === "users" &&
-                                  isAdmin &&
-                                  row.id !== user.id && (
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Hesap erişimini değiştir"
-                                      onClick={async () => {
-                                        try {
-                                          await api(
-                                            "/users/" + row.id + "/toggle",
-                                            "POST",
-                                          );
-                                          reload();
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <LockKey size={17} />
-                                    </button>
-                                  )}
-                                {page.fields &&
-                                  page.key !== "users" &&
-                                  canWrite &&
-                                  (page.key !== "credentials" || isAdmin) && (
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Kaydı düzenle"
-                                      onClick={() => setForm({ page, row })}
-                                    >
-                                      <PencilSimple size={17} />
-                                    </button>
-                                  )}
-                                {page.fields &&
-                                  isAdmin &&
-                                  !["users", "vrfs"].includes(page.key) && (
-                                    <button
-                                      className="icon-button delete-button"
-                                      aria-label={
-                                        page.key === "devices"
-                                          ? "Cihazı arşivle"
-                                          : "Kaydı sil"
-                                      }
-                                      onClick={async () => {
-                                        if (
-                                          !window.confirm(
-                                            page.key === "devices"
-                                              ? "Cihaz arşivlensin mi? Geçmişi korunur."
-                                              : "Bu kayıt silinsin mi?",
-                                          )
-                                        )
-                                          return;
-                                        try {
-                                          await api(
-                                            "/" + page.resource + "/" + row.id,
-                                            "DELETE",
-                                          );
-                                          reload();
-                                          notify("İşlem tamamlandı.");
-                                        } catch (e: any) {
-                                          notify(e.message);
-                                        }
-                                      }}
-                                    >
-                                      <Trash size={17} />
-                                    </button>
-                                  )}
-                                {!page.fields &&
-                                  !["configuration", "jobs", "alerts"].includes(
-                                    page.key,
-                                  ) && (
-                                    <button
-                                      className="icon-button"
-                                      aria-label="Kayıt ayrıntıları"
-                                      onClick={() =>
-                                        setConfig({
-                                          title: "Kayıt ayrıntıları",
-                                          content: JSON.stringify(row, null, 2),
-                                        })
-                                      }
-                                    >
-                                      <Eye size={17} />
-                                    </button>
-                                  )}
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <Empty
-                    icon={page.icon}
-                    title={
-                      query
-                        ? "Aramanızla eşleşen kayıt yok."
-                        : "Henüz bir kayıt yok."
-                    }
-                    desc={
-                      query
-                        ? "Başka bir sözcük veya adres ile yeniden deneyin."
-                        : page.key === "jobs"
-                          ? "Başlattığınız keşif, yedekleme ve izleme görevleri burada listelenir."
-                          : page.key === "alerts"
-                            ? "Alarm kuralları oluşturun. Koşullar gerçekleştiğinde alarmlar burada görünür."
-                            : "İlk kaydı ekleyin veya keşif ve toplama görevlerinden veri gelmesini bekleyin."
-                    }
-                    action={
-                      page.fields &&
-                      canWrite &&
+                {canWrite && (
+                  <div className="page-actions">
+                    {page.fields &&
                       (isAdmin ||
-                        !["credentials", "users"].includes(page.key)) &&
-                      !query ? (
+                        !["credentials", "users"].includes(page.key)) && (
                         <button
-                          className="secondary"
+                          className="primary"
                           onClick={() => add(page.key)}
                         >
-                          <Plus size={17} />
-                          İlk kaydı ekle
+                          <Plus size={18} />
+                          Yeni kayıt
                         </button>
-                      ) : undefined
-                    }
-                  />
-                )}
-                <footer className="table-footer">
-                  <span>
-                    {total
-                      ? `${offset + 1}–${Math.min(offset + 25, total)} / ${total} kayıt`
-                      : "0 kayıt"}
-                    <span className="footer-divider">/</span>Merkezi envanter
-                  </span>
-                  <div>
-                    <button
-                      className="icon-button"
-                      aria-label="Önceki sayfa"
-                      disabled={offset === 0}
-                      onClick={() => setOffset(Math.max(0, offset - 25))}
-                    >
-                      <CaretLeft size={17} />
-                    </button>
-                    <span className="mono">{Math.floor(offset / 25) + 1}</span>
-                    <button
-                      className="icon-button"
-                      aria-label="Sonraki sayfa"
-                      disabled={offset + 25 >= total}
-                      onClick={() => setOffset(offset + 25)}
-                    >
-                      <CaretRight size={17} />
-                    </button>
+                      )}
+                    {["configuration", "monitoring"].includes(page.key) && (
+                      <button
+                        className="primary"
+                        onClick={() => {
+                          setJobKind(
+                            page.key === "monitoring" ? "monitor" : "backup",
+                          );
+                          setJobTarget("");
+                          setJobModal(true);
+                        }}
+                      >
+                        <Play size={16} />
+                        {page.key === "configuration" ? "Yedek al" : "Ölçüm al"}
+                      </button>
+                    )}
                   </div>
-                </footer>
-              </section>
-            </>
-          )}
-          <footer className="main-footer">
-            <span>
-              NETRIX <span>/</span> NETWORK INTELLIGENCE
-            </span>
-            <span>Her bağlantı önemlidir.</span>
-          </footer>
+                )}
+              </div>
+            )}
+            {error && (
+              <div className="error page-error" role="alert">
+                <WarningCircle size={18} />
+                {error}
+                <button className="text-button" onClick={reload}>
+                  Yeniden dene
+                </button>
+              </div>
+            )}
+            {page.key === "overview" ? (
+              <Overview
+                dashboard={dashboard}
+                refs={refs}
+                navigate={navigate}
+                onAdd={add}
+                onDevice={inspectDevice}
+              />
+            ) : page.key === "monitoring" ? (
+              <Traffic refs={refs} refresh={refresh} />
+            ) : page.key === "settings" ? (
+              <Settings onLogout={() => setUser(null)} />
+            ) : (
+              <>
+                {page.key === "topology" && (
+                  <section className="panel topology-panel">
+                    <Topology
+                      devices={refs.devices || []}
+                      links={refs.links || []}
+                      onDevice={inspectDevice}
+                    />
+                    <div className="info-note">
+                      <Info size={19} />
+                      <p>
+                        Kesik çizgiler aday komşulukları gösterir. İsim
+                        eşleşmeleri fiziksel bağlantı kanıtı sayılmaz; güven
+                        düzeyi tabloda belirtilir. Son gözlem tarihi kayıt
+                        ayrıntılarındadır.
+                      </p>
+                    </div>
+                  </section>
+                )}
+                {page.key === "discovery" && (
+                  <div className="scope-banner">
+                    <div className="scope-banner-icon">
+                      <Broadcast size={24} />
+                    </div>
+                    <div>
+                      <b>Keşfin sınırlarını siz çizin.</b>
+                      <p>
+                        Açık hedefler, hariç tutulan ağlar ve SNMPv3 ile
+                        kontrollü veri toplama.
+                      </p>
+                    </div>
+                    <span className="scope-limit">
+                      4 eşzamanlı hedef · 1024 adres sınırı
+                    </span>
+                  </div>
+                )}
+                {page.key === "configuration" && (
+                  <div className="info-note config-note">
+                    <LockKey size={20} />
+                    <p>
+                      Konfigürasyonlar şifreli saklanır. Görüntülenen sürümlerde
+                      ve farklarda hassas satırlar otomatik maskelenir.
+                    </p>
+                  </div>
+                )}
+                <section className="panel table-panel">
+                  <div className="toolbar">
+                    <div className="table-title">
+                      <page.icon size={19} />
+                      <b>{page.title}</b>
+                      <span className="count-pill">{total}</span>
+                    </div>
+                    <label className="search-box">
+                      <MagnifyingGlass size={17} />
+                      <input
+                        aria-label="Kayıtlarda ara"
+                        placeholder="Kayıtlarda ara…"
+                        value={query}
+                        onChange={(e) => {
+                          setQuery(e.target.value);
+                          setOffset(0);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  {loading ? (
+                    <div className="loading">
+                      <ArrowsClockwise size={22} />
+                      Kayıtlar yükleniyor…
+                    </div>
+                  ) : items.length ? (
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            {page.columns?.map(([key, title]) => (
+                              <th key={key}>{title}</th>
+                            ))}
+                            <th className="actions-heading">İşlemler</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {items.map((row) => (
+                            <tr key={row.id}>
+                              {page.columns?.map(([key]) => (
+                                <td
+                                  key={key}
+                                  className={
+                                    [
+                                      "management_ip",
+                                      "cidr",
+                                      "address",
+                                      "if_index",
+                                    ].includes(key)
+                                      ? "mono"
+                                      : ""
+                                  }
+                                >
+                                  {key === "name" && page.key === "devices" ? (
+                                    <button
+                                      className="device-link"
+                                      onClick={() => inspectDevice(row)}
+                                    >
+                                      <span className="device-icon">
+                                        <Stack size={18} />
+                                      </span>
+                                      <span>
+                                        <b>{row.name}</b>
+                                        <small>
+                                          {row.model || "Model belirtilmedi"}
+                                        </small>
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    cell(key, row[key], row)
+                                  )}
+                                </td>
+                              ))}
+                              <td>
+                                <div className="row-actions">
+                                  {page.key === "devices" && (
+                                    <button
+                                      className="icon-button"
+                                      aria-label={row.name + " ayrıntıları"}
+                                      onClick={() => inspectDevice(row)}
+                                    >
+                                      <Eye size={17} />
+                                    </button>
+                                  )}
+                                  {page.key === "discovery" && canWrite && (
+                                    <button
+                                      className="icon-button mint"
+                                      aria-label={row.name + " keşfini başlat"}
+                                      disabled={!row.enabled}
+                                      onClick={() =>
+                                        runJob("discovery", row.id)
+                                      }
+                                    >
+                                      <Play size={18} />
+                                    </button>
+                                  )}
+                                  {page.key === "jobs" &&
+                                    canWrite &&
+                                    ["queued", "running"].includes(
+                                      row.status,
+                                    ) && (
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Görevi iptal et"
+                                        onClick={async () => {
+                                          try {
+                                            await api(
+                                              "/jobs/" + row.id + "/cancel",
+                                              "POST",
+                                            );
+                                            reload();
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <Stop size={17} />
+                                      </button>
+                                    )}
+                                  {page.key === "configuration" && canWrite && (
+                                    <>
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Konfigürasyonu görüntüle"
+                                        onClick={async () => {
+                                          try {
+                                            const d = await api(
+                                              "/snapshots/" +
+                                                row.id +
+                                                "/content",
+                                            );
+                                            setConfig({
+                                              title:
+                                                "Maskelenmiş konfigürasyon",
+                                              content: d.content,
+                                            });
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <Eye size={17} />
+                                      </button>
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Sürüm farkını görüntüle"
+                                        onClick={async () => {
+                                          try {
+                                            const d = await api(
+                                              "/snapshots/" + row.id + "/diff",
+                                            );
+                                            setConfig({
+                                              title: "Konfigürasyon farkı",
+                                              content:
+                                                d.diff ||
+                                                "Bu sürümde görünür bir satır değişikliği yok.",
+                                            });
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <GitBranch size={17} />
+                                      </button>
+                                    </>
+                                  )}
+                                  {page.key === "alerts" &&
+                                    canWrite &&
+                                    !row.acknowledged_at && (
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Alarmı görüldü işaretle"
+                                        onClick={async () => {
+                                          try {
+                                            await api(
+                                              "/alerts/" +
+                                                row.id +
+                                                "/acknowledge",
+                                              "POST",
+                                            );
+                                            reload();
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <Check size={18} />
+                                      </button>
+                                    )}
+                                  {page.key === "users" &&
+                                    isAdmin &&
+                                    row.id !== user.id && (
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Hesap erişimini değiştir"
+                                        onClick={async () => {
+                                          try {
+                                            await api(
+                                              "/users/" + row.id + "/toggle",
+                                              "POST",
+                                            );
+                                            reload();
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <LockKey size={17} />
+                                      </button>
+                                    )}
+                                  {page.fields &&
+                                    page.key !== "users" &&
+                                    canWrite &&
+                                    (page.key !== "credentials" || isAdmin) && (
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Kaydı düzenle"
+                                        onClick={() => setForm({ page, row })}
+                                      >
+                                        <PencilSimple size={17} />
+                                      </button>
+                                    )}
+                                  {page.fields &&
+                                    isAdmin &&
+                                    !["users", "vrfs"].includes(page.key) && (
+                                      <button
+                                        className="icon-button delete-button"
+                                        aria-label={
+                                          page.key === "devices"
+                                            ? "Cihazı arşivle"
+                                            : "Kaydı sil"
+                                        }
+                                        onClick={async () => {
+                                          if (
+                                            !window.confirm(
+                                              page.key === "devices"
+                                                ? "Cihaz arşivlensin mi? Geçmişi korunur."
+                                                : "Bu kayıt silinsin mi?",
+                                            )
+                                          )
+                                            return;
+                                          try {
+                                            await api(
+                                              "/" +
+                                                page.resource +
+                                                "/" +
+                                                row.id,
+                                              "DELETE",
+                                            );
+                                            reload();
+                                            notify("İşlem tamamlandı.");
+                                          } catch (e: any) {
+                                            notify(e.message);
+                                          }
+                                        }}
+                                      >
+                                        <Trash size={17} />
+                                      </button>
+                                    )}
+                                  {!page.fields &&
+                                    ![
+                                      "configuration",
+                                      "jobs",
+                                      "alerts",
+                                    ].includes(page.key) && (
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Kayıt ayrıntıları"
+                                        onClick={() =>
+                                          setConfig({
+                                            title: "Kayıt ayrıntıları",
+                                            content: JSON.stringify(
+                                              row,
+                                              null,
+                                              2,
+                                            ),
+                                          })
+                                        }
+                                      >
+                                        <Eye size={17} />
+                                      </button>
+                                    )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <Empty
+                      icon={page.icon}
+                      title={
+                        query
+                          ? "Aramanızla eşleşen kayıt yok."
+                          : "Henüz bir kayıt yok."
+                      }
+                      desc={
+                        query
+                          ? "Başka bir sözcük veya adres ile yeniden deneyin."
+                          : page.key === "jobs"
+                            ? "Başlattığınız keşif, yedekleme ve izleme görevleri burada listelenir."
+                            : page.key === "alerts"
+                              ? "Alarm kuralları oluşturun. Koşullar gerçekleştiğinde alarmlar burada görünür."
+                              : "İlk kaydı ekleyin veya keşif ve toplama görevlerinden veri gelmesini bekleyin."
+                      }
+                      action={
+                        page.fields &&
+                        canWrite &&
+                        (isAdmin ||
+                          !["credentials", "users"].includes(page.key)) &&
+                        !query ? (
+                          <button
+                            className="secondary"
+                            onClick={() => add(page.key)}
+                          >
+                            <Plus size={17} />
+                            İlk kaydı ekle
+                          </button>
+                        ) : undefined
+                      }
+                    />
+                  )}
+                  <footer className="table-footer">
+                    <span>
+                      {total
+                        ? `${offset + 1}–${Math.min(offset + 25, total)} / ${total} kayıt`
+                        : "0 kayıt"}
+                      <span className="footer-divider">/</span>Merkezi envanter
+                    </span>
+                    <div>
+                      <button
+                        className="icon-button"
+                        aria-label="Önceki sayfa"
+                        disabled={offset === 0}
+                        onClick={() => setOffset(Math.max(0, offset - 25))}
+                      >
+                        <CaretLeft size={17} />
+                      </button>
+                      <span className="mono">
+                        {Math.floor(offset / 25) + 1}
+                      </span>
+                      <button
+                        className="icon-button"
+                        aria-label="Sonraki sayfa"
+                        disabled={offset + 25 >= total}
+                        onClick={() => setOffset(offset + 25)}
+                      >
+                        <CaretRight size={17} />
+                      </button>
+                    </div>
+                  </footer>
+                </section>
+              </>
+            )}
+          </div>
         </main>
       </div>
       {toast && (
@@ -3001,7 +3053,7 @@ function App() {
             {detail.observations.length ? (
               <div className="evidence">
                 <span className="eyebrow">
-                  {date(detail.observations[0].created_at)} / SNMPV3
+                  {date(detail.observations[0].created_at)} · SNMPv3
                 </span>
                 <p>
                   <b>Gözlemlenen hostname:</b>{" "}

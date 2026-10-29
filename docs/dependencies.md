@@ -47,8 +47,8 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 
 | Paket | Sürüm | Lisans |
 | --- | --- | --- |
-| @fontsource/fira-code | 5.3.0 | OFL-1.1 |
-| @fontsource/fira-sans | 5.3.0 | OFL-1.1 |
+| @fontsource/ibm-plex-mono | 5.3.0 | OFL-1.1 |
+| @fontsource/ibm-plex-sans | 5.3.0 | OFL-1.1 |
 | @phosphor-icons/react | 2.1.10 | MIT |
 | react | 19.3.1 | MIT |
 | react-dom | 19.3.1 | MIT |

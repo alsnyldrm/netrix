@@ -218,11 +218,48 @@ Before delivering any UI code, verify:
 
 ## NETRIX uygulama kararları
 
-Proje sahibinin UI UX Pro Max ile özgün operasyon arayüzü talebi için doğrulanan IoT/operations önerileri uyarlanmıştır. Bu bir pazarlama sayfası değildir: hero/CTA önerileri yerine operasyon panoraması, veri tabloları ve çalışma alanı navigasyonu uygulanır.
+> Bu bölüm yukarıdaki üretilmiş önerilerin önüne geçer. 29 Ekim 2026'da proje sahibi arayüzün UI UX Pro Max ile baştan yenilenmesini istedi ve aşağıdaki üç kararı seçti.
 
-- Koyu kömür yüzeyleri (`#0c1216`, `#111a1f`), açık mint vurgu (`#a9f4bc`), kontrollü yeşil katmanlar. Durumlar yalnızca renkle anlatılmaz; metin etiketleri eşlik eder.
-- Navigasyon: numaralı dar modül rayı + seçili modüle ait çalışma menüsü + Ctrl/⌘ K komut paleti. Dar ekranlarda sayfa seçici kullanılır.
-- Marka: bağlantı uçlarıyla oluşturulan özgün N monogramı. SVG favicon, SVG uygulama simgesi ve Apple için aynı vektörden oluşturulan PNG kullanılır.
-- Fira Sans / Fira Code dosyaları self hosted; CDN, harici font isteği ve takip kodu yoktur.
-- Yükleme, boş, hata ve kısmi sonuç durumları ayrı görünür. Şema çizimi “başlangıç şeması” olarak etiketlenir; örnek cihaz veya trafik canlı veri olarak sunulmaz.
-- Native HTML dialog, Escape ile kapanma, odak iadesi, etiketli kontroller, skip link ve reduced-motion desteği korunur. Tablolar kendi kaydırma alanında taşabilir; sayfa yatay taşmaz.
+Bu bir pazarlama sayfası değildir: hero/CTA önerileri yerine operasyon panoraması, veri tabloları ve çalışma alanı navigasyonu uygulanır.
+
+### Seçilen yön
+
+- **Stil:** Teknik kobalt. Sakin, yoğun veri ekranlarına uygun; tek kobalt vurgu, durumlar yeşil/amber/kırmızı ve her zaman metin etiketiyle.
+- **Font:** IBM Plex Sans (arayüz) + IBM Plex Mono (IP, MAC, sayaç, kod). `@fontsource` ile self-hosted; CDN veya harici font isteği yoktur.
+- **Navigasyon:** Gruplu tek sidebar. Altı modül başlığı altında bütün sayfalar; masaüstünde ikon moduna daraltılabilir (tercih `localStorage` anahtarı `netrix-sidebar`), 1024 px altında kaydırmalı çekmece + karartma katmanı. Ctrl/⌘ K komut paleti korunur.
+
+### Renk token'ları (`frontend/src/style.css`)
+
+| Token | Açık | Koyu |
+| --- | --- | --- |
+| `--bg` | `#f8fafc` | `#0b1220` |
+| `--surface` | `#ffffff` | `#111a2c` |
+| `--surface-2` | `#f1f5f9` | `#172238` |
+| `--border` | `#e2e8f0` | `#22304a` |
+| `--text` | `#0f172a` | `#e2e8f0` |
+| `--text-2` | `#475569` | `#b3bfd1` |
+| `--text-3` | `#556275` | `#93a3ba` |
+| `--accent` | `#1d4ed8` | `#60a5fa` |
+| `--success` | `#15803d` | `#4ade80` |
+| `--warning` | `#92400e` | `#facc15` |
+| `--danger` | `#b91c1c` | `#f87171` |
+
+Bütün metin token'ları `--bg`, `--surface` ve `--surface-2` üzerinde en az 4.5:1 kontrast verir. Bileşenler sabit renk kullanmaz; SVG topoloji ve trafik grafikleri de sınıflar üzerinden token'ları kullanır.
+
+### Tema
+
+- `html[data-theme]` `light` veya `dark` olur. `public/theme-init.js` ilk boyamadan önce kayıtlı tercihi (`netrix-theme`) ya da `prefers-color-scheme` değerini uygular; CSP `script-src 'self'` olduğu için satır içi betik kullanılmaz.
+- Tema anahtarı giriş ekranında ve üst barda bulunur.
+
+### Hareket
+
+- Sayfa değişiminde içerik 240 ms içinde hafifçe yukarı kayarak belirir (`.page-view`, sayfa anahtarıyla yeniden bağlanır). Diyaloglar 200 ms ölçek + saydamlıkla açılır; çekmece 240 ms kayar.
+- `prefers-reduced-motion: reduce` altında bütün animasyon ve geçişler fiilen kapanır.
+
+### Bileşen kuralları
+
+- Radius: 6 px (kontrol), 10 px (not/kart içi), 14 px (panel). Gölgeler yalnızca hafif ayrım için.
+- Kontroller en az 40 px yükseklikte; satır işlemleri 34 px. Odak halkası `--focus` ile her zaman görünür.
+- Yükleme, boş, hata ve kısmi sonuç durumları ayrı görünür. Başlangıç şeması “başlangıç şeması” olarak etiketlenir; örnek cihaz veya trafik canlı veri gibi sunulmaz.
+- Native HTML dialog, Escape ile kapanma, odak iadesi, etiketli kontroller, skip link korunur. Tablolar kendi kaydırma alanında taşabilir; sayfa yatay taşmaz.
+- Marka: bağlantı uçlarıyla oluşturulan N monogramı, kobalt zemin. SVG favicon ve aynı vektörden üretilen `app-icon.png` kullanılır.
