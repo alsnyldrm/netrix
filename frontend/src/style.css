@@ -625,6 +625,15 @@ textarea {
   background: var(--surface-2);
   color: var(--text);
 }
+.nav-group.active .nav-group-title {
+  background: var(--surface-2);
+  color: var(--accent-soft-text);
+}
+.nav-group-items {
+  margin: 4px 0 0 19px;
+  padding-left: 11px;
+  border-left: 1px solid var(--border-strong);
+}
 .nav-group-items[hidden] {
   display: none;
 }
@@ -663,11 +672,11 @@ textarea {
 .nav-item.selected::before {
   content: "";
   position: absolute;
-  left: -10px;
+  left: -13px;
   top: 8px;
   bottom: 8px;
   width: 3px;
-  border-radius: 0 3px 3px 0;
+  border-radius: 3px;
   background: var(--accent);
 }
 .nav-count {
@@ -750,12 +759,20 @@ textarea {
   .collapsed .nav-group-items[hidden] {
     display: block;
   }
+  .collapsed .nav-group-items {
+    margin: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
   .collapsed .nav-group + .nav-group {
     margin-top: 0;
   }
   .collapsed .nav-item {
     justify-content: center;
     padding: 0;
+  }
+  .collapsed .nav-item.selected::before {
+    left: -10px;
   }
   .collapsed .nav-item > span {
     position: absolute;

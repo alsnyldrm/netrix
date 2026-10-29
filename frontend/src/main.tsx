@@ -2309,7 +2309,10 @@ function App() {
         </div>
         <nav className="sidebar-nav" aria-label="Sayfalar">
           {GROUPS.map((g, index) => (
-            <div className="nav-group" key={g}>
+            <div
+              className={"nav-group" + (page.group === g ? " active" : "")}
+              key={g}
+            >
               <button
                 type="button"
                 className="nav-group-title"
