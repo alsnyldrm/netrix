@@ -1,0 +1,258 @@
+"""NETRIX protocol boundary. No calls occur during imports or tests."""
+
+import asyncio
+import ipaddress
+from typing import Protocol
+
+import asyncssh
+import httpx
+from pysnmp.hlapi.v3arch.asyncio import (
+    ContextData,
+    ObjectIdentity,
+    ObjectType,
+    SnmpEngine,
+    Udp6TransportTarget,
+    UdpTransportTarget,
+    UsmUserData,
+    get_cmd,
+    usmAesCfb128Protocol,
+    usmHMAC192SHA256AuthProtocol,
+    usmHMACSHAAuthProtocol,
+    walk_cmd,
+)
+
+from ..core import settings
+
+
+class NetworkError(Exception):
+    pass
+
+
+class Collector(Protocol):
+    async def collect(self, host: str, port: int, secret: dict) -> dict: ...
+
+
+SYSTEM = {
+    "sys_description": "1.3.6.1.2.1.1.1.0",
+    "sys_object_id": "1.3.6.1.2.1.1.2.0",
+    "uptime": "1.3.6.1.2.1.1.3.0",
+    "hostname": "1.3.6.1.2.1.1.5.0",
+}
+TABLES = {
+    "if_name": "1.3.6.1.2.1.31.1.1.1.1",
+    "if_descr": "1.3.6.1.2.1.2.2.1.2",
+    "if_mac": "1.3.6.1.2.1.2.2.1.6",
+    "if_speed": "1.3.6.1.2.1.31.1.1.1.15",
+    "if_status": "1.3.6.1.2.1.2.2.1.8",
+    "in_octets": "1.3.6.1.2.1.31.1.1.1.6",
+    "out_octets": "1.3.6.1.2.1.31.1.1.1.10",
+    "in_errors": "1.3.6.1.2.1.2.2.1.14",
+    "out_errors": "1.3.6.1.2.1.2.2.1.20",
+    "in_discards": "1.3.6.1.2.1.2.2.1.13",
+    "out_discards": "1.3.6.1.2.1.2.2.1.19",
+    "discontinuity": "1.3.6.1.2.1.31.1.1.1.19",
+    "lldp_local_id": "1.0.8802.1.1.2.1.3.7.1.3",
+    "lldp_name": "1.0.8802.1.1.2.1.4.1.1.9",
+    "lldp_port": "1.0.8802.1.1.2.1.4.1.1.7",
+    "cdp_name": "1.3.6.1.4.1.9.9.23.1.2.1.1.6",
+    "cdp_port": "1.3.6.1.4.1.9.9.23.1.2.1.1.7",
+    "arp_mac": "1.3.6.1.2.1.4.22.1.2",
+    "ndp_mac": "1.3.6.1.2.1.4.35.1.4",
+    "fdb_port": "1.3.6.1.2.1.17.4.3.1.2",
+    "bridge_ifindex": "1.3.6.1.2.1.17.1.4.1.2",
+    "vlan_fdb_port": "1.3.6.1.2.1.17.7.1.2.2.1.2",
+}
+
+
+def number(value, default=None):
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def mac(value):
+    if hasattr(value, "asOctets"):
+        raw = value.asOctets()
+        if len(raw) == 6:
+            return ":".join(f"{b:02x}" for b in raw)
+    return ""
+
+
+class SNMPCollector:
+    async def collect(self, host, port, secret):
+        snmp = SnmpEngine()
+        auth = UsmUserData(
+            secret["username"],
+            secret["auth_key"],
+            secret["priv_key"],
+            authProtocol=usmHMAC192SHA256AuthProtocol
+            if secret.get("auth_protocol", "sha256") == "sha256"
+            else usmHMACSHAAuthProtocol,
+            privProtocol=usmAesCfb128Protocol,
+        )
+        transport_type = (
+            Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
+        )
+        target = await transport_type.create((host, port), timeout=2, retries=1)
+        context = ContextData()
+        tables, unsupported = {}, []
+        try:
+            async with asyncio.timeout(180):
+                error, status, _, values = await get_cmd(
+                    snmp,
+                    auth,
+                    target,
+                    context,
+                    *[ObjectType(ObjectIdentity(oid)) for oid in SYSTEM.values()],
+                    lookupMib=False,
+                )
+                if error or status:
+                    raise NetworkError("SNMPv3 erişimi başarısız")
+                system = {key: str(values[i][1]) for i, key in enumerate(SYSTEM)}
+                system["uptime"] = number(values[2][1], 0)
+                for key, oid in TABLES.items():
+                    table = {}
+                    async for error, status, _, bindings in walk_cmd(
+                        snmp,
+                        auth,
+                        target,
+                        context,
+                        ObjectType(ObjectIdentity(oid)),
+                        lexicographicMode=False,
+                        lookupMib=False,
+                        maxRows=2048,
+                        maxCalls=2048,
+                    ):
+                        if error or status:
+                            unsupported.append(key)
+                            break
+                        for binding in bindings:
+                            index = str(binding[0])[len(oid) + 1 :]
+                            table[index] = binding[1]
+                    tables[key] = table
+                interfaces = []
+                for index, label in tables["if_descr"].items():
+                    if not index.isdigit():
+                        continue
+                    item = {
+                        "if_index": int(index),
+                        "name": str(tables["if_name"].get(index, label))[:120],
+                        "description": str(label)[:400],
+                        "mac_address": mac(tables["if_mac"].get(index)),
+                        "speed_bps": (number(tables["if_speed"].get(index)) or 0) * 1000000 or None,
+                        "oper_status": "up"
+                        if number(tables["if_status"].get(index)) == 1
+                        else "unknown"
+                        if index not in tables["if_status"]
+                        else "down",
+                    }
+                    if (
+                        index in tables["in_octets"]
+                        and index in tables["out_octets"]
+                        and index in tables["discontinuity"]
+                    ):
+                        item["counters"] = {
+                            key: number(tables[key].get(index), 0)
+                            for key in (
+                                "in_octets",
+                                "out_octets",
+                                "in_errors",
+                                "out_errors",
+                                "in_discards",
+                                "out_discards",
+                            )
+                        }
+                        item["counters"].update(
+                            uptime_ticks=system["uptime"],
+                            discontinuity_ticks=number(tables["discontinuity"][index], 0),
+                        )
+                    interfaces.append(item)
+                neighbors = []
+                for index, name in tables["lldp_name"].items():
+                    pieces = index.split(".")
+                    local_index = pieces[-2] if len(pieces) >= 3 else ""
+                    local = str(tables["lldp_local_id"].get(local_index, f"LLDP-port-{local_index}"))
+                    neighbors.append(
+                        {
+                            "interface_name": local[:120],
+                            "remote_name": str(name)[:190],
+                            "remote_port": str(tables["lldp_port"].get(index, ""))[:120],
+                            "source": "lldp",
+                        }
+                    )
+                for index, name in tables["cdp_name"].items():
+                    local_index = index.split(".")[0]
+                    local = str(
+                        tables["if_name"].get(local_index, tables["if_descr"].get(local_index, local_index))
+                    )
+                    neighbors.append(
+                        {
+                            "interface_name": local[:120],
+                            "remote_name": str(name)[:190],
+                            "remote_port": str(tables["cdp_port"].get(index, ""))[:120],
+                            "source": "cdp",
+                        }
+                    )
+                raw = {
+                    key: {
+                        i: mac(v) if key in ("arp_mac", "ndp_mac") else str(v) for i, v in tables[key].items()
+                    }
+                    for key in ("arp_mac", "ndp_mac", "fdb_port", "bridge_ifindex", "vlan_fdb_port")
+                }
+                return {
+                    **system,
+                    "interfaces": interfaces,
+                    "neighbors": neighbors,
+                    "tables": raw,
+                    "unsupported": unsupported,
+                }
+        except TimeoutError as exc:
+            raise NetworkError("SNMPv3 toplama zaman aşımı") from exc
+        finally:
+            snmp.close_dispatcher()
+
+
+COMMANDS = {
+    "ios": "show running-config",
+    "junos": "show configuration | display set | no-more",
+    "fortios": "show full-configuration",
+    "linux": "ip -details address show; ip route show table all; ip -6 route show table all",
+}
+
+
+async def fetch_config(device, secret):
+    async with asyncio.timeout(90):
+        if device.adapter == "rest":
+            host = f"[{device.management_ip}]" if ":" in device.management_ip else device.management_ip
+            async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as client:
+                async with client.stream(
+                    "GET",
+                    f"https://{host}:{device.config_port}{device.config_path}",
+                    headers={"Authorization": f"Bearer {secret['token']}"},
+                ) as response:
+                    response.raise_for_status()
+                    chunks, size = [], 0
+                    async for chunk in response.aiter_bytes():
+                        size += len(chunk)
+                        if size > 4 * 1024 * 1024:
+                            raise NetworkError("Konfigürasyon 4 MB sınırını aşıyor")
+                        chunks.append(chunk)
+                    return b"".join(chunks).decode("utf-8", errors="replace")
+        if device.adapter not in COMMANDS:
+            raise NetworkError("Adaptör desteklenmiyor")
+        async with asyncssh.connect(
+            device.management_ip,
+            port=device.config_port,
+            username=secret["username"],
+            password=secret["password"],
+            known_hosts=settings().known_hosts,
+            client_keys=[],
+            connect_timeout=10,
+            login_timeout=15,
+        ) as connection:
+            # A fresh read-only session; no device configuration commands.
+            result = await connection.run(COMMANDS[device.adapter], check=True, timeout=60)
+            if len(result.stdout.encode()) > 4 * 1024 * 1024:
+                raise NetworkError("Konfigürasyon 4 MB sınırını aşıyor")
+            return result.stdout

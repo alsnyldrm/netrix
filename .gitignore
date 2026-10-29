@@ -29,3 +29,9 @@ test-results/
 data/
 backups/
 *.log
+
+# NETRIX local verification
+.secrets/
+artifacts/
+*.tsbuildinfo
+*.sql

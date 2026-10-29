@@ -35,7 +35,7 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 | Katman | Tercih |
 | --- | --- |
 | Backend | Python / FastAPI |
-| Kalıcı veri | PostgreSQL; zaman serileri için TimescaleDB |
+| Kalıcı veri | MariaDB (harici sunucu); zaman serileri indeksli örnek ve özet tabloları |
 | Görev altyapısı | Redis destekli kuyruk ve zamanlayıcı |
 | Veri toplama | NETRIX için Python ile geliştirilen worker servisleri |
 | Protokoller | SNMPv3, SSH, REST API; komşuluk verisi için LLDP/CDP |
@@ -51,12 +51,12 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 4. Modüller cihaz, arayüz, adres ve kullanıcı verilerini merkezi model üzerinden paylaşsın. Aynı cihaz için modül başına ayrı envanter oluşturma.
 5. Cihaz erişim bilgilerini uygulama katmanında şifrele; anahtarları veritabanından ayrı, ortam veya secret dosyalarından al. Parola, anahtar, token ve SNMP sırlarını loglara, API yanıtlarına veya Git'e yazma. Kullanıcı parolalarını geri döndürülebilir şifreleme yerine güçlü parola özetiyle sakla.
 6. Üretici ayrıntılarını yetenek tabanlı adaptörlerde tut. İş kurallarını FastAPI route'larından ve protokol istemcilerinden ayır; modüller arasında açık servis arayüzleri kullan.
-7. Öncelik backend, API, veritabanı ve cihaz bağlantı motorlarıdır. Arayüzü proje sahibinin yönlendirmeleriyle, aşağıdaki Codex dışı tasarım becerilerini kullanarak tasarla. Tasarım yetkisi verilmiştir; ilk backend aşamasının kapsamını koru.
+7. Öncelik backend, API, veritabanı ve cihaz bağlantı motorlarıdır. Arayüzü proje sahibinin yönlendirmeleriyle, aşağıdaki Codex dışı tasarım becerilerini kullanarak tasarla. Tasarım yetkisi verilmiştir; son kullanıcı talebi tüm uygulamayı kapsar: IPAM/keşif, konfigürasyon ve monitoring/alarm motorları ile üretim arayüzünü birlikte geliştir.
 8. Ağ işlemlerini worker'da yürüt; API isteklerini uzun taramalarla bloke etme. Timeout, sınırlı eşzamanlılık, kontrollü yeniden deneme, iptal ve yinelenen görevleri güvenli işleme davranışını tanımla.
 9. Keşif yalnızca yapılandırılmış ve yetkilendirilmiş ağ kapsamlarında çalışsın. Aktif taramayı kullanıcı veya zamanlama tetiklesin; testler varsayılan olarak gerçek ağa erişmesin.
 10. Envanterdeki yönetilen değerleri keşif gözlemlerinden ayır. Belirsiz cihaz/port eşleşmelerini kanıt ve güven düzeyiyle sakla; bunları kesin ilişki gibi sunma.
 11. Şema değişikliklerini Alembic migration ile sürümle. Zamanları UTC ve zaman dilimli sakla; kullanıcıya gösterirken yerel saate dönüştür.
-12. Uygulanan davranışı hedefli testlerle doğrula. Protokoller için sahte istemciler, PostgreSQL kısıtları için entegrasyon testleri kullan; çalıştırılmamış kontrolleri başarılı olarak raporlama.
+12. Uygulanan davranışı hedefli testlerle doğrula. Protokoller için sahte istemciler, MariaDB kısıtları için entegrasyon testleri kullan; çalıştırılmamış kontrolleri başarılı olarak raporlama.
 
 ## Göreve göre okunacak belgeler
 
@@ -87,7 +87,7 @@ Beceriyi uygulamadan önce oturumdaki beceri kataloğundan ilgili `SKILL.md` dos
 | Teşhis ve teslim | `systematic-debugging`, `verification-before-completion` | Hata kök nedeni ve kanıta dayalı teslim kontrolü |
 | Ajan yönergeleri | `writing-for-agents` | Bu dosyanın ve görev yönergelerinin bakımı |
 
-Tasarımda `impeccable` ana iş akışıdır; diğer tasarım becerilerini ilgili alt ihtiyaç için kullan. Aynı ekranı farklı becerilerle tekrar tekrar tasarlama. Backend geliştirmesinde tasarım becerilerini gereksiz yere devreye alma.
+Tasarımda proje sahibinin son talebi uyarınca yalnızca `ui-ux-pro-max` ana iş akışıdır; özgün navigasyon, sayfalar, uygulama simgesi ve favicon bu beceriyle hazırlanır. Aynı ekranı farklı becerilerle tekrar tekrar tasarlama. Backend geliştirmesinde tasarım becerilerini gereksiz yere devreye alma.
 
 ### MCP sunucuları ve bağlantı durumu
 
@@ -104,8 +104,18 @@ Bu liste bu çalışma hazırlanırken görülen yetenekleri kaydeder. Her oturu
 
 GitHub bağlantısının desteklemediği depo oluşturma ve Git aktarımı işlemleri için yerel Git ve kimliği doğrulanmış GitHub CLI kullan. MCP erişimi ile yerel CLI oturumu ayrıdır; birinin bağlı olması diğerinin kimliğinin doğrulandığı anlamına gelmez. Geniş araç kullanım yetkisi, sırların üçüncü taraflara aktarılmasına veya gerçek ağlarda kapsam dışı taramaya izin vermez.
 
-## İlk geliştirme aşamasının sınırı
+## Güncel teslim ve dağıtım kararı (29 Ekim 2026)
 
-İlk çalışan dilim: Docker Compose, FastAPI, PostgreSQL/TimescaleDB, Redis, worker ve zamanlayıcı altyapısı, merkezi kimlik doğrulama ve cihaz envanteri, temel IPAM ve keşif motoru. Konfigürasyon yönetimi ve monitoring için veri modeli hazırlanır; tam motorları sonraki aşamalarda geliştirilir.
-
-Bu depoda başlangıçta yalnızca planlama belgeleri bulunabilir. Önce mevcut dosyaları incele; henüz oluşturulmamış servisleri, komutları veya testleri varmış gibi anlatma.
+- Her değişiklikten sonra ilgili doğrulamaları çalıştır, değişikliği Git commit ile kaydet, uzak depoyla senkronize et (fetch ve push) ve aynı commit'i sunucuya deploy et. Push ve sunucu sağlık kontrolü doğrulanmadan işi tamamlanmış sayma. Bu iş akışı için proje sahibinin sürekli yetkisi vardır; her seferinde yeniden onay isteme. Sır dosyalarını ve kalıcı verileri bu işlemlerin dışında tut.
+- Proje sahibi tüm uygulamanın tek çalışma kapsamında geliştirilmesini ve yayına alınmasını istedi. Önceki ilk dilim sınırı bu istekle genişletildi.
+- NETRIX tek servisli Docker Compose stack olarak çalışır: stack `netrix`, servis `netrix-app`, container `netrix`. API/arayüz, Redis, worker ve zamanlayıcı aynı container içindeki ayrı süreçlerdir; migration aynı container başlangıcında uygulanır. Harici MariaDB ve mevcut host Nginx kullanılır. Ayrı NETRIX Redis/worker/migration container'ı oluşturma.
+- Uygulama ve dağıtım kimliği `netrix`; API başlığı `NETRIX API`, API kökü `/api/v1`.
+- Docker sunucusu `10.2.0.87`. SSH bağlantı yönergeleri çalışma ortamındaki `/home/alisan/codex/key/config` dosyasındadır; anahtar içeriğini depoya kopyalama.
+- Uygulama DB bağlantısı yalnızca VIP `10.2.0.31:3306` üzerinden yapılır; doğrudan SQL düğümlerine yönlendirme yapma.
+- Harici MariaDB: sunucu `10.2.0.31`, veritabanı `netrix`, kullanıcı `netrix`. Parola yalnızca sunucudaki izinleri kısıtlanmış secret dosyasında tutulur; bu belgeye veya Git'e yazılmaz.
+- Yeni PostgreSQL/TimescaleDB servisi kurma. Eski veri modeli ve geliştirme planındaki PostgreSQL türleri hedef kavramları anlatır; MariaDB uygulamasında UUID metin, normalize IPv4/IPv6 metin ve servis doğrulaması, JSON, UTC DATETIME kullan. UTC zaman dilimini API'de geri ekle.
+- Docker uygulama portunu mevcut atamaları ve dinleyen portları inceleyerek sıradaki boş uygulama portundan seç; host Nginx bu porta proxy yapsın.
+- Nginx host network modundadır. Kullanıcı yolu `/op/nginx/conf/conf` olarak iletti; sunucuda doğrulanan gerçek dizin `/opt/nginx/conf/conf.d`. NETRIX'e ayrı conf ekle; sertifika yollarını mevcut sitelerden doğrula. `nginx -t` başarılı olmadan reload yapma; mevcut siteleri değiştirme.
+- Dış erişim HTTPS/443 üzerinden olur; domain `netrix.fbu.edu.tr` (proje sahibi doğruladı). İç proxy portu sunucuda boş olduğu doğrulanan `127.0.0.1:8101`; mevcut wildcard sertifika yolları `/etc/nginx/certs/fbu.edu.tr.crt` ve `/etc/nginx/certs/fbu.edu.tr.key`.
+- Tasarım tamamen `ui-ux-pro-max` ile yapılır. Sidebar, sayfa ve menüler alışılmış düzenlerden ayrılan fakat klavye, erişilebilirlik ve mobil kullanımını koruyan özgün bir görsel sisteme sahip olsun. Uygulama ikonu ve favicon aynı kimliği kullansın.
+- Aktif keşif ve gerçek cihaz sorguları ancak kullanıcı tarafından tanımlanan yetkili kapsama ve açık tetiklemeye dayanır. Boş kurulumda uydurma cihaz, metrik veya başarılı yedek gösterme.

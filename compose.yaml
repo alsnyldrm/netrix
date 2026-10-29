@@ -1,0 +1,32 @@
+name: netrix
+services:
+  netrix-app:
+    image: netrix:1.1.0
+    build: .
+    container_name: netrix
+    env_file: .env
+    environment:
+      NETRIX_REDIS_URL: redis://127.0.0.1:6379/0
+    restart: unless-stopped
+    stop_grace_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,noexec,nosuid,uid=10001,gid=10001,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ports: ['127.0.0.1:${NETRIX_PORT:-8101}:8000']
+    volumes:
+      - netrix-redis:/data
+      - ./secrets/known_hosts:/run/secrets/known_hosts:ro
+    healthcheck:
+      test: [CMD, python, -m, netrix.runtime, health]
+      interval: 15s
+      timeout: 8s
+      retries: 3
+      start_period: 45s
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+volumes:
+  netrix-redis:
+    name: netrix_netrix-redis

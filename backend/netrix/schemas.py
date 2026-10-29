@@ -1,0 +1,214 @@
+import ipaddress
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class Input(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class SiteInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    description: str = Field(default="", max_length=400)
+    timezone: str = "Europe/Istanbul"
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        from zoneinfo import ZoneInfo
+
+        try:
+            ZoneInfo(value)
+        except (KeyError, ValueError) as exc:
+            raise ValueError("Geçersiz saat dilimi") from exc
+        return value
+
+
+class VRFInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+
+
+class VLANInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    domain: str = Field(default="default", min_length=1, max_length=80)
+    vid: int = Field(ge=1, le=4094)
+
+
+class DeviceInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    management_ip: str
+    vrf_id: str
+    site_id: str | None = None
+    vendor: str = Field(default="", max_length=80)
+    model: str = Field(default="", max_length=100)
+    kind: Literal["switch", "router", "firewall", "server", "other"] = "switch"
+    lifecycle_status: Literal["planned", "active", "maintenance", "retired"] = "active"
+    adapter: Literal["ios", "junos", "fortios", "linux", "rest"] = "ios"
+    snmp_credential_id: str | None = None
+    config_credential_id: str | None = None
+    snmp_port: int = Field(default=161, ge=1, le=65535)
+    config_port: int = Field(default=22, ge=1, le=65535)
+    config_path: str = Field(default="/api/config", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
+    monitoring_enabled: bool = False
+    monitor_interval: int = Field(default=300, ge=60, le=86400)
+    backup_interval: int = Field(default=0, ge=0, le=2592000)
+
+    @field_validator("management_ip")
+    @classmethod
+    def ip(cls, v):
+        value = ipaddress.ip_address(v)
+        if value.is_multicast or value.is_unspecified or value.is_loopback or value.is_link_local:
+            raise ValueError("Yönetilebilir bir unicast IP adresi gerekli")
+        return str(value)
+
+    @model_validator(mode="after")
+    def intervals(self):
+        if 0 < self.backup_interval < 300:
+            raise ValueError("Yedekleme aralığı en az 300 saniye olmalı")
+        return self
+
+
+class PrefixInput(Input):
+    cidr: str
+    vrf_id: str
+    site_id: str | None = None
+    vlan_id: str | None = None
+    description: str = Field(default="", max_length=400)
+
+    @field_validator("cidr")
+    @classmethod
+    def network(cls, value):
+        return str(ipaddress.ip_network(value, strict=True))
+
+
+class IPInput(Input):
+    address: str
+    vrf_id: str
+    prefix_id: str
+    interface_id: str | None = None
+    hostname: str = Field(default="", max_length=190)
+    status: Literal["reserved", "active", "deprecated"] = "reserved"
+
+    @field_validator("address")
+    @classmethod
+    def ip(cls, value):
+        return str(ipaddress.ip_address(value))
+
+
+class ScopeInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    cidr: str
+    vrf_id: str
+    credential_id: str
+    site_id: str | None = None
+    exclusions: list[str] = Field(default_factory=list, max_length=256)
+    seeds: list[str] = Field(default_factory=list, max_length=1024)
+    enabled: bool = True
+    interval_seconds: int = Field(default=0, ge=0, le=2592000)
+
+    @model_validator(mode="after")
+    def scope(self):
+        network = ipaddress.ip_network(self.cidr, strict=True)
+        self.cidr = str(network)
+        if (
+            network.is_multicast
+            or network.is_loopback
+            or network.is_link_local
+            or network.is_unspecified
+            or network.prefixlen == 0
+        ):
+            raise ValueError("Sınırlandırılmış unicast kapsam gerekli")
+        self.exclusions = [str(ipaddress.ip_network(v, strict=False)) for v in self.exclusions]
+        if any(
+            ipaddress.ip_network(v).version != network.version
+            or not ipaddress.ip_network(v).subnet_of(network)
+            for v in self.exclusions
+        ):
+            raise ValueError("Hariç tutulan ağlar kapsamın içinde olmalı")
+        self.seeds = list(dict.fromkeys(str(ipaddress.ip_address(v)) for v in self.seeds))
+        if any(ipaddress.ip_address(v) not in network for v in self.seeds):
+            raise ValueError("Hedef adres kapsam dışında")
+        if (network.version == 6 or network.num_addresses > 1024) and not self.seeds:
+            raise ValueError("IPv6 ve 1024 adresten büyük ağlar için açık hedef listesi gerekli")
+        if 0 < self.interval_seconds < 300:
+            raise ValueError("Zamanlama en az 300 saniye olmalı")
+        return self
+
+
+class SecretInput(Input):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    username: str = Field(default="", max_length=120)
+    password: str = Field(default="", max_length=2000)
+    auth_key: str = Field(default="", max_length=200)
+    priv_key: str = Field(default="", max_length=200)
+    auth_protocol: Literal["sha256", "sha1"] = "sha256"
+    token: str = Field(default="", max_length=2000)
+
+
+class CredentialInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    protocol: Literal["snmpv3", "ssh", "rest"]
+    secret: SecretInput
+
+    @model_validator(mode="after")
+    def valid(self):
+        if self.protocol == "snmpv3" and (
+            not self.secret.username or len(self.secret.auth_key) < 8 or len(self.secret.priv_key) < 8
+        ):
+            raise ValueError(
+                "SNMPv3 authPriv için kullanıcı, en az 8 karakter auth ve AES privacy anahtarı gerekli"
+            )
+        if self.protocol == "ssh" and (not self.secret.username or not self.secret.password):
+            raise ValueError("SSH kullanıcı ve parola gerekli")
+        if self.protocol == "rest" and not self.secret.token:
+            raise ValueError("API token gerekli")
+        return self
+
+
+class RuleInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    metric: Literal["availability", "utilization", "config_change", "no_data"]
+    threshold: float = Field(default=80, ge=0, le=10000000)
+    recovery_threshold: float = Field(default=70, ge=0)
+    duration_seconds: int = Field(default=0, ge=0, le=86400)
+    severity: Literal["info", "warning", "critical"] = "warning"
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def rule(self):
+        if self.metric == "utilization" and (
+            self.threshold > 100 or self.recovery_threshold > self.threshold
+        ):
+            raise ValueError("Kullanım eşiği 0–100, iyileşme eşiği alarm eşiğinden küçük/eşit olmalı")
+        if self.metric == "no_data" and self.threshold < 60:
+            raise ValueError("Veri yok eşiği en az 60 saniye olmalı")
+        return self
+
+
+class UserInput(Input):
+    email: str = Field(min_length=3, max_length=190, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    display_name: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=12, max_length=200, json_schema_extra={"format": "password"})
+    role: Literal["admin", "operator", "viewer"] = "viewer"
+
+    @field_validator("email")
+    @classmethod
+    def normalized(cls, value):
+        return value.casefold()
+
+
+class SetupInput(UserInput):
+    setup_token: str = Field(min_length=20, max_length=200)
+
+
+class LoginInput(Input):
+    email: str = Field(max_length=190)
+    password: str = Field(max_length=200)
+
+
+class PasswordInput(Input):
+    current_password: str = Field(max_length=200)
+    new_password: str = Field(min_length=12, max_length=200)

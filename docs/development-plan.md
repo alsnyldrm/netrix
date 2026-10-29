@@ -1,10 +1,11 @@
 # NETRIX ilk geliştirme adımları
 
+> **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Son dağıtım kararı tek servisli `netrix` Compose stack ve tek container içinde API, Redis, worker ve zamanlayıcıdır. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu plan sıralıdır. Her adımın çıktısı ve kabul ölçütü tamamlanmadan ona bağlı adıma geçilmez. Belge hedef planıdır; tamamlanmış iş listesi değildir. Veri ayrıntıları için [veri modelini](data-model.md) kullan.
 
 1. **Proje iskeleti ve bağımlılık kararları.** Python sürümünü, bağımlılık yönetimini, SQLAlchemy/Alembic kullanımını, Redis kuyruk/zamanlayıcı kütüphanesini ve protokol kütüphanelerini seçip sabitle. `backend`, `workers`, `tests` ve `docs` yerleşimini oluştur; backend içinde identity, inventory, ipam, discovery, configuration, monitoring ve alerting modül sınırlarını tanımla. **Kabul:** kurulum komutları ve kararlar belgelenmiş, boş uygulama içe aktarılabiliyor.
 
-2. **Docker Compose altyapısı.** `netrix-api`, `netrix-db` (TimescaleDB destekli PostgreSQL), `netrix-redis`, `netrix-worker` ve `netrix-scheduler` servislerini tanımla. Kalıcı volume, healthcheck, secret/ortam örnekleri, container logları ve tek seferlik migration adımı ekle. Image sürümlerini sabitle. **Kabul:** `docker compose config` geçiyor; servisler temiz ortamda başlıyor, DB/Redis sağlıklı ve yeniden başlatmada veriler korunuyor.
+2. **Docker Compose altyapısı.** Tek `netrix-app` servisini, `netrix` container'ını, kalıcı Redis volume'unu, dört süreci birlikte denetleyen healthcheck'i ve secret/ortam örneklerini tanımla. API/arayüz, Redis, worker ve zamanlayıcı aynı container içinde Supervisor tarafından yönetilir. Migration, Supervisor başlamadan önce uygulanır; hata varsa uygulama başlamaz. Harici MariaDB kullanılır. **Kabul:** Compose tek servis üretir; temiz kurulum, süreç yeniden başlatma, migration hatasında kapalı kalma ve container yeniden başlatmasında kalıcılık doğrulanır.
 
 3. **FastAPI çekirdeği.** Ayar yönetimi, DB oturumu, yapılandırılmış ve sırları maskeleyen loglar, request ID ve standart hata yanıtlarını ekle. `/api/v1`, `NETRIX API` OpenAPI kimliği ve ayrı liveness/readiness uçlarını kur. **Kabul:** OpenAPI üretiliyor, health testi geçiyor; bağımlılık yokluğunda readiness başarısız olurken liveness çalışıyor.
 

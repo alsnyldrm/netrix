@@ -1,0 +1,316 @@
+import ipaddress
+import json
+from datetime import datetime
+from decimal import Decimal
+
+from fastapi import HTTPException
+from sqlalchemy import func, inspect, or_, select
+
+from . import models as m
+from . import schemas as s
+from .core import now, redis_client
+from .identity.security import audit, encrypt
+
+RESOURCES = {
+    "sites": (m.Site, s.SiteInput),
+    "vrfs": (m.VRF, s.VRFInput),
+    "vlans": (m.VLAN, s.VLANInput),
+    "devices": (m.Device, s.DeviceInput),
+    "prefixes": (m.Prefix, s.PrefixInput),
+    "addresses": (m.IPAddress, s.IPInput),
+    "scopes": (m.Scope, s.ScopeInput),
+    "credentials": (m.Credential, s.CredentialInput),
+    "rules": (m.AlertRule, s.RuleInput),
+    "interfaces": (m.Interface, None),
+    "jobs": (m.Job, None),
+    "observations": (m.Observation, None),
+    "links": (m.Link, None),
+    "snapshots": (m.Snapshot, None),
+    "alerts": (m.Alert, None),
+    "events": (m.Event, None),
+    "audit": (m.Audit, None),
+    "users": (m.User, s.UserInput),
+}
+HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key"}
+
+
+def serialize(obj):
+    result = {}
+    for col in inspect(obj).mapper.column_attrs:
+        if col.key in HIDDEN:
+            continue
+        value = getattr(obj, col.key)
+        if isinstance(value, datetime):
+            value = value.isoformat()
+        if isinstance(value, Decimal):
+            value = int(value)
+        result[col.key] = value
+    return result
+
+
+def get(db, model, id):
+    row = db.get(model, id)
+    if not row:
+        raise HTTPException(404, "Kayıt bulunamadı")
+    return row
+
+
+def require_ref(db, model, id):
+    return get(db, model, id) if id else None
+
+
+def lock_vrf(db, vrf_id):
+    row = db.scalar(select(m.VRF).where(m.VRF.id == vrf_id).with_for_update())
+    if not row:
+        raise HTTPException(422, "VRF bulunamadı")
+    # Galera row locks are local to a node. A real version write ensures that
+    # concurrent mutations on different nodes conflict during certification.
+    row.lock_version += 1
+    db.flush()
+    return row
+
+
+def validate_relations(db, name, data, row_id=None):
+    if "vrf_id" in data:
+        lock_vrf(db, data["vrf_id"])
+    if data.get("site_id"):
+        require_ref(db, m.Site, data["site_id"])
+    if name == "devices":
+        for key, protocols in [
+            ("snmp_credential_id", ["snmpv3"]),
+            ("config_credential_id", ["rest"] if data["adapter"] == "rest" else ["ssh"]),
+        ]:
+            if data.get(key) and get(db, m.Credential, data[key]).protocol not in protocols:
+                raise HTTPException(422, "Erişim profilinin protokolü adaptörle uyumlu değil")
+        if data["monitoring_enabled"] and not data.get("snmp_credential_id"):
+            raise HTTPException(422, "İzleme için SNMPv3 profili gerekli")
+        if data["backup_interval"] and not data.get("config_credential_id"):
+            raise HTTPException(422, "Yedekleme için erişim profili gerekli")
+        if row_id:
+            device = get(db, m.Device, row_id)
+            if data["vrf_id"] != device.vrf_id and db.scalar(
+                select(m.Interface.id).where(m.Interface.device_id == row_id).limit(1)
+            ):
+                raise HTTPException(409, "Arayüzleri bulunan cihazın VRF bilgisi değiştirilemez")
+    if name == "prefixes":
+        require_ref(db, m.VLAN, data.get("vlan_id"))
+        network = ipaddress.ip_network(data["cidr"])
+        for prefix in db.scalars(
+            select(m.Prefix).where(m.Prefix.vrf_id == data["vrf_id"], m.Prefix.id != (row_id or ""))
+        ):
+            other = ipaddress.ip_network(prefix.cidr)
+            if (
+                other.version == network.version
+                and other.overlaps(network)
+                and not (other.subnet_of(network) or network.subnet_of(other))
+            ):
+                raise HTTPException(409, "Ağ blokları çakışıyor")
+        if row_id:
+            for address in db.scalars(select(m.IPAddress).where(m.IPAddress.prefix_id == row_id)):
+                if data["vrf_id"] != address.vrf_id or ipaddress.ip_address(address.address) not in network:
+                    raise HTTPException(409, "Mevcut IP atamaları yeni prefix ile uyumsuz")
+    if name == "addresses":
+        prefix = get(db, m.Prefix, data["prefix_id"])
+        address, network = ipaddress.ip_address(data["address"]), ipaddress.ip_network(prefix.cidr)
+        if prefix.vrf_id != data["vrf_id"] or address not in network:
+            raise HTTPException(422, "Adres seçilen prefix veya VRF içinde değil")
+        if (
+            network.version == 4
+            and network.prefixlen < 31
+            and address in (network.network_address, network.broadcast_address)
+        ):
+            raise HTTPException(422, "Ağ/yayın adresi atanamaz")
+        if data.get("interface_id"):
+            interface = get(db, m.Interface, data["interface_id"])
+            device = get(db, m.Device, interface.device_id)
+            if device.vrf_id != data["vrf_id"] or (prefix.site_id and prefix.site_id != device.site_id):
+                raise HTTPException(422, "Arayüzün VRF veya site bilgisi prefix ile uyumsuz")
+    if name == "scopes" and get(db, m.Credential, data["credential_id"]).protocol != "snmpv3":
+        raise HTTPException(422, "Keşif SNMPv3 profili gerektirir")
+    if name == "rules" and row_id and not data["enabled"]:
+        for alert in db.scalars(
+            select(m.Alert).where(m.Alert.rule_id == row_id, m.Alert.active_key.is_not(None))
+        ):
+            alert.state, alert.active_key, alert.resolved_at = "resolved", None, now()
+
+
+def save_resource(db, name, payload, user, row_id=None):
+    if name not in RESOURCES or RESOURCES[name][1] is None:
+        raise HTTPException(405, "Bu kaynak salt okunur")
+    model, schema = RESOURCES[name]
+    if name in ("credentials", "users") and user.role != "admin":
+        raise HTTPException(403, "Yönetici yetkisi gerekli")
+    if name == "users" and row_id:
+        raise HTTPException(405, "Kullanıcı parolası için parola değiştirme işlemini kullanın")
+    value = schema.model_validate(payload)
+    data = value.model_dump()
+    row = get(db, model, row_id) if row_id else model()
+    validate_relations(db, name, data, row_id)
+    if name == "credentials":
+        if row_id and row.protocol != data["protocol"]:
+            raise HTTPException(409, "Profil protokolü değiştirilemez; yeni bir erişim profili oluşturun")
+        data["encrypted_secret"] = encrypt(json.dumps(data.pop("secret")))
+    if name == "users":
+        from .identity.security import hasher
+
+        data["password_hash"] = hasher.hash(data.pop("password"))
+    if name == "addresses" and row_id:
+        changes = {
+            key: {"previous": getattr(row, key), "current": data[key]}
+            for key in ("address", "hostname", "status", "interface_id")
+            if getattr(row, key) != data[key]
+        }
+        if changes:
+            db.add(
+                m.Event(
+                    kind="ip_assignment_change",
+                    message="IP ataması güncellendi",
+                    details={"address_id": row.id, "changes": changes},
+                )
+            )
+    if name == "devices" and row_id and row.management_ip != data["management_ip"]:
+        db.add(
+            m.Event(
+                device_id=row.id,
+                kind="management_ip_change",
+                message=f"{row.name}: yönetim adresi değişti",
+                details={"previous": row.management_ip, "current": data["management_ip"]},
+            )
+        )
+    for key, val in data.items():
+        setattr(row, key, val)
+    db.add(row)
+    db.flush()
+    audit(
+        db,
+        user,
+        "update" if row_id else "create",
+        name,
+        row.id,
+        f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
+    )
+    db.commit()
+    publish()
+    return serialize(row)
+
+
+def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
+    if name not in RESOURCES:
+        raise HTTPException(404, "Kaynak bulunamadı")
+    model = RESOURCES[name][0]
+    stmt = select(model)
+    if q:
+        fields = [
+            getattr(model, key)
+            for key in (
+                "name",
+                "management_ip",
+                "cidr",
+                "address",
+                "email",
+                "message",
+                "kind",
+                "status",
+                "summary",
+            )
+            if hasattr(model, key)
+        ]
+        if fields:
+            stmt = stmt.where(
+                or_(*[field.ilike("%" + q.replace("%", r"\%").replace("_", r"\_") + "%") for field in fields])
+            )
+    if device_id and hasattr(model, "device_id"):
+        stmt = stmt.where(model.device_id == device_id)
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
+    items = [serialize(row) for row in rows]
+    if name == "prefixes":
+        for item in items:
+            net = ipaddress.ip_network(item["cidr"])
+            capacity = net.num_addresses - (2 if net.version == 4 and net.prefixlen < 31 else 0)
+            used = db.scalar(
+                select(func.count())
+                .select_from(m.IPAddress)
+                .where(m.IPAddress.prefix_id == item["id"], m.IPAddress.status != "deprecated")
+            )
+            item.update(capacity=str(capacity), used=used, utilization=round(used * 100 / capacity, 2))
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
+def delete_resource(db, name, id, user):
+    if name not in RESOURCES or RESOURCES[name][1] is None:
+        raise HTTPException(405, "Bu kaynak salt okunur")
+    if user.role != "admin":
+        raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
+    model = RESOURCES[name][0]
+    row = get(db, model, id)
+    if name in ("users", "vrfs"):
+        raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
+    if name == "devices":
+        row.lifecycle_status = "retired"
+        row.monitoring_enabled, row.backup_interval = False, 0
+    else:
+        db.delete(row)
+    audit(
+        db, user, "archive" if name == "devices" else "delete", name, id, f"{name}: kayıt arşivlendi/silindi"
+    )
+    db.commit()
+    publish()
+
+
+def in_scope(address, scope):
+    ip = ipaddress.ip_address(address)
+    network = ipaddress.ip_network(scope.cidr)
+    return (
+        scope.enabled
+        and ip in network
+        and not any(ip in ipaddress.ip_network(cidr) for cidr in scope.exclusions)
+    )
+
+
+def authorized_device(db, device):
+    if device.lifecycle_status in ("retired", "planned", "maintenance"):
+        raise ValueError("Cihaz aktif durumda değil")
+    scopes = db.scalars(
+        select(m.Scope).where(m.Scope.vrf_id == device.vrf_id, m.Scope.enabled.is_(True))
+    ).all()
+    if not any(in_scope(device.management_ip, scope) for scope in scopes):
+        raise ValueError("Cihaz etkin ve yetkilendirilmiş bir keşif kapsamında olmalı")
+
+
+def enqueue(db, kind, target_id, user=None):
+    if kind not in ("discovery", "backup", "monitor"):
+        raise HTTPException(422, "Geçersiz görev türü")
+    if kind == "discovery":
+        target = get(db, m.Scope, target_id)
+        if not target.enabled:
+            raise HTTPException(422, "Keşif kapsamı devre dışı")
+    else:
+        target = get(db, m.Device, target_id)
+        try:
+            authorized_device(db, target)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if not (target.config_credential_id if kind == "backup" else target.snmp_credential_id):
+            raise HTTPException(422, "Görev için erişim profili atanmalı")
+    key = f"{kind}:{target_id}"
+    # Serialize submitters on the target, including scheduled and API requests.
+    db.scalar(select(type(target)).where(type(target).id == target_id).with_for_update())
+    existing = db.scalar(select(m.Job).where(m.Job.active_key == key))
+    if existing:
+        return existing
+    job = m.Job(kind=kind, target_id=target_id, active_key=key, requested_by=user.id if user else None)
+    db.add(job)
+    db.flush()
+    audit(db, user, "enqueue", "jobs", job.id, f"{kind} görevi kuyruğa alındı")
+    db.commit()
+    publish()
+    return job
+
+
+def publish():
+    # DB is the durable outbox/queue; Redis is a wake-up hint, never the source of truth.
+    try:
+        redis_client().publish("netrix:events", "refresh")
+    except Exception:
+        pass
