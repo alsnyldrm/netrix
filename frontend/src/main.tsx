@@ -62,6 +62,8 @@ import {
   Moon,
   List,
   CaretDoubleLeft,
+  CaretDown,
+  CaretUp,
 } from "@phosphor-icons/react";
 import type { Icon as IconType } from "@phosphor-icons/react";
 import "@fontsource/ibm-plex-sans/400.css";
@@ -1980,7 +1982,12 @@ function App() {
     () => readPref("netrix-sidebar") === "collapsed",
   );
   const [drawer, setDrawer] = useState(false);
+  const [closedGroups, setClosedGroups] = useState<string[]>([]);
   const page = PAGES.find((p) => p.key === current) || PAGES[0];
+  useEffect(() => {
+    // Komut paleti veya bağlantıyla gidilen sayfanın menüsü görünür kalsın.
+    setClosedGroups((groups) => groups.filter((g) => g !== page.group));
+  }, [current, page.group]);
   useEffect(() => {
     const expired = () => setUser(null);
     window.addEventListener("netrix:session-expired", expired);
@@ -2301,40 +2308,66 @@ function App() {
           </button>
         </div>
         <nav className="sidebar-nav" aria-label="Sayfalar">
-          {GROUPS.map((g) => (
+          {GROUPS.map((g, index) => (
             <div className="nav-group" key={g}>
-              <span className="nav-group-title">{g}</span>
-              {PAGES.filter(
-                (p) =>
-                  p.group === g &&
-                  (!["users", "audit"].includes(p.key) || isAdmin),
-              ).map((p) => (
-                <button
-                  key={p.key}
-                  className={
-                    "nav-item" + (current === p.key ? " selected" : "")
-                  }
-                  aria-current={current === p.key ? "page" : undefined}
-                  title={collapsed ? p.title : undefined}
-                  onClick={() => navigate(p.key)}
-                >
-                  <p.icon
-                    size={19}
-                    weight={current === p.key ? "fill" : "regular"}
-                  />
-                  <span>{p.title}</span>
-                  {p.key === "alerts" && !!dashboard.counts?.firing_alerts && (
-                    <b className="nav-count">
-                      {dashboard.counts.firing_alerts}
-                    </b>
-                  )}
-                  {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
-                    <b className="nav-count neutral">
-                      {dashboard.counts.running_jobs}
-                    </b>
-                  )}
-                </button>
-              ))}
+              <button
+                type="button"
+                className="nav-group-title"
+                aria-expanded={!closedGroups.includes(g)}
+                aria-controls={`nav-group-${index}`}
+                onClick={() =>
+                  setClosedGroups((groups) =>
+                    groups.includes(g)
+                      ? groups.filter((item) => item !== g)
+                      : [...groups, g],
+                  )
+                }
+              >
+                <span>{g}</span>
+                {closedGroups.includes(g) ? (
+                  <CaretDown size={15} aria-hidden="true" />
+                ) : (
+                  <CaretUp size={15} aria-hidden="true" />
+                )}
+              </button>
+              <div
+                id={`nav-group-${index}`}
+                className="nav-group-items"
+                hidden={closedGroups.includes(g)}
+              >
+                {PAGES.filter(
+                  (p) =>
+                    p.group === g &&
+                    (!["users", "audit"].includes(p.key) || isAdmin),
+                ).map((p) => (
+                  <button
+                    key={p.key}
+                    className={
+                      "nav-item" + (current === p.key ? " selected" : "")
+                    }
+                    aria-current={current === p.key ? "page" : undefined}
+                    title={collapsed ? p.title : undefined}
+                    onClick={() => navigate(p.key)}
+                  >
+                    <p.icon
+                      size={19}
+                      weight={current === p.key ? "fill" : "regular"}
+                    />
+                    <span>{p.title}</span>
+                    {p.key === "alerts" &&
+                      !!dashboard.counts?.firing_alerts && (
+                        <b className="nav-count">
+                          {dashboard.counts.firing_alerts}
+                        </b>
+                      )}
+                    {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
+                      <b className="nav-count neutral">
+                        {dashboard.counts.running_jobs}
+                      </b>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </nav>

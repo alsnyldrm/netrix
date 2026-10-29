@@ -31,6 +31,31 @@ with sync_playwright() as p:
     Path("artifacts").mkdir(exist_ok=True)
     expect(page.locator(".connection-label")).to_have_text("Bağlı", timeout=10000)
     page.screenshot(path="artifacts/overview-desktop.png", full_page=True)
+    # Her grup bağımsız açılır/kapanır; kapalı bağlantılar Tab sırasından çıkar.
+    groups = page.locator(".nav-group-title")
+    expect(groups).to_have_count(6)
+    for heading in groups.all():
+        panel = page.locator("#" + heading.get_attribute("aria-controls"))
+        heading.click()
+        expect(heading).to_have_attribute("aria-expanded", "false")
+        expect(panel).not_to_be_visible()
+        heading.press("Enter")
+        expect(heading).to_have_attribute("aria-expanded", "true")
+        expect(panel).to_be_visible()
+    inventory = page.get_by_role("button", name="Envanter", exact=True)
+    ipam = page.get_by_role("button", name="IP adres yönetimi", exact=True)
+    inventory.click()
+    inventory.press("Tab")
+    expect(ipam).to_be_focused()
+    ipam.press("Space")
+    expect(ipam).to_have_attribute("aria-expanded", "false")
+    expect(inventory).to_have_attribute("aria-expanded", "false")
+    ipam.press("Space")
+    # Doğrudan gezinme, hedef sayfanın kapalı grubunu açar.
+    page.goto(BASE + "/#sites")
+    expect(inventory).to_have_attribute("aria-expanded", "true")
+    expect(page.get_by_role("button", name="Lokasyonlar", exact=True)).to_have_attribute("aria-current", "page")
+    page.screenshot(path="artifacts/menu-groups-desktop.png", full_page=True)
     # Use live DOM names discovered from the command palette and navigation.
     page.get_by_role("button", name="Cihaz envanteri", exact=True).click()
     expect(page.get_by_role("heading", name="Cihaz envanteri", exact=True)).to_be_visible()
@@ -96,6 +121,10 @@ with sync_playwright() as p:
             # Mobil çekmece menü: açılır, sayfaya gider ve kapanır.
             expect(page.get_by_role("button", name="Ağ blokları", exact=True)).not_to_be_visible()
             page.get_by_role("button", name="Menüyü aç").click()
+            ipam.click()
+            expect(page.get_by_role("button", name="Ağ blokları", exact=True)).not_to_be_visible()
+            page.screenshot(path="artifacts/menu-groups-mobile.png", full_page=True)
+            ipam.click()
             page.get_by_role("button", name="Ağ blokları", exact=True).click()
             expect(page.get_by_role("heading", name="Ağ blokları", exact=True)).to_be_visible()
             expect(page.get_by_role("button", name="Ağ blokları", exact=True)).not_to_be_visible()
@@ -107,6 +136,8 @@ with sync_playwright() as p:
     page.locator(".topbar .theme-toggle").click()
     assert page.evaluate("document.documentElement.dataset.theme") == start
     # Daraltılmış sidebar ikonlarla gezinmeye devam eder.
+    page.get_by_role("button", name="Operasyon", exact=True).click()
+    expect(page.get_by_role("button", name="Trafik gözlemevi", exact=True)).not_to_be_visible()
     page.get_by_role("button", name="Menüyü daralt").click()
     page.get_by_role("button", name="Trafik gözlemevi", exact=True).click()
     expect(page.get_by_role("heading", name="Trafik gözlemevi", exact=True)).to_be_visible()
@@ -129,6 +160,10 @@ with sync_playwright() as p:
                     "mobile drawer",
                     "theme toggle",
                     "collapsed sidebar",
+                    "independent menu groups",
+                    "keyboard group toggles and tab order",
+                    "navigation reveals closed group",
+                    "mobile group toggles",
                 ],
                 "console_errors": errors,
             }
