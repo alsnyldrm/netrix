@@ -54,14 +54,46 @@ with sync_playwright() as p:
     # Doğrudan gezinme, hedef sayfanın kapalı grubunu açar.
     page.goto(BASE + "/#sites")
     expect(inventory).to_have_attribute("aria-expanded", "true")
-    expect(page.get_by_role("button", name="Lokasyonlar", exact=True)).to_have_attribute("aria-current", "page")
+    expect(page.get_by_role("button", name="Lokasyonlar", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
     page.screenshot(path="artifacts/menu-groups-desktop.png", full_page=True)
     # Use live DOM names discovered from the command palette and navigation.
     page.get_by_role("button", name="Cihaz envanteri", exact=True).click()
     expect(page.get_by_role("heading", name="Cihaz envanteri", exact=True)).to_be_visible()
-    expect(page.get_by_role("button", name="Cihaz envanteri", exact=True)).to_have_attribute("aria-current", "page")
+    expect(page.get_by_role("button", name="Cihaz envanteri", exact=True)).to_have_attribute(
+        "aria-current", "page"
+    )
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     expect(page.get_by_role("dialog")).to_be_visible()
+    # Text selection may end over the backdrop; it must not discard the form.
+    for label, value in [
+        ("Cihaz adı", "iputils-ping"),
+        ("Üretici", "Fixture vendor"),
+        ("Model", "Fixture model"),
+    ]:
+        field = page.get_by_label(label)
+        field.fill(value)
+        field.dblclick()
+        expect(page.get_by_role("dialog")).to_be_visible()
+        field_box = field.bounding_box()
+        dialog_box = page.get_by_role("dialog").bounding_box()
+        y = field_box["y"] + field_box["height"] / 2
+        page.mouse.move(field_box["x"] + field_box["width"] - 8, y)
+        page.mouse.down()
+        page.mouse.move(dialog_box["x"] - 8, y, steps=12)
+        page.mouse.up()
+        expect(page.get_by_role("dialog")).to_be_visible()
+        expect(field).to_have_value(value)
+        assert field.evaluate("e => e.selectionEnd > e.selectionStart"), label
+    expect(page.get_by_label("Cihaz adı")).to_have_value("iputils-ping")
+    expect(page.get_by_label("Üretici", exact=True)).to_have_value("Fixture vendor")
+    expect(page.get_by_label("Model", exact=True)).to_have_value("Fixture model")
+    # A click after selecting text must not dismiss and erase the draft either.
+    page.mouse.click(dialog_box["x"] - 8, dialog_box["y"] + 40)
+    expect(page.get_by_role("dialog")).to_be_visible()
+    expect(page.get_by_label("Cihaz adı")).to_have_value("iputils-ping")
+    page.get_by_label("Model", exact=True).fill("")
     fixture_name = "Browser fixture " + uuid4().hex[:8]
     fixture_ip = "2001:db8::" + uuid4().hex[:4] + ":" + uuid4().hex[:4]
     page.get_by_label("Cihaz adı").fill(fixture_name)
@@ -72,6 +104,11 @@ with sync_playwright() as p:
     page.get_by_role("button", name=fixture_name + " ayrıntıları").click()
     expect(page.get_by_role("heading", name=fixture_name, exact=True)).to_be_visible()
     page.get_by_role("button", name="Pencereyi kapat").click()
+    page.get_by_role("button", name="Yeni kayıt", exact=True).click()
+    page.get_by_label("Cihaz adı").fill("Cancelled draft")
+    page.get_by_role("button", name="Vazgeç", exact=True).click()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    expect(page.get_by_role("button", name="Yeni kayıt", exact=True)).to_be_focused()
     # Keyboard dialog behavior, navigation, and empty states across every page.
     keys = [
         "interfaces",
@@ -164,6 +201,8 @@ with sync_playwright() as p:
                     "keyboard group toggles and tab order",
                     "navigation reveals closed group",
                     "mobile group toggles",
+                    "text selection ending outside dialog preserves form",
+                    "backdrop click preserves draft and explicit cancel closes",
                 ],
                 "console_errors": errors,
             }

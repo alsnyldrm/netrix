@@ -2,6 +2,12 @@
 
 Bu kayıt çalıştırılan kontrolleri ve kapsam sınırlarını ayırır. Gerçek ağ cihazlarında SNMP/SSH/REST toplama testi yapılmadı; verilen DB/Docker/Nginx altyapı bağlantıları test edildi.
 
+## Veri girişinde pencerenin kapanması (30 Ekim 2026)
+
+- Ortak diyalog bileşeninde dış alana tıklayarak kapatma kaldırıldı; açık kapatma düğmeleri ve Escape kullanılmaya devam ediyor.
+- `scripts/browser_check.py` cihaz adı, üretici ve model alanlarında çift tıklama, metin seçimini pencere dışına sürükleme, dış alana tıklama ve girilen değerlerin korunmasını doğruluyor. Dış alan tıklaması kontrolü düzeltme öncesinde başarısız, düzeltme sonrasında başarılı oldu. Kaydetme, kapatma, Vazgeç, Escape ve odağın geri verilmesi de kontrol edildi.
+- TypeScript/Vite üretim derlemesi, Prettier, Ruff, 20 ekran/4 boyut tarayıcı akışı ve arka plan yenileme regresyonu geçti. Testler yerel fixture/sahte protokollerle çalıştı; gerçek ağ cihazı sorgulanmadı.
+
 ## Arka plan yenileme düzeltmesi (30 Ekim 2026)
 
 - Canlı bildirim ve periyodik yenileme, aynı sorgunun tablosunu veya trafik grafiğini yükleme alanıyla değiştirmiyor. İlk sorguda ve filtre/arayüz/zaman aralığı değişiminde yükleme durumu korunuyor.

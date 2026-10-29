@@ -762,18 +762,6 @@ function Dialog({
       className={"dialog " + (wide ? "wide" : "")}
       ref={dialog}
       onCancel={onClose}
-      onClick={(e) => {
-        if (e.target === dialog.current) {
-          const b = dialog.current.getBoundingClientRect();
-          if (
-            e.clientX < b.left ||
-            e.clientX > b.right ||
-            e.clientY < b.top ||
-            e.clientY > b.bottom
-          )
-            onClose();
-        }
-      }}
     >
       <div className="dialog-header">
         <h2>{title}</h2>
