@@ -1102,16 +1102,14 @@ function ResourceForm({
           {fields.map((field) => (
             <label
               key={field.key}
-              className={
-                field.type === "checkbox"
-                  ? "checkbox-label"
-                  : field.type === "array"
-                    ? "full"
-                    : ""
-              }
+              className={"form-field" + (field.type === "array" ? " full" : "")}
             >
+              <span className="field-title">
+                {field.label}
+                {field.required && <span className="required"> *</span>}
+              </span>
               {field.type === "checkbox" ? (
-                <>
+                <span className="checkbox-control">
                   <input
                     type="checkbox"
                     aria-label={field.label}
@@ -1123,12 +1121,12 @@ function ResourceForm({
                       setValues({ ...values, [field.key]: e.target.checked })
                     }
                   />
-                  <span>{field.label}</span>
-                </>
+                  <span aria-hidden="true">
+                    {values[field.key] ? "Etkin" : "Kapalı"}
+                  </span>
+                </span>
               ) : (
                 <>
-                  {field.label}
-                  {field.required && <span className="required"> *</span>}
                   {field.type === "select" ? (
                     <select
                       required={field.required}

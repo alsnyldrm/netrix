@@ -9,6 +9,32 @@ from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("NETRIX_BROWSER_BASE", "http://127.0.0.1:8203")
 assert BASE.startswith("http://127.0.0.1:"), "Local fixture required"
+
+
+def assert_field_alignment(page, minimum=1):
+    alignment = page.locator(".form-grid").evaluate("""grid => {
+      const rect = e => {const r=e.getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height};};
+      return [...grid.querySelectorAll(':scope > .form-field')].map(field => ({
+        field: rect(field), title: rect(field.querySelector('.field-title')),
+        control: rect(field.querySelector('.checkbox-control, input:not([type=checkbox]), select, textarea')),
+        hint: field.querySelector('small') ? rect(field.querySelector('small')) : null
+      }));
+    }""")
+    assert len(alignment) >= minimum, "Every field must use the shared title/control/hint layout"
+    for field in alignment:
+        assert abs(field["title"]["x"] - field["control"]["x"]) <= 1, field
+        assert abs(field["field"]["w"] - field["control"]["w"]) <= 1, field
+        if field["hint"]:
+            assert abs(field["hint"]["x"] - field["control"]["x"]) <= 1, field
+    for left, right in zip(alignment, alignment[1:]):
+        if abs(left["field"]["y"] - right["field"]["y"]) <= 1:
+            for key in ("title", "control"):
+                assert abs(left[key]["y"] - right[key]["y"]) <= 1, (left, right)
+                assert abs(left[key]["h"] - right[key]["h"]) <= 1, (left, right)
+            if left["hint"] and right["hint"]:
+                assert abs(left["hint"]["y"] - right["hint"]["y"]) <= 1, (left, right)
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(
@@ -84,12 +110,7 @@ with sync_playwright() as p:
         trust.press("Space")
         expect(trust).to_be_checked()
         assert trust.evaluate("e => !!document.getElementById(e.getAttribute('aria-describedby'))")
-        alignment = trust.evaluate("""e => {
-          const label = e.closest('label'), text = label.querySelector('span'), hint = label.querySelector('small');
-          const a = e.getBoundingClientRect(), b = text.getBoundingClientRect(), c = hint.getBoundingClientRect();
-          return {center: Math.abs(a.y + a.height/2 - b.y - b.height/2), hint: Math.abs(b.x - c.x), edge: Math.abs(a.x - label.getBoundingClientRect().x)};
-        }""")
-        assert alignment["center"] <= 1 and alignment["hint"] <= 1 and alignment["edge"] <= 1, alignment
+        assert_field_alignment(page, minimum=16)
         assert page.get_by_role("dialog").evaluate("e => e.scrollWidth <= e.clientWidth")
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
         report = page.evaluate(
@@ -98,6 +119,25 @@ with sync_playwright() as p:
         violations[f"{theme}-{width}"] = [v["id"] for v in report["violations"]]
         page.screenshot(path=f"artifacts/ssh-trust-{theme}-{width}.png", full_page=True)
         page.keyboard.press("Escape")
+    # The shared renderer must align every editable resource, including full-width textareas.
+    for key in (
+        "sites",
+        "prefixes",
+        "addresses",
+        "vlans",
+        "vrfs",
+        "discovery",
+        "rules",
+        "credentials",
+        "users",
+    ):
+        for width in (1440, 375):
+            page.set_viewport_size({"width": width, "height": 1000})
+            page.goto(BASE + "/#" + key)
+            page.get_by_role("button", name="Yeni kayıt", exact=True).click()
+            assert_field_alignment(page)
+            assert page.get_by_role("dialog").evaluate("e => e.scrollWidth <= e.clientWidth")
+            page.keyboard.press("Escape")
     assert not any(violations.values()), violations
     assert not errors, errors
     print(
@@ -105,7 +145,7 @@ with sync_playwright() as p:
             {
                 "ssh_trust_form": "PASS",
                 "create_edit_toggle_persistence": True,
-                "alignment": "PASS",
+                "alignment": "PASS: device and 9 shared resource forms",
                 "axe": violations,
                 "console_errors": errors,
             }

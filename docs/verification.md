@@ -1,5 +1,11 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Form satır hizalaması düzeltmesi (30 Ekim 2026)
+
+- Önceki checkbox kontrolü yalnızca kutu/metin iç hizasını ölçüyordu; komşu girişlerle satır hizasını kapsamıyordu. Ortak kaynak formu başlık, kontrol ve açıklama için paylaşılan grid satırlarına geçirildi. Checkbox kontrolleri girişlerle aynı yükseklik ve genişlikte; açıklamalar alanın sol kenarından başlıyor.
+- `scripts/ssh_trust_browser_check.py` artık yan yana alanların başlık/kontrol üst kenarlarını ve yüksekliklerini, açıklama başlangıçlarını ve sütun genişliklerini ölçüyor. Cihaz ve diğer dokuz kaynak formu masaüstü/mobil ölçümlerini geçti. Cihaz formunda dört tema/ekran kombinasyonu, kayıt kalıcılığı, klavye kullanımı, yatay taşma ve axe WCAG A/AA kontrolleri geçti; JavaScript hatası yok.
+- Cihaz formunun masaüstü ve mobil ekran görüntüleri görsel olarak incelendi. TypeScript/Vite, Prettier, Ruff ve `git diff --check` geçti. Backend veya veritabanı şeması değişmedi.
+
 ## Cihaz bazında SSH anahtar güveni (30 Ekim 2026)
 
 - `pytest -q`: 109 test geçti. Anahtar güven tercihi kapalı/açıkken test, kimlik okuma ve yedekleme; API kaydetme/yeniden okuma; worker'a aktarım ve test sırasında tercih değişince eski sonucun reddi doğrulandı. Mevcut Starlette/httpx deprecation uyarısı devam ediyor.
