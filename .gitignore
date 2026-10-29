@@ -1,0 +1,31 @@
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Frontend and local artifacts
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+
+# Runtime data and device backups
+data/
+backups/
+*.log
