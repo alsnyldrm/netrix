@@ -650,6 +650,9 @@ const LABELS: Record<string, string> = {
   backup: "Yedekleme",
   monitor: "İzleme",
   identify: "Cihaz bilgisi sorgusu",
+  test_snmp: "SNMPv3 bağlantı testi",
+  test_ssh: "SSH bağlantı testi",
+  test_api: "API bağlantı testi",
   availability: "Erişilebilirlik",
   utilization: "Port kullanımı (%)",
   config_change: "Konfigürasyon değişimi",
@@ -1594,6 +1597,234 @@ function Overview({
     </>
   );
 }
+function ConnectionTestDialog({
+  device,
+  onClose,
+}: {
+  device: Row;
+  onClose: () => void;
+}) {
+  const [options, setOptions] = useState<Row | null>(null);
+  const [selected, setSelected] = useState("");
+  const [job, setJob] = useState<Row | null>(null);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  const [loadKey, setLoadKey] = useState(0);
+  const pending =
+    starting || (!!job && ["queued", "running"].includes(job.status));
+  useEffect(() => {
+    let active = true;
+    api(`/devices/${device.id}/connection-tests`)
+      .then((data) => {
+        if (!active) return;
+        setOptions(data);
+        setSelected((current) =>
+          data.protocols.some((p: Row) => p.protocol === current && p.enabled)
+            ? current
+            : data.protocols.find((p: Row) => p.enabled)?.protocol || "",
+        );
+      })
+      .catch((e: Error) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [device.id, loadKey]);
+  useEffect(() => {
+    if (!job?.id) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const current = await api(`/jobs/${job.id}`);
+        if (!active) return;
+        setJob(current);
+        setError("");
+        if (["queued", "running"].includes(current.status))
+          timer = setTimeout(poll, 1000);
+      } catch (e: any) {
+        if (active) {
+          setError(e.message);
+          timer = setTimeout(poll, 3000);
+        }
+      }
+    };
+    poll();
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [job?.id]);
+  const current = options?.protocols.find((p: Row) => p.protocol === selected);
+  return (
+    <Dialog title={`Bağlantı testi · ${device.name}`} onClose={onClose}>
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!selected || !current?.enabled || !options?.can_test || pending)
+            return;
+          setStarting(true);
+          setError("");
+          setJob(null);
+          try {
+            setJob(
+              await api(`/devices/${device.id}/connection-tests`, "POST", {
+                protocol: selected,
+              }),
+            );
+          } catch (e: any) {
+            setError(e.message);
+            setLoadKey((n) => n + 1);
+          } finally {
+            setStarting(false);
+          }
+        }}
+      >
+        <p className="muted">
+          Kayıtlı erişim profiliyle yalnızca seçtiğiniz protokol test edilir.
+        </p>
+        <p className="mono">{options?.target || device.management_ip}</p>
+        {!options && !error && (
+          <div role="status">Erişim profilleri yükleniyor…</div>
+        )}
+        {options && (
+          <>
+            <fieldset className="connection-test-protocols">
+              <legend>Test protokolü</legend>
+              {options.protocols.map((option: Row) => (
+                <label
+                  key={option.protocol}
+                  className={
+                    !option.enabled
+                      ? "unavailable"
+                      : selected === option.protocol
+                        ? "selected"
+                        : ""
+                  }
+                >
+                  <span>
+                    <input
+                      type="radio"
+                      name="test-protocol"
+                      value={option.protocol}
+                      aria-label={option.label}
+                      checked={selected === option.protocol}
+                      disabled={!option.enabled || pending}
+                      onChange={() => {
+                        setSelected(option.protocol);
+                        setJob(null);
+                        setError("");
+                      }}
+                    />
+                    <b>{option.label}</b>
+                  </span>
+                  <small>
+                    {option.enabled ? "Profil atanmış" : "Profil atanmadı"}
+                  </small>
+                </label>
+              ))}
+            </fieldset>
+            {current && (
+              <div className="info-note">
+                <PlugsConnected size={20} aria-hidden="true" />
+                <p>
+                  <b>{current.profile_name}</b>
+                  <br />
+                  {selected === "snmpv3" ? "UDP" : "TCP"} {current.port}
+                  {selected === "rest" && (
+                    <span className="mono"> · {current.path}</span>
+                  )}
+                </p>
+              </div>
+            )}
+            {!options.can_test && (
+              <p role="status" className="muted">
+                {options.reason}
+              </p>
+            )}
+          </>
+        )}
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
+        {!options && error && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setError("");
+              setLoadKey((n) => n + 1);
+            }}
+          >
+            Profilleri yeniden yükle
+          </button>
+        )}
+        {(starting || job) && (
+          <section
+            className="connection-test-result"
+            data-state={pending ? "pending" : job?.status}
+            role="status"
+            aria-live="polite"
+          >
+            <h3>
+              {pending
+                ? job?.status === "running"
+                  ? "Cihazda test çalışıyor…"
+                  : "Test sıraya alınıyor…"
+                : job?.status === "cancelled"
+                  ? "Test iptal edildi"
+                  : job?.status === "succeeded" && job?.result?.success === true
+                    ? "Bağlantı başarılı"
+                    : "Bağlantı başarısız"}
+            </h3>
+            <p>
+              {pending
+                ? "Sonuç cihaz yanıt verdikten sonra burada görünecek."
+                : job?.result?.message || job?.error || "Test tamamlanmadı."}
+            </p>
+            {!pending && job?.result?.checked_at && (
+              <p className="muted">
+                {date(job.result.checked_at)} · {job.result.duration_ms} ms ·
+                Port {job.result.port}
+              </p>
+            )}
+          </section>
+        )}
+        <div className="dialog-footer">
+          <button type="button" className="secondary" onClick={onClose}>
+            Kapat
+          </button>
+          {pending && job && (
+            <button
+              type="button"
+              className="secondary"
+              disabled={job.cancel_requested}
+              onClick={async () => {
+                try {
+                  setJob(await api(`/jobs/${job.id}/cancel`, "POST"));
+                } catch (e: any) {
+                  setError(e.message);
+                }
+              }}
+            >
+              {job.cancel_requested ? "İptal ediliyor…" : "Testi iptal et"}
+            </button>
+          )}
+          <button
+            className="primary"
+            disabled={!current?.enabled || !options?.can_test || pending}
+          >
+            <PlugsConnected size={18} aria-hidden="true" />
+            {pending ? "Test ediliyor…" : "Test et"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
 function Traffic({
   refs,
   refresh,
@@ -1995,6 +2226,7 @@ function App() {
   const [jobKind, setJobKind] = useState("backup");
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
+  const [testDevice, setTestDevice] = useState<Row | null>(null);
   const [theme, toggleTheme] = useTheme();
   const [collapsed, setCollapsed] = useState(
     () => readPref("netrix-sidebar") === "collapsed",
@@ -2871,6 +3103,20 @@ function App() {
                                         <Eye size={17} />
                                       </button>
                                     )}
+                                  {page.key === "devices" && canWrite && (
+                                    <button
+                                      className="text-button connection-test-trigger"
+                                      aria-label={row.name + " bağlantı testi"}
+                                      aria-haspopup="dialog"
+                                      onClick={() => setTestDevice(row)}
+                                    >
+                                      <PlugsConnected
+                                        size={17}
+                                        aria-hidden="true"
+                                      />
+                                      Test
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -3201,6 +3447,12 @@ function App() {
         <Dialog title={config.title} onClose={() => setConfig(null)} wide>
           <pre className="config-code">{config.content}</pre>
         </Dialog>
+      )}
+      {testDevice && (
+        <ConnectionTestDialog
+          device={testDevice}
+          onClose={() => setTestDevice(null)}
+        />
       )}
       {jobModal && (
         <Dialog

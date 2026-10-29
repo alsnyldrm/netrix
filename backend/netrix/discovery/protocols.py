@@ -91,24 +91,27 @@ class SNMPCollector:
     async def identify(self, host, port, secret):
         return await self._collect(host, port, secret, identity_only=True)
 
-    async def _collect(self, host, port, secret, identity_only=False):
+    async def probe(self, host, port, secret):
+        return await self._collect(host, port, secret, probe_only=True)
+
+    async def _collect(self, host, port, secret, identity_only=False, probe_only=False):
         snmp = SnmpEngine()
-        auth = UsmUserData(
-            secret["username"],
-            secret["auth_key"],
-            secret["priv_key"],
-            authProtocol=usmHMAC192SHA256AuthProtocol
-            if secret.get("auth_protocol", "sha256") == "sha256"
-            else usmHMACSHAAuthProtocol,
-            privProtocol=usmAesCfb128Protocol,
-        )
-        transport_type = (
-            Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
-        )
-        target = await transport_type.create((host, port), timeout=2, retries=1)
-        context = ContextData()
-        tables, unsupported = {}, []
         try:
+            auth = UsmUserData(
+                secret["username"],
+                secret["auth_key"],
+                secret["priv_key"],
+                authProtocol=usmHMAC192SHA256AuthProtocol
+                if secret.get("auth_protocol", "sha256") == "sha256"
+                else usmHMACSHAAuthProtocol,
+                privProtocol=usmAesCfb128Protocol,
+            )
+            transport_type = (
+                Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
+            )
+            target = await transport_type.create((host, port), timeout=2, retries=1)
+            context = ContextData()
+            tables, unsupported = {}, []
             async with asyncio.timeout(180):
                 error, status, _, values = await get_cmd(
                     snmp,
@@ -122,6 +125,10 @@ class SNMPCollector:
                     raise NetworkError("SNMPv3 erişimi başarısız")
                 system = {key: str(values[i][1]) for i, key in enumerate(SYSTEM)}
                 system["uptime"] = number(values[2][1], 0)
+                if probe_only:
+                    if number(values[2][1]) is None:
+                        raise NetworkError("SNMPv3 sistem OID okuması başarısız")
+                    return
                 for key, oid in TABLES.items():
                     if identity_only and not key.startswith("entity_"):
                         continue

@@ -1578,6 +1578,11 @@ tbody tr:last-child td {
   width: 34px;
   height: 34px;
 }
+.connection-test-trigger {
+  margin-left: 6px;
+  min-height: 34px;
+  white-space: nowrap;
+}
 .device-link {
   justify-content: flex-start;
   gap: 10px;
@@ -1914,6 +1919,69 @@ tbody tr:last-child td {
   justify-content: flex-end;
   gap: 8px;
   padding-top: 4px;
+}
+.connection-test-protocols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.connection-test-protocols legend {
+  padding: 0 0 10px;
+  font-weight: 600;
+}
+.connection-test-protocols label {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 6px;
+  cursor: pointer;
+}
+.connection-test-protocols label.selected {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.connection-test-protocols label.unavailable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.connection-test-protocols label > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.connection-test-protocols input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.connection-test-protocols small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.connection-test-result {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+}
+.connection-test-result[data-state="succeeded"] {
+  border-color: var(--success);
+}
+.connection-test-result[data-state="failed"] {
+  border-color: var(--danger);
+}
+@media (max-width: 480px) {
+  .connection-test-protocols {
+    grid-template-columns: 1fr;
+  }
+  .connection-test-trigger {
+    min-height: 40px;
+  }
 }
 .command-body {
   padding: 14px;

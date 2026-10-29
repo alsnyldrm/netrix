@@ -2,6 +2,14 @@
 
 Bu kayıt çalıştırılan kontrolleri ve kapsam sınırlarını ayırır. Gerçek ağ cihazlarında SNMP/SSH/REST toplama testi yapılmadı; verilen DB/Docker/Nginx altyapı bağlantıları test edildi.
 
+## Cihaz satırından SNMP/SSH/API testi (30 Ekim 2026)
+
+- Envanter satırına Test düğmesi ve protokol seçimi/sonuç penceresi eklendi. Gerçek protokol çağrıları worker'da yapılır; API profilleri sunucudan okuyup yalnızca atanmış seçenekleri etkinleştirir. Seçilmeyen protokol denenmez. Profil/kapsam/yetki doğrulaması arayüzle sınırlı değildir.
+- `pytest -q`: 104 test geçti; mevcut Starlette/httpx uyarısı devam ediyor. Sahte istemcilerle protokol ve kayıtlı sırların doğru seçimi, SNMP GET/noSuchObject, transport kapanışı, SSH doğrulaması ve komut çalıştırılmaması, API HTTPS/JSON/yanıt sınırı/yönlendirme yasağı, hata/zaman aşımı, tekrar teslim, aktif iş tekilliği, iptal, bağlantı değişimi, kapsam ve viewer sınırları doğrulandı. Cihaz envanteri ve gözlemler test sonucuyla değiştirilmedi.
+- TypeScript/Vite, Prettier, Ruff, `git diff --check`, mevcut 20 ekran/4 boyut tarayıcı akışı ve arka plan yenileme regresyonu geçti.
+- `scripts/connection_test_browser_check.py`: yerel sahte API yanıtlarıyla SNMP+SSH/API profil matrisi, yalnızca seçilen protokolün gönderilmesi, kuyruğa alma/çalıştırma, başarı/hata/iptal ve odak iadesi geçti. Açık/koyu 1440 px, koyu 375 px ve açık 812 px yatay görünümde yeni pencerenin axe-core WCAG A/AA kontrolü ihlalsiz; JavaScript hatası yok.
+- Şema değişmedi; migration eklenmedi. Gerçek ağ cihazında bağlantı testi otomatik doğrulama sırasında tetiklenmedi; gerçek sorgu kullanıcı Test et düğmesine bastığında çalışır.
+
 ## Otomatik üretici, model ve cihaz türü (30 Ekim 2026)
 
 - Cihaz kaydı/değişikliğiyle atomik `identify` işi, SNMPv3 → SSH/API tamamlama, alan başına güncelleme, bilinmeyen/boş sonuçlarda manuel değerleri koruma, kaynak/gözlem ve değişiklik geçmişi uygulandı. Kapsam/profil yokluğunda cihaz kaydı korunuyor ve sorgu başlatılmıyor. Mevcut cihazlar dağıtım sırasında topluca sorgulanmıyor.

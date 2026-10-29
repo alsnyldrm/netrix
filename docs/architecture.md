@@ -52,6 +52,14 @@ Cihaz oluşturulunca veya bağlantı/üretici/model/tür bilgileri değişince, 
 
 Kimlik işi mevcut iptal, heartbeat, sınırlı yeniden deneme ve hedef/tür başına tek etkin iş kurallarını kullanır. Ağ isteği sırasında bağlantı hedefi veya erişim profili değişmişse eski yanıt uygulanmaz; güncel bilgilerle yeniden denenir. Üç alan alınmışsa başarılı, bir kısmı alınmışsa kısmi, hiçbiri belirlenememişse başarısız sonuç gösterilir.
 
+### Cihaz bağlantı testleri
+
+Envanter satırının sonundaki **Test**, cihazın güncel kayıtlı profillerini `GET /api/v1/devices/{id}/connection-tests` ile yükler. SNMPv3/SSH/API seçenekleri yalnızca atanmış ve adaptörle uyumlu profil varsa etkinleşir; sırlar tarayıcıya dönmez. Pencereyi açmak ağ isteği başlatmaz. `POST /api/v1/devices/{id}/connection-tests`, `protocol: snmpv3|ssh|rest` ile seçilen protokole ait `test_snmp`, `test_ssh` veya `test_api` işini oluşturur. Admin/operator yetkisi, aktif cihaz ve yetkili kapsam API'de ve worker'da kontrol edilir; diğer protokollere otomatik geçiş yapılmaz.
+
+SNMPv3 testi authPriv ile sistem OID'lerini GET üzerinden okur ve sysUpTime'ın okunabilir olduğunu doğrular; tablo taraması yapmaz. SSH testi host anahtarı doğrulaması açık oturum açar; konfigürasyon komutu çalıştırmaz. API testi kayıtlı `identity_path` yoluna token ile HTTPS GET yapar; TLS doğrulaması açıktır, yönlendirme izlenmez, 2xx ve geçerli JSON nesne/liste yanıtı gerekir, üst sınır 256 KiB'dir. API başarı mesajı bu HTTP/JSON kontrolünü bildirir; endpoint'in token'ı nasıl yetkilendirdiğine ilişkin ek bir varsayım yapmaz.
+
+Her testin yürütme süresi en fazla 30 saniyedir; SNMP taşıması 2 saniye timeout ve bir protokol tekrarı kullanır. Etkileşimli testin bağlantı hatası terminal başarısız sonuçtur; otomatik 15/30 saniyelik iş tekrarı yapılmaz. Kuyrukta/çalışıyor/başarılı/başarısız/iptal durumları pencerede izlenir ve iptal istenebilir. Aynı cihaz/protokol için bir etkin iş vardır. Sonuç; protokol, hedef, port, UTC kontrol zamanı, süre ve hassas içerik taşımayan hata kodu/mesajıdır. Test sırasında hedef/profil değişmişse eski başarı uygulanmaz. Testler cihazın üretici/model/tür, arayüz, izleme veya erişilebilirlik gözlemlerini değiştirmez; sonuç görev geçmişinde tutulur.
+
 ## Konfigürasyon, monitoring, alarmlar
 
 SSH adaptörleri IOS (`show running-config`), Junos (`show configuration | display set | no-more`), FortiOS (`show full-configuration`), Linux (adres/yönlendirme çıktısı) için salt okunur komut çalıştırır. REST adaptörü cihaz üzerindeki açıkça tanımlanan HTTPS konfigürasyon endpoint'ini okur. Linux çıktısı tam işletim sistemi yedeği değildir. CLI exec desteği, yetki seviyesi ve pagination davranışı cihazda doğrulanmalıdır; gerçek cihaz uyumluluğu bu sürümün otomatik testleriyle kanıtlanmış sayılmaz.

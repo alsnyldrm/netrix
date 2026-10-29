@@ -344,6 +344,19 @@ def start_job(payload: s.JobInput, user=Depends(operator), db=Depends(db_session
     return svc.serialize(svc.enqueue(db, payload.kind, payload.target_id, user))
 
 
+@app.get(P + "/devices/{id}/connection-tests")
+def connection_test_options(id: str, user=Depends(operator), db=Depends(db_session)):
+    return svc.connection_test_options(db, svc.get(db, m.Device, id))
+
+
+@app.post(P + "/devices/{id}/connection-tests", status_code=202)
+def start_connection_test(
+    id: str, payload: s.ConnectionTestInput, user=Depends(operator), db=Depends(db_session)
+):
+    kind = next(kind for kind, protocol in svc.CONNECTION_TESTS.items() if protocol == payload.protocol)
+    return svc.serialize(svc.enqueue(db, kind, id, user))
+
+
 @app.post(P + "/jobs/{id}/cancel")
 def cancel_job(id: str, user=Depends(operator), db=Depends(db_session)):
     job = svc.get(db, m.Job, id)

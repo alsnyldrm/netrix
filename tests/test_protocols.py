@@ -87,6 +87,15 @@ async def test_snmpv3_adapter_parses_standard_tables_and_closes_transport(monkey
     )
     assert data["identity"]["model"] == "C9300-48P" and "interfaces" not in data
     assert set(walked) == {oid for key, oid in p.TABLES.items() if key.startswith("entity_")}
+    walked.clear()
+    assert (
+        await p.SNMPCollector().probe(
+            "192.0.2.1", 1161, {"username": "user", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
+        )
+        is None
+    )
+    assert walked == []  # The connection test performs GET only, never a full table scan.
+    assert instance.closed
 
 
 async def test_snmp_failure_is_sanitized_and_dispatcher_closed(monkeypatch):

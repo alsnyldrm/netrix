@@ -142,6 +142,13 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Vazgeç", exact=True).click()
     expect(page.get_by_role("dialog")).to_have_count(0)
     expect(page.get_by_role("button", name="Yeni kayıt", exact=True)).to_be_focused()
+    page.get_by_role("button", name=fixture_name + " bağlantı testi", exact=True).click()
+    expect(page.get_by_role("heading", name="Bağlantı testi · " + fixture_name, exact=True)).to_be_visible()
+    for protocol in ("SNMPv3", "SSH", "API"):
+        expect(page.get_by_role("radio", name=protocol, exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name="Test et", exact=True)).to_be_disabled()
+    page.get_by_role("button", name="Kapat", exact=True).click()
+    expect(page.get_by_role("button", name=fixture_name + " bağlantı testi", exact=True)).to_be_focused()
     # Keyboard dialog behavior, navigation, and empty states across every page.
     keys = [
         "interfaces",
@@ -238,6 +245,7 @@ with sync_playwright() as p:
                     "backdrop click preserves draft and explicit cancel closes",
                     "identity form hints and REST endpoint",
                     "identity job and live device detail update",
+                    "device row test button and unavailable profiles",
                 ],
                 "console_errors": errors,
             }

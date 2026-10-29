@@ -3,6 +3,7 @@ import hashlib
 import ipaddress
 import logging
 import signal
+import time
 from datetime import timedelta
 
 from sqlalchemy import func, select
@@ -11,13 +12,23 @@ from sqlalchemy.exc import OperationalError
 from . import models as m
 from .alerting.engine import evaluate
 from .core import now, redis_client, session_factory
+from .discovery.connection_tests import failure as connection_failure
+from .discovery.connection_tests import probe as probe_connection
 from .discovery.correlation import correlate
 from .discovery.identification import normalize, snmp_identity
 from .discovery.protocols import NetworkError, SNMPCollector, fetch_config, fetch_identity
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
 from .monitoring.rates import calculate_rate
-from .services import IDENTITY_CONNECTION_FIELDS, authorized_device, get, in_scope, publish
+from .services import (
+    CONNECTION_TESTS,
+    IDENTITY_CONNECTION_FIELDS,
+    authorized_device,
+    connection_profile,
+    get,
+    in_scope,
+    publish,
+)
 
 log = logging.getLogger("netrix.worker")
 stop = False
@@ -252,6 +263,62 @@ async def identify_device(job_id, collector):
     }
 
 
+async def test_device_connection(job_id, collector):
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        device = get(db, m.Device, job.target_id)
+        authorized_device(db, device)
+        if job.cancel_requested:
+            raise Cancelled()
+        protocol = CONNECTION_TESTS[job.kind]
+        profile = connection_profile(db, device, protocol)
+        if not profile:
+            raise ValueError("Seçilen protokol için erişim profili yok")
+        if job.result.get("protocol") == protocol:
+            return job.result
+        secret = secret_data(profile)
+
+        def signature(target, credential):
+            return (
+                target.management_ip,
+                target.vrf_id,
+                credential.id,
+                credential.updated_at,
+                target.snmp_port if protocol == "snmpv3" else target.config_port,
+                target.identity_path if protocol == "rest" else "",
+            )
+
+        connection = signature(device, profile)
+    started = time.monotonic()
+    result = {
+        "protocol": protocol,
+        "target": device.management_ip,
+        "port": device.snmp_port if protocol == "snmpv3" else device.config_port,
+    }
+    try:
+        result.update(success=True, message=await probe_connection(device, protocol, secret, collector))
+    except Exception as exc:
+        code, message = connection_failure(exc, protocol)
+        result.update(success=False, error_code=code, message=message)
+    result.update(duration_ms=round((time.monotonic() - started) * 1000), checked_at=now().isoformat())
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        current = get(db, m.Device, device.id)
+        authorized_device(db, current)
+        if job.cancel_requested:
+            raise Cancelled()
+        profile = connection_profile(db, current, protocol)
+        if not profile or signature(current, profile) != connection:
+            result.update(
+                success=False,
+                error_code="connection_changed",
+                message="Test sırasında cihazın bağlantı bilgileri değişti. Güncel bilgilerle yeniden test edin.",
+            )
+        job.progress, job.total = 1, 1
+        db.commit()
+    return result
+
+
 async def discover(job_id, collector):
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
@@ -461,7 +528,15 @@ async def execute(job_id, collector=None):
     task = asyncio.create_task(
         discover(job_id, collector)
         if kind == "discovery"
-        else (identify_device(job_id, collector) if kind == "identify" else collect_device(job_id, collector))
+        else (
+            test_device_connection(job_id, collector)
+            if kind in CONNECTION_TESTS
+            else (
+                identify_device(job_id, collector)
+                if kind == "identify"
+                else collect_device(job_id, collector)
+            )
+        )
     )
     try:
         while not task.done():
@@ -484,6 +559,13 @@ async def execute(job_id, collector=None):
             job = get(db, m.Job, job_id)
             if job.cancel_requested:
                 job.status = "cancelled"
+            elif kind in CONNECTION_TESTS:
+                job.status = "succeeded" if result.get("success") is True else "failed"
+                job.error = (
+                    ""
+                    if result.get("success") is True
+                    else result.get("message", "Bağlantı testi başarısız.")
+                )
             elif kind == "identify":
                 count = len(result.get("fields", {}))
                 job.status = "succeeded" if count == 3 else "partial" if count else "failed"

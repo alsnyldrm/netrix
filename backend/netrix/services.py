@@ -32,6 +32,7 @@ RESOURCES = {
     "users": (m.User, s.UserInput),
 }
 HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key"}
+CONNECTION_TESTS = {"test_snmp": "snmpv3", "test_ssh": "ssh", "test_api": "rest"}
 IDENTITY_CONNECTION_FIELDS = (
     "management_ip",
     "vrf_id",
@@ -311,8 +312,49 @@ def authorized_device(db, device):
         raise ValueError("Cihaz etkin ve yetkilendirilmiş bir keşif kapsamında olmalı")
 
 
+def connection_profile(db, device, protocol):
+    profile_id = device.snmp_credential_id if protocol == "snmpv3" else device.config_credential_id
+    profile = db.get(m.Credential, profile_id) if profile_id else None
+    if not profile or profile.protocol != protocol:
+        return None
+    if protocol == "rest" and device.adapter != "rest":
+        return None
+    if protocol == "ssh" and device.adapter == "rest":
+        return None
+    return profile
+
+
+def connection_test_options(db, device):
+    options = []
+    for protocol, label in (("snmpv3", "SNMPv3"), ("ssh", "SSH"), ("rest", "API")):
+        profile = connection_profile(db, device, protocol)
+        options.append(
+            {
+                "protocol": protocol,
+                "label": label,
+                "enabled": profile is not None,
+                "profile_name": profile.name if profile else None,
+                "port": device.snmp_port if protocol == "snmpv3" else device.config_port,
+                "path": device.identity_path if protocol == "rest" else None,
+            }
+        )
+    reason = ""
+    try:
+        authorized_device(db, device)
+    except ValueError as exc:
+        reason = str(exc)
+    return {
+        "device_id": device.id,
+        "target": device.management_ip,
+        "protocols": options,
+        "can_test": not reason and any(option["enabled"] for option in options),
+        "reason": reason
+        or ("" if any(option["enabled"] for option in options) else "Önce cihaza bir erişim profili atayın."),
+    }
+
+
 def enqueue(db, kind, target_id, user=None, *, commit=True):
-    if kind not in ("discovery", "backup", "monitor", "identify"):
+    if kind not in ("discovery", "backup", "monitor", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
     if kind == "discovery":
         target = get(db, m.Scope, target_id)
@@ -324,13 +366,17 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
             authorized_device(db, target)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        credential_id = (
-            (target.snmp_credential_id or target.config_credential_id)
-            if kind == "identify"
-            else (target.config_credential_id if kind == "backup" else target.snmp_credential_id)
-        )
-        if not credential_id:
-            raise HTTPException(422, "Görev için erişim profili atanmalı")
+        if kind in CONNECTION_TESTS:
+            if not connection_profile(db, target, CONNECTION_TESTS[kind]):
+                raise HTTPException(422, "Seçilen protokol için cihaza uyumlu bir erişim profili atanmamış")
+        else:
+            credential_id = (
+                (target.snmp_credential_id or target.config_credential_id)
+                if kind == "identify"
+                else (target.config_credential_id if kind == "backup" else target.snmp_credential_id)
+            )
+            if not credential_id:
+                raise HTTPException(422, "Görev için erişim profili atanmalı")
     key = f"{kind}:{target_id}"
     # Serialize submitters on the target, including scheduled and API requests.
     db.scalar(select(type(target)).where(type(target).id == target_id).with_for_update())

@@ -9,8 +9,12 @@ class Input(BaseModel):
 
 
 class JobInput(Input):
-    kind: Literal["discovery", "backup", "monitor", "identify"]
+    kind: Literal["discovery", "backup", "monitor", "identify", "test_snmp", "test_ssh", "test_api"]
     target_id: str = Field(min_length=1, max_length=36)
+
+
+class ConnectionTestInput(Input):
+    protocol: Literal["snmpv3", "ssh", "rest"]
 
 
 class SiteInput(Input):
