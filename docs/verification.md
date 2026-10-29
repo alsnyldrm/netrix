@@ -2,6 +2,12 @@
 
 Bu kayıt çalıştırılan kontrolleri ve kapsam sınırlarını ayırır. Gerçek ağ cihazlarında SNMP/SSH/REST toplama testi yapılmadı; verilen DB/Docker/Nginx altyapı bağlantıları test edildi.
 
+## Arka plan yenileme düzeltmesi (30 Ekim 2026)
+
+- Canlı bildirim ve periyodik yenileme, aynı sorgunun tablosunu veya trafik grafiğini yükleme alanıyla değiştirmiyor. İlk sorguda ve filtre/arayüz/zaman aralığı değişiminde yükleme durumu korunuyor.
+- `scripts/refresh_check.py`, yerel üretim derlemesinde sahte API/WebSocket ve geciktirilmiş yanıtlarla hatayı düzeltme öncesinde yeniden üretti; düzeltme sonrasında geçti. Tablo/grafik DOM sürekliliği, klavye odağı, güncel verinin uygulanması, 30 saniyelik periyodik yenileme, boş sonuçlar ve hata sonrası toparlanma doğrulandı. Gerçek cihazlara erişilmedi.
+- TypeScript/Vite derlemesi, Prettier, Ruff, `git diff --check`, 20 ekran/4 boyut tarayıcı akışı ve 53 backend testi geçti. Backend testlerinde mevcut Starlette/httpx deprecation uyarısı var.
+
 ## Otomatik kontroller
 
 | Kontrol | Sonuç / kapsam |

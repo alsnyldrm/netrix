@@ -1597,20 +1597,26 @@ function Traffic({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [limited, setLimited] = useState(false);
+  const loadedQuery = useRef("");
   const ports = (refs.interfaces || []).filter(
     (p) => !device || p.device_id === device,
   );
   const selected = iface || ports[0]?.id;
   useEffect(() => {
     if (!selected) {
+      loadedQuery.current = "";
       setItems([]);
+      setLoading(false);
       return;
     }
     let active = true;
-    setLoading(true);
+    const queryKey = JSON.stringify([selected, hours]);
+    // Keep the current chart visible while refreshing the same selection.
+    setLoading(loadedQuery.current !== queryKey);
     api(`/traffic?interface_id=${selected}&hours=${hours}`)
       .then((d) => {
         if (!active) return;
+        loadedQuery.current = queryKey;
         setItems(d.items);
         setLimited(d.limited);
         setError("");
@@ -1962,6 +1968,7 @@ function App() {
   const search = useDeferredValue(query);
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(false);
+  const loadedQuery = useRef("");
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [connected, setConnected] = useState(false);
@@ -2086,7 +2093,9 @@ function App() {
   useEffect(() => {
     if (!user || !page.resource) return;
     let active = true;
-    setLoading(true);
+    const queryKey = JSON.stringify([user.id, page.resource, offset, search]);
+    // Live events and polling update rows in place without removing the table.
+    setLoading(loadedQuery.current !== queryKey);
     api(
       "/" +
         page.resource +
@@ -2094,6 +2103,7 @@ function App() {
     )
       .then((d) => {
         if (active) {
+          loadedQuery.current = queryKey;
           setItems(d.items);
           setTotal(d.total);
           setError("");
