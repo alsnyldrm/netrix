@@ -170,6 +170,11 @@ const PAGES: Page[] = [
         default: 22,
         hint: "REST adaptörü için HTTPS portunu girin.",
       }),
+      f("ssh_trust_host_key", "Anahtara güven", {
+        type: "checkbox",
+        default: false,
+        hint: "Bu cihazın sunduğu SSH host anahtarı kabul edilir. SSH testi, cihaz bilgisi okuma ve yedeklemede geçerlidir.",
+      }),
       f("config_path", "REST konfigürasyon yolu", { default: "/api/config" }),
       f("identity_path", "REST cihaz bilgisi yolu", {
         default: "/api/system",
@@ -1007,6 +1012,10 @@ function ResourceForm({
   const fields = (page.fields || [])
     .filter(
       (field) =>
+        field.key !== "ssh_trust_host_key" || values.adapter !== "rest",
+    )
+    .filter(
+      (field) =>
         page.key !== "devices" ||
         !["identity_path", "config_path"].includes(field.key) ||
         values.adapter === "rest",
@@ -1105,12 +1114,16 @@ function ResourceForm({
                 <>
                   <input
                     type="checkbox"
+                    aria-label={field.label}
+                    aria-describedby={
+                      field.hint ? `hint-${field.key}` : undefined
+                    }
                     checked={!!values[field.key]}
                     onChange={(e) =>
                       setValues({ ...values, [field.key]: e.target.checked })
                     }
                   />
-                  {field.label}
+                  <span>{field.label}</span>
                 </>
               ) : (
                 <>
@@ -1180,7 +1193,9 @@ function ResourceForm({
                   )}
                 </>
               )}
-              {field.hint && <small>{field.hint}</small>}
+              {field.hint && (
+                <small id={`hint-${field.key}`}>{field.hint}</small>
+              )}
             </label>
           ))}
         </div>
@@ -2127,8 +2142,8 @@ function Settings({ onLogout }: { onLogout: () => void }) {
         <div className="info-note">
           <ShieldCheck size={20} />
           <p>
-            SSH bağlantıları kayıtlı host anahtarlarını doğrular. Yeni cihaz
-            anahtarlarını sunucudaki NETRIX known_hosts dosyasına ekleyin.
+            SSH bağlantıları kayıtlı host anahtarlarını doğrular. Cihaz formunda
+            “Anahtara güven” seçiliyse o cihazın sunduğu anahtar kabul edilir.
           </p>
         </div>
       </section>

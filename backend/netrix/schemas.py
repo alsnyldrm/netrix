@@ -60,6 +60,7 @@ class DeviceInput(Input):
     config_credential_id: str | None = None
     snmp_port: int = Field(default=161, ge=1, le=65535)
     config_port: int = Field(default=22, ge=1, le=65535)
+    ssh_trust_host_key: bool = False
     config_path: str = Field(default="/api/config", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
     identity_path: str = Field(default="/api/system", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
     monitoring_enabled: bool = False

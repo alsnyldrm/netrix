@@ -1,5 +1,13 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Cihaz bazında SSH anahtar güveni (30 Ekim 2026)
+
+- `pytest -q`: 109 test geçti. Anahtar güven tercihi kapalı/açıkken test, kimlik okuma ve yedekleme; API kaydetme/yeniden okuma; worker'a aktarım ve test sırasında tercih değişince eski sonucun reddi doğrulandı. Mevcut Starlette/httpx deprecation uyarısı devam ediyor.
+- `scripts/ssh_trust_check.py`: yalnızca geçici loopback SSH sunucusuyla gerçek bağlantı kuruldu. Bilinmeyen anahtar varsayılan durumda reddedildi; açık güven tercihiyle üç işlem geçti; yanlış parola reddedildi; özel porttaki kayıtlı anahtar normal doğrulamayla kabul edildi. Gerçek ağ cihazları bu kontrolde sorgulanmadı.
+- `scripts/ssh_trust_browser_check.py`: ekleme/düzenleme, REST'te gizleme, kapalı varsayılan, iki yönde kaydetme, klavye kullanımı ve checkbox/metin/yardım yazısı hizalaması geçti. Açık/koyu masaüstü, 375 px mobil ve 812 px yatay görünümde axe WCAG A/AA ihlali ve JavaScript hatası yok. Bağlantı testi penceresi ve arka plan yenileme regresyonları da geçti.
+- Alembic `20261030_04`, izole MariaDB 11.8.3 `netrix_test` ortamında veri içeren tabloda downgrade → upgrade → schema check turunu geçti; mevcut bilgiler, kapalı varsayılan ve tercihin kalıcılığı doğrulandı. MariaDB kısıt/UTC/kilit entegrasyon kontrolleri geçti; geçici DB ve ağ kaldırıldı.
+- Ruff, Prettier, TypeScript/Vite ve `git diff --check` kontrolleri geçti. Üretim geçişi öncesinde `/opt/netrix/backups/before-ssh-trust-20261030.sql` yedeği alındı (0600, boş değil).
+
 Bu kayıt çalıştırılan kontrolleri ve kapsam sınırlarını ayırır. Gerçek ağ cihazlarında SNMP/SSH/REST toplama testi yapılmadı; verilen DB/Docker/Nginx altyapı bağlantıları test edildi.
 
 ## Cihaz satırından SNMP/SSH/API testi (30 Ekim 2026)

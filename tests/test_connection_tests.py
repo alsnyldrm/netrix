@@ -4,6 +4,7 @@ import pytest
 from netrix import models as m
 from netrix.discovery import connection_tests as probes
 from netrix.discovery import protocols as protocols
+from netrix.schemas import DeviceInput
 from netrix.worker import claim, execute
 
 
@@ -194,7 +195,10 @@ def test_connection_tests_enforce_scope_and_roles(admin_client, inventory, env):
     assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 403
 
 
-async def test_ssh_probe_authenticates_with_host_verification_without_running_commands(env, monkeypatch):
+@pytest.mark.parametrize("trust", [False, True])
+async def test_ssh_probe_authenticates_with_host_verification_without_running_commands(
+    env, monkeypatch, trust
+):
     class Context:
         async def __aenter__(self):
             return object()  # No command/run method: this checks login only.
@@ -207,12 +211,15 @@ async def test_ssh_probe_authenticates_with_host_verification_without_running_co
 
         assert host == "192.0.2.1" and kwargs["port"] == 2222
         assert kwargs["username"] == "fixture-user" and kwargs["password"] == "fixture-password"
-        assert kwargs["known_hosts"] == settings().known_hosts and kwargs["client_keys"] == []
+        assert (
+            kwargs["known_hosts"] == (None if trust else settings().known_hosts)
+            and kwargs["client_keys"] == []
+        )
         return Context()
 
     monkeypatch.setattr(probes.asyncssh, "connect", connect)
     message = await probes.probe(
-        SimpleNamespace(management_ip="192.0.2.1", config_port=2222),
+        SimpleNamespace(management_ip="192.0.2.1", config_port=2222, ssh_trust_host_key=trust),
         "ssh",
         {"username": "fixture-user", "password": "fixture-password"},
         None,
@@ -301,3 +308,53 @@ async def test_snmp_probe_requires_readable_oid_and_always_closes_dispatcher(mon
             "192.0.2.1", 161, {"username": "fixture", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
         )
     assert engine.closed
+
+
+async def test_saved_ssh_trust_policy_reaches_worker_and_can_be_disabled(
+    admin_client, inventory, monkeypatch
+):
+    device = device_with_profiles(admin_client, inventory, ["ssh"])
+    assert device["ssh_trust_host_key"] is False
+    url = f"/api/v1/devices/{device['id']}"
+    seen = []
+
+    async def probe(target, protocol, secret, collector):
+        assert protocol == "ssh" and secret["username"] == "fixture-user"
+        seen.append(target.ssh_trust_host_key)
+        return "Fixture authenticated"
+
+    monkeypatch.setattr("netrix.worker.probe_connection", probe)
+    for trust in (True, False):
+        payload = {k: v for k, v in device.items() if k in DeviceInput.model_fields}
+        response = admin_client.put(url, json={**payload, "ssh_trust_host_key": trust})
+        assert response.status_code == 200, response.text
+        saved = response.json()
+        assert saved["ssh_trust_host_key"] is trust
+        assert admin_client.get(url).json()["ssh_trust_host_key"] is trust
+        # Updating connection policy requests identity refresh; do not query a device here.
+        assert saved["identification"]["status"] == "queued"
+        admin_client.post("/api/v1/jobs/" + saved["identification"]["job_id"] + "/cancel")
+        job = admin_client.post(url + "/connection-tests", json={"protocol": "ssh"}).json()
+        assert claim() == job["id"]
+        await execute(job["id"])
+        assert admin_client.get("/api/v1/jobs/" + job["id"]).json()["status"] == "succeeded"
+    assert seen == [True, False]
+
+
+async def test_changed_ssh_trust_during_test_invalidates_success(admin_client, inventory, env, monkeypatch):
+    device = device_with_profiles(admin_client, inventory, ["ssh"])
+
+    async def probe(*args):
+        with env() as db:
+            db.get(m.Device, device["id"]).ssh_trust_host_key = True
+            db.commit()
+        return "Success using old trust policy"
+
+    monkeypatch.setattr("netrix.worker.probe_connection", probe)
+    job = admin_client.post(
+        f"/api/v1/devices/{device['id']}/connection-tests", json={"protocol": "ssh"}
+    ).json()
+    claim()
+    await execute(job["id"])
+    result = admin_client.get("/api/v1/jobs/" + job["id"]).json()
+    assert result["status"] == "failed" and result["result"]["error_code"] == "connection_changed"

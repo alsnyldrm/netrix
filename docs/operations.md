@@ -5,14 +5,14 @@
 - Kaynak/Compose: Docker sunucusunda `/opt/netrix`.
 - Secret ortam: `/opt/netrix/.env` (0600). Anahtar ve DB parolası bu dosyadan yüklenir. Uygulama imajına veya public depoya dahil değildir.
 - İlk kurulum anahtarı: `/opt/netrix/secrets/ilk-kurulum.txt` (0600). Tek kullanımlıktır; ilk yönetici oluşturulduktan sonra hesap oluşturma yetkisi kalmaz.
-- SSH host anahtarları: `/opt/netrix/secrets/known_hosts`. İlgili cihazın fingerprint'ini güvenilir cihaz konsolundan doğrulayıp OpenSSH formatında ekleyin. Otomatik güvenme veya doğrulamayı kapatma seçeneği yoktur.
+- SSH host anahtarları: `/opt/netrix/secrets/known_hosts`. İlgili cihazın fingerprint'ini güvenilir cihaz konsolundan doğrulayıp OpenSSH formatında ekleyin. Cihaz ekleme/düzenleme formundaki **Anahtara güven** seçeneği varsayılan olarak kapalıdır. İşaretlenip kaydedilirse yalnızca o cihazın sunduğu SSH anahtarı kabul edilir; bu ayar SSH testi, kimlik okuma ve yedekleme için geçerlidir. Bu modda anahtar dosyayla karşılaştırılmaz veya sabitlenmez; kullanıcı adı/parola doğrulaması devam eder. Seçeneği kaldırıp kaydetmek dosya üzerinden doğrulamayı yeniden etkinleştirir.
 - Nginx site dosyası: `/opt/nginx/conf/conf.d/netrix.conf`; sertifika yolları mevcut wildcard kurulumundan alınır. Host Nginx → `127.0.0.1:8101` → API/arayüz.
 
 İlk ziyaret: `https://netrix.fbu.edu.tr`. Kurulum anahtarı ve kendi belirleyeceğiniz e-posta/parolayla yönetici hesabı açılır. Parola en az 12 karakterdir.
 
 ## Yayın ve kontrol
 
-Cihaz bağlantısını denemek için **Envanter → Cihaz envanteri → satır sonundaki Test** yolunu kullanın. Pencerede yalnızca kayıtlı SNMPv3 veya SSH/API profiline ait seçenekler etkin olur. Protokolü seçip **Test et** düğmesine basın; gerçek cihaz yanıtı, hata ve süre aynı pencerede görünür. Aktif cihazın yetkili kapsamda olması gerekir. SSH için güvenilir host anahtarı, API için doğrulanabilir HTTPS sertifikası ve doğru REST cihaz bilgisi yolu gereklidir. Testi iptal edebilir veya pencereyi kapatıp sonucunu Görev merkezinden izleyebilirsiniz.
+Cihaz bağlantısını denemek için **Envanter → Cihaz envanteri → satır sonundaki Test** yolunu kullanın. Pencerede yalnızca kayıtlı SNMPv3 veya SSH/API profiline ait seçenekler etkin olur. Protokolü seçip **Test et** düğmesine basın; gerçek cihaz yanıtı, hata ve süre aynı pencerede görünür. Aktif cihazın yetkili kapsamda olması gerekir. SSH için güvenilir host anahtarı veya cihazda açık **Anahtara güven** ayarı; API için doğrulanabilir HTTPS sertifikası ve doğru REST cihaz bilgisi yolu gereklidir. Testi iptal edebilir veya pencereyi kapatıp sonucunu Görev merkezinden izleyebilirsiniz.
 
 `netrix` stack'inde yalnızca `netrix-app` servisi ve `netrix` container'ı vardır. API, Redis, worker ve zamanlayıcı aynı container içindedir. `docker compose up -d` container başlangıcında önce migration'ı çalıştırır. API/worker/scheduler migration başarılı olmadan başlamaz. Harici MariaDB kullanıcısının schema oluşturma/güncelleme ve uygulama tablolarında CRUD yetkisi gerekir. Redis dışarıya port açmaz. API yalnızca host loopback portunu açar.
 
@@ -74,7 +74,7 @@ Bu komutlar işletim prosedürüdür; teslim sırasında üretim DB'sinde geri y
 
 - `Access denied`: parola/URL encoding, kullanıcının bağlandığı kaynak host ve hedef DB yetkisini kontrol edin. Uygulama başka uygulama kullanıcılarını veya DB yöneticisi parolasını denemez.
 - Worker heartbeat yok: worker loglarının yalnızca hata sınıfı ve job ID içeren kayıtlarını inceleyin. İşler MariaDB'de kalır; 90 saniye sonra sınırlı tekrar mekanizması devreye girer.
-- SSH doğrulama hatası: cihaz fingerprint'ini konsoldan doğrulayın; `known_hosts` güncelleyin. Anahtar değişimini otomatik kabul etmeyin.
+- SSH host anahtarı doğrulama hatası: cihazı düzenleyip **Anahtara güven** seçeneğini işaretleyerek kaydedin veya cihaz fingerprint'ini konsoldan doğrulayıp `known_hosts` kaydını güncelleyin. Ardından **Test → SSH → Test et** ile tekrar deneyin.
 - SNMP kısmi sonuç: authPriv algoritması, kullanıcı yetkileri, UDP/161 erişimi ve üreticinin MIB desteğini doğrulayın. SNMP yanıtı alınamaması fiziksel cihazın kapalı olduğunu kanıtlamaz.
 - WebSocket kopması: Nginx Upgrade başlıkları, Origin ve oturum geçerliliğini kontrol edin. Arayüz yeniden bağlanmayı dener; 30 saniyelik REST yenilemesi de vardır.
 

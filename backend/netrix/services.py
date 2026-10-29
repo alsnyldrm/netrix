@@ -41,6 +41,7 @@ IDENTITY_CONNECTION_FIELDS = (
     "config_credential_id",
     "snmp_port",
     "config_port",
+    "ssh_trust_host_key",
     "identity_path",
 )
 

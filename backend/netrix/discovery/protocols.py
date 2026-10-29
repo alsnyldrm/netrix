@@ -255,6 +255,11 @@ IDENTITY_COMMANDS = {
 }
 
 
+def ssh_known_hosts(device):
+    """Use the explicitly saved device policy for every SSH operation."""
+    return None if getattr(device, "ssh_trust_host_key", False) is True else settings().known_hosts
+
+
 async def fetch_identity(device, secret):
     """Read only identity output. Never retain raw CLI/API responses containing secrets."""
     async with asyncio.timeout(60):
@@ -280,7 +285,7 @@ async def fetch_identity(device, secret):
             port=device.config_port,
             username=secret["username"],
             password=secret["password"],
-            known_hosts=settings().known_hosts,
+            known_hosts=ssh_known_hosts(device),
             client_keys=[],
             connect_timeout=10,
             login_timeout=15,
@@ -316,7 +321,7 @@ async def fetch_config(device, secret):
             port=device.config_port,
             username=secret["username"],
             password=secret["password"],
-            known_hosts=settings().known_hosts,
+            known_hosts=ssh_known_hosts(device),
             client_keys=[],
             connect_timeout=10,
             login_timeout=15,

@@ -115,7 +115,8 @@ async def test_snmp_failure_is_sanitized_and_dispatcher_closed(monkeypatch):
     assert instance.closed
 
 
-async def test_ssh_adapter_keeps_host_key_verification(env, monkeypatch):
+@pytest.mark.parametrize("trust", [False, True])
+async def test_ssh_adapter_keeps_host_key_verification(env, monkeypatch, trust):
     class Connection:
         async def run(self, command, **kwargs):
             assert command == "show running-config" and kwargs["timeout"] == 60
@@ -129,12 +130,14 @@ async def test_ssh_adapter_keeps_host_key_verification(env, monkeypatch):
             pass
 
     def connect(host, **kwargs):
-        assert kwargs["known_hosts"] == settings().known_hosts
+        assert kwargs["known_hosts"] == (None if trust else settings().known_hosts)
         assert kwargs["client_keys"] == []
         return Context()
 
     monkeypatch.setattr(p.asyncssh, "connect", connect)
-    device = SimpleNamespace(adapter="ios", management_ip="192.0.2.1", config_port=22)
+    device = SimpleNamespace(
+        adapter="ios", management_ip="192.0.2.1", config_port=22, ssh_trust_host_key=trust
+    )
     assert (
         await p.fetch_config(device, {"username": "fixture", "password": "fixture-secret"})
         == "hostname fixture"
@@ -159,7 +162,8 @@ def test_arp_ndp_fdb_candidates_keep_ambiguous_ports():
     assert all(row["ambiguous"] and row["confidence"] < 0.5 for row in candidates)
 
 
-async def test_ssh_identity_uses_read_only_command_and_verified_host(env, monkeypatch):
+@pytest.mark.parametrize("trust", [False, True])
+async def test_ssh_identity_uses_read_only_command_and_verified_host(env, monkeypatch, trust):
     class Connection:
         async def run(self, command, **kwargs):
             assert command == "show version" and kwargs == {"check": True, "timeout": 30}
@@ -174,13 +178,16 @@ async def test_ssh_identity_uses_read_only_command_and_verified_host(env, monkey
 
     def connect(host, **kwargs):
         assert host == "192.0.2.1" and kwargs["port"] == 2222
-        assert kwargs["known_hosts"] == settings().known_hosts and kwargs["client_keys"] == []
+        assert (
+            kwargs["known_hosts"] == (None if trust else settings().known_hosts)
+            and kwargs["client_keys"] == []
+        )
         assert kwargs["connect_timeout"] == 10 and kwargs["login_timeout"] == 15
         return Context()
 
     monkeypatch.setattr(p.asyncssh, "connect", connect)
     result = await p.fetch_identity(
-        SimpleNamespace(adapter="ios", management_ip="192.0.2.1", config_port=2222),
+        SimpleNamespace(adapter="ios", management_ip="192.0.2.1", config_port=2222, ssh_trust_host_key=trust),
         {"username": "fixture", "password": "fixture-secret"},
     )
     assert result == {"vendor": "Cisco", "model": "C9300-48P", "kind": "switch"}

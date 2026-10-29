@@ -6,8 +6,7 @@ import json
 import asyncssh
 import httpx
 
-from ..core import settings
-from .protocols import NetworkError
+from .protocols import NetworkError, ssh_known_hosts
 
 
 async def probe(device, protocol, secret, collector):
@@ -21,11 +20,13 @@ async def probe(device, protocol, secret, collector):
                 port=device.config_port,
                 username=secret["username"],
                 password=secret["password"],
-                known_hosts=settings().known_hosts,
+                known_hosts=ssh_known_hosts(device),
                 client_keys=[],
                 connect_timeout=10,
                 login_timeout=15,
             ):
+                if getattr(device, "ssh_trust_host_key", False):
+                    return "SSH bağlantısı ve kullanıcı doğrulaması başarılı. Host anahtarı cihazın Anahtara güven ayarıyla kabul edildi."
                 return "SSH bağlantısı, host anahtarı ve kullanıcı doğrulaması başarılı."
         if protocol != "rest":
             raise ValueError("Desteklenmeyen test protokolü")
@@ -56,7 +57,7 @@ def failure(exc, protocol):
     if isinstance(exc, asyncssh.HostKeyNotVerifiable):
         return (
             "host_key_failed",
-            "SSH host anahtarı güvenilir kayıtla doğrulanamadı. Host anahtarı kaydını kontrol edin.",
+            "SSH host anahtarı güvenilir kayıtla doğrulanamadı. Cihazı düzenleyerek Anahtara güven seçeneğini işaretleyin veya güvenilir host anahtarı kaydını güncelleyin.",
         )
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code

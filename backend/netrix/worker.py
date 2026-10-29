@@ -286,6 +286,7 @@ async def test_device_connection(job_id, collector):
                 credential.updated_at,
                 target.snmp_port if protocol == "snmpv3" else target.config_port,
                 target.identity_path if protocol == "rest" else "",
+                target.ssh_trust_host_key if protocol == "ssh" else False,
             )
 
         connection = signature(device, profile)

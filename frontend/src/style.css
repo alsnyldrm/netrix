@@ -247,6 +247,7 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 input[type="checkbox"] {
+  margin: 0;
   width: 18px;
   min-height: 18px;
   height: 18px;
@@ -260,14 +261,16 @@ textarea {
   font-size: 14px;
 }
 .checkbox-label {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-content: center;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   min-height: 40px;
   color: var(--text);
 }
 .checkbox-label small {
-  flex-basis: 100%;
+  grid-column: 2;
 }
 
 /* ---------- Düğmeler ---------- */
