@@ -2,6 +2,7 @@
 
 import asyncio
 import ipaddress
+import json
 from typing import Protocol
 
 import asyncssh
@@ -22,6 +23,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
 )
 
 from ..core import settings
+from .identification import rest_identity, snmp_identity, ssh_identity
 
 
 class NetworkError(Exception):
@@ -39,6 +41,9 @@ SYSTEM = {
     "hostname": "1.3.6.1.2.1.1.5.0",
 }
 TABLES = {
+    "entity_class": "1.3.6.1.2.1.47.1.1.1.1.5",
+    "entity_vendor": "1.3.6.1.2.1.47.1.1.1.1.12",
+    "entity_model": "1.3.6.1.2.1.47.1.1.1.1.13",
     "if_name": "1.3.6.1.2.1.31.1.1.1.1",
     "if_descr": "1.3.6.1.2.1.2.2.1.2",
     "if_mac": "1.3.6.1.2.1.2.2.1.6",
@@ -81,6 +86,12 @@ def mac(value):
 
 class SNMPCollector:
     async def collect(self, host, port, secret):
+        return await self._collect(host, port, secret)
+
+    async def identify(self, host, port, secret):
+        return await self._collect(host, port, secret, identity_only=True)
+
+    async def _collect(self, host, port, secret, identity_only=False):
         snmp = SnmpEngine()
         auth = UsmUserData(
             secret["username"],
@@ -112,6 +123,8 @@ class SNMPCollector:
                 system = {key: str(values[i][1]) for i, key in enumerate(SYSTEM)}
                 system["uptime"] = number(values[2][1], 0)
                 for key, oid in TABLES.items():
+                    if identity_only and not key.startswith("entity_"):
+                        continue
                     table = {}
                     async for error, status, _, bindings in walk_cmd(
                         snmp,
@@ -131,6 +144,9 @@ class SNMPCollector:
                             index = str(binding[0])[len(oid) + 1 :]
                             table[index] = binding[1]
                     tables[key] = table
+                system["identity"] = snmp_identity(system, tables)
+                if identity_only:
+                    return system
                 interfaces = []
                 for index, label in tables["if_descr"].items():
                     if not index.isdigit():
@@ -219,6 +235,53 @@ COMMANDS = {
     "fortios": "show full-configuration",
     "linux": "ip -details address show; ip route show table all; ip -6 route show table all",
 }
+
+IDENTITY_COMMANDS = {
+    "ios": "show version",
+    "junos": "show version | no-more",
+    "fortios": "get system status",
+    "linux": (
+        "printf '\\nNETRIX_VENDOR='; cat /sys/class/dmi/id/sys_vendor 2>/dev/null; "
+        "printf '\\nNETRIX_MODEL='; cat /sys/class/dmi/id/product_name 2>/dev/null; "
+        "printf '\\nNETRIX_CHASSIS='; cat /sys/class/dmi/id/chassis_type 2>/dev/null; printf '\\n'"
+    ),
+}
+
+
+async def fetch_identity(device, secret):
+    """Read only identity output. Never retain raw CLI/API responses containing secrets."""
+    async with asyncio.timeout(60):
+        if device.adapter == "rest":
+            host = f"[{device.management_ip}]" if ":" in device.management_ip else device.management_ip
+            async with httpx.AsyncClient(timeout=20, follow_redirects=False, trust_env=False) as client:
+                async with client.stream(
+                    "GET",
+                    f"https://{host}:{device.config_port}{device.identity_path}",
+                    headers={"Authorization": f"Bearer {secret['token']}"},
+                ) as response:
+                    response.raise_for_status()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > 256 * 1024:
+                            raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
+                    return rest_identity(json.loads(body))
+        if device.adapter not in IDENTITY_COMMANDS:
+            raise NetworkError("Kimlik sorgusu adaptörü desteklenmiyor")
+        async with asyncssh.connect(
+            device.management_ip,
+            port=device.config_port,
+            username=secret["username"],
+            password=secret["password"],
+            known_hosts=settings().known_hosts,
+            client_keys=[],
+            connect_timeout=10,
+            login_timeout=15,
+        ) as connection:
+            result = await connection.run(IDENTITY_COMMANDS[device.adapter], check=True, timeout=30)
+            if len(result.stdout.encode()) > 256 * 1024:
+                raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
+            return ssh_identity(device.adapter, result.stdout)
 
 
 async def fetch_config(device, secret):

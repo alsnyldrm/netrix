@@ -32,6 +32,16 @@ RESOURCES = {
     "users": (m.User, s.UserInput),
 }
 HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key"}
+IDENTITY_CONNECTION_FIELDS = (
+    "management_ip",
+    "vrf_id",
+    "adapter",
+    "snmp_credential_id",
+    "config_credential_id",
+    "snmp_port",
+    "config_port",
+    "identity_path",
+)
 
 
 def serialize(obj):
@@ -145,6 +155,13 @@ def save_resource(db, name, payload, user, row_id=None):
     value = schema.model_validate(payload)
     data = value.model_dump()
     row = get(db, model, row_id) if row_id else model()
+    identify_changed = name == "devices" and (
+        not row_id
+        or any(
+            getattr(row, key) != data[key]
+            for key in (*IDENTITY_CONNECTION_FIELDS, "vendor", "model", "kind", "lifecycle_status")
+        )
+    )
     validate_relations(db, name, data, row_id)
     if name == "credentials":
         if row_id and row.protocol != data["protocol"]:
@@ -189,9 +206,25 @@ def save_resource(db, name, payload, user, row_id=None):
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
+    identification = None
+    if identify_changed:
+        try:
+            job = enqueue(db, "identify", row.id, user, commit=False)
+            identification = {
+                "status": "queued",
+                "job_id": job.id,
+                "message": "Cihaz bilgileri arka planda sorgulanıyor. Görev merkezinden takip edebilirsiniz.",
+            }
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            identification = {"status": "skipped", "message": str(exc.detail) + ". Manuel bilgiler korundu."}
     db.commit()
     publish()
-    return serialize(row)
+    result = serialize(row)
+    if identification:
+        result["identification"] = identification
+    return result
 
 
 def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
@@ -278,8 +311,8 @@ def authorized_device(db, device):
         raise ValueError("Cihaz etkin ve yetkilendirilmiş bir keşif kapsamında olmalı")
 
 
-def enqueue(db, kind, target_id, user=None):
-    if kind not in ("discovery", "backup", "monitor"):
+def enqueue(db, kind, target_id, user=None, *, commit=True):
+    if kind not in ("discovery", "backup", "monitor", "identify"):
         raise HTTPException(422, "Geçersiz görev türü")
     if kind == "discovery":
         target = get(db, m.Scope, target_id)
@@ -291,7 +324,12 @@ def enqueue(db, kind, target_id, user=None):
             authorized_device(db, target)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        if not (target.config_credential_id if kind == "backup" else target.snmp_credential_id):
+        credential_id = (
+            (target.snmp_credential_id or target.config_credential_id)
+            if kind == "identify"
+            else (target.config_credential_id if kind == "backup" else target.snmp_credential_id)
+        )
+        if not credential_id:
             raise HTTPException(422, "Görev için erişim profili atanmalı")
     key = f"{kind}:{target_id}"
     # Serialize submitters on the target, including scheduled and API requests.
@@ -303,8 +341,9 @@ def enqueue(db, kind, target_id, user=None):
     db.add(job)
     db.flush()
     audit(db, user, "enqueue", "jobs", job.id, f"{kind} görevi kuyruğa alındı")
-    db.commit()
-    publish()
+    if commit:
+        db.commit()
+        publish()
     return job
 
 

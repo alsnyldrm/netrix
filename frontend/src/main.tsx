@@ -141,13 +141,12 @@ const PAGES: Page[] = [
       f("management_ip", "Yönetim IP adresi", { required: true }),
       ref("vrf_id", "VRF", "vrfs", true),
       ref("site_id", "Lokasyon", "sites"),
-      options("kind", "Cihaz türü", [
-        "switch",
-        "router",
-        "firewall",
-        "server",
+      options(
+        "kind",
+        "Cihaz türü",
+        ["switch", "router", "firewall", "server", "other"],
         "other",
-      ]),
+      ),
       f("vendor", "Üretici"),
       f("model", "Model"),
       options("lifecycle_status", "Yaşam döngüsü", [
@@ -172,6 +171,10 @@ const PAGES: Page[] = [
         hint: "REST adaptörü için HTTPS portunu girin.",
       }),
       f("config_path", "REST konfigürasyon yolu", { default: "/api/config" }),
+      f("identity_path", "REST cihaz bilgisi yolu", {
+        default: "/api/system",
+        hint: "Üretici, model ve cihaz türünü döndüren JSON endpoint'i. Cihazınızın API yoluna göre düzenleyin.",
+      }),
       f("monitoring_enabled", "Zamanlanmış izleme", {
         type: "checkbox",
         default: false,
@@ -611,6 +614,7 @@ const LABELS: Record<string, string> = {
   management_ip_change: "Yönetim adresi",
   link_observed: "Komşuluk gözlemi",
   device_discovered: "Yeni cihaz",
+  device_identity_change: "Cihaz bilgileri güncellendi",
   port_change: "Port durumu",
   alert_firing: "Yeni alarm",
   alert_resolved: "Alarm iyileşmesi",
@@ -645,6 +649,7 @@ const LABELS: Record<string, string> = {
   discovery: "Keşif",
   backup: "Yedekleme",
   monitor: "İzleme",
+  identify: "Cihaz bilgisi sorgusu",
   availability: "Erişilebilirlik",
   utilization: "Port kullanımı (%)",
   config_change: "Konfigürasyon değişimi",
@@ -976,7 +981,7 @@ function ResourceForm({
   row?: Row;
   refs: Record<string, Row[]>;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (saved: Row) => void;
 }) {
   const [values, setValues] = useState<Row>(() =>
     Object.fromEntries(
@@ -996,25 +1001,32 @@ function ResourceForm({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const fields = (page.fields || []).filter(
-    (field) =>
-      page.key !== "credentials" ||
-      ![
-        "username",
-        "password",
-        "auth_key",
-        "priv_key",
-        "auth_protocol",
-        "token",
-      ].includes(field.key) ||
-      (values.protocol === "snmpv3" &&
-        ["username", "auth_key", "priv_key", "auth_protocol"].includes(
-          field.key,
-        )) ||
-      (values.protocol === "ssh" &&
-        ["username", "password"].includes(field.key)) ||
-      (values.protocol === "rest" && field.key === "token"),
-  );
+  const fields = (page.fields || [])
+    .filter(
+      (field) =>
+        page.key !== "devices" ||
+        !["identity_path", "config_path"].includes(field.key) ||
+        values.adapter === "rest",
+    )
+    .filter(
+      (field) =>
+        page.key !== "credentials" ||
+        ![
+          "username",
+          "password",
+          "auth_key",
+          "priv_key",
+          "auth_protocol",
+          "token",
+        ].includes(field.key) ||
+        (values.protocol === "snmpv3" &&
+          ["username", "auth_key", "priv_key", "auth_protocol"].includes(
+            field.key,
+          )) ||
+        (values.protocol === "ssh" &&
+          ["username", "password"].includes(field.key)) ||
+        (values.protocol === "rest" && field.key === "token"),
+    );
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -1044,12 +1056,12 @@ function ResourceForm({
         }
         data.secret = secret;
       }
-      await api(
+      const saved = await api(
         "/" + page.resource + (row ? "/" + row.id : ""),
         row ? "PUT" : "POST",
         data,
       );
-      onSaved();
+      onSaved(saved);
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -1063,6 +1075,17 @@ function ResourceForm({
       onClose={onClose}
     >
       <form onSubmit={submit}>
+        {page.key === "devices" && (
+          <div className="info-note">
+            <Info size={20} />
+            <p>
+              Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMPv3 veya
+              SSH/API profiliyle yetkili kapsam içinde sorgulanır. Cihazdan
+              okunabilen alanlar güncellenir; okunamayan alanlarda girdiğiniz
+              bilgiler korunur.
+            </p>
+          </div>
+        )}
         <div className="form-grid">
           {fields.map((field) => (
             <label
@@ -2148,7 +2171,11 @@ function App() {
   const runJob = async (kind: string, target_id: string) => {
     try {
       await api("/jobs", "POST", { kind, target_id });
-      notify("Görev kuyruğa alındı. Görev merkezinden takip edebilirsiniz.");
+      notify(
+        kind === "identify"
+          ? "Cihaz bilgileri sorgulanıyor. Okunamayan alanlarda mevcut bilgiler korunacak. Görev merkezinden takip edebilirsiniz."
+          : "Görev kuyruğa alındı. Görev merkezinden takip edebilirsiniz.",
+      );
       reload();
     } catch (e: any) {
       notify(e.message);
@@ -2235,18 +2262,29 @@ function App() {
       ? "—"
       : tag(String(value));
   };
-  const inspectDevice = async (row: Row) => {
+  const inspectDevice = (row: Row) => {
     setDetail({ ...row, ports: [], observations: [] });
-    try {
-      const [ports, obs] = await Promise.all([
-        api("/interfaces?device_id=" + row.id + "&limit=200"),
-        api("/observations?device_id=" + row.id + "&limit=5"),
-      ]);
-      setDetail({ ...row, ports: ports.items, observations: obs.items });
-    } catch (e: any) {
-      notify(e.message);
-    }
   };
+  useEffect(() => {
+    if (!detail?.id || !user) return;
+    let active = true;
+    const id = detail.id;
+    Promise.all([
+      api("/devices/" + id),
+      api("/interfaces?device_id=" + id + "&limit=200"),
+      api("/observations?device_id=" + id + "&limit=5"),
+    ])
+      .then(([device, ports, obs]) => {
+        if (active)
+          setDetail({ ...device, ports: ports.items, observations: obs.items });
+      })
+      .catch((e: Error) => {
+        if (active) notify(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [detail?.id, refresh, user, notify]);
   if (boot)
     return (
       <div className="boot-screen" role="status">
@@ -2929,9 +2967,11 @@ function App() {
           row={form.row}
           refs={refs}
           onClose={() => setForm(null)}
-          onSaved={() => {
+          onSaved={(saved) => {
             reload();
-            notify("Kayıt kaydedildi.");
+            notify(
+              "Kayıt kaydedildi. " + (saved.identification?.message || ""),
+            );
           }}
         />
       )}
@@ -3017,6 +3057,19 @@ function App() {
                 <>
                   <button
                     className="secondary"
+                    disabled={
+                      detail.lifecycle_status !== "active" ||
+                      !(
+                        detail.snmp_credential_id || detail.config_credential_id
+                      )
+                    }
+                    onClick={() => runJob("identify", detail.id)}
+                  >
+                    <ArrowsClockwise size={18} />
+                    Bilgileri cihazdan al
+                  </button>
+                  <button
+                    className="secondary"
                     onClick={() => runJob("monitor", detail.id)}
                   >
                     <Waveform size={18} />
@@ -3087,13 +3140,44 @@ function App() {
             {detail.observations.length ? (
               <div className="evidence">
                 <span className="eyebrow">
-                  {date(detail.observations[0].created_at)} · SNMPv3
+                  {date(detail.observations[0].created_at)} ·{" "}
+                  {detail.observations[0].source === "identity"
+                    ? "Cihaz bilgisi sorgusu"
+                    : detail.observations[0].source?.toUpperCase()}
                 </span>
-                <p>
-                  <b>Gözlemlenen hostname:</b>{" "}
-                  {detail.observations[0].evidence.hostname || "—"}
-                </p>
-                <p>{detail.observations[0].evidence.sys_description}</p>
+                {detail.observations[0].source === "identity" ? (
+                  (
+                    [
+                      ["vendor", "Üretici"],
+                      ["model", "Model"],
+                      ["kind", "Cihaz türü"],
+                    ] as const
+                  ).map(([key, title]) => (
+                    <p key={key}>
+                      <b>{title}:</b>{" "}
+                      {detail.observations[0].evidence.identity?.[key]
+                        ? tag(detail.observations[0].evidence.identity[key])
+                        : "Okunamadı; mevcut değer korundu."}
+                      {detail.observations[0].evidence.field_sources?.[key] && (
+                        <span className="muted">
+                          {" "}
+                          ·{" "}
+                          {detail.observations[0].evidence.field_sources[
+                            key
+                          ].toUpperCase()}
+                        </span>
+                      )}
+                    </p>
+                  ))
+                ) : (
+                  <>
+                    <p>
+                      <b>Gözlemlenen hostname:</b>{" "}
+                      {detail.observations[0].evidence.hostname || "—"}
+                    </p>
+                    <p>{detail.observations[0].evidence.sys_description}</p>
+                  </>
+                )}
                 <p className="muted">
                   Yönetilen cihaz adı, gözlemlenen hostname değiştiğinde
                   otomatik değiştirilmez.

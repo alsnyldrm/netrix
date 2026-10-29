@@ -8,6 +8,11 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class JobInput(Input):
+    kind: Literal["discovery", "backup", "monitor", "identify"]
+    target_id: str = Field(min_length=1, max_length=36)
+
+
 class SiteInput(Input):
     name: str = Field(min_length=1, max_length=120)
     code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
@@ -44,7 +49,7 @@ class DeviceInput(Input):
     site_id: str | None = None
     vendor: str = Field(default="", max_length=80)
     model: str = Field(default="", max_length=100)
-    kind: Literal["switch", "router", "firewall", "server", "other"] = "switch"
+    kind: Literal["switch", "router", "firewall", "server", "other"] = "other"
     lifecycle_status: Literal["planned", "active", "maintenance", "retired"] = "active"
     adapter: Literal["ios", "junos", "fortios", "linux", "rest"] = "ios"
     snmp_credential_id: str | None = None
@@ -52,6 +57,7 @@ class DeviceInput(Input):
     snmp_port: int = Field(default=161, ge=1, le=65535)
     config_port: int = Field(default=22, ge=1, le=65535)
     config_path: str = Field(default="/api/config", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
+    identity_path: str = Field(default="/api/system", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
     monitoring_enabled: bool = False
     monitor_interval: int = Field(default=300, ge=60, le=86400)
     backup_interval: int = Field(default=0, ge=0, le=2592000)

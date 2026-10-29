@@ -66,6 +66,12 @@ with sync_playwright() as p:
     )
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     expect(page.get_by_role("dialog")).to_be_visible()
+    expect(page.get_by_text("Kaydettiğinizde üretici, cihaz türü ve model", exact=False)).to_be_visible()
+    expect(page.get_by_role("combobox", name="Cihaz türü", exact=True)).to_have_value("other")
+    expect(page.get_by_label("REST cihaz bilgisi yolu")).to_have_count(0)
+    page.get_by_label("Konfigürasyon adaptörü").select_option("rest")
+    expect(page.get_by_label("REST cihaz bilgisi yolu")).to_have_value("/api/system")
+    page.get_by_label("Konfigürasyon adaptörü").select_option("ios")
     # Text selection may end over the backdrop; it must not discard the form.
     for label, value in [
         ("Cihaz adı", "iputils-ping"),
@@ -99,10 +105,37 @@ with sync_playwright() as p:
     page.get_by_label("Cihaz adı").fill(fixture_name)
     page.get_by_label("Yönetim IP adresi").fill(fixture_ip)
     page.get_by_role("combobox", name="VRF *", exact=True).select_option(label="Global")
-    page.get_by_role("button", name="Kaydı kaydet").click()
+    with page.expect_response(
+        lambda response: response.url.endswith("/api/v1/devices") and response.request.method == "POST"
+    ) as saved_response:
+        page.get_by_role("button", name="Kaydı kaydet").click()
+    saved_device = saved_response.value.json()
+    assert saved_device["identification"]["status"] == "skipped"
     expect(page.get_by_role("button", name=fixture_name + " Model belirtilmedi")).to_be_visible()
     page.get_by_role("button", name=fixture_name + " ayrıntıları").click()
     expect(page.get_by_role("heading", name=fixture_name, exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Bilgileri cihazdan al", exact=True)).to_be_disabled()
+    # Mock an authorized device result locally to verify refreshes update the open detail window.
+    identity_device = dict(saved_device, snmp_credential_id="browser-profile")
+    device_url = BASE + "/api/v1/devices/" + saved_device["id"]
+
+    def identity_detail(route):
+        route.fulfill(json=identity_device)
+
+    def identity_job(route):
+        assert route.request.post_data_json == {"kind": "identify", "target_id": saved_device["id"]}
+        identity_device.update(vendor="Cisco", model="C9300-48P", kind="switch")
+        route.fulfill(status=202, json={"id": "browser-identity-job", "status": "queued"})
+
+    page.route(device_url, identity_detail)
+    page.route(BASE + "/api/v1/jobs", identity_job)
+    # A real update notification can arrive while the modal makes the toolbar inert.
+    page.get_by_role("button", name="Verileri yenile", exact=True).dispatch_event("click")
+    expect(page.get_by_role("button", name="Bilgileri cihazdan al", exact=True)).to_be_enabled()
+    page.get_by_role("button", name="Bilgileri cihazdan al", exact=True).click()
+    expect(page.locator(".device-summary")).to_contain_text("Cisco · C9300-48P")
+    page.unroute(device_url, identity_detail)
+    page.unroute(BASE + "/api/v1/jobs", identity_job)
     page.get_by_role("button", name="Pencereyi kapat").click()
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     page.get_by_label("Cihaz adı").fill("Cancelled draft")
@@ -203,6 +236,8 @@ with sync_playwright() as p:
                     "mobile group toggles",
                     "text selection ending outside dialog preserves form",
                     "backdrop click preserves draft and explicit cancel closes",
+                    "identity form hints and REST endpoint",
+                    "identity job and live device detail update",
                 ],
                 "console_errors": errors,
             }

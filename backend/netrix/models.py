@@ -98,7 +98,7 @@ class Device(Entity, Base):
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     vendor: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
-    kind: Mapped[str] = mapped_column(String(20), default="switch")
+    kind: Mapped[str] = mapped_column(String(20), default="other")
     lifecycle_status: Mapped[str] = mapped_column(String(20), default="active")
     reachability: Mapped[str] = mapped_column(String(20), default="unknown")
     adapter: Mapped[str] = mapped_column(String(20), default="ios")
@@ -111,6 +111,9 @@ class Device(Entity, Base):
     snmp_port: Mapped[int] = mapped_column(Integer, default=161)
     config_port: Mapped[int] = mapped_column(Integer, default=22)
     config_path: Mapped[str] = mapped_column(String(200), default="/api/config")
+    identity_path: Mapped[str] = mapped_column(
+        String(200), default="/api/system", server_default="/api/system"
+    )
     monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     monitor_interval: Mapped[int] = mapped_column(Integer, default=300)
     backup_interval: Mapped[int] = mapped_column(Integer, default=0)

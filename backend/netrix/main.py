@@ -340,8 +340,8 @@ def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator
 
 
 @app.post(P + "/jobs", status_code=202)
-def start_job(payload: dict, user=Depends(operator), db=Depends(db_session)):
-    return svc.serialize(svc.enqueue(db, payload.get("kind"), payload.get("target_id"), user))
+def start_job(payload: s.JobInput, user=Depends(operator), db=Depends(db_session)):
+    return svc.serialize(svc.enqueue(db, payload.kind, payload.target_id, user))
 
 
 @app.post(P + "/jobs/{id}/cancel")

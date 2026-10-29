@@ -2,6 +2,14 @@
 
 Bu kayıt çalıştırılan kontrolleri ve kapsam sınırlarını ayırır. Gerçek ağ cihazlarında SNMP/SSH/REST toplama testi yapılmadı; verilen DB/Docker/Nginx altyapı bağlantıları test edildi.
 
+## Otomatik üretici, model ve cihaz türü (30 Ekim 2026)
+
+- Cihaz kaydı/değişikliğiyle atomik `identify` işi, SNMPv3 → SSH/API tamamlama, alan başına güncelleme, bilinmeyen/boş sonuçlarda manuel değerleri koruma, kaynak/gözlem ve değişiklik geçmişi uygulandı. Kapsam/profil yokluğunda cihaz kaydı korunuyor ve sorgu başlatılmıyor. Mevcut cihazlar dağıtım sırasında topluca sorgulanmıyor.
+- `pytest -q`: 81 test geçti; mevcut Starlette/httpx deprecation uyarısı devam ediyor. Sahte cihaz yanıtlarıyla SNMP şasi/SFP ayrımı, belirsiz modeller, IOS/Junos/FortiOS/Linux/REST ayrıştırma, protokol tamamlama, timeout/yeniden deneme, iptal, tekrar teslim, sorgu sırasında bağlantı değişimi, sırların yanıtlardan uzak tutulması ve manuel alanların korunması doğrulandı. SSH host anahtarı ve HTTPS doğrulaması, yönlendirme yasağı, IPv6/özel port ve 256 KiB yanıt sınırı kontrol edildi.
+- Atılabilir MariaDB 11.8.3 / `netrix_test` üzerinde Alembic upgrade → downgrade → upgrade ve şema kontrolü geçti. Yeni migration ayrıca veri içeren tabloda geri/ileri çalıştırıldı; mevcut üretici/model/tür değerleri ve yeni REST bilgi yolu varsayılanı doğrulandı. MariaDB kısıt/UTC/kilit entegrasyon kontrolleri geçti; test container'ı ve izole ağı kaldırıldı.
+- TypeScript/Vite, Prettier, Ruff, `git diff --check`, 20 ekran/4 boyut tarayıcı kontrolü, arka plan yenileme regresyonu ve mevcut beş ekranlık axe-core taraması geçti. Tarayıcıda REST bilgi yolu, manuel alanlar, yeniden sorgulama düğmesi ve açık cihaz ayrıntılarının gelen verilerle güncellenmesi yerel fixture/sahte yanıtlarla doğrulandı.
+- Üretim migration'ından önce `/opt/netrix/backups/before-identity-20261030.sql` yedeği alındı; dosya boş değil ve izinleri 0600. Gerçek ağ cihazlarında yeni kimlik komutları çalıştırılmadı; üretici/firmware uyumluluğu bu testlerle kanıtlanmış sayılmaz.
+
 ## Veri girişinde pencerenin kapanması (30 Ekim 2026)
 
 - Ortak diyalog bileşeninde dış alana tıklayarak kapatma kaldırıldı; açık kapatma düğmeleri ve Escape kullanılmaya devam ediyor.

@@ -12,10 +12,12 @@ from . import models as m
 from .alerting.engine import evaluate
 from .core import now, redis_client, session_factory
 from .discovery.correlation import correlate
-from .discovery.protocols import NetworkError, SNMPCollector, fetch_config
+from .discovery.identification import normalize, snmp_identity
+from .discovery.protocols import NetworkError, SNMPCollector, fetch_config, fetch_identity
 from .identity.security import encrypt, secret_data
+from .inventory.identity import apply_identity
 from .monitoring.rates import calculate_rate
-from .services import authorized_device, get, in_scope, publish
+from .services import IDENTITY_CONNECTION_FIELDS, authorized_device, get, in_scope, publish
 
 log = logging.getLogger("netrix.worker")
 stop = False
@@ -114,9 +116,11 @@ def sync_interfaces(db, device, collected, job_id):
 
 
 def persist_collection(db, device, collected, job):
+    identity = normalize(collected.get("identity")) or snmp_identity(collected, {})
+    apply_identity(db, device, identity, job.id, "snmpv3")
     prior = db.scalar(
         select(m.Observation)
-        .where(m.Observation.device_id == device.id)
+        .where(m.Observation.device_id == device.id, m.Observation.source == "snmpv3")
         .order_by(m.Observation.created_at.desc())
         .limit(1)
     )
@@ -130,6 +134,7 @@ def persist_collection(db, device, collected, job):
             )
         )
     evidence = {key: value for key, value in collected.items() if key != "interfaces"}
+    evidence["identity"] = identity
     evidence["port_candidates"] = correlate(collected.get("tables", {}), collected.get("neighbors", []))
     db.add(
         m.Observation(
@@ -172,6 +177,79 @@ def persist_collection(db, device, collected, job):
         link.updated_at = now()
     evaluate(db, device, "availability", 1)
     evaluate(db, device, "no_data", 0)
+
+
+async def identify_device(job_id, collector):
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        device = get(db, m.Device, job.target_id)
+        authorized_device(db, device)
+        if job.cancel_requested:
+            raise Cancelled()
+        existing = db.scalar(select(m.Observation).where(m.Observation.job_id == job_id))
+        if existing:
+            return {"fields": existing.evidence.get("identity", {}), "recovered": True}
+        connection = tuple(getattr(device, key) for key in IDENTITY_CONNECTION_FIELDS)
+        credentials = []
+        for profile in (device.snmp_credential_id, device.config_credential_id):
+            if profile:
+                credential = get(db, m.Credential, profile)
+                credentials.append(
+                    (credential.protocol, secret_data(credential), credential.id, credential.updated_at)
+                )
+    fields, sources, attempts = {}, {}, []
+    for protocol, secret, _, _ in credentials:
+        if len(fields) == 3:
+            break
+        try:
+            if protocol == "snmpv3":
+                collect = getattr(collector, "identify", collector.collect)
+                response = await collect(device.management_ip, device.snmp_port, secret)
+                values = normalize(response.get("identity")) or snmp_identity(response, {})
+            else:
+                values = normalize(await fetch_identity(device, secret))
+            attempts.append({"protocol": protocol, "status": "read", "fields": sorted(values)})
+            for key, value in values.items():
+                if key not in fields:
+                    fields[key], sources[key] = value, protocol
+        except Exception as exc:
+            # Keep failures useful without retaining device output, credentials or exception text.
+            attempts.append({"protocol": protocol, "status": "failed", "error_class": type(exc).__name__})
+    if attempts and all(attempt["status"] == "failed" for attempt in attempts):
+        raise NetworkError("Cihaz kimlik bilgileri okunamadı")
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        current = db.scalar(select(m.Device).where(m.Device.id == device.id).with_for_update())
+        authorized_device(db, current)
+        if job.cancel_requested:
+            raise Cancelled()
+        if connection != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) or any(
+            get(db, m.Credential, profile_id).updated_at != updated
+            for _, _, profile_id, updated in credentials
+        ):
+            raise NetworkError("Bağlantı bilgileri değişti; kimlik sorgusu yeniden denenmeli")
+        apply_identity(db, current, fields, job.id, sources)
+        db.add(
+            m.Observation(
+                device_id=current.id,
+                job_id=job.id,
+                address=current.management_ip,
+                source="identity",
+                evidence={"identity": fields, "field_sources": sources, "attempts": attempts},
+                confidence=0.9,
+            )
+        )
+        if fields:
+            current.last_seen_at, current.reachability = now(), "reachable"
+        job.progress, job.total = 1, 1
+        db.commit()
+        publish()
+    return {
+        "fields": fields,
+        "missing_fields": sorted({"vendor", "model", "kind"} - fields.keys()),
+        "field_sources": sources,
+        "attempts": attempts,
+    }
 
 
 async def discover(job_id, collector):
@@ -381,7 +459,9 @@ async def execute(job_id, collector=None):
     with session_factory()() as db:
         kind = get(db, m.Job, job_id).kind
     task = asyncio.create_task(
-        discover(job_id, collector) if kind == "discovery" else collect_device(job_id, collector)
+        discover(job_id, collector)
+        if kind == "discovery"
+        else (identify_device(job_id, collector) if kind == "identify" else collect_device(job_id, collector))
     )
     try:
         while not task.done():
@@ -404,6 +484,10 @@ async def execute(job_id, collector=None):
             job = get(db, m.Job, job_id)
             if job.cancel_requested:
                 job.status = "cancelled"
+            elif kind == "identify":
+                count = len(result.get("fields", {}))
+                job.status = "succeeded" if count == 3 else "partial" if count else "failed"
+                job.error = "" if count == 3 else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
             else:
