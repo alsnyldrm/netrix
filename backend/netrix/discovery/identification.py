@@ -154,6 +154,27 @@ def ssh_identity(adapter, text):
             fields["model"] = match[1].strip()
             if re.search(r"\bAruba\s*72\d\d\b", match[1], re.I):
                 fields["vendor"] = "Aruba"
+    elif adapter == "hp_1950":
+        # Read product descriptions, never infer a model from the selected adapter or sysname.
+        models = set(
+            re.findall(
+                r"^\s*((?:HP|HPE)\s+(?:OfficeConnect\s+)?(?:V?19\d\d)[^\r\n]*?)\s+uptime is\b",
+                text,
+                re.M | re.I,
+            )
+        )
+        models.update(
+            re.findall(
+                r"^\s*Device description\s*:\s*((?:HP|HPE)\s+(?:OfficeConnect\s+)?V?19\d\d[^\r\n]*)",
+                text,
+                re.M | re.I,
+            )
+        )
+        models = {value.strip() for value in models}
+        if len(models) == 1:
+            fields.update(model=models.pop(), kind="switch", vendor="HPE")
+        elif re.search(r"\b(?:HP|HPE|Hewlett[ -]Packard)\b", text):
+            fields["vendor"] = "HPE"
     elif adapter == "linux":
         for field in ("vendor", "model"):
             match = re.search(rf"^NETRIX_{field.upper()}=([^\r\n]*)", text, re.M)

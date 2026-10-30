@@ -52,6 +52,7 @@ TEMPLATE_FIELDS = {key: FIELDS[key] for key in REQUIRED} | FIELDS
 TEMPLATE_FIELDS["adapter"] = "Konfigürasyon adaptörü"
 SECRETS = {
     "ssh_password": "SSH parolası",
+    "ssh_cli_password": "Genişletilmiş CLI parolası",
     "api_token": "API token",
     "snmp_auth_key": "SNMP kimlik doğrulama anahtarı",
     "snmp_priv_key": "SNMP gizlilik anahtarı",
@@ -74,6 +75,7 @@ ENUMS = {
         "aruba_2900": "Aruba 2900 · ArubaOS-Switch",
         "aruba_6100": "Aruba 61xx · AOS-CX",
         "aruba_7200": "Aruba 72xx Controller · ArubaOS",
+        "hp_1950": "HP 1950 · Comware 7",
         "linux": "linux",
         "rest": "rest",
     },

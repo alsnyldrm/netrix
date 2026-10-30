@@ -3,7 +3,7 @@
 import re
 
 SSH_BACKUP_ADAPTERS = frozenset(
-    {"ios", "junos", "fortios", "linux", "aruba_5400", "aruba_2900", "aruba_6100", "aruba_7200"}
+    {"ios", "junos", "fortios", "linux", "aruba_5400", "aruba_2900", "aruba_6100", "aruba_7200", "hp_1950"}
 )
 MAX_CONFIG_BYTES = 4 * 1024 * 1024
 
@@ -13,6 +13,11 @@ class BackupError(ValueError):
         "cli_rejected": "SSH yanıtı konfigürasyon yerine komut hatası içeriyor. Cihaza uygun adaptörü ve SSH hesabının komut yetkisini kontrol edin; yedek kaydedilmedi.",
         "empty_config": "Cihaz boş konfigürasyon döndürdü; yedek kaydedilmedi.",
         "invalid_saved_config": "Bu eski kayıt konfigürasyon yerine SSH komut hatası içeriyor. Cihazın adaptörünü düzeltip yeniden yedek alın.",
+        "comware_cli_required": "HP 1950 sınırlı CLI oturumunda. SSH erişim profilindeki Genişletilmiş CLI parolası alanını doldurun veya tam CLI okuma yetkisi olan hesap kullanın; yedek kaydedilmedi.",
+        "comware_cli_auth": "HP 1950 genişletilmiş CLI erişimi doğrulanamadı. SSH profilindeki Genişletilmiş CLI parolasını ve cihaz yetkisini kontrol edin; yedek kaydedilmedi.",
+        "comware_command": "HP 1950 Comware komutu kullanılamıyor. Modelin tam CLI desteğini ve SSH hesabının okuma yetkisini kontrol edin. Sınırlı CLI ile yedek alınamaz; yedek kaydedilmedi.",
+        "comware_paging": "HP 1950 yanıtı sayfalandı; tam çıktı alınamadığı için yedek kaydedilmedi. Oturumun screen-length disable komutunu desteklemesi gerekir.",
+        "comware_incomplete": "HP 1950 Comware yanıtı eksik veya beklenen biçimde değil; yedek kaydedilmedi. Adaptörü ve cihazın CLI desteğini kontrol edin.",
         "aruba_privilege": "Aruba hesabı Manager/Enable (#) yetkisinde oturum açmalı. Cihazdaki SSH hesabının okuma yetkisini kontrol edin.",
         "aruba_command": "Aruba komutu reddedildi veya çıktı sayfalandı. Adaptör seçimini ve hesabın komut yetkilerini kontrol edin; yedek kaydedilmedi.",
         "aruba_incomplete": "Aruba yanıtı eksik veya geçerli bir konfigürasyon değil; yedek kaydedilmedi.",

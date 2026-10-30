@@ -72,6 +72,7 @@ class DeviceInput(Input):
         "aruba_2900",
         "aruba_6100",
         "aruba_7200",
+        "hp_1950",
     ] = "ios"
     snmp_credential_id: str | None = None
     config_credential_id: str | None = None
@@ -172,11 +173,19 @@ class SecretInput(Input):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
     username: str = Field(default="", max_length=120)
     password: str = Field(default="", max_length=2000)
+    cli_password: str = Field(default="", max_length=2000)
     auth_key: str = Field(default="", max_length=200)
     priv_key: str = Field(default="", max_length=200)
     auth_protocol: Literal["sha256", "sha1"] = "sha256"
     community: str = Field(default="", max_length=255)
     token: str = Field(default="", max_length=2000)
+
+    @field_validator("cli_password")
+    @classmethod
+    def terminal_secret(cls, value):
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("Genişletilmiş CLI parolası kontrol karakteri içeremez")
+        return value
 
 
 class CredentialInput(Input):
@@ -186,6 +195,8 @@ class CredentialInput(Input):
 
     @model_validator(mode="after")
     def valid(self):
+        if self.protocol != "ssh" and self.secret.cli_password:
+            raise ValueError("Genişletilmiş CLI parolası yalnızca SSH profili içindir")
         if self.protocol == "snmpv3" and (
             not self.secret.username or len(self.secret.auth_key) < 8 or len(self.secret.priv_key) < 8
         ):

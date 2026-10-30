@@ -28,6 +28,7 @@ from ..configuration.fortios import fetch_fortios_backup
 from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError, validate_cli_output
 from ..core import settings
 from .aruba import ARUBA_ADAPTERS, read_aruba
+from .comware import read_comware
 from .identification import rest_identity, snmp_identity, ssh_identity
 from .neighbors import parse_neighbors
 
@@ -298,7 +299,11 @@ async def fetch_identity(device, secret):
                         if len(body) > 256 * 1024:
                             raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
                     return rest_identity(json.loads(body))
-        if device.adapter not in IDENTITY_COMMANDS and device.adapter not in ARUBA_ADAPTERS:
+        if (
+            device.adapter not in IDENTITY_COMMANDS
+            and device.adapter not in ARUBA_ADAPTERS
+            and device.adapter != "hp_1950"
+        ):
             raise NetworkError("Kimlik sorgusu adaptörü desteklenmiyor")
         async with asyncssh.connect(
             device.management_ip,
@@ -312,6 +317,11 @@ async def fetch_identity(device, secret):
         ) as connection:
             if device.adapter in ARUBA_ADAPTERS:
                 return ssh_identity(device.adapter, await read_aruba(connection, device.adapter))
+            if device.adapter == "hp_1950":
+                return ssh_identity(
+                    device.adapter,
+                    await read_comware(connection, cli_password=secret.get("cli_password", "")),
+                )
             result = await connection.run(IDENTITY_COMMANDS[device.adapter], check=True, timeout=30)
             if len(result.stdout.encode()) > 256 * 1024:
                 raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
@@ -336,6 +346,10 @@ async def fetch_config(device, secret):
                 return await fetch_fortios_backup(connection)
             if device.adapter in ARUBA_ADAPTERS:
                 return await read_aruba(connection, device.adapter, backup=True)
+            if device.adapter == "hp_1950":
+                return await read_comware(
+                    connection, backup=True, cli_password=secret.get("cli_password", "")
+                )
             # A fresh read-only session; no device configuration commands.
             result = await connection.run(COMMANDS[device.adapter], check=True, timeout=60)
             validate_cli_output(result.stdout)

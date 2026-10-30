@@ -173,6 +173,7 @@ export const PAGES: Page[] = [
         "aruba_2900",
         "aruba_6100",
         "aruba_7200",
+        "hp_1950",
         "linux",
         "rest",
       ]),
@@ -587,6 +588,10 @@ export const PAGES: Page[] = [
       f("community", "SNMP community", { type: "password", required: true }),
       f("username", "Kullanıcı adı"),
       f("password", "SSH parolası", { type: "password" }),
+      f("cli_password", "Genişletilmiş CLI parolası", {
+        type: "password",
+        hint: "İsteğe bağlı. HP 1950 sınırlı CLI erişiminde kullanılır; SSH giriş parolasından ayrıdır.",
+      }),
       f("auth_key", "SNMP auth anahtarı", {
         type: "password",
         hint: "En az 8 karakter",
@@ -712,6 +717,7 @@ const LABELS: Record<string, string> = {
   aruba_2900: "Aruba 2900 · ArubaOS-Switch",
   aruba_6100: "Aruba 61xx · AOS-CX",
   aruba_7200: "Aruba 72xx Controller · ArubaOS",
+  hp_1950: "HP 1950 · Comware 7",
   hostname_change: "Hostname değişimi",
   ip_assignment_change: "IP ataması",
   management_ip_change: "Yönetim adresi",
@@ -1147,6 +1153,7 @@ function ResourceForm({
           "community",
           "username",
           "password",
+          "cli_password",
           "auth_key",
           "priv_key",
           "auth_protocol",
@@ -1158,7 +1165,7 @@ function ResourceForm({
           )) ||
         (values.protocol === "snmpv2c" && field.key === "community") ||
         (values.protocol === "ssh" &&
-          ["username", "password"].includes(field.key)) ||
+          ["username", "password", "cli_password"].includes(field.key)) ||
         (values.protocol === "rest" && field.key === "token"),
     );
   const submit = async (e: React.FormEvent) => {
@@ -1181,6 +1188,7 @@ function ResourceForm({
           "community",
           "username",
           "password",
+          "cli_password",
           "auth_key",
           "priv_key",
           "auth_protocol",
@@ -1321,6 +1329,14 @@ function ResourceForm({
               )}
               {field.hint && (
                 <small id={`hint-${field.key}`}>{field.hint}</small>
+              )}
+              {field.key === "adapter" && values.adapter === "hp_1950" && (
+                <small>
+                  HP 1950, Comware 7. Sınırlı CLI kullanılıyorsa SSH profilinde
+                  Genişletilmiş CLI parolasını girin. SSH testi giriş
+                  bilgilerini doğrular; yedekleme ayrıca komut okuma yetkisi
+                  gerektirir.
+                </small>
               )}
             </label>
           ))}

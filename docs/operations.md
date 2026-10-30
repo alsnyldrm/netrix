@@ -117,6 +117,10 @@ Uygulama yalnızca VIP `10.2.0.31:3306` kullanır. DB düğümlerine doğrudan y
 
 `20261030_08`, `interfaces.auto_add_excluded` alanıyla kullanıcı tercihini gözlemlenen port durumundan ayırır. Silinmiş portlar ve eski seçim kaydı sırasında mevcut olup seçilmemiş portlar dışlanmış kabul edilir; sonraki keşifler otomatik eklemeye açıktır. Arşivlenmemiş cihazların mevcut açık ve dışlanmamış portları geçişte seçilir. Downgrade, kayıtlı dışlamaları kaybettirecekse durur. `scripts/interface_auto_migration_check.py` yalnızca atılabilir `netrix_test` veritabanında geçişi ve eşzamanlı kullanıcı tercihinin korunmasını doğrular.
 
+## HP 1950 adaptörü
+
+HP 1950 için **HP 1950 · Comware 7** adaptörü eklenmiştir. Sınırlı CLI oturumlarında SSH profilindeki isteğe bağlı **Genişletilmiş CLI parolası** kullanılır; parola kayıtlıysa yalnızca oturumda `xtd-cli-mode` uygulanır. Ayrıntılar, üretici desteğinin sınırı ve resmi kaynaklar [HP 1950 adaptörü](hp1950-adapter.md) belgesindedir. SSH bağlantı testinin başarılı olması konfigürasyon okuma yetkisini kanıtlamaz.
+
 ## SNMPv2c erişim profilleri
 
 **Yönetim → Erişim kasası → Yeni kayıt → Protokol: SNMPv2c** yolunda profil adı ve cihazın community değerini girin. Düzenlemede community yeniden girilerek değiştirilir. Profil, cihazın SNMP profili ve keşif kapsamının SNMP erişim profili alanlarında seçilebilir; keşif, izleme, kimlik okuma ve bağlantı testi aynı kayıtlı sürümü kullanır. SNMPv3 varsayılanı korunur; sürümler arasında otomatik geçiş yapılmaz.
