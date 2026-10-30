@@ -20,20 +20,31 @@ with sync_playwright() as p:
     page.get_by_label("E-posta").fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
+    directory = page.get_by_role("region", name="Bağlantı cihazları")
+    expect(directory.locator(".inventory-pagination")).to_contain_text("5 cihaz")
+    directory.get_by_role("button", name="Filtreler", exact=True).click()
+    page.get_by_role("button", name="Koşul ekle", exact=True).click()
+    page.get_by_label("Koşul 1 alanı", exact=True).select_option("name")
+    page.get_by_label("Koşul 1 işlemi", exact=True).select_option("not_contains")
+    page.get_by_label("Koşul 1 değeri", exact=True).fill("Edge")
+    page.get_by_role("button", name="Filtreleri uygula", exact=True).click()
+    expect(directory.locator(".inventory-pagination")).to_contain_text("3 cihaz")
+    directory.get_by_role("button", name="HP-SW-BB-01-A-00-01", exact=True).click()
+    expect(page.get_by_role("heading", name="HP-SW-BB-01-A-00-01 komşulukları")).to_be_focused()
     table = page.get_by_role("region", name="Bağlantı kayıtları")
-    expect(table.locator(".inventory-pagination")).to_contain_text("5 kayıt")
+    expect(table.locator(".inventory-pagination")).to_contain_text("4 kayıt")
     table.get_by_role("button", name="Filtreler", exact=True).click()
-    for i, (field, value, join) in enumerate(
+    for i, (field, op, value, join) in enumerate(
         [
-            ("device_name", "HP-SW-BB-01-A-00-01", "and"),
-            ("device_name", "Edge-01", "or"),
-            ("remote_name", "Edge-02", "and"),
+            ("source", "eq", "manual", "and"),
+            ("remote_name", "eq", "Edge-01", "or"),
+            ("remote_name", "not_contains", "FG-FW", "and"),
         ],
         1,
     ):
         page.get_by_role("button", name="Koşul ekle", exact=True).click()
         page.get_by_label(f"Koşul {i} alanı", exact=True).select_option(field)
-        page.get_by_label(f"Koşul {i} işlemi", exact=True).select_option("eq")
+        page.get_by_label(f"Koşul {i} işlemi", exact=True).select_option(op)
         page.get_by_label(f"Koşul {i} değeri", exact=True).fill(value)
         if i > 1:
             page.get_by_label(f"Koşul {i} bağlantısı", exact=True).select_option(join)
@@ -65,12 +76,12 @@ with sync_playwright() as p:
     inspect_view("filters", modal=True)
     page.get_by_role("button", name="Filtreleri uygula", exact=True).click()
     expect(table.locator(".inventory-pagination")).to_contain_text("1 kayıt")
-    expect(table.get_by_role("cell", name="Edge-02", exact=True)).to_be_visible()
+    expect(table.get_by_role("cell", name="Edge-01", exact=True)).to_be_visible()
     expect(table.get_by_role("button", name="Filtreler (3)", exact=True)).to_be_visible()
     table.get_by_role("button", name="Filtreler (3)", exact=True).click()
     page.get_by_role("button", name="Koşul 3 sil", exact=True).click()
     page.get_by_role("button", name="Filtreleri uygula", exact=True).click()
-    expect(table.locator(".inventory-pagination")).to_contain_text("5 kayıt")
+    expect(table.locator(".inventory-pagination")).to_contain_text("2 kayıt")
     table.get_by_role("button", name="Filtreler (2)", exact=True).click()
     page.get_by_role("button", name="Temizle", exact=True).click()
     page.get_by_role("button", name="Filtreleri uygula", exact=True).click()
@@ -89,8 +100,16 @@ with sync_playwright() as p:
         "Komşu",
         "İşlemler",
     ]
+    page.get_by_role("button", name="Cihazlara dön", exact=True).click()
+    expect(directory.locator(".inventory-pagination")).to_contain_text("3 cihaz")
+    expect(directory.get_by_role("button", name="HP-SW-BB-01-A-00-01", exact=True)).to_be_focused()
+    inspect_view("devices")
+    directory.get_by_role("button", name="FG-FW-GW-A-01-00-01", exact=True).click()
+    expect(table.get_by_text("Bu koşullara uyan kayıt bulunamadı.", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Cihazlara dön", exact=True).click()
     page.reload()
-    expect(table.locator(".inventory-pagination")).to_contain_text("5 kayıt")
+    directory.get_by_role("button", name="HP-SW-BB-01-A-00-01", exact=True).click()
+    expect(table.locator(".inventory-pagination")).to_contain_text("4 kayıt")
     assert table.get_by_role("columnheader").all_text_contents() == [
         "Kaynak cihaz",
         "Kaynak IP",
@@ -105,7 +124,7 @@ with sync_playwright() as p:
     table.get_by_role("textbox", name="Kayıtlarda ara", exact=True).fill("nonexistent-neighbor")
     expect(table.get_by_text("Bu koşullara uyan kayıt bulunamadı.", exact=True)).to_be_visible()
     table.get_by_role("textbox", name="Kayıtlarda ara", exact=True).fill("")
-    expect(table.locator(".inventory-pagination")).to_contain_text("5 kayıt")
+    expect(table.locator(".inventory-pagination")).to_contain_text("4 kayıt")
     inspect_view("table")
     table.get_by_role("button", name="Kayıt ayrıntıları", exact=True).first.click()
     expect(page.get_by_role("dialog")).to_contain_text('"remote_name"')
@@ -114,9 +133,10 @@ with sync_playwright() as p:
         json.dumps(
             {
                 "topology_table": "PASS",
-                "and_or": "PASS",
+                "and_or_not_contains": "PASS",
+                "device_scoping_and_back": "PASS",
                 "columns_persist": "PASS",
-                "screenshots": 18,
+                "screenshots": 24,
                 "axe": "PASS",
                 "console_errors": errors,
             }

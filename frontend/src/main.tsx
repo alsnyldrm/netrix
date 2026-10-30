@@ -79,6 +79,7 @@ import "./style.css";
 import {
   InventoryTable,
   InterfaceWorkspace,
+  TopologyRecords,
   InterfacePicker,
   allRows,
 } from "./inventory";
@@ -2853,10 +2854,8 @@ function App() {
                     onDevice={inspectDevice}
                   />
                 </section>
-                <InventoryTable
+                <TopologyRecords
                   key={`topology:${user!.id}`}
-                  resource="links"
-                  purpose="topology"
                   refresh={refresh}
                   user={user!}
                   onSaved={reload}

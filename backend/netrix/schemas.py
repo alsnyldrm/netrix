@@ -299,7 +299,7 @@ class BulkInput(Input):
 
 class InventoryFilter(Input):
     field: str
-    op: Literal["contains", "eq", "ne", "gt", "lt"] = "contains"
+    op: Literal["contains", "not_contains", "eq", "ne", "gt", "lt"] = "contains"
     value: str = Field(max_length=200)
     join: Literal["and", "or"] = "and"
 

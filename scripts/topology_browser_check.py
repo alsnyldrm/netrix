@@ -24,6 +24,9 @@ with sync_playwright() as p:
     page.goto(base + "/#topology")
     page.wait_for_load_state("networkidle")
     expect(page.locator(".topology-device").first).to_be_visible()
+    page.get_by_role("region", name="Bağlantı cihazları").get_by_role(
+        "button", name="HP-SW-BB-01-A-00-01", exact=True
+    ).click()
     expect(page.get_by_text("18:7a:3b:4f:14:40", exact=True)).to_be_visible()
     expect(page.get_by_text("Kullanıcı doğrulaması", exact=True)).to_be_visible()
 

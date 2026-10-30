@@ -525,3 +525,50 @@ def test_archive_can_be_read_but_only_admin_can_restore(admin_client, records, e
     )
     with env() as db:
         assert db.get(m.Device, device_id).archived
+
+
+@pytest.mark.parametrize(
+    "resource,field,value",
+    [
+        ("devices", "kind", "Firewall"),
+        ("topology-devices", "kind", "Firewall"),
+        ("backup-devices", "kind", "Firewall"),
+        ("interfaces", "device_kind", "Firewall"),
+        ("snapshots", "device_kind", "Firewall"),
+        ("devices", "lifecycle_status", "Aktif"),
+        ("devices", "ssh_trust_host_key", "Kapalı"),
+        ("interfaces", "oper_status", "Açık"),
+        ("snapshots", "changed", "Değişti"),
+    ],
+)
+def test_not_contains_is_complement_in_every_inventory_resource(
+    admin_client, records, env, resource, field, value
+):
+    with env() as db:
+        for port in db.scalars(select(m.Interface)):
+            port.is_managed = True
+        for device_id in records["devices"]:
+            job = m.Job(kind="backup", target_id=device_id)
+            db.add(job)
+            db.flush()
+            db.add(
+                m.Snapshot(
+                    device_id=device_id,
+                    job_id=job.id,
+                    fingerprint="fixture",
+                    encrypted_content=encrypt("fixture"),
+                    size_bytes=7,
+                    changed=True,
+                )
+            )
+        db.commit()
+    results = []
+    for op in ("contains", "not_contains"):
+        response = admin_client.get(
+            f"/api/v1/inventory/{resource}",
+            params={"filters": json.dumps([{"field": field, "op": op, "value": value}])},
+        )
+        assert response.status_code == 200, response.text
+        results.append({row["id"] for row in response.json()["items"]})
+    assert not results[0] & results[1]
+    assert len(results[0] | results[1]) == 2

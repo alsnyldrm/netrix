@@ -47,6 +47,13 @@ const DEFAULTS: Record<string, string[]> = {
     "source",
     "confidence_percent",
   ],
+  "topology-devices": [
+    "name",
+    "management_ip",
+    "kind",
+    "neighbor_count",
+    "latest_neighbor_at",
+  ],
   "backup-devices": [
     "name",
     "management_ip",
@@ -188,6 +195,7 @@ function Filters({
               >
                 {[
                   ["contains", "İçerir"],
+                  ["not_contains", "İçermez"],
                   ["eq", "Eşittir"],
                   ["ne", "Eşit değil"],
                   ["gt", "Büyüktür"],
@@ -609,7 +617,7 @@ export function InventoryTable({
   const writable = user.role !== "viewer";
   const hasActions =
     (archive && user.role === "admin") ||
-    (["devices", "backup-devices"].includes(resource) &&
+    (["devices", "backup-devices", "topology-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable) ||
     (resource === "links" && Boolean(onContent));
@@ -644,8 +652,14 @@ export function InventoryTable({
   };
   return (
     <section
-      className={`panel inventory-panel ${resource === "links" ? "topology-table" : ""}`}
-      aria-label={resource === "links" ? "Bağlantı kayıtları" : undefined}
+      className={`panel inventory-panel ${["links", "topology-devices"].includes(resource) ? "topology-table" : ""}`}
+      aria-label={
+        resource === "links"
+          ? "Bağlantı kayıtları"
+          : resource === "topology-devices"
+            ? "Bağlantı cihazları"
+            : undefined
+      }
     >
       <div className="inventory-toolbar">
         <label className="inventory-search">
@@ -892,12 +906,16 @@ export function InventoryTable({
                             Geri yükle
                           </button>
                         )}
-                        {["devices", "backup-devices"].includes(resource) && (
+                        {[
+                          "devices",
+                          "backup-devices",
+                          "topology-devices",
+                        ].includes(resource) && (
                           <>
                             {onDevice && (
                               <button
                                 className="icon-button"
-                                aria-label={`${row.name} ${resource === "backup-devices" ? "yedekleri" : purpose === "interface-devices" ? "arayüzleri" : "ayrıntıları"}`}
+                                aria-label={`${row.name} ${resource === "topology-devices" ? "komşulukları" : resource === "backup-devices" ? "yedekleri" : purpose === "interface-devices" ? "arayüzleri" : "ayrıntıları"}`}
                                 onClick={() => onDevice(row)}
                               >
                                 <Eye size={18} />
@@ -967,7 +985,10 @@ export function InventoryTable({
       )}
       <footer className="inventory-pagination">
         <span>
-          {data.total} {resource === "backup-devices" ? "cihaz" : "kayıt"}
+          {data.total}{" "}
+          {["backup-devices", "topology-devices"].includes(resource)
+            ? "cihaz"
+            : "kayıt"}
           {selectRows ? ` · ${selected.length} seçili` : ""}
         </span>
         <div>
@@ -1000,7 +1021,7 @@ export function InventoryTable({
       )}
       {dialog === "filters" && (
         <Filters
-          wide={resource === "links"}
+          wide={["links", "topology-devices"].includes(resource)}
           columns={columns}
           rules={rules}
           onSave={(r) => {
@@ -1121,6 +1142,57 @@ export function InventoryTable({
         </Dialog>
       )}
     </section>
+  );
+}
+export function TopologyRecords(
+  props: Pick<
+    React.ComponentProps<typeof InventoryTable>,
+    "refresh" | "user" | "onSaved" | "onContent"
+  >,
+) {
+  const [device, setDevice] = useState<Row | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const trigger = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (device) heading.current?.focus();
+    else trigger.current?.focus();
+  }, [device]);
+  return (
+    <>
+      <div className="topology-directory" hidden={Boolean(device)}>
+        <InventoryTable
+          {...props}
+          resource="topology-devices"
+          purpose="topology-devices"
+          onDevice={(row) => {
+            trigger.current = document.activeElement as HTMLElement;
+            setDevice(row);
+          }}
+        />
+      </div>
+      {device && (
+        <>
+          <div className="inventory-breadcrumb topology-breadcrumb">
+            <button className="secondary" onClick={() => setDevice(null)}>
+              <ArrowLeft size={18} aria-hidden="true" /> Cihazlara dön
+            </button>
+            <div>
+              <h2 ref={heading} tabIndex={-1}>
+                {device.name} komşulukları
+              </h2>
+              <p>{device.management_ip}</p>
+            </div>
+          </div>
+          <InventoryTable
+            {...props}
+            key={device.id}
+            resource="links"
+            purpose="topology"
+            deviceId={device.id}
+          />
+        </>
+      )}
+    </>
   );
 }
 export function InterfaceWorkspace(props: any) {

@@ -64,6 +64,8 @@ LABELS = {
     "effective_backup_interval": "Uygulanan yedek aralığı",
     "effective_retention": "Uygulanan saklama sınırı",
     "snapshot_count": "Yedek sayısı",
+    "neighbor_count": "Komşuluk kaydı",
+    "latest_neighbor_at": "Son komşuluk gözlemi",
     "latest_snapshot_at": "Son yedek",
 }
 LINK_LABELS = {
@@ -131,6 +133,7 @@ def query(
     models = {
         "devices": m.Device,
         "backup-devices": m.Device,
+        "topology-devices": m.Device,
         "interfaces": m.Interface,
         "snapshots": m.Snapshot,
         "links": m.Link,
@@ -164,7 +167,27 @@ def query(
             for key in ("id", "name", "management_ip", "kind", "vendor", "model", "lifecycle_status")
         }
         cols.update(snapshot_count=backups.c.snapshot_count, latest_snapshot_at=backups.c.latest_snapshot_at)
-    if resource not in ("devices", "backup-devices"):
+    if resource == "topology-devices":
+        neighbors = (
+            select(
+                m.Link.device_id,
+                func.count(m.Link.id).label("neighbor_count"),
+                func.max(m.Link.last_seen_at).label("latest_neighbor_at"),
+            )
+            .where(m.Link.is_current.is_(True))
+            .group_by(m.Link.device_id)
+            .subquery()
+        )
+        stmt = stmt.outerjoin(neighbors, neighbors.c.device_id == m.Device.id)
+        cols = {
+            key: cols[key]
+            for key in ("id", "name", "management_ip", "kind", "vendor", "model", "lifecycle_status")
+        }
+        cols.update(
+            neighbor_count=func.coalesce(neighbors.c.neighbor_count, 0),
+            latest_neighbor_at=neighbors.c.latest_neighbor_at,
+        )
+    if resource not in ("devices", "backup-devices", "topology-devices"):
         stmt = stmt.join(m.Device, model.device_id == m.Device.id)
         cols.update(
             device_name=m.Device.name, device_kind=m.Device.kind, management_ip=m.Device.management_ip
@@ -304,6 +327,8 @@ def query(
                 value = converted[value.casefold()]
         clause = {
             "contains": lambda: field_contains(f.field, col, f.value),
+            # Complement the complete display-aware match, including absent values.
+            "not_contains": lambda: ~func.coalesce(field_contains(f.field, col, f.value), False),
             "eq": lambda: col == value,
             "ne": lambda: or_(col != value, col.is_(None)),
             "gt": lambda: col > value,

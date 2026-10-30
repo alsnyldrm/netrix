@@ -384,10 +384,9 @@
 }
 @media (min-width: 641px) {
   .topology-filter-form .filter-rule {
-    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr) minmax(
-        0,
-        1fr
-      ) 44px;
+    grid-template-columns:
+      96px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)
+      44px;
   }
 }
 @media (max-width: 640px) {
@@ -395,4 +394,28 @@
   .topology-filter-form .filter-rule label:nth-of-type(4) {
     grid-column: 1 / -1;
   }
+}
+
+.topology-breadcrumb {
+  align-items: center;
+}
+.topology-breadcrumb > div {
+  min-width: 0;
+}
+.topology-breadcrumb h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.topology-breadcrumb p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+}
+.topology-breadcrumb button {
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+.topology-directory {
+  min-width: 0;
+  max-width: 100%;
 }

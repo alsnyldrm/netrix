@@ -135,3 +135,56 @@ def test_topology_query_metadata_search_and_validation(admin_client, links, env)
         db.scalar(select(m.User)).role = "viewer"
         db.commit()
     assert query(admin_client, []).status_code == 200
+
+
+def test_topology_directory_counts_current_records_and_scopes_by_id(admin_client, links, env):
+    from sqlalchemy import select
+
+    with env() as db:
+        source = db.scalar(select(m.Device).where(m.Device.name == "Core A"))
+        db.add(m.Device(name="Core A", management_ip="192.0.2.99", vrf_id=source.vrf_id))
+        db.commit()
+    directory = admin_client.get("/api/v1/inventory/topology-devices").json()
+    assert directory["total"] == 3
+    rows = {r["management_ip"]: r for r in directory["items"]}
+    assert rows["192.0.2.1"]["neighbor_count"] == 2
+    assert rows["192.0.2.2"]["neighbor_count"] == 30
+    assert rows["192.0.2.99"]["neighbor_count"] == 0
+    assert rows["192.0.2.99"]["latest_neighbor_at"] is None
+    for ip, total in [("192.0.2.1", 2), ("192.0.2.2", 30), ("192.0.2.99", 0)]:
+        data = query(
+            admin_client,
+            [
+                {"field": "remote_name", "op": "not_contains", "value": "absent"},
+                {"field": "device_name", "op": "contains", "value": "Core", "join": "or"},
+            ],
+            device_id=rows[ip]["id"],
+            offset=25,
+        ).json()
+        assert data["total"] == total
+        assert all(row["device_id"] == rows[ip]["id"] for row in data["items"])
+    result = admin_client.get(
+        "/api/v1/inventory/topology-devices",
+        params={"filters": json.dumps([{"field": "neighbor_count", "op": "gt", "value": "2"}]), "limit": 1},
+    ).json()
+    assert result["total"] == 1 and result["items"][0]["name"] == "Core B"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "total"),
+    [
+        ("source", "LLDP + CDP", 31),
+        ("source", "Kullanıcı", 31),
+        ("remote_device_name", "Core B", 31),
+        ("remote_name", "%", 32),
+        ("remote_name", "_", 32),
+        ("remote_name", "!", 32),
+        ("device_kind", "Switch", 0),
+        ("remote_name", "PEER", 2),
+    ],
+)
+def test_not_contains_localized_null_and_literal_values(admin_client, links, field, value, total):
+    response = query(admin_client, [{"field": field, "op": "not_contains", "value": value}], limit=1)
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == total
+    assert len(response.json()["items"]) == min(1, total)
