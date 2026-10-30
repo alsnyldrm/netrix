@@ -113,6 +113,62 @@ class IdentityCollector:
         return {"identity": self.values}
 
 
+@pytest.mark.parametrize("assignment", ["create", "edit", "bulk"])
+async def test_custom_type_survives_identification_and_monitoring(admin_client, inventory, env, assignment):
+    c = admin_client
+    custom = c.post("/api/v1/device-types", json={"name": "Backbone"}).json()
+    device, payload = create_device(c, inventory, kind=custom["code"] if assignment == "create" else "switch")
+    if assignment == "edit":
+        payload["kind"] = custom["code"]
+        assert c.put("/api/v1/devices/" + device["id"], json=payload).status_code == 200
+    elif assignment == "bulk":
+        assert (
+            c.post(
+                "/api/v1/inventory/devices/bulk",
+                json={"ids": [device["id"]], "action": "update", "changes": {"kind": custom["code"]}},
+            ).status_code
+            == 200
+        )
+    for kind in ("identify", "monitor"):
+        job = c.post("/api/v1/jobs", json={"kind": kind, "target_id": device["id"]}).json()
+        assert claim() == job["id"]
+        await execute(job["id"], IdentityCollector({"vendor": "HP", "model": "J9851A", "kind": "switch"}))
+        current = c.get("/api/v1/devices/" + device["id"]).json()
+        assert (current["kind"], current["kind_name"], current["vendor"], current["model"]) == (
+            custom["code"],
+            "Backbone",
+            "HP",
+            "J9851A",
+        )
+        with env() as db:
+            events = db.scalars(
+                select(m.Event).where(
+                    m.Event.device_id == device["id"], m.Event.kind == "device_identity_change"
+                )
+            )
+            assert all("kind" not in event.details["changes"] for event in events)
+            observation = db.scalar(select(m.Observation).where(m.Observation.job_id == job["id"]))
+            assert observation.evidence["identity"]["kind"] == "switch"
+
+
+async def test_custom_type_set_while_device_read_is_in_progress_is_preserved(admin_client, inventory, env):
+    custom = admin_client.post("/api/v1/device-types", json={"name": "Controller"}).json()
+    device, _ = create_device(admin_client, inventory)
+
+    class ChangedCollector(IdentityCollector):
+        async def collect(self, *args):
+            with env() as db:
+                current = db.get(m.Device, device["id"])
+                current.kind = custom["code"]
+                db.commit()
+            return {"identity": {"vendor": "Aruba", "model": "7205", "kind": "switch"}}
+
+    claim()
+    await execute(device["identification"]["job_id"], ChangedCollector())
+    current = admin_client.get("/api/v1/devices/" + device["id"]).json()
+    assert current["kind"] == custom["code"] and current["vendor"] == "Aruba"
+
+
 async def test_save_queues_identity_and_only_observed_fields_replace_manual(admin_client, inventory, env):
     device, payload = create_device(admin_client, inventory)
     job_id = device["identification"]["job_id"]

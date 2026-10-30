@@ -52,6 +52,8 @@ Operatör/yönetici ekleyip düzenleyebilir, yalnızca yönetici silebilir. Arş
 
 `20261030_07` migration'ı eski tür kodlarını ve bağlı cihazları koruyarak `device_types` tablosunu ve FK kısıtını ekler. Özelleştirilmiş tür verisi varken downgrade veri kaybetmek yerine durur.
 
+Backbone, Controller gibi sonradan eklenen katalog türleri kullanıcı sınıflandırmasıdır. Cihaz ekleme/düzenleme, toplu düzenleme veya içeri aktarmayla seçilen bu türler SNMP/SSH/API kimlik sorgusu, keşif ve izleme sırasında genel Switch/Router tespitiyle değiştirilmez. Gözlemlenen donanım türü keşif kanıtında saklanır; üretici/model güncellenmeye devam eder. Standart türlerde (Switch, Router, Firewall, Sunucu, Diğer) mevcut otomatik tür tespiti sürer. İsim değil, katalog kodu esas alınır.
+
 ## Arşivlenmiş cihazlar
 
 Cihaz envanterindeki **Sil** işlemi fiziksel silme yapmaz; cihazı arşivler ve normal listeden kaldırır. Aynı VRF/IP kimliği, arayüzleri ve yedek geçmişi korunur. Bu yüzden arşivdeki cihaz aynı IP ile yeniden içeri aktarılamaz; aktarım hatası arşiv menüsüne yönlendirir.

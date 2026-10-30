@@ -3,11 +3,15 @@
 from sqlalchemy import select
 
 from .. import models as m
-from ..discovery.identification import normalize
+from ..discovery.identification import KINDS, normalize
 
 
 def apply_identity(db, device, fields, job_id, source):
     fields = normalize(fields)
+    # Backbone/controller and other catalog extensions are managed classifications,
+    # not hardware classes inferred by a protocol. Keep the user's finer distinction.
+    if device.kind not in KINDS | {"other", None}:
+        fields.pop("kind", None)
     if fields.get("kind") and not db.scalar(
         select(m.DeviceType.id).where(m.DeviceType.code == fields["kind"])
     ):
