@@ -770,9 +770,21 @@ export async function api(path: string, method = "GET", body?: any) {
   }
   return data;
 }
-function Badge({ value }: { value: any }) {
+export function Badge({
+  value,
+  tone,
+}: {
+  value: any;
+  tone?: "success" | "danger";
+}) {
+  const appearance =
+    tone === "success"
+      ? "active"
+      : tone === "danger"
+        ? "failed"
+        : String(value);
   return (
-    <span className={"badge " + String(value)}>
+    <span className={"badge " + appearance}>
       <i />
       {tag(String(value))}
     </span>

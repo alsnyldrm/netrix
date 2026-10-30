@@ -11,7 +11,7 @@ import {
   DownloadSimple,
   ArrowsClockwise,
 } from "@phosphor-icons/react";
-import { api, Dialog, PAGES, tag, date, speed } from "./main";
+import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
 type Row = Record<string, any>;
 type Column = { key: string; label: string };
@@ -79,6 +79,17 @@ export async function allRows(path: string) {
 }
 function value(key: string, v: any) {
   if (v == null || v === "") return "—";
+  if (key === "lifecycle_status" || key === "reachability")
+    return (
+      <Badge
+        value={v}
+        tone={
+          (key === "lifecycle_status" ? v === "active" : v === "reachable")
+            ? "success"
+            : "danger"
+        }
+      />
+    );
   if (key.endsWith("_at")) return date(v);
   if (key === "speed_bps") return speed(v);
   if (key === "changed") return v ? "Değişti" : "Değişmedi";
