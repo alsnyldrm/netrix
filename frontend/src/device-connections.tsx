@@ -14,6 +14,10 @@ type Connection = {
   sources: string[];
   confidence: number;
   last_seen_at: string | null;
+  local_aggregate?: { name: string; type: string } | null;
+  remote_aggregate?: { name: string; type: string } | null;
+  direction_basis?: string;
+  members?: { local_port: string | null; remote_port: string | null }[];
 };
 const directions = {
   upstream: "Üst akış adayı",
@@ -58,7 +62,9 @@ export function DeviceConnections({
             <div className="connection-card-heading">
               <span className="connection-direction">
                 <PlugsConnected size={18} aria-hidden="true" />
-                {directions[row.direction]}
+                {row.direction_basis === "stp"
+                  ? "Üst bağlantı · STP kök portu"
+                  : directions[row.direction]}
               </span>
               <span className="connection-evidence">
                 {row.sources
@@ -73,7 +79,11 @@ export function DeviceConnections({
             <dl className="connection-endpoints">
               <div>
                 <dt>Bu cihazın portu</dt>
-                <dd className="mono">{row.local_port || "Port bilinmiyor"}</dd>
+                <dd className="mono">
+                  {row.local_aggregate
+                    ? `${row.local_aggregate.name} · ${row.local_aggregate.type}`
+                    : row.local_port || "Port bilinmiyor"}
+                </dd>
               </div>
               <div>
                 <dt>Karşı cihaz</dt>
@@ -97,9 +107,34 @@ export function DeviceConnections({
               </div>
               <div>
                 <dt>Karşı cihazın portu</dt>
-                <dd className="mono">{row.remote_port || "Port bilinmiyor"}</dd>
+                <dd className="mono">
+                  {row.remote_aggregate?.name ||
+                    (row.members?.length
+                      ? "Üye portlar aşağıda"
+                      : row.remote_port || "Port bilinmiyor")}
+                </dd>
               </div>
             </dl>
+            {row.members?.length ? (
+              <div className="connection-members">
+                <span className="muted">
+                  Üye portlar · Bu cihaz → Karşı cihaz
+                </span>
+                <ul>
+                  {row.members.map((member) => (
+                    <li key={`${member.local_port}:${member.remote_port}`}>
+                      <span className="mono">
+                        {member.local_port || "Port bilinmiyor"}
+                      </span>
+                      <span aria-hidden="true">→</span>
+                      <span className="mono">
+                        {member.remote_port || "Port bilinmiyor"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <p className="connection-time">
               {row.last_seen_at
                 ? `Son gözlem: ${date(row.last_seen_at)}`
@@ -111,7 +146,6 @@ export function DeviceConnections({
     );
   }
   const upstream = items?.filter((r) => r.direction === "upstream") || [];
-  const others = items?.filter((r) => r.direction !== "upstream") || [];
   return (
     <section
       className="device-connections"
@@ -122,8 +156,9 @@ export function DeviceConnections({
         <span className="count-pill">{upstream.length}</span>
       </h3>
       <p className="muted">
-        Üst akış yönü cihaz türü ve topolojiden çıkarılır; gerçek trafik yönünü
-        göstermez. İki uçtaki portlar keşif kaydından alınır.
+        Portlar CDP/LLDP gözlemlerinden, TRK üyeleri cihazın bağlantı grubundan
+        alınır. STP kök portu varsa yönü belirler; diğer durumlarda topolojiden
+        çıkarılan yön aday olarak gösterilir.
       </p>
       {error ? (
         <div className="connection-error" role="alert">
@@ -140,21 +175,11 @@ export function DeviceConnections({
       ) : null}
       {items && !upstream.length ? (
         <p className="connection-empty">
-          {items.length
-            ? "Bu cihaz için üst akış bağlantısı bulunamadı. Diğer komşu bağlantılarını aşağıda inceleyebilirsiniz."
-            : "Kayıtlı LLDP/CDP komşuluğu veya manuel bağlantı yok. Başarılı SNMP gözleminden sonra bağlantılar burada görünür."}
+          Üst akış bağlantısı henüz belirlenemedi. Bilgileri cihazdan al veya
+          Ölçüm al ile güncel komşuluk ve kök portu bilgilerini okuyabilirsiniz.
         </p>
       ) : null}
       {cards(upstream)}
-      {others.length ? (
-        <details
-          className="connection-others"
-          open={!upstream.length || undefined}
-        >
-          <summary>Diğer komşu bağlantıları ({others.length})</summary>
-          {cards(others)}
-        </details>
-      ) : null}
     </section>
   );
 }

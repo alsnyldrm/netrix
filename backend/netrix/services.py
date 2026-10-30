@@ -67,6 +67,11 @@ def serialize(obj):
         if isinstance(value, Decimal):
             value = int(value)
         result[col.key] = value
+    if isinstance(obj, m.Link):
+        from .discovery.neighbor_detail import remote_port
+
+        result["remote_port"] = remote_port(obj.evidence or {}, obj.remote_port)
+        result["local_aggregate"] = (obj.evidence or {}).get("local_aggregate")
     if isinstance(obj, m.Device):
         result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind
     return result

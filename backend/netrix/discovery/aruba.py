@@ -96,3 +96,65 @@ def validate_aruba_config(adapter, output):
         or not re.search(r"(?m)^hostname\s+\S+", output)
     ):
         raise BackupError("aruba_incomplete")
+
+
+async def read_neighbor_detail(connection, ports=()):
+    """Only read operational state, in one bounded PTY session with paging disabled."""
+    from .neighbor_detail import PORT, merge_neighbors, parse_detail, parse_root, parse_trunks
+
+    result = {"neighbors": [], "neighbor_protocols_complete": [], "commands": []}
+    async with connection.create_process(
+        term_type="vt100", term_size=(200, 24), stderr=asyncssh.STDOUT
+    ) as process:
+        _, prompt = await read_prompt(process)
+        if not prompt.endswith("#"):
+            raise BackupError("aruba_privilege")
+
+        async def command(value):
+            process.stdin.write(value + "\n")
+            output, _ = await read_prompt(process, prompt=prompt, limit=1024 * 1024)
+            if CLI_ERROR.search(output):
+                return None
+            result["commands"].append(value)
+            return output
+
+        if await command("no page") is None:
+            raise BackupError("aruba_command")
+        cdp = await command("show cdp neighbors detail")
+        if cdp is not None and re.search(r"CDP neighbors information", cdp, re.I):
+            result["neighbors"] = parse_detail(cdp, "cdp")
+            result["neighbor_protocols_complete"].append("cdp")
+        # LLDP without a port list is only a summary. Gather the actual port list
+        # too, so LLDP-only neighbors are included even when CDP is unavailable.
+        summary = await command("show lldp info remote-device")
+        local_ports = set(ports) | {n["interface_name"] for n in result["neighbors"]}
+        if summary is not None:
+            local_ports.update(re.findall(r"(?m)^\s*([A-Za-z0-9/.-]+)\s+\|", summary))
+        safe_ports = sorted(p for p in local_ports if PORT.fullmatch(p) and p.lower() != "localport")
+        lldp_complete = bool(
+            summary
+            and re.search(r"LLDP Remote Devices Information", summary, re.I)
+            and "LocalPort" in summary
+            and safe_ports
+            and len(safe_ports) <= 512
+        )
+        # All commands fit a bounded switch command line; never interpolate arbitrary CLI text.
+        for offset in range(0, min(len(safe_ports), 512), 16):
+            output = await command(
+                "show lldp info remote-device " + ",".join(safe_ports[offset : offset + 16])
+            )
+            if output is not None:
+                result["neighbors"] = merge_neighbors(result["neighbors"], parse_detail(output, "lldp"))
+            if output is None or not re.search(r"LLDP Remote Device Information Detail", output, re.I):
+                lldp_complete = False
+        # Only a recognized global summary followed by every port's detail can
+        # establish completeness. A standalone/partial per-port read cannot.
+        if lldp_complete:
+            result["neighbor_protocols_complete"].append("lldp")
+        trunks = await command("show trunks")
+        if trunks is not None and re.search(r"Group\s+Type", trunks):
+            result["trunks"] = parse_trunks(trunks)
+        stp = await command("show spanning-tree")
+        if stp is not None:
+            result["spanning_tree"] = parse_root(stp)
+    return result

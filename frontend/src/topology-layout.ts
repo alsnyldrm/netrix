@@ -11,6 +11,9 @@ export type TopologyLink = {
   remote_device_id?: string | null;
   source: string;
   confidence: number;
+  interface_name?: string;
+  remote_port?: string;
+  local_aggregate?: { name: string; type: string } | null;
 };
 
 function tier(device: TopologyDevice) {
@@ -53,7 +56,7 @@ export function layoutTopology(
   const levels = new Map<string, number>();
   const queue: string[] = [];
   for (const node of nodes) {
-    if (tier(node) < 2) {
+    if (tier(node) === 0) {
       levels.set(node.id, tier(node));
       queue.push(node.id);
     }
@@ -63,10 +66,18 @@ export function layoutTopology(
       const id = queue[i];
       for (const peer of adjacent.get(id)!) {
         if (!levels.has(peer)) {
-          levels.set(peer, Math.max(2, levels.get(id)! + 1));
+          levels.set(peer, levels.get(id)! + 1);
           queue.push(peer);
         }
       }
+    }
+  }
+  visit();
+  queue.length = 0;
+  for (const node of nodes) {
+    if (!levels.has(node.id) && tier(node) === 1) {
+      levels.set(node.id, 1);
+      queue.push(node.id);
     }
   }
   visit();

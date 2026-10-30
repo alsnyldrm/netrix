@@ -13,9 +13,10 @@ with session_factory()() as db:
     core.name, core.kind = "HP-SW-BB-01-A-00-01", "fixture-backbone"
     edge.name = "HP-SW-CO-01-B-05-02"
     for local, remote, port, peer_port, source in [
-        (core, edge, "F2", "49", "lldp"),
-        (edge, core, "49", "F2", "cdp"),
-        (core, edge, "F3", "50", "lldp"),
+        (core, edge, "I4", "A1", "lldp"),
+        (edge, core, "A1", "I4", "cdp"),
+        (core, edge, "D2", "B1", "lldp"),
+        (edge, core, "B1", "D2", "cdp"),
     ]:
         db.add(
             m.Link(
@@ -25,6 +26,10 @@ with session_factory()() as db:
                 interface_name=port,
                 remote_port=peer_port,
                 source=source,
+                evidence={
+                    "local_aggregate": {"name": "Trk1" if local == edge else "Trk7", "type": "LACP"},
+                    "spanning_tree": {"port": "Trk1" if local == edge else None, "is_root": local == core},
+                },
                 confidence=0.65,
                 last_seen_at=now(),
             )

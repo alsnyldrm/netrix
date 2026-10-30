@@ -4,10 +4,13 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now
+from .neighbor_detail import addresses, same_neighbor
 from .neighbor_labels import neighbor_label
 
 
 def legacy_match(link, neighbor):
+    if same_neighbor({"interface_name": link.interface_name, "evidence": link.evidence or {}}, neighbor):
+        return True
     evidence = neighbor.get("evidence", {})
     lldp, cdp = evidence.get("lldp", {}), evidence.get("cdp", {})
     if link.source == "lldp" and lldp:
@@ -69,17 +72,22 @@ def sync_links(db, device, collected):
         link.is_current = True
         link.updated_at = link.last_seen_at = now()
         # Advertised names are candidates, not proof of managed-device identity.
+        advertised_addresses = addresses(neighbor)
         candidates = list(
             db.scalars(
                 select(m.Device).where(
                     m.Device.vrf_id == device.vrf_id,
                     m.Device.id != device.id,
                     m.Device.archived.is_(False),
-                    m.Device.name == neighbor["remote_name"],
+                    (
+                        m.Device.management_ip.in_(advertised_addresses)
+                        if advertised_addresses
+                        else m.Device.name == neighbor["remote_name"]
+                    ),
                 )
             )
         )
-        link.confidence = 0.65 if len(candidates) == 1 else 0.5
+        link.confidence = (0.9 if advertised_addresses else 0.65) if len(candidates) == 1 else 0.5
         link.remote_device_id = candidates[0].id if len(candidates) == 1 else None
         db.flush()
         seen.add(link.id)
@@ -104,3 +112,33 @@ def sync_links(db, device, collected):
                     },
                 )
             )
+
+
+def repair_stored_ports(db):
+    """Repair current labels using already stored evidence, without fabricating a new observation."""
+    from .neighbor_detail import remote_port
+
+    rows = list(db.scalars(select(m.Link).order_by(m.Link.id).with_for_update()))
+    by_key = {(r.device_id, r.interface_name, r.remote_name, r.remote_port): r for r in rows}
+    changed = retired = 0
+    for row in rows:
+        if row.source == "manual" or not row.is_current or not row.evidence:
+            continue
+        port = remote_port(row.evidence, row.remote_port)[:120]
+        if port == row.remote_port:
+            continue
+        key = (row.device_id, row.interface_name, row.remote_name, port)
+        existing = by_key.get(key)
+        if existing:
+            # The corrected record already exists; preserve the historical raw row.
+            # Only a fresh observation may reactivate the other record.
+            if existing.is_current:
+                row.is_current = False
+                retired += 1
+            continue
+        del by_key[(row.device_id, row.interface_name, row.remote_name, row.remote_port)]
+        row.remote_port = port
+        by_key[key] = row
+        changed += 1
+    db.flush()
+    return {"corrected_ports": changed, "retired_duplicates": retired}

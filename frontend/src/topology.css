@@ -112,3 +112,46 @@
     height: 340px;
   }
 }
+.topology-link-detail {
+  padding: 16px;
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  min-width: 0;
+}
+.topology-link-detail label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.topology-link-detail select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+.topology-port-heading,
+.topology-link-detail li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 16px;
+  overflow-wrap: anywhere;
+}
+.topology-link-detail ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 12px 0 0;
+  list-style: none;
+}
+.topology-link-detail li {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.topology-link-detail small {
+  grid-column: 1 / -1;
+  color: var(--text-2);
+}
+.topology-port-group {
+  display: block;
+  margin-top: 4px;
+}

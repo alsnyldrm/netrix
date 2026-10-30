@@ -19,6 +19,45 @@ export function Topology<T extends TopologyDevice>({
   compact?: boolean;
 }) {
   const graph = useMemo(() => layoutTopology(devices, links), [devices, links]);
+  const [selectedPair, setSelectedPair] = useState("");
+  const pairKey = (link: TopologyLink) =>
+    [link.device_id, link.remote_device_id].sort().join(":");
+  const selected = graph.links.find((link) => pairKey(link) === selectedPair);
+  const pairLinks = selected
+    ? links.filter((link) => pairKey(link) === selectedPair)
+    : [];
+  const portRows = new Map<
+    string,
+    {
+      local: string;
+      remote: string;
+      localGroup: string;
+      remoteGroup: string;
+      sources: Set<string>;
+    }
+  >();
+  for (const link of pairLinks) {
+    const forward = link.device_id === selected!.device_id;
+    const local =
+      (forward ? link.interface_name : link.remote_port) || "Port bilinmiyor";
+    const remote =
+      (forward ? link.remote_port : link.interface_name) || "Port bilinmiyor";
+    const key = `${local}:${remote}`;
+    const row = portRows.get(key) || {
+      local,
+      remote,
+      localGroup: "",
+      remoteGroup: "",
+      sources: new Set<string>(),
+    };
+    if (link.local_aggregate)
+      row[forward ? "localGroup" : "remoteGroup"] =
+        `${link.local_aggregate.name} · ${link.local_aggregate.type}`;
+    link.source.split("+").forEach((source) => row.sources.add(source));
+    portRows.set(key, row);
+  }
+  const name = (id: string) =>
+    devices.find((device) => device.id === id)?.name || "Cihaz bilinmiyor";
   const viewport = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 420 });
   const [zoom, setZoom] = useState(1);
@@ -155,7 +194,19 @@ export function Topology<T extends TopologyDevice>({
                         ? `M${start.x},${start.y} L${end.x},${end.y}`
                         : `M${start.x},${start.y} C${start.x},${middle} ${end.x},${middle} ${end.x},${end.y}`
                   }
-                />
+                >
+                  <title>
+                    {links
+                      .filter(
+                        (candidate) => pairKey(candidate) === pairKey(link),
+                      )
+                      .map(
+                        (candidate) =>
+                          `${name(candidate.device_id)} ${candidate.interface_name || "?"} → ${name(candidate.remote_device_id!)} ${candidate.remote_port || "?"}${candidate.local_aggregate ? ` · ${candidate.local_aggregate.name}` : ""}`,
+                      )
+                      .join("; ")}
+                  </title>
+                </path>
               );
             })}
           </svg>
@@ -195,6 +246,59 @@ export function Topology<T extends TopologyDevice>({
           </div>
         </div>
       </div>
+      {graph.links.length ? (
+        <div className="topology-link-detail">
+          <label>
+            Bağlantı ayrıntısı
+            <select
+              aria-label="Bağlantı ayrıntısı"
+              name="topology-connection"
+              value={selected ? selectedPair : ""}
+              onChange={(event) => setSelectedPair(event.target.value)}
+            >
+              <option value="">Portlarını görmek için bağlantı seçin</option>
+              {graph.links.map((link) => (
+                <option key={link.id} value={pairKey(link)}>
+                  {name(link.device_id)} ↔ {name(link.remote_device_id!)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selected ? (
+            <div aria-live="polite">
+              <div className="topology-port-heading">
+                <strong>{name(selected.device_id)}</strong>
+                <strong>{name(selected.remote_device_id!)}</strong>
+              </div>
+              <ul>
+                {[...portRows.entries()].map(([key, row]) => (
+                  <li key={key}>
+                    <span className="mono">
+                      {row.local}
+                      {row.localGroup ? (
+                        <small className="topology-port-group">
+                          {row.localGroup}
+                        </small>
+                      ) : null}
+                    </span>
+                    <span className="mono">
+                      {row.remote}
+                      {row.remoteGroup ? (
+                        <small className="topology-port-group">
+                          {row.remoteGroup}
+                        </small>
+                      ) : null}
+                    </span>
+                    <small>
+                      {[...row.sources].map((s) => s.toUpperCase()).join(" + ")}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

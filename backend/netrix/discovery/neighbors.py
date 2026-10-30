@@ -1,5 +1,6 @@
 """Interpret LLDP identifiers by subtype; correlate CDP only with matching chassis evidence."""
 
+from .neighbor_detail import remote_port
 from .neighbor_labels import neighbor_label
 
 
@@ -76,7 +77,7 @@ def parse_neighbors(tables):
             {
                 "interface_name": local_port(tables, local_index)[:120],
                 "remote_name": (name or chassis or "Bilinmeyen komşu")[:190],
-                "remote_port": port[:120],
+                "remote_port": remote_port({"lldp": lldp})[:120],
                 "source": "lldp",
                 "evidence": {"lldp": lldp},
             }
@@ -122,6 +123,7 @@ def parse_neighbors(tables):
                 cdp["device_id"] = mac_id
                 match["source"] = "lldp+cdp"
                 match["evidence"]["cdp"] = cdp
+                match["remote_port"] = remote_port(match["evidence"])[:120]
                 if not lldp_name and name:
                     match["remote_name"] = name[:190]
                 continue

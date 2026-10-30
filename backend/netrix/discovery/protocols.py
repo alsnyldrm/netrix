@@ -27,9 +27,10 @@ from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
 from ..configuration.fortios import fetch_fortios_backup
 from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError, validate_cli_output
 from ..core import settings
-from .aruba import ARUBA_ADAPTERS, read_aruba
+from .aruba import ARUBA_ADAPTERS, read_aruba, read_neighbor_detail
 from .comware import read_comware
 from .identification import rest_identity, snmp_identity, ssh_identity
+from .neighbor_detail import AOS_SWITCH
 from .neighbors import parse_neighbors
 
 
@@ -241,6 +242,7 @@ class SNMPCollector:
                                 "lldp_local_type",
                                 "lldp_chassis_type",
                                 "lldp_port_type",
+                                "lldp_port_desc",
                                 "if_name",
                                 "if_descr",
                             ),
@@ -279,6 +281,23 @@ IDENTITY_COMMANDS = {
 def ssh_known_hosts(device):
     """Use the explicitly saved device policy for every SSH operation."""
     return None if getattr(device, "ssh_trust_host_key", False) is True else settings().known_hosts
+
+
+async def fetch_neighbor_detail(device, secret, ports=()):
+    if device.adapter not in AOS_SWITCH:
+        return {}
+    async with asyncio.timeout(60):
+        async with asyncssh.connect(
+            device.management_ip,
+            port=device.config_port,
+            username=secret["username"],
+            password=secret["password"],
+            known_hosts=ssh_known_hosts(device),
+            client_keys=[],
+            connect_timeout=10,
+            login_timeout=15,
+        ) as connection:
+            return await read_neighbor_detail(connection, ports)
 
 
 async def fetch_identity(device, secret):

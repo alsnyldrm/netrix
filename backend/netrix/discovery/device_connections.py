@@ -6,6 +6,7 @@ import re
 from sqlalchemy import select
 
 from .. import models as m
+from .neighbor_detail import remote_port as observed_remote_port
 from .neighbor_labels import neighbor_label
 
 
@@ -27,19 +28,25 @@ def hierarchy(devices, links):
         if a in devices and b in devices and a != b:
             adjacent[a].add(b)
             adjacent[b].add(a)
-    anchors = {id: level for id, d in devices.items() if (level := anchor_level(d)) is not None}
-    levels = dict(anchors)
-    queue = [(level, id) for id, level in anchors.items()]
-    heapq.heapify(queue)
-    while queue:
-        level, id = heapq.heappop(queue)
-        if level != levels[id]:
-            continue
-        for peer in adjacent[id]:
-            candidate = max(2, level + 1)
-            if peer not in anchors and candidate < levels.get(peer, float("inf")):
-                levels[peer] = candidate
-                heapq.heappush(queue, (candidate, peer))
+    # Prefer firewall roots for their whole connected component. A second
+    # Backbone behind a core must not be pinned to the same level as that core.
+    anchors = {id: 0 for id, d in devices.items() if anchor_level(d) == 0}
+    levels = {}
+
+    def visit(seeds):
+        queue = list(seeds)
+        heapq.heapify(queue)
+        while queue:
+            level, id = heapq.heappop(queue)
+            if id in levels:
+                continue
+            levels[id] = level
+            for peer in adjacent[id]:
+                if peer not in levels:
+                    heapq.heappush(queue, (level + 1, peer))
+
+    visit([(level, id) for id, level in anchors.items()])
+    visit([(1, id) for id, d in devices.items() if id not in levels and anchor_level(d) == 1])
     # A disconnected component without a known root has no inferred direction.
     return levels
 
@@ -64,14 +71,29 @@ def device_connections(db, device):
     )
     levels = hierarchy(devices, links)
     connections = {}
+    aggregates = {}
+    roots = {}
+    for row in sorted(links, key=lambda l: l.last_seen_at or l.updated_at):
+        evidence = row.evidence or {}
+        if "local_aggregate" in evidence:
+            aggregates[(row.device_id, row.interface_name)] = evidence["local_aggregate"]
+        if evidence.get("spanning_tree"):
+            roots[row.device_id] = evidence["spanning_tree"]
+
     for link in links:
         if device.id == link.device_id:
             peer_id = link.remote_device_id
-            local_port, remote_port = link.interface_name, link.remote_port
+            local_port, remote_port = (
+                link.interface_name,
+                observed_remote_port(link.evidence or {}, link.remote_port),
+            )
             advertised_name = neighbor_label(link.remote_name)
         elif device.id == link.remote_device_id:
             peer_id = link.device_id
-            local_port, remote_port = link.remote_port, link.interface_name
+            local_port, remote_port = (
+                observed_remote_port(link.evidence or {}, link.remote_port),
+                link.interface_name,
+            )
             advertised_name = devices[peer_id].name
         else:
             continue
@@ -83,6 +105,18 @@ def device_connections(db, device):
             delta = levels[peer_id] - levels[device.id]
             direction = "upstream" if delta < 0 else "downstream" if delta > 0 else "peer"
         local_port, remote_port = neighbor_label(local_port), neighbor_label(remote_port)
+        local_aggregate = aggregates.get((device.id, local_port))
+        remote_aggregate = aggregates.get((peer_id, remote_port))
+        root = roots.get(device.id)
+        basis = "topology"
+        if root and root.get("port"):
+            basis = "stp"
+            direction = (
+                "upstream"
+                if root.get("port") and root["port"] in (local_port, (local_aggregate or {}).get("name"))
+                else "unknown"
+            )
+
         # Merge only identical endpoints; parallel links and unresolved ports stay distinct.
         key = (
             peer_id or advertised_name,
@@ -101,6 +135,9 @@ def device_connections(db, device):
         connections[key] = {
             "id": link.id,
             "local_port": local_port or None,
+            "local_aggregate": local_aggregate,
+            "remote_aggregate": remote_aggregate,
+            "direction_basis": basis,
             "remote_port": remote_port or None,
             "remote_device": (
                 {"id": peer.id, "name": peer.name, "management_ip": peer.management_ip} if peer else None
@@ -111,10 +148,32 @@ def device_connections(db, device):
             "sources": sorted(link.source.split("+")),
             "last_seen_at": observed.isoformat() if observed else None,
         }
+    grouped = {}
+    for row in connections.values():
+        aggregate = row["local_aggregate"]
+        key = (
+            (
+                row["remote_device"]["id"] if row["remote_device"] else row["remote_name"],
+                aggregate["name"],
+                row["direction"],
+            )
+            if aggregate
+            else (row["id"],)
+        )
+        member = {"local_port": row["local_port"], "remote_port": row["remote_port"]}
+        if key in grouped:
+            existing = grouped[key]
+            existing["members"].append(member)
+            existing["sources"] = sorted(set(existing["sources"]) | set(row["sources"]))
+            existing["confidence"] = min(existing["confidence"], row["confidence"])
+            if existing["remote_aggregate"] != row["remote_aggregate"]:
+                existing["remote_aggregate"] = None
+        else:
+            grouped[key] = {**row, "members": [member] if aggregate else []}
     order = {"upstream": 0, "unknown": 1, "peer": 2, "downstream": 3}
     return {
         "items": sorted(
-            connections.values(),
+            grouped.values(),
             key=lambda row: (order[row["direction"]], row["remote_name"], row["local_port"] or ""),
         )
     }

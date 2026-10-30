@@ -78,8 +78,8 @@ def test_hierarchy_infers_upper_and_lower_connections_with_cycles(network):
         add_link(db, ids, "edge", "gateway", "3", "4")
         assert {r["remote_name"]: r["direction"] for r in read(db, ids)} == {
             "gateway": "upstream",
-            "core": "upstream",
-            "leaf": "peer",
+            "core": "peer",
+            "leaf": "downstream",
         }
         assert all(r["direction"] == "downstream" for r in read(db, ids, "gateway"))
 
@@ -133,3 +133,42 @@ def test_endpoint_requires_login_and_supports_viewers(network, client, admin_cli
     assert admin_client.get("/api/v1/devices/missing/connections").status_code == 404
     client.cookies.clear()
     assert client.get(f"/api/v1/devices/{ids['edge']}/connections").status_code == 401
+
+
+def test_stp_root_trunk_groups_members_and_excludes_non_root_neighbors(network):
+    sf, ids = network
+    with sf() as db:
+        db.get(m.Device, ids["edge"]).kind = "custom-core"
+        for local, remote in [("A1", "I4"), ("B1", "D2")]:
+            add_link(
+                db,
+                ids,
+                "edge",
+                "core",
+                local,
+                remote,
+                evidence={
+                    "local_aggregate": {"name": "Trk1", "type": "LACP"},
+                    "spanning_tree": {"port": "Trk1", "is_root": False},
+                },
+            )
+        add_link(db, ids, "edge", "leaf", "A2", "48")
+        rows = read(db, ids)
+        upper = [r for r in rows if r["direction"] == "upstream"]
+        assert len(upper) == 1
+        assert upper[0]["direction_basis"] == "stp"
+        assert upper[0]["local_aggregate"]["name"] == "Trk1"
+        assert upper[0]["members"] == [
+            {"local_port": "A1", "remote_port": "I4"},
+            {"local_port": "B1", "remote_port": "D2"},
+        ]
+        assert rows[1]["direction"] != "upstream"
+
+
+def test_core_behind_core_uses_distance_to_firewall_not_equal_backbone_tier(network):
+    sf, ids = network
+    with sf() as db:
+        db.get(m.Device, ids["edge"]).kind = "custom-core"
+        add_link(db, ids, "gateway", "core")
+        add_link(db, ids, "core", "edge")
+        assert read(db, ids)[0]["direction"] == "upstream"

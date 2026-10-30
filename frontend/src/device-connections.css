@@ -103,10 +103,30 @@
   align-items: center;
   flex-wrap: wrap;
 }
-.connection-others > summary {
-  cursor: pointer;
-  padding: 12px 0;
-  color: var(--text-2);
+.connection-members {
+  padding: 0 16px 16px;
+}
+.connection-members ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.connection-members li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+.connection-members li > span:nth-child(2) {
+  text-align: center;
+}
+.connection-members li > span {
+  overflow-wrap: anywhere;
 }
 @media (max-width: 640px) {
   .connection-endpoints {

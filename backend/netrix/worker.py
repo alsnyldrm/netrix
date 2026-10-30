@@ -22,7 +22,14 @@ from .discovery.correlation import correlate
 from .discovery.identification import normalize, snmp_identity
 from .discovery.interactive_tests import CAPACITY, POLL_SECONDS, interactive_condition
 from .discovery.links import sync_links
-from .discovery.protocols import NetworkError, SNMPCollector, fetch_config, fetch_identity
+from .discovery.neighbor_detail import AOS_SWITCH, enrich_neighbors
+from .discovery.protocols import (
+    NetworkError,
+    SNMPCollector,
+    fetch_config,
+    fetch_identity,
+    fetch_neighbor_detail,
+)
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
 from .monitoring.rates import calculate_rate
@@ -218,6 +225,16 @@ async def identify_device(job_id, collector):
             attempts.append({"protocol": protocol, "status": "failed", "error_class": type(exc).__name__})
     if attempts and all(attempt["status"] == "failed" for attempt in attempts):
         raise NetworkError("Cihaz kimlik bilgileri okunamadı")
+    neighbor_data = None
+    if device.adapter in AOS_SWITCH:
+        ssh_secret = next((s for p, s, _, _ in credentials if p == "ssh"), None)
+        if ssh_secret:
+            try:
+                neighbor_data = enrich_neighbors({}, await fetch_neighbor_detail(device, ssh_secret))
+            except Exception as exc:
+                attempts.append(
+                    {"protocol": "ssh_detail", "status": "failed", "error_class": type(exc).__name__}
+                )
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
         current = db.scalar(select(m.Device).where(m.Device.id == device.id).with_for_update())
@@ -230,13 +247,20 @@ async def identify_device(job_id, collector):
         ):
             raise NetworkError("Bağlantı bilgileri değişti; kimlik sorgusu yeniden denenmeli")
         apply_identity(db, current, fields, job.id, sources)
+        if neighbor_data is not None:
+            sync_links(db, current, neighbor_data)
         db.add(
             m.Observation(
                 device_id=current.id,
                 job_id=job.id,
                 address=current.management_ip,
                 source="identity",
-                evidence={"identity": fields, "field_sources": sources, "attempts": attempts},
+                evidence={
+                    "identity": fields,
+                    "field_sources": sources,
+                    "attempts": attempts,
+                    **({"neighbor_detail": neighbor_data} if neighbor_data is not None else {}),
+                },
                 confidence=0.9,
             )
         )
@@ -415,6 +439,15 @@ async def collect_device(job_id, collector):
             credential.updated_at,
         )
         secret = secret_data(credential)
+        detail_profile = (
+            db.get(m.Credential, device.config_credential_id)
+            if job.kind != "backup" and device.adapter in AOS_SWITCH and device.config_credential_id
+            else None
+        )
+        detail_secret = (
+            secret_data(detail_profile) if detail_profile and detail_profile.protocol == "ssh" else None
+        )
+        detail_version = detail_profile.updated_at if detail_secret else None
         existing = (
             db.scalar(select(m.Snapshot.id).where(m.Snapshot.job_id == job_id))
             if job.kind == "backup"
@@ -428,6 +461,14 @@ async def collect_device(job_id, collector):
             if job.kind == "backup"
             else await collector.collect(device.management_ip, device.snmp_port, secret)
         )
+        if job.kind != "backup" and detail_secret:
+            try:
+                detail = await fetch_neighbor_detail(
+                    device, detail_secret, [n["interface_name"] for n in data.get("neighbors", [])]
+                )
+                enrich_neighbors(data, detail)
+            except Exception as exc:
+                data["neighbor_detail"] = {"status": "failed", "error_class": type(exc).__name__}
     except Exception:
         if job.kind == "monitor":
             with session_factory()() as db:
@@ -478,6 +519,13 @@ async def collect_device(job_id, collector):
                 )
             evaluate(db, current, "config_change", int(changed))
         else:
+            if signature != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) + (
+                get(db, m.Credential, current.snmp_credential_id).updated_at,
+            ) or (
+                detail_version
+                and get(db, m.Credential, current.config_credential_id).updated_at != detail_version
+            ):
+                raise NetworkError("Bağlantı bilgileri değişti; gözlem yeniden alınmalı")
             persist_collection(db, current, data, job, secret["protocol"])
             current.last_monitor_at = now()
         job.progress, job.total = 1, 1
