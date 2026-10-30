@@ -16,6 +16,8 @@ from .identity.security import audit, encrypt
 from .ipam.schemas import DNSInput
 
 RESOURCES = {
+    "cabinets": (m.Cabinet, s.CabinetInput),
+    "operating-systems": (m.OperatingSystem, s.OperatingSystemInput),
     "dns-servers": (m.DNSServer, DNSInput),
     "integrations": (m.Integration, None),
     "backup-groups": (m.BackupGroup, s.BackupGroupInput),

@@ -63,6 +63,19 @@ class Site(Entity, Base):
     timezone: Mapped[str] = mapped_column(String(50), default="Europe/Istanbul")
 
 
+class Cabinet(Entity, Base):
+    __tablename__ = "cabinets"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+
+
+class OperatingSystem(Entity, Base):
+    __tablename__ = "operating_systems"
+    name: Mapped[str] = mapped_column(String(190), unique=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+
+
 class VRF(Entity, Base):
     __tablename__ = "vrfs"
     lock_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

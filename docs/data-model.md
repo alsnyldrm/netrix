@@ -144,3 +144,9 @@ Migration testlerinde FK/unique/check kısıtlarını ve sorgu indekslerini doğ
 ## Uygulanan IPAM genişletmesi (31 Ekim 2026)
 
 Alembic `20261031_13`: `dns_servers`, şifreli `integrations`, kaynak/kimlik başına tekil `ip_observations`, kaynak/zaman başına tekil `ip_traffic`; prefix DNS/VLAN cihazı/kapsam FK’leri, kullanım eşiği ve ping/keşif zamanlamaları; IP manuel işletim sistemi/kabinet/lokasyon alanları. Tarihler MariaDB `DATETIME(6)` ve API’de UTC’dir. Otomatik gözlemler manuel alanları değiştirmez; mevcut ortak cihaz/arayüz/IP envanteri kullanılır. Entegrasyon yetkili blokları servis tarafından doğrulanan JSON kimlik listesidir; kullanılan prefix silinmesi servis katmanında engellenir. Ayrıntı: [IPAM işleyişi](ipam-integrations.md).
+
+## IPAM tanım menüleri (31 Ekim 2026)
+
+Alembic `20261031_14`: `cabinets(id, name, site_id, description)` ve `operating_systems(id, name, description)` katalogları. Her iki ad tekildir; kabinetin opsiyonel lokasyonu mevcut `sites` tablosuna indeksli FK ile bağlıdır. Zaman alanları `DATETIME(6)`/UTC'dir. Kataloglar başlangıçta boştur; dolu kataloglarla downgrade engellenir. Ortak `sites` ekranı IP adres yönetimi menüsüne taşınmıştır; cihaz ve ağ bloğu ilişkileri aynı kayıtlara bağlı kalır.
+
+IP formu bu kataloglardan ve ortak lokasyonlardan ad önerileri sunar; IP üzerindeki mevcut manuel metin alanları korunur. Öneri seçimi adı metin olarak kaydeder; katalog adını düzenlemek/silmek geçmiş IP değerlerini değiştirmez. Kaynaklardan gelen OS/konum gözlemleri ayrı kalır. Kabinet ve işletim sistemi CRUD işlemleri merkezi yetkilendirme, audit ve doğrulama katmanını kullanır.

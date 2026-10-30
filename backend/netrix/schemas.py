@@ -37,6 +37,17 @@ class SiteInput(Input):
         return value
 
 
+class CabinetInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    site_id: str | None = None
+    description: str = Field(default="", max_length=400)
+
+
+class OperatingSystemInput(Input):
+    name: str = Field(min_length=1, max_length=190)
+    description: str = Field(default="", max_length=400)
+
+
 class VRFInput(Input):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=400)

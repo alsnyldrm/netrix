@@ -53,6 +53,7 @@ import {
   ArrowUp,
   LockKey,
   HardDrives,
+  DesktopTower,
   Archive,
   TreeStructure,
   ListNumbers,
@@ -93,6 +94,7 @@ type Field = {
   type?: string;
   options?: string[] | [string, string][];
   ref?: string;
+  suggestions?: string;
   required?: boolean;
   default?: any;
   hint?: string;
@@ -243,26 +245,6 @@ export const PAGES: Page[] = [
     ],
   },
   {
-    key: "sites",
-    title: "Lokasyonlar",
-    desc: "Fiziksel ağınızı anlamlı çalışma alanlarına ayırın.",
-    group: "Envanter",
-    icon: Buildings,
-    resource: "sites",
-    columns: [
-      ["name", "Lokasyon"],
-      ["code", "Kod"],
-      ["description", "Açıklama"],
-      ["timezone", "Saat dilimi"],
-    ],
-    fields: [
-      f("name", "Lokasyon adı", { required: true }),
-      f("code", "Benzersiz kod", { required: true }),
-      f("description", "Açıklama"),
-      f("timezone", "Saat dilimi", { default: "Europe/Istanbul" }),
-    ],
-  },
-  {
     key: "device-types",
     title: "Cihaz Türü",
     desc: "Cihazlarda kullanılan türleri ekleyin, adlarını düzenleyin ve yönetin.",
@@ -284,24 +266,6 @@ export const PAGES: Page[] = [
     desc: "VMware vCenter ve Microsoft Windows DHCP bağlantıları.",
     group: "Yönetim",
     icon: PlugsConnected,
-  },
-  {
-    key: "dns-servers",
-    title: "DNS sunucuları",
-    desc: "Ağ bloklarının isim çözümleme sunucuları.",
-    group: "IP adres yönetimi",
-    icon: GlobeHemisphereWest,
-    resource: "dns-servers",
-    columns: [
-      ["name", "Ad"],
-      ["address", "Sunucu IP"],
-      ["port", "Port"],
-    ],
-    fields: [
-      f("name", "DNS adı", { required: true }),
-      f("address", "Sunucu IP", { required: true }),
-      f("port", "DNS portu", { type: "number", default: 53, required: true }),
-    ],
   },
   {
     key: "prefixes",
@@ -349,9 +313,18 @@ export const PAGES: Page[] = [
       ref("vrf_id", "VRF", "vrfs", true),
       ref("prefix_id", "Ağ bloğu", "prefixes", true),
       f("hostname", "Hostname"),
-      f("operating_system", "İşletim sistemi"),
-      f("cabinet", "Kabinet no"),
-      f("location", "Lokasyon"),
+      f("operating_system", "İşletim sistemi", {
+        suggestions: "operating-systems",
+        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
+      }),
+      f("cabinet", "Kabinet no", {
+        suggestions: "cabinets",
+        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
+      }),
+      f("location", "Lokasyon", {
+        suggestions: "sites",
+        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
+      }),
       options("status", "Durum", ["reserved", "active", "deprecated"]),
       ref("interface_id", "Arayüz", "interfaces"),
     ],
@@ -372,6 +345,78 @@ export const PAGES: Page[] = [
       f("name", "VLAN adı", { required: true }),
       f("vid", "VLAN ID (1–4094)", { type: "number", required: true }),
       f("domain", "Domain", { default: "default", required: true }),
+    ],
+  },
+  {
+    key: "cabinets",
+    title: "Kabinetler",
+    desc: "Kabinet numaralarını ve bulundukları lokasyonları yönetin.",
+    group: "IP adres yönetimi",
+    icon: HardDrives,
+    resource: "cabinets",
+    columns: [
+      ["name", "Kabinet no"],
+      ["site_id", "Lokasyon"],
+      ["description", "Açıklama"],
+    ],
+    fields: [
+      f("name", "Kabinet no", { required: true }),
+      ref("site_id", "Lokasyon", "sites"),
+      f("description", "Açıklama"),
+    ],
+  },
+  {
+    key: "operating-systems",
+    title: "İşletim Sistemi",
+    desc: "IP kayıtlarında kullanılacak işletim sistemlerini yönetin.",
+    group: "IP adres yönetimi",
+    icon: DesktopTower,
+    resource: "operating-systems",
+    columns: [
+      ["name", "İşletim sistemi"],
+      ["description", "Açıklama"],
+    ],
+    fields: [
+      f("name", "İşletim sistemi", { required: true }),
+      f("description", "Açıklama"),
+    ],
+  },
+  {
+    key: "sites",
+    title: "Lokasyon",
+    desc: "Fiziksel ağınızı anlamlı çalışma alanlarına ayırın.",
+    group: "IP adres yönetimi",
+    icon: Buildings,
+    resource: "sites",
+    columns: [
+      ["name", "Lokasyon"],
+      ["code", "Kod"],
+      ["description", "Açıklama"],
+      ["timezone", "Saat dilimi"],
+    ],
+    fields: [
+      f("name", "Lokasyon adı", { required: true }),
+      f("code", "Benzersiz kod", { required: true }),
+      f("description", "Açıklama"),
+      f("timezone", "Saat dilimi", { default: "Europe/Istanbul" }),
+    ],
+  },
+  {
+    key: "dns-servers",
+    title: "DNS Sunucuları",
+    desc: "Ağ bloklarının isim çözümleme sunucuları.",
+    group: "IP adres yönetimi",
+    icon: GlobeHemisphereWest,
+    resource: "dns-servers",
+    columns: [
+      ["name", "Ad"],
+      ["address", "Sunucu IP"],
+      ["port", "Port"],
+    ],
+    fields: [
+      f("name", "DNS adı", { required: true }),
+      f("address", "Sunucu IP", { required: true }),
+      f("port", "DNS portu", { type: "number", default: 53, required: true }),
     ],
   },
   {
@@ -1355,6 +1400,15 @@ function ResourceForm({
                     />
                   ) : (
                     <input
+                      aria-label={field.label}
+                      aria-describedby={
+                        field.hint ? `hint-${field.key}` : undefined
+                      }
+                      list={
+                        field.suggestions
+                          ? `suggestions-${field.key}`
+                          : undefined
+                      }
                       type={field.type || "text"}
                       required={field.required}
                       autoComplete={
@@ -1367,6 +1421,19 @@ function ResourceForm({
                     />
                   )}
                 </>
+              )}
+              {field.suggestions && (
+                <datalist id={`suggestions-${field.key}`}>
+                  {[
+                    ...new Set(
+                      (refs[field.suggestions] || []).map((r) => r.name),
+                    ),
+                  ]
+                    .sort((a, b) => a.localeCompare(b, "tr"))
+                    .map((name) => (
+                      <option key={name} value={name} />
+                    ))}
+                </datalist>
               )}
               {field.hint && (
                 <small id={`hint-${field.key}`}>{field.hint}</small>
@@ -2366,6 +2433,8 @@ function App() {
         const names = [
           "devices",
           "sites",
+          "cabinets",
+          "operating-systems",
           "device-types",
           "vrfs",
           "vlans",
@@ -2384,6 +2453,9 @@ function App() {
           names.map(async (name) => [
             name,
             [
+              "sites",
+              "cabinets",
+              "operating-systems",
               "device-types",
               "devices",
               "links",

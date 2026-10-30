@@ -40,3 +40,9 @@ Canlı işler mevcut dört eşzamanlı interaktif worker kapasitesini kullanır.
 `tests/test_ipam_workspace.py`: kapsam/VRF/IPv6, şifreler, rol sınırları, DNS/ICMP, gözlem güncelliği, MAC korelasyonu, DHCP→VMware ve canlı trafik sayaçları. Gerçek ağa çıkılmaz. `scripts/ipam_migration_check.py` yalnızca atılabilir `netrix_test` MariaDB’de çalışır. `scripts/ipam_browser_check.py` yerel sahte veriyle 1440, 375 ve 812 px / açık-koyu tema kontrollerini yapar. Üretim vCenter/Windows DHCP erişim testi, ilgili sunucu ve erişim bilgileri tanımlanınca yapılmalıdır.
 
 Resmi protokol kaynakları: [Microsoft DHCP rezervasyonları](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4reservation?view=windowsserver2025-ps), [DHCP kapsamları](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4scope?view=windowsserver2025-ps), [vSphere konuk NIC bilgisi](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.vm.GuestInfo.NicInfo.html), [vSphere PerformanceManager](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.PerformanceManager.html), [pyVmomi](https://github.com/vmware/pyvmomi), [pywinrm](https://github.com/diyan/pywinrm).
+
+## Sol menü ve tanım listeleri
+
+IP adres yönetimi sırası: Ağ blokları → IP adresleri → VLAN alanları → Kabinetler → İşletim Sistemi → Lokasyon → DNS Sunucuları → Yönlendirme alanları.
+
+Kabinetler ekranında kabinet no, ortak lokasyon ve açıklama; İşletim Sistemi ekranında ad ve açıklama yönetilir. Lokasyon ekranı envanterde kullanılan ortak kayıtları yönetmeye devam eder. IP formundaki işletim sistemi, kabinet ve lokasyon alanlarında bu listelerden öneriler seçilebilir veya mevcut serbest metin yöntemiyle değer girilebilir. Katalog değişiklikleri daha önce IP'ye kaydedilmiş metni otomatik değiştirmez.

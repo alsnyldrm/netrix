@@ -50,11 +50,63 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
     page.get_by_role("button", name="192.0.2.0/24", exact=True).wait_for()
+    expected_menu = [
+        "Ağ blokları",
+        "IP adresleri",
+        "VLAN alanları",
+        "Kabinetler",
+        "İşletim Sistemi",
+        "Lokasyon",
+        "DNS Sunucuları",
+        "Yönlendirme alanları",
+    ]
+    group = page.locator(".nav-group").filter(
+        has=page.get_by_role("button", name="IP adres yönetimi", exact=True)
+    )
+    assert group.locator(".nav-item").all_text_contents() == expected_menu
+    group.get_by_role("button", name="IP adres yönetimi", exact=True).click()
+    for width, height in ((1440, 1000), (375, 812)):
+        page.set_viewport_size({"width": width, "height": height})
+        if width == 375:
+            page.get_by_role("button", name="Menüyü aç", exact=True).click()
+        for theme in ("light", "dark"):
+            page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+            boxes = group.locator(".nav-item").evaluate_all(
+                "els=>els.map(e=>{let b=e.getBoundingClientRect();let t=e.querySelector('span').getBoundingClientRect();let i=e.querySelector('svg').getBoundingClientRect();return {x:b.x,w:b.width,h:b.height,tx:t.x,cy:t.y+t.height/2,iy:i.y+i.height/2}})"
+            )
+            assert max(b["x"] for b in boxes) - min(b["x"] for b in boxes) < 1
+            assert max(b["w"] for b in boxes) - min(b["w"] for b in boxes) < 1
+            assert max(b["tx"] for b in boxes) - min(b["tx"] for b in boxes) < 1
+            assert all(abs(b["cy"] - b["iy"]) < 1 for b in boxes)
+            expect(group.get_by_role("button", name="Yönlendirme alanları", exact=True)).to_be_visible()
+            page.screenshot(path=f"artifacts/ipam-menu-{width}-{theme}.png")
+        if width == 375:
+            page.get_by_role("button", name="Menüyü kapat", exact=True).click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    for key, title, field, value in (
+        ("sites", "Lokasyon", "Lokasyon adı", "Kat 2"),
+        ("cabinets", "Kabinetler", "Kabinet no", "K-05"),
+        ("operating-systems", "İşletim Sistemi", "İşletim sistemi", "Windows Server"),
+    ):
+        group.get_by_role("button", name=title, exact=True).click()
+        page.get_by_role("button", name="Yeni kayıt", exact=True).click()
+        page.get_by_label(field, exact=True).fill(value)
+        if key == "sites":
+            page.get_by_label("Benzersiz kod", exact=True).fill("kat-2")
+        if key == "cabinets":
+            page.get_by_role("combobox", name="Lokasyon", exact=True).select_option(label="Kat 2")
+        check(key + "-form")
+        page.get_by_role("button", name="Kaydı kaydet", exact=True).click()
+        expect(page.get_by_role("cell", name=value, exact=True).first).to_be_visible()
+        check(key + "-catalog")
+    group.get_by_role("button", name="Ağ blokları", exact=True).click()
     check("blocks")
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     expect(page.get_by_role("cell", name="192.0.2.99", exact=True)).to_be_visible()
     check("addresses")
     page.get_by_role("button", name="192.0.2.11 ata", exact=True).click()
+    for field, value in (("operating_system", "Windows Server"), ("cabinet", "K-05"), ("location", "Kat 2")):
+        assert value in page.locator(f"#suggestions-{field} option").evaluate_all("els=>els.map(e=>e.value)")
     page.get_by_label("İşletim sistemi", exact=True).fill("Windows Server")
     page.get_by_label("Kabinet no", exact=True).fill("K-05")
     page.get_by_label("Lokasyon", exact=True).fill("Kat 2")
