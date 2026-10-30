@@ -419,12 +419,18 @@ def select_interfaces(db, device_id, payload, user):
 
 
 def bulk(db, resource, payload, user):
-    if resource not in ("devices", "interfaces"):
+    if resource not in ("devices", "interfaces", "links"):
         raise HTTPException(404, "Kaynak bulunamadı")
     if payload.action == "delete" and user.role != "admin":
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
     if payload.action == "restore" and user.role != "admin":
         raise HTTPException(403, "Geri yükleme için yönetici yetkisi gerekli")
+    if resource == "links":
+        from ..discovery.link_deletions import delete_links
+
+        if payload.action != "delete" or payload.changes:
+            raise HTTPException(422, "Geçersiz komşuluk işlemi")
+        return delete_links(db, payload.ids, user)
     ids = sorted(set(payload.ids))
     model = m.Device if resource == "devices" else m.Interface
     rows = db.scalars(select(model).where(model.id.in_(ids)).order_by(model.id).with_for_update()).all()

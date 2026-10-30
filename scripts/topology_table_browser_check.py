@@ -95,6 +95,7 @@ with sync_playwright() as p:
     inspect_view("columns", modal=True)
     page.get_by_role("button", name="Sütunları uygula", exact=True).click()
     assert table.get_by_role("columnheader").all_text_contents() == [
+        "",
         "Kaynak cihaz",
         "Kaynak IP",
         "Komşu",
@@ -111,6 +112,7 @@ with sync_playwright() as p:
     directory.get_by_role("button", name="HP-SW-BB-01-A-00-01", exact=True).click()
     expect(table.locator(".inventory-pagination")).to_contain_text("4 kayıt")
     assert table.get_by_role("columnheader").all_text_contents() == [
+        "",
         "Kaynak cihaz",
         "Kaynak IP",
         "Komşu",

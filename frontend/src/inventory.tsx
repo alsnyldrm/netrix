@@ -653,7 +653,8 @@ export function InventoryTable({
     writable &&
     (!archive || user.role === "admin") &&
     purpose !== "interface-devices" &&
-    ["devices", "interfaces"].includes(resource);
+    (["devices", "interfaces"].includes(resource) ||
+      (resource === "links" && user.role === "admin"));
   const apply = async (action: string) => {
     setBusy(true);
     setError("");
@@ -669,7 +670,9 @@ export function InventoryTable({
           ? `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
           : action === "delete" && resource === "devices"
             ? `${selected.length} cihaz arşivlendi. Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
-            : "İşlem tamamlandı.",
+            : action === "delete" && resource === "links"
+              ? `${selected.length} komşuluk kaydı silindi. Sonraki taramalarda yeniden eklenmeleri engellendi.`
+              : "İşlem tamamlandı.",
       );
       onSaved();
     } catch (e: any) {
@@ -760,7 +763,7 @@ export function InventoryTable({
       </div>
       {selected.length > 0 && (
         <div className="inventory-selection">
-          <b>{selected.length} kayıt seçildi</b>
+          <b role="status">{selected.length} kayıt seçildi</b>
           {archive ? (
             <button
               className="secondary"
@@ -777,7 +780,7 @@ export function InventoryTable({
                 ? "Ayarları uygula"
                 : "Toplu değiştir"}
             </button>
-          ) : (
+          ) : resource === "interfaces" ? (
             <>
               <button
                 className="secondary"
@@ -794,10 +797,10 @@ export function InventoryTable({
                 Etkinleştir
               </button>
             </>
-          )}
+          ) : null}
           {user.role === "admin" && !archive && (
             <button className="secondary" onClick={() => setDialog("delete")}>
-              <Trash size={16} />
+              <Trash size={16} aria-hidden="true" />
               Sil
             </button>
           )}
@@ -823,30 +826,38 @@ export function InventoryTable({
             <tr>
               {selectRows && (
                 <th className="selection-cell">
-                  <input
-                    aria-label="Bu sayfadaki kayıtları seç"
-                    disabled={loading}
-                    type="checkbox"
-                    checked={
-                      data.items.length > 0 &&
-                      data.items.every((r: Row) => selected.includes(r.id))
+                  <label
+                    className={
+                      resource === "links"
+                        ? "neighbor-selection-control"
+                        : "inventory-selection-control"
                     }
-                    ref={(el) => {
-                      if (el)
-                        el.indeterminate =
-                          selected.length > 0 &&
-                          !data.items.every((r: Row) =>
-                            selected.includes(r.id),
-                          );
-                    }}
-                    onChange={(e) =>
-                      setSelected(
-                        e.target.checked
-                          ? data.items.map((r: Row) => r.id)
-                          : [],
-                      )
-                    }
-                  />
+                  >
+                    <input
+                      aria-label="Bu sayfadaki kayıtları seç"
+                      disabled={loading}
+                      type="checkbox"
+                      checked={
+                        data.items.length > 0 &&
+                        data.items.every((r: Row) => selected.includes(r.id))
+                      }
+                      ref={(el) => {
+                        if (el)
+                          el.indeterminate =
+                            selected.length > 0 &&
+                            !data.items.every((r: Row) =>
+                              selected.includes(r.id),
+                            );
+                      }}
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? data.items.map((r: Row) => r.id)
+                            : [],
+                        )
+                      }
+                    />
+                  </label>
                 </th>
               )}
               {visible.map((c) => (
@@ -911,19 +922,31 @@ export function InventoryTable({
                 <tr>
                   {selectRows && (
                     <td className="selection-cell">
-                      <input
-                        type="checkbox"
-                        aria-label={`${row.name} seç`}
-                        disabled={loading}
-                        checked={selected.includes(row.id)}
-                        onChange={(e) =>
-                          setSelected(
-                            e.target.checked
-                              ? [...selected, row.id]
-                              : selected.filter((id) => id !== row.id),
-                          )
+                      <label
+                        className={
+                          resource === "links"
+                            ? "neighbor-selection-control"
+                            : "inventory-selection-control"
                         }
-                      />
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={
+                            resource === "links"
+                              ? `${row.interface_name || "Bilinmeyen port"} · ${row.remote_name} komşuluğunu seç`
+                              : `${row.name} seç`
+                          }
+                          disabled={loading}
+                          checked={selected.includes(row.id)}
+                          onChange={(e) =>
+                            setSelected(
+                              e.target.checked
+                                ? [...selected, row.id]
+                                : selected.filter((id) => id !== row.id),
+                            )
+                          }
+                        />
+                      </label>
                     </td>
                   )}
                   {visible.map((c) => (
@@ -1151,11 +1174,16 @@ export function InventoryTable({
           title={
             resource === "devices"
               ? "Seçilen cihazları arşivle"
-              : "Seçilen kayıtları sil"
+              : resource === "links"
+                ? "Seçilen komşulukları sil"
+                : "Seçilen kayıtları sil"
           }
-          onClose={() => setDialog("")}
+          onClose={() => {
+            if (!busy) setDialog("");
+          }}
         >
           <form
+            className={resource === "links" ? "link-delete-form" : undefined}
             onSubmit={(e) => {
               e.preventDefault();
               apply("delete");
@@ -1164,20 +1192,32 @@ export function InventoryTable({
             <p>
               {resource === "devices"
                 ? `${selected.length} cihaz arşivlenecek. Geçmişi korunur; Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
-                : `${selected.length} kayıt uygulama listesinden kaldırılacak. Geçmiş kayıtlar korunur.`}
+                : resource === "links"
+                  ? `${selected.length} komşuluk kaydı silinecek ve sonraki taramalarda yeniden eklenmeleri engellenecek.`
+                  : `${selected.length} kayıt uygulama listesinden kaldırılacak. Geçmiş kayıtlar korunur.`}
             </p>
             <div className="dialog-footer">
               <button
                 className="secondary"
                 type="button"
+                disabled={busy}
                 onClick={() => setDialog("")}
               >
                 Vazgeç
               </button>
-              <button className="primary" disabled={busy}>
-                {resource === "devices"
-                  ? "Seçilenleri arşivle"
-                  : "Seçilenleri sil"}
+              <button
+                className={
+                  resource === "links" ? "secondary delete-confirm" : "primary"
+                }
+                disabled={busy || !selected.length}
+              >
+                {busy
+                  ? "İşleniyor…"
+                  : resource === "links"
+                    ? "Seçilenleri sil ve engelle"
+                    : resource === "devices"
+                      ? "Seçilenleri arşivle"
+                      : "Seçilenleri sil"}
               </button>
             </div>
             {error && (

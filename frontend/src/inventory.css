@@ -520,3 +520,28 @@
 .inventory-panel th[aria-sort] .column-sort {
   color: var(--text);
 }
+.inventory-selection-control {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.topology-table .selection-cell {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.neighbor-selection-control {
+  flex-wrap: nowrap;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  margin: 0;
+}
+.neighbor-selection-control input {
+  margin: 0;
+}
+.topology-table .inventory-selection button {
+  min-height: 44px;
+}

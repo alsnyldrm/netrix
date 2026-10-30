@@ -39,42 +39,67 @@ def matches(link, neighbor, db=None):
 
 
 def delete_link(db, id, user):
+    delete_links(db, [id], user)
+
+
+def delete_links(db, ids, user):
     from .. import services as svc
 
-    target = svc.get(db, m.Link, id)
+    ids = sorted(set(ids))
+    targets = list(db.scalars(select(m.Link).where(m.Link.id.in_(ids))))
+    if len(targets) != len(ids):
+        raise HTTPException(404, "Seçilen kayıtlardan biri bulunamadı")
     # Use the same deterministic lock order as the worker and reload stale ORM state.
     links = list(
         db.scalars(
             select(m.Link)
-            .where(m.Link.device_id == target.device_id)
+            .where(m.Link.device_id.in_({target.device_id for target in targets}))
             .order_by(m.Link.id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     )
-    if target.auto_add_excluded:
-        return
-    device = db.get(m.Device, target.device_id)
-    if device.archived or not target.is_current:
+    devices = {target.device_id: db.get(m.Device, target.device_id) for target in targets}
+    # Validate the entire selection before changing any observation or audit record.
+    if any(
+        not target.auto_add_excluded and (devices[target.device_id].archived or not target.is_current)
+        for target in targets
+    ):
         raise HTTPException(409, "Yalnızca aktif cihazın güncel komşuluk kaydı silinebilir")
-    removed = []
-    for row in links:
-        if (
-            row.id == target.id
-            or matches(target, observation(row), db)
-            or matches(row, observation(target), db)
-        ):
-            row.auto_add_excluded = True
-            row.is_current = False
-            removed.append(row.id)
-    audit(db, user, "delete_link", "links", id, "Komşuluk silindi; keşifte yeniden eklenmesi engellendi")
-    db.add(
-        m.Event(
-            device_id=target.device_id,
-            kind="link_deleted",
-            message=f"{device.name}: komşuluk silindi ve yeniden keşfi engellendi",
-            details={"link_id": id, "excluded_ids": removed, "interface_name": target.interface_name},
+    for target in sorted(targets, key=lambda row: row.id):
+        if target.auto_add_excluded:
+            continue
+        device = devices[target.device_id]
+        removed = []
+        for row in links:
+            if row.device_id == target.device_id and (
+                row.id == target.id
+                or matches(target, observation(row), db)
+                or matches(row, observation(target), db)
+            ):
+                row.auto_add_excluded = True
+                row.is_current = False
+                removed.append(row.id)
+        audit(
+            db,
+            user,
+            "delete_link",
+            "links",
+            target.id,
+            "Komşuluk silindi; keşifte yeniden eklenmesi engellendi",
         )
-    )
+        db.add(
+            m.Event(
+                device_id=target.device_id,
+                kind="link_deleted",
+                message=f"{device.name}: komşuluk silindi ve yeniden keşfi engellendi",
+                details={
+                    "link_id": target.id,
+                    "excluded_ids": removed,
+                    "interface_name": target.interface_name,
+                },
+            )
+        )
     db.commit()
     svc.publish()
+    return {"updated": len(ids)}
