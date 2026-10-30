@@ -12,6 +12,8 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=128m,noexec,nosuid,uid=10001,gid=10001,mode=1777
+    sysctls:
+      net.ipv4.ping_group_range: "10001 10001"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     ports: ['127.0.0.1:${NETRIX_PORT:-8101}:8000']

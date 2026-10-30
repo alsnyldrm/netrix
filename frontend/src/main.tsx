@@ -84,6 +84,7 @@ import {
   allRows,
 } from "./inventory";
 import { BackupWorkspace } from "./backups";
+import { IPAMWorkspace, Integrations } from "./ipam";
 
 type Row = Record<string, any>;
 type Field = {
@@ -278,6 +279,31 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    key: "integrations",
+    title: "Entegrasyonlar",
+    desc: "VMware vCenter ve Microsoft Windows DHCP bağlantıları.",
+    group: "Yönetim",
+    icon: PlugsConnected,
+  },
+  {
+    key: "dns-servers",
+    title: "DNS sunucuları",
+    desc: "Ağ bloklarının isim çözümleme sunucuları.",
+    group: "IP adres yönetimi",
+    icon: GlobeHemisphereWest,
+    resource: "dns-servers",
+    columns: [
+      ["name", "Ad"],
+      ["address", "Sunucu IP"],
+      ["port", "Port"],
+    ],
+    fields: [
+      f("name", "DNS adı", { required: true }),
+      f("address", "Sunucu IP", { required: true }),
+      f("port", "DNS portu", { type: "number", default: 53, required: true }),
+    ],
+  },
+  {
     key: "prefixes",
     title: "Ağ blokları",
     desc: "IPv4 ve IPv6 alanlarınızı görünür ve düzenli tutun.",
@@ -323,6 +349,9 @@ export const PAGES: Page[] = [
       ref("vrf_id", "VRF", "vrfs", true),
       ref("prefix_id", "Ağ bloğu", "prefixes", true),
       f("hostname", "Hostname"),
+      f("operating_system", "İşletim sistemi"),
+      f("cabinet", "Kabinet no"),
+      f("location", "Lokasyon"),
       options("status", "Durum", ["reserved", "active", "deprecated"]),
       ref("interface_id", "Arayüz", "interfaces"),
     ],
@@ -768,6 +797,10 @@ const LABELS: Record<string, string> = {
   backup: "Yedekleme",
   compare: "Aktif config karşılaştırması",
   monitor: "İzleme",
+  integration: "Entegrasyon eşitleme",
+  ipam_live: "IP canlı trafik",
+  ipam_ping: "IP durum kontrolü",
+  ipam_discover: "Yeni IP keşfi",
   identify: "Cihaz bilgisi sorgusu",
   snmpv3: "SNMPv3",
   snmpv2c: "SNMPv2c",
@@ -1210,8 +1243,8 @@ function ResourceForm({
         data.secret = secret;
       }
       const saved = await api(
-        "/" + page.resource + (row ? "/" + row.id : ""),
-        row ? "PUT" : "POST",
+        "/" + page.resource + (row?.id ? "/" + row.id : ""),
+        row?.id ? "PUT" : "POST",
         data,
       );
       onSaved(saved);
@@ -1224,7 +1257,7 @@ function ResourceForm({
   };
   return (
     <Dialog
-      title={(row ? "Kaydı düzenle" : "Yeni kayıt") + " · " + page.title}
+      title={(row?.id ? "Kaydı düzenle" : "Yeni kayıt") + " · " + page.title}
       onClose={onClose}
       wide={page.key === "devices"}
     >
@@ -2337,6 +2370,7 @@ function App() {
           "vrfs",
           "vlans",
           "prefixes",
+          "dns-servers",
           "credentials",
           "backup-groups",
           "interfaces",
@@ -2349,7 +2383,14 @@ function App() {
         const rows = await Promise.all(
           names.map(async (name) => [
             name,
-            ["device-types", "devices", "links"].includes(name)
+            [
+              "device-types",
+              "devices",
+              "links",
+              "prefixes",
+              "scopes",
+              "dns-servers",
+            ].includes(name)
               ? await allRows("/" + name)
               : (await api("/" + name + "?limit=200")).items,
           ]),
@@ -2368,7 +2409,14 @@ function App() {
     if (
       !user ||
       !page.resource ||
-      ["devices", "interfaces", "configuration", "topology"].includes(page.key)
+      [
+        "devices",
+        "interfaces",
+        "configuration",
+        "topology",
+        "prefixes",
+        "addresses",
+      ].includes(page.key)
     )
       return;
     let active = true;
@@ -2810,6 +2858,25 @@ function App() {
                 navigate={navigate}
                 onAdd={add}
                 onDevice={inspectDevice}
+              />
+            ) : ["prefixes", "addresses"].includes(page.key) ? (
+              <IPAMWorkspace
+                key={page.key}
+                page={page.key}
+                refs={refs}
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+                onEdit={(resource, row) =>
+                  setForm({ page: PAGES.find((p) => p.key === resource)!, row })
+                }
+              />
+            ) : page.key === "integrations" ? (
+              <Integrations
+                user={user!}
+                refs={refs}
+                refresh={refresh}
+                onSaved={reload}
               />
             ) : page.key === "devices" ? (
               <InventoryTable

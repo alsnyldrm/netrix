@@ -19,6 +19,33 @@ log = logging.getLogger("netrix.scheduler")
 
 def tick():
     with session_factory()() as db:
+        for config in db.scalars(
+            select(m.Integration).where(m.Integration.enabled.is_(True), m.Integration.interval_seconds > 0)
+        ):
+            if (
+                not config.last_run_at
+                or (now() - config.last_run_at).total_seconds() >= config.interval_seconds
+            ):
+                try:
+                    enqueue(db, "integration", config.id)
+                except HTTPException:
+                    db.rollback()
+        for prefix in db.scalars(select(m.Prefix)):
+            for kind, enabled, interval, last in (
+                ("ipam_ping", prefix.ping_enabled, prefix.ping_interval, prefix.last_ping_at),
+                (
+                    "ipam_discover",
+                    prefix.discovery_enabled,
+                    prefix.discovery_interval,
+                    prefix.last_discovery_at,
+                ),
+            ):
+                if enabled and (not last or (now() - last).total_seconds() >= interval):
+                    try:
+                        enqueue(db, kind, prefix.id)
+                    except HTTPException:
+                        db.rollback()
+        db.execute(delete(m.IPTraffic).where(m.IPTraffic.created_at < now() - timedelta(days=7)))
         for scope in db.scalars(
             select(m.Scope).where(m.Scope.enabled.is_(True), m.Scope.interval_seconds > 0)
         ):

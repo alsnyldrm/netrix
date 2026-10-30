@@ -73,3 +73,9 @@ Resmi kaynaklar: [Redis lisans seçenekleri](https://redis.io/legal/licenses/), 
 Tek container imajında Redis 8.2.2 binary'leri resmi `redis:8.2.2-bookworm` imajından alınır; Supervisor 4.3.0 süreçleri yönetir. MariaDB istemcisi Debian bookworm paketinden yüklenir; bu dağıtımda sürümü `1:10.11.19-0+deb12u1` olarak doğrulandı (`dpkg-query -W mariadb-client`). [Supervisor yapılandırması](https://supervisord.org/configuration.html) başlangıç/kapanış öncelikleri ve süreç yeniden başlatma davranışının kaynağıdır.
 
 XLSX içe/dışa aktarımı openpyxl ile yapılır; defusedxml XML entity saldırılarına karşı ayrıştırıcıyı korur. ZIP açılmış boyutu, satır/sütun sayısı ve dosya boyutu ayrıca sınırlandırılır; formül ve makrolar kabul edilmez. [openpyxl güvenlik ve lisans belgesi](https://openpyxl.readthedocs.io/en/stable/) esas alınmıştır.
+
+## IPAM entegrasyonları (31 Ekim 2026)
+
+Yeni doğrudan bağımlılıklar: `pyvmomi==9.1.1.0` (Apache-2.0, vSphere Web Services), `pywinrm==0.5.0` (MIT, Windows DHCP WinRM), `dnspython==2.9.1` (ISC, seçilen DNS sunucusundan PTR). Yeni dolaylı paketler: requests 2.34.2 (Apache-2.0), requests-ntlm 1.3.0 (ISC), pyspnego 0.12.4 (MIT), xmltodict 1.0.4 (MIT), charset-normalizer 3.5.2 (MIT), urllib3 2.8.0 (MIT). Sürümler lock dosyasına eklendi; dağıtım metadata/lisansları kurulu wheel’lerden kontrol edildi. Paketler değiştirilmedi ve lisans bildirimleri image içinde korunur.
+
+Debian `iputils-ping` (BSD-3-Clause/GPL-2.0-or-later, paket copyright dosyası image içinde) ICMP için kullanılır. Ping binary’sinin `cap_net_raw` dosya capability’si imajda kaldırılır. `net.ipv4.ping_group_range=10001 10001` yalnız NETRIX kullanıcısına ping datagram soketi açma izni verir; `cap_drop: ALL` ve `no-new-privileges` korunur.

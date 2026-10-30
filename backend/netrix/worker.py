@@ -183,6 +183,9 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
     sync_interfaces(db, device, collected, job.id)
     device.reachability, device.last_seen_at = "reachable", now()
     sync_links(db, device, collected)
+    from .ipam.service import inventory_observations
+
+    inventory_observations(db, device, collected)
     evaluate(db, device, "availability", 1)
     evaluate(db, device, "no_data", 0)
 
@@ -585,9 +588,13 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         initial = get(db, m.Job, job_id)
         kind, interactive = initial.kind, initial.result.get("interactive", False)
     from .configuration.management import compare_live
+    from .ipam.jobs import KINDS
+    from .ipam.jobs import execute as execute_ipam
 
     task = asyncio.create_task(
-        compare_live(job_id)
+        execute_ipam(job_id, kind, collector)
+        if kind in KINDS
+        else compare_live(job_id)
         if kind == "compare"
         else discover(job_id, collector)
         if kind == "discovery"
@@ -660,6 +667,12 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 if isinstance(exc, BackupError)
                 else "Cihaz işlemi başarısız. Kapsam, erişim profili, protokol ve host anahtarını kontrol edin."
             )
+            if kind in KINDS and not isinstance(exc, Cancelled):
+                job.error = (
+                    "Entegrasyon okunamadı. Sunucu, TLS güveni, kullanıcı/parola ve salt okunur API/WinRM yetkilerini kontrol edin."
+                    if kind == "integration"
+                    else "IPAM işlemi başarısız. Yetkili kapsamı, güncel port eşleşmesini ve DNS/SNMP/ICMP erişimini kontrol edin."
+                )
             if kind in ("backup", "compare") and not isinstance(exc, Cancelled):
                 code, job.error = backup_failure(exc)
                 job.result = {**job.result, "error_code": code}

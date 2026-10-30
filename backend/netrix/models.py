@@ -183,7 +183,47 @@ class Prefix(Entity, Base):
     vlan_id: Mapped[str | None] = mapped_column(ForeignKey("vlans.id"), nullable=True, index=True)
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     description: Mapped[str] = mapped_column(String(400), default="")
-    __table_args__ = (UniqueConstraint("vrf_id", "cidr"),)
+    dns_server_id: Mapped[str | None] = mapped_column(ForeignKey("dns_servers.id"), index=True)
+    vlan_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
+    scope_id: Mapped[str | None] = mapped_column(ForeignKey("discovery_scopes.id"), index=True)
+    warning_threshold: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
+    ping_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    ping_interval: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
+    discovery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    discovery_interval: Mapped[int] = mapped_column(Integer, default=3600, server_default="3600")
+    last_ping_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    last_discovery_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("vrf_id", "cidr"),
+        CheckConstraint("warning_threshold >= 1 AND warning_threshold <= 100", name="ck_prefix_threshold"),
+        CheckConstraint("ping_interval >= 30 AND discovery_interval >= 60", name="ck_prefix_intervals"),
+    )
+
+
+class DNSServer(Entity, Base):
+    __tablename__ = "dns_servers"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    address: Mapped[str] = mapped_column(String(45))
+    port: Mapped[int] = mapped_column(Integer, default=53)
+
+
+class Integration(Entity, Base):
+    __tablename__ = "integrations"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    host: Mapped[str] = mapped_column(String(253))
+    port: Mapped[int] = mapped_column(Integer)
+    encrypted_secret: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    prefix_ids: Mapped[list] = mapped_column(JSON, default=list)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        CheckConstraint("kind in ('vcenter','windows_dhcp')", name="ck_integration_kind"),
+        CheckConstraint("interval_seconds = 0 OR interval_seconds >= 60", name="ck_integration_interval"),
+    )
 
 
 class IPAddress(Entity, Base):
@@ -193,11 +233,35 @@ class IPAddress(Entity, Base):
     prefix_id: Mapped[str] = mapped_column(ForeignKey("prefixes.id"), index=True)
     interface_id: Mapped[str | None] = mapped_column(ForeignKey("interfaces.id"), nullable=True, index=True)
     hostname: Mapped[str] = mapped_column(String(190), default="")
+    operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")
+    cabinet: Mapped[str] = mapped_column(String(120), default="", server_default="")
+    location: Mapped[str] = mapped_column(String(190), default="", server_default="")
     status: Mapped[str] = mapped_column(String(20), default="reserved")
     __table_args__ = (
         UniqueConstraint("vrf_id", "address"),
         CheckConstraint("status in ('reserved','active','deprecated')", name="ck_ip_status"),
     )
+
+
+class IPObservation(Entity, Base):
+    __tablename__ = "ip_observations"
+    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(20))
+    source_key: Mapped[str] = mapped_column(String(120))
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    __table_args__ = (UniqueConstraint("address_id", "source", "source_key"),)
+
+
+class IPTraffic(Entity, Base):
+    __tablename__ = "ip_traffic"
+    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), index=True)
+    source_key: Mapped[str] = mapped_column(String(120))
+    sampled_at: Mapped[object] = mapped_column(UTCDateTime())
+    interval_seconds: Mapped[int] = mapped_column(Integer)
+    in_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    __table_args__ = (UniqueConstraint("address_id", "source_key", "sampled_at"),)
 
 
 class Scope(Entity, Base):

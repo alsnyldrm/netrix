@@ -187,3 +187,7 @@ Migration öncesi MariaDB yedeği alın. Manuel tercih varken downgrade veri kay
 Şema değişikliği yoktur. Dağıtımdan sonra `netrix-tests` RUNNING ve `netrix:tests:heartbeat` güncel olmalı; container sağlık kontrolü ikisini de kapsar. Bir önceki imaja dönüşte eski worker etkileşimli işaretini tanımayacağı için testler normal sırada işlenebilir.
 
 Doğrulama: `tests/test_interactive_dispatch.py` normal iş sürerken bir saniye içinde başlayan sahte probe, kaynak ayrımı, dört test sınırı, arka plan testini yükseltme, kapalı hizmet, iptal/toparlama ve tekrar davranışlarını sınar. `scripts/interactive_dispatch_check.py`, yalnız `netrix_test` adlı atılabilir MariaDB ve yerel Redis ile altı eşzamanlı kabulde dört işi kabul edip iki isteği kuyruk bırakmadan reddetmeyi ve worker ayrımını doğrular. `scripts/connection_test_browser_check.py` durum metni, kapasite/hizmet hatası, yeniden deneme, iptal ve masaüstü/mobil erişilebilirliğini sahte protokol yanıtlarıyla kontrol eder.
+
+## IPAM ve entegrasyonlar
+
+[Ağ bloğu politikaları, Windows DHCP/vCenter gereksinimleri ve canlı IP trafiği](ipam-integrations.md). Yeni entegrasyonlar varsayılan kapalıdır; gerçek sistem bağlantıları sunucu/erişim bilgileri ve yetkili ağ blokları kaydedilip açıkça tetiklendiğinde çalışır.

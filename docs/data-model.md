@@ -140,3 +140,7 @@ No-data, erişilememe ve eşik aşımını ayrı değerlendir. Yetkilendirilmiş
 - Kural → alarm örnekleri → geçiş olayları → bildirim teslimleri.
 
 Migration testlerinde FK/unique/check kısıtlarını ve sorgu indekslerini doğrula. Özellikle farklı VRF'de aynı IP, aynı VLAN numarasının farklı domain'de kullanımı, IPv6, LAG, değişen ifIndex, yinelenen görev teslimi, kayıp worker ve sıfırlanan sayaç senaryolarını kapsa. Satırlar arası/döngü gibi basit CHECK ile ifade edilemeyen kuralları transaction içindeki servis doğrulaması ve gerektiğinde kilit/trigger ile uygula; eşzamanlılık testini ekle.
+
+## Uygulanan IPAM genişletmesi (31 Ekim 2026)
+
+Alembic `20261031_13`: `dns_servers`, şifreli `integrations`, kaynak/kimlik başına tekil `ip_observations`, kaynak/zaman başına tekil `ip_traffic`; prefix DNS/VLAN cihazı/kapsam FK’leri, kullanım eşiği ve ping/keşif zamanlamaları; IP manuel işletim sistemi/kabinet/lokasyon alanları. Tarihler MariaDB `DATETIME(6)` ve API’de UTC’dir. Otomatik gözlemler manuel alanları değiştirmez; mevcut ortak cihaz/arayüz/IP envanteri kullanılır. Entegrasyon yetkili blokları servis tarafından doğrulanan JSON kimlik listesidir; kullanılan prefix silinmesi servis katmanında engellenir. Ayrıntı: [IPAM işleyişi](ipam-integrations.md).

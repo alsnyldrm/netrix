@@ -110,6 +110,48 @@ class SNMPCollector:
     async def probe(self, host, port, secret):
         return await self._collect(host, port, secret, probe_only=True)
 
+    async def interface_counters(self, host, port, secret, if_index):
+        engine = SnmpEngine()
+        try:
+            auth = (
+                CommunityData(secret["community"], mpModel=1)
+                if secret.get("protocol") == "snmpv2c"
+                else UsmUserData(
+                    secret["username"],
+                    secret["auth_key"],
+                    secret["priv_key"],
+                    authProtocol=usmHMAC192SHA256AuthProtocol
+                    if secret.get("auth_protocol", "sha256") == "sha256"
+                    else usmHMACSHAAuthProtocol,
+                    privProtocol=usmAesCfb128Protocol,
+                )
+            )
+            transport = Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
+            target = await transport.create((host, port), timeout=1, retries=1)
+            keys = {
+                "in_octets": TABLES["in_octets"] + f".{if_index}",
+                "out_octets": TABLES["out_octets"] + f".{if_index}",
+                "discontinuity_ticks": TABLES["discontinuity"] + f".{if_index}",
+                "uptime_ticks": SYSTEM["uptime"],
+            }
+            async with asyncio.timeout(4):
+                error, status, _, values = await get_cmd(
+                    engine,
+                    auth,
+                    target,
+                    ContextData(),
+                    *[ObjectType(ObjectIdentity(oid)) for oid in keys.values()],
+                    lookupMib=False,
+                )
+            if error or status:
+                raise NetworkError("SNMP port counters unavailable")
+            counters = {key: number(values[i][1]) for i, key in enumerate(keys)}
+            if any(value is None for value in counters.values()):
+                raise NetworkError("64-bit counters/discontinuity unavailable")
+            return counters
+        finally:
+            engine.close_dispatcher()
+
     async def _collect(self, host, port, secret, identity_only=False, probe_only=False):
         snmp = SnmpEngine()
         try:

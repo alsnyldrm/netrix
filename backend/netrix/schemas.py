@@ -121,6 +121,9 @@ class IPInput(Input):
     prefix_id: str
     interface_id: str | None = None
     hostname: str = Field(default="", max_length=190)
+    operating_system: str = Field(default="", max_length=190)
+    cabinet: str = Field(default="", max_length=120)
+    location: str = Field(default="", max_length=190)
     status: Literal["reserved", "active", "deprecated"] = "reserved"
 
     @field_validator("address")

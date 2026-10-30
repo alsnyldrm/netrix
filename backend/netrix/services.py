@@ -1,6 +1,6 @@
 import ipaddress
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -13,8 +13,11 @@ from .configuration.validation import BackupError, require_ssh_backup
 from .core import now, redis_client
 from .discovery.neighbor_labels import neighbor_label
 from .identity.security import audit, encrypt
+from .ipam.schemas import DNSInput
 
 RESOURCES = {
+    "dns-servers": (m.DNSServer, DNSInput),
+    "integrations": (m.Integration, None),
     "backup-groups": (m.BackupGroup, s.BackupGroupInput),
     "sites": (m.Site, s.SiteInput),
     "device-types": (m.DeviceType, s.DeviceTypeInput),
@@ -272,6 +275,25 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
+    if name in ("devices", "prefixes"):
+        from .ipam.service import inventory_observations
+
+        devices = (
+            [row]
+            if name == "devices"
+            else db.scalars(
+                select(m.Device).where(m.Device.vrf_id == row.vrf_id, m.Device.archived.is_(False))
+            ).all()
+        )
+        for device in devices:
+            latest = db.scalar(
+                select(m.Observation)
+                .where(m.Observation.device_id == device.id, m.Observation.source.in_(SNMP_PROTOCOLS))
+                .order_by(m.Observation.created_at.desc())
+                .limit(1)
+            )
+            collected = latest.evidence if latest and latest.created_at >= now() - timedelta(hours=24) else {}
+            inventory_observations(db, device, {**collected, "hostname": device.name})
     identification = None
     if identify_changed:
         try:
@@ -354,7 +376,16 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
                 .select_from(m.IPAddress)
                 .where(m.IPAddress.prefix_id == item["id"], m.IPAddress.status != "deprecated")
             )
-            item.update(capacity=str(capacity), used=used, utilization=round(used * 100 / capacity, 2))
+            item.update(
+                capacity=str(capacity),
+                used=used,
+                utilization=round(used * 100 / capacity, 2),
+                threshold_exceeded=used * 100 / capacity >= item["warning_threshold"],
+            )
+    if name == "addresses":
+        from .ipam.service import enrich
+
+        items = enrich(db, rows)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -373,6 +404,9 @@ def delete_resource(db, name, id, user):
     row = get(db, model, id)
     if name in ("users", "vrfs"):
         raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
+    if name == "prefixes":
+        if any(id in config.prefix_ids for config in db.scalars(select(m.Integration))):
+            raise HTTPException(409, "Önce entegrasyonlardan bu ağ bloğunu kaldırın")
     if name == "device-types":
         if row.code == "other":
             raise HTTPException(409, "Varsayılan cihaz türü silinemez; adını düzenleyebilirsiniz")
@@ -467,9 +501,13 @@ def backup_profile(db, device):
 
 
 def enqueue(db, kind, target_id, user=None, *, commit=True):
-    if kind not in ("discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
+    from .ipam.jobs import KINDS, validate_target
+
+    if kind not in (*KINDS, "discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
-    if kind == "discovery":
+    if kind in KINDS:
+        target = validate_target(db, kind, target_id)
+    elif kind == "discovery":
         target = get(db, m.Scope, target_id)
         if not target.enabled:
             raise HTTPException(422, "Keşif kapsamı devre dışı")
