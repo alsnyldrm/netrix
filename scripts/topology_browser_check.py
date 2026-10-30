@@ -72,7 +72,9 @@ with sync_playwright() as p:
     assert node("Edge-01").bounding_box()["width"] >= 200
     page.screenshot(path="artifacts/topology-mobile-readable-default.png", full_page=True)
     page.get_by_role("button", name="Sığdır", exact=True).click()
-    page.wait_for_function("document.querySelector('.topology-viewport').scrollWidth <= document.querySelector('.topology-viewport').clientWidth + 1")
+    page.wait_for_function(
+        "() => document.querySelector('.topology-viewport').scrollWidth <= document.querySelector('.topology-viewport').clientWidth + 1"
+    )
     page.set_viewport_size({"width": 1440, "height": 1000})
     node("Edge-02").focus()
     page.keyboard.press("Enter")
