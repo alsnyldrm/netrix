@@ -211,3 +211,26 @@ def test_api_bulk_and_file_import_accept_aruba(admin_client, inventory, transfer
     assert response.status_code == 200, response.text
     response = admin_client.post("/api/v1/jobs", json={"kind": "backup", "target_id": device_id})
     assert response.status_code == 202, response.text
+
+
+@pytest.mark.parametrize("chunk_size", [1, 17, 8192])
+async def test_aoss_cursor_positioning_preserves_line_boundaries(chunk_size):
+    class CursorShell(Shell):
+        def write(self, command):
+            self.commands.append(command)
+            # AOS-S redraws column 1 instead of sending CRLF after an empty
+            # command response. Stripping all ANSI codes glues echo + prompt.
+            self.buffer += (
+                "\x1b[24;22H" + command.strip() + "\x1b[24;29H"
+                "\x1b[1;0H\x1b[1M\x1b[24;1H\x1b[1L\x1b[24;1H\x1b[2K"
+                + self.responses[command.strip()]
+                + "\x1b[24;1H\x1b[2K\x1b[24;1H"
+                + self.prompt
+                + " "
+                "\x1b[24;1H\x1b[24;22H\x1b[?25h"
+            )
+
+    shell = CursorShell({"no page": "", "show running-config": CONFIGS["aruba_5400"]}, chunk_size=chunk_size)
+    result = await read_aruba(Connection(shell), "aruba_5400", backup=True)
+    assert result == CONFIGS["aruba_5400"] + "\n"
+    assert shell.commands == ["no page\n", "show running-config\n"]

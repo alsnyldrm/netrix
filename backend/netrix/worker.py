@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from . import models as m
 from .alerting.engine import evaluate
+from .configuration.failures import backup_failure
 from .configuration.validation import BackupError
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
@@ -645,6 +646,9 @@ async def execute(job_id, collector=None):
                 if isinstance(exc, BackupError)
                 else "Cihaz işlemi başarısız. Kapsam, erişim profili, protokol ve host anahtarını kontrol edin."
             )
+            if kind in ("backup", "compare") and not isinstance(exc, Cancelled):
+                code, job.error = backup_failure(exc)
+                job.result = {**job.result, "error_code": code}
             if job.status != "queued":
                 job.active_key, job.finished_at = None, now()
             db.commit()

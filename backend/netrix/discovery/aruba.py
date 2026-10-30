@@ -23,6 +23,9 @@ CLI_ERROR = re.compile(
 
 
 def terminal_text(text):
+    # AOS-S redraws the first terminal column instead of emitting CRLF. Keep
+    # that boundary before dropping cursor controls, or echo and prompt join.
+    text = re.sub(r"\x1b\[(?:\d*;)?[01]?[Hf]", "\n", text)
     text = ANSI.sub("", text).replace("\r", "").replace("\x00", "")
     # Backspace is used by some switch banners and terminal redraws.
     while "\b" in text:
@@ -34,7 +37,7 @@ def terminal_text(text):
 
 async def read_prompt(process, *, prompt=None, limit=256 * 1024):
     output, size, continued = "", 0, False
-    pattern = re.compile(r"(?m)^" + re.escape(prompt) + r"[ \t]*\Z") if prompt else PROMPT
+    pattern = re.compile(r"(?m)^" + re.escape(prompt) + r"[ \t\r\n]*\Z") if prompt else PROMPT
     async with asyncio.timeout(60):
         while True:
             chunk = await process.stdout.read(8192)
@@ -69,7 +72,7 @@ async def read_aruba(connection, adapter, *, backup=False):
             output, _ = await read_prompt(
                 process, prompt=prompt, limit=4 * 1024 * 1024 if backup else 256 * 1024
             )
-            lines = output.strip("\n").splitlines()
+            lines = output.strip().splitlines()
             if lines and lines[0].strip() in (current, prompt + current, prompt + " " + current):
                 lines.pop(0)
             output = "\n".join(lines).strip()

@@ -36,4 +36,8 @@ Test öncesinde cihazın arşivlenmemiş ve yaşam döngüsünün aktif olması 
 - [ArubaOS show version](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/sh-version.htm)
 - [ArubaOS Controller no paging ve show running-config](https://arubanetworking.hpe.com/techdocs/VSG/docs/035-campus-migrate/esp-campus-migrate-072-aos8to10-discovery/)
 
-Doğrulama sahte SSH oturumları ve yerel API/tarayıcı testleriyle yapılır; gerçek Aruba donanımında başarı henüz doğrulanmamıştır.
+30 Ekim 2026 düzeltmesi: AOS-S, `no page` sonrasında CRLF yerine ANSI imleç konumlama kodları gönderdiğinde önceki temizleyici komut yankısını istemle birleştiriyordu. İstem bulunamadığı için görev zaman aşımına düşüyordu. İlk terminal sütununa geçiş artık ANSI kodları kaldırılmadan önce satır sınırı olarak korunur; istemin ardından gelen terminal boşlukları kabul edilir.
+
+Bu davranış parçalı sahte SSH yanıtlarıyla regresyon testine alınmıştır. J9851A ve J9850A cihazlarında kayıtlı profil ve yetkili kapsam ile salt okunur SSH denemesi, yapısal doğrulamadan geçen çalışan konfigürasyon çıktısını yaklaşık 3 saniyede aldı. Konfigürasyon içeriği ve sırlar teşhis çıktısına yazılmadı. Diğer Aruba ailelerinin donanım doğrulaması bu sonuçtan çıkarılmaz.
+
+Yedekleme/karşılaştırma görevleri artık zaman aşımı, SSH kimlik doğrulama, host anahtarı, komut ve bağlantı hatalarını sabit, sır içermeyen mesaj ve `error_code` ile ayırır. Zaman aşımında mevcut en fazla üç deneme politikası korunur; eksik çıktı başarı olarak kaydedilmez.
