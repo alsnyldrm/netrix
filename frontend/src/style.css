@@ -1593,11 +1593,6 @@ tbody tr:last-child td {
   width: 34px;
   height: 34px;
 }
-.connection-test-trigger {
-  margin-left: 6px;
-  min-height: 34px;
-  white-space: nowrap;
-}
 .device-link {
   justify-content: flex-start;
   gap: 10px;
@@ -1956,6 +1951,25 @@ tbody tr:last-child td {
   gap: 8px;
   padding-top: 4px;
 }
+.device-test-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.device-test-settings p {
+  margin-top: 6px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+@media (max-width: 480px) {
+  .device-test-settings {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .connection-test-protocols {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2014,9 +2028,6 @@ tbody tr:last-child td {
 @media (max-width: 480px) {
   .connection-test-protocols {
     grid-template-columns: 1fr;
-  }
-  .connection-test-trigger {
-    min-height: 40px;
   }
 }
 .command-body {

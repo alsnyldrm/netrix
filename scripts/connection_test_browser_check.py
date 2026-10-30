@@ -15,7 +15,7 @@ with sync_playwright() as p:
     page = browser.new_page(
         viewport={"width": 1440, "height": 1000}, reduced_motion="reduce", bypass_csp=True
     )
-    errors, submissions = [], []
+    errors, submissions, writes = [], [], []
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.route_web_socket("**/api/v1/ws", lambda socket: None)
     device = {
@@ -35,6 +35,8 @@ with sync_playwright() as p:
     def api(route):
         global reads, selected
         path = urlparse(route.request.url).path.removeprefix("/api/v1/")
+        if path == "devices/device-1" and route.request.method in ("PUT", "POST"):
+            writes.append(route.request.post_data_json)
         if path == "auth/me":
             data = {"id": "user-1", "display_name": "Browser tester", "role": "admin"}
         elif path == "dashboard":
@@ -94,6 +96,11 @@ with sync_playwright() as p:
     page.goto(BASE + "/#devices")
     page.wait_for_load_state("networkidle")
     trigger = page.get_by_role("button", name="Fixture firewall bağlantı testi", exact=True)
+    expect(trigger).to_have_count(0)
+    page.get_by_role("button", name="Kaydı düzenle", exact=True).click()
+    draft_name = page.get_by_label("Cihaz adı", exact=False)
+    draft_name.fill("Korunan taslak")
+    expect(page.locator(".device-test-settings")).to_contain_text("Kayıtlı erişim bilgileri")
     trigger.click()
     expect(page.get_by_role("radio", name="SNMPv3", exact=True)).to_be_checked()
     expect(page.get_by_role("radio", name="SSH", exact=True)).to_be_enabled()
@@ -117,6 +124,8 @@ with sync_playwright() as p:
     expect(page.get_by_role("heading", name="Test iptal edildi", exact=True)).to_be_visible()
     page.get_by_role("button", name="Kapat", exact=True).click()
     expect(trigger).to_be_focused()
+    expect(draft_name).to_have_value("Korunan taslak")
+    assert not writes, writes
 
     enabled = {"rest"}
     trigger.click()
@@ -138,6 +147,20 @@ with sync_playwright() as p:
     ]:
         page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
         page.set_viewport_size({"width": width, "height": height})
+        trigger.scroll_into_view_if_needed()
+        section = page.locator(".device-test-settings")
+        box = section.bounding_box()
+        button = trigger.bounding_box()
+        assert button["x"] >= box["x"] and button["x"] + button["width"] <= box["x"] + box["width"]
+        assert page.get_by_role("dialog").evaluate("e=>e.scrollWidth<=e.clientWidth")
+        if width > 480:
+            assert abs((button["y"] + button["height"] / 2) - (box["y"] + box["height"] / 2)) <= 1
+        page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
+        settings_report = page.evaluate(
+            "async()=>await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}})"
+        )
+        violations[f"settings-{theme}-{width}"] = [v["id"] for v in settings_report["violations"]]
+        page.screenshot(path=f"artifacts/test-settings-{theme}-{width}.png", full_page=True)
         trigger.click()
         expect(page.get_by_role("radio", name="API", exact=True)).to_be_checked()
         assert page.locator("body").evaluate("e => e.scrollWidth <= window.innerWidth")
@@ -150,6 +173,13 @@ with sync_playwright() as p:
         ]
         page.screenshot(path=f"artifacts/connection-test-{theme}-{width}.png", full_page=True)
         page.keyboard.press("Escape")
+    expect(draft_name).to_have_value("Korunan taslak")
+    assert not writes, writes
+    page.keyboard.press("Escape")
+    expect(trigger).to_have_count(0)
+    page.get_by_role("button", name="Yeni kayıt", exact=True).click()
+    expect(page.locator(".device-test-settings")).to_have_count(0)
+    page.keyboard.press("Escape")
     assert not any(violations.values()), violations
     assert not errors, errors
     print(

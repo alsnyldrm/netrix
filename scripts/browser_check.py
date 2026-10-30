@@ -142,6 +142,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Vazgeç", exact=True).click()
     expect(page.get_by_role("dialog")).to_have_count(0)
     expect(page.get_by_role("button", name="Yeni kayıt", exact=True)).to_be_focused()
+    expect(page.get_by_role("button", name=fixture_name + " bağlantı testi", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="Kaydı düzenle", exact=True).click()
     page.get_by_role("button", name=fixture_name + " bağlantı testi", exact=True).click()
     expect(page.get_by_role("heading", name="Bağlantı testi · " + fixture_name, exact=True)).to_be_visible()
     for protocol in ("SNMPv3", "SSH", "API"):
@@ -149,6 +151,7 @@ with sync_playwright() as p:
     expect(page.get_by_role("button", name="Test et", exact=True)).to_be_disabled()
     page.get_by_role("button", name="Kapat", exact=True).click()
     expect(page.get_by_role("button", name=fixture_name + " bağlantı testi", exact=True)).to_be_focused()
+    page.keyboard.press("Escape")
     # Keyboard dialog behavior, navigation, and empty states across every page.
     keys = [
         "interfaces",

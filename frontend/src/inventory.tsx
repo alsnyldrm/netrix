@@ -479,7 +479,6 @@ export function InventoryTable({
   user,
   onDevice,
   onEdit,
-  onTest,
   onSaved,
   onContent,
 }: {
@@ -490,7 +489,6 @@ export function InventoryTable({
   user: Row;
   onDevice?: (r: Row) => void;
   onEdit?: (r: Row) => void;
-  onTest?: (r: Row) => void;
   onSaved: () => void;
   onContent?: (r: Row, action: string) => void;
 }) {
@@ -581,7 +579,7 @@ export function InventoryTable({
   const writable = user.role !== "viewer";
   const hasActions =
     (["devices", "backup-devices"].includes(resource) &&
-      Boolean(onDevice || (writable && (onEdit || onTest)))) ||
+      Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable);
   const selectRows =
     writable &&
@@ -810,15 +808,6 @@ export function InventoryTable({
                                 <PencilSimple size={18} />
                               </button>
                             )}
-                            {writable && onTest && (
-                              <button
-                                className="secondary"
-                                aria-label={`${row.name} bağlantı testi`}
-                                onClick={() => onTest(row)}
-                              >
-                                Test
-                              </button>
-                            )}
                           </>
                         )}
                         {resource === "snapshots" && writable && (
@@ -988,7 +977,6 @@ export function InterfaceWorkspace(props: any) {
         deviceId={device?.id}
         onDevice={device ? undefined : setDevice}
         onEdit={undefined}
-        onTest={undefined}
       />
     </>
   );

@@ -1057,6 +1057,7 @@ function ResourceForm({
   page,
   row,
   refs,
+  onTest,
   onClose,
   onSaved,
 }: {
@@ -1065,6 +1066,7 @@ function ResourceForm({
   refs: Record<string, Row[]>;
   onClose: () => void;
   onSaved: (saved: Row) => void;
+  onTest?: (device: Row) => void;
 }) {
   const [values, setValues] = useState<Row>(() =>
     Object.fromEntries(
@@ -1272,6 +1274,28 @@ function ResourceForm({
             </label>
           ))}
         </div>
+        {row && onTest && (
+          <section className="device-test-settings" aria-label="Bağlantı testi">
+            <div>
+              <b>Bağlantı testi</b>
+              <p>
+                Kayıtlı erişim bilgileri kullanılır. Değişiklikleri testten önce
+                kaydedin.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="secondary"
+              aria-label={row.name + " bağlantı testi"}
+              aria-haspopup="dialog"
+              disabled={busy}
+              onClick={() => onTest(row)}
+            >
+              <PlugsConnected size={17} aria-hidden="true" />
+              Test
+            </button>
+          </section>
+        )}
         {page.key === "credentials" && (
           <p className="form-note">
             <ShieldCheck size={16} /> Sırlar kayıttan sonra okunamaz. Düzenleme
@@ -2878,7 +2902,6 @@ function App() {
                     row,
                   })
                 }
-                onTest={setTestDevice}
               />
             ) : page.key === "interfaces" ? (
               <InterfaceWorkspace
@@ -3231,20 +3254,6 @@ function App() {
                                         <Eye size={17} />
                                       </button>
                                     )}
-                                  {page.key === "devices" && canWrite && (
-                                    <button
-                                      className="text-button connection-test-trigger"
-                                      aria-label={row.name + " bağlantı testi"}
-                                      aria-haspopup="dialog"
-                                      onClick={() => setTestDevice(row)}
-                                    >
-                                      <PlugsConnected
-                                        size={17}
-                                        aria-hidden="true"
-                                      />
-                                      Test
-                                    </button>
-                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -3340,6 +3349,9 @@ function App() {
           page={form.page}
           row={form.row}
           refs={refs}
+          onTest={
+            form.page.key === "devices" && form.row ? setTestDevice : undefined
+          }
           onClose={() => setForm(null)}
           onSaved={(saved) => {
             reload();
