@@ -9,6 +9,7 @@ from ..core import now, session_factory
 from ..discovery.protocols import fetch_config
 from ..identity.security import audit, decrypt
 from .diff import config_diff
+from .validation import BackupError, validate_fortios_backup
 
 
 def policy(db, device):
@@ -50,6 +51,12 @@ def start_comparison(db, snapshot_id, user):
     snapshot = svc.get(db, m.Snapshot, snapshot_id)
     # enqueue holds the device lock, also used by retention/deletion.
     job = svc.enqueue(db, "compare", snapshot.device_id, user, commit=False)
+    device = svc.get(db, m.Device, snapshot.device_id)
+    if device.adapter == "fortios":
+        try:
+            validate_fortios_backup(decrypt(snapshot.encrypted_content))
+        except BackupError:
+            raise HTTPException(422, BackupError.MESSAGES["invalid_baseline"]) from None
     if job.result and job.result.get("base_snapshot_id") != snapshot_id:
         raise HTTPException(409, "Bu cihaz için başka bir karşılaştırma sürüyor")
     if not db.scalar(select(m.Snapshot.id).where(m.Snapshot.id == snapshot_id)):
@@ -69,11 +76,16 @@ async def compare_live(job_id):
         snapshot = svc.get(db, m.Snapshot, job.result["base_snapshot_id"])
         device = svc.get(db, m.Device, job.target_id)
         svc.authorized_device(db, device)
-        profile = svc.get(db, m.Credential, device.config_credential_id)
+        profile = svc.backup_profile(db, device)
         import json
 
         secret = json.loads(decrypt(profile.encrypted_secret))
         baseline = decrypt(snapshot.encrypted_content)
+        if device.adapter == "fortios":
+            try:
+                validate_fortios_backup(baseline)
+            except BackupError:
+                raise BackupError("invalid_baseline") from None
         signature = tuple(getattr(device, k) for k in svc.IDENTITY_CONNECTION_FIELDS) + (
             device.config_path,
             profile.updated_at,
@@ -85,7 +97,7 @@ async def compare_live(job_id):
     with session_factory()() as db:
         current = svc.get(db, m.Device, device.id)
         svc.authorized_device(db, current)
-        profile = svc.get(db, m.Credential, current.config_credential_id)
+        profile = svc.backup_profile(db, current)
         if signature != tuple(getattr(current, k) for k in svc.IDENTITY_CONNECTION_FIELDS) + (
             current.config_path,
             profile.updated_at,

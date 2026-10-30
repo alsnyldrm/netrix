@@ -8,6 +8,7 @@ from sqlalchemy import func, inspect, or_, select
 
 from . import models as m
 from . import schemas as s
+from .configuration.validation import BackupError, require_ssh_backup
 from .core import now, redis_client
 from .identity.security import audit, encrypt
 
@@ -106,6 +107,8 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             raise HTTPException(422, "İzleme için SNMPv3 veya SNMPv2c profili gerekli")
         if data["backup_interval"] and not data.get("config_credential_id"):
             raise HTTPException(422, "Yedekleme için erişim profili gerekli")
+        if data["backup_interval"] and data["adapter"] == "rest":
+            raise HTTPException(422, BackupError.MESSAGES["ssh_required"])
         if row_id:
             device = get(db, m.Device, row_id)
             if data["vrf_id"] != device.vrf_id and db.scalar(
@@ -370,6 +373,11 @@ def connection_test_options(db, device):
     }
 
 
+def backup_profile(db, device):
+    profile = db.get(m.Credential, device.config_credential_id) if device.config_credential_id else None
+    return require_ssh_backup(device, profile)
+
+
 def enqueue(db, kind, target_id, user=None, *, commit=True):
     if kind not in ("discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
@@ -386,15 +394,16 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
         if kind in CONNECTION_TESTS:
             if not connection_profile(db, target, CONNECTION_TESTS[kind]):
                 raise HTTPException(422, "Seçilen protokol için cihaza uyumlu bir erişim profili atanmamış")
+        elif kind in ("backup", "compare"):
+            try:
+                backup_profile(db, target)
+            except BackupError as exc:
+                raise HTTPException(422, str(exc)) from None
         else:
             credential_id = (
                 (target.snmp_credential_id or target.config_credential_id)
                 if kind == "identify"
-                else (
-                    target.config_credential_id
-                    if kind in ("backup", "compare")
-                    else target.snmp_credential_id
-                )
+                else target.snmp_credential_id
             )
             if not credential_id:
                 raise HTTPException(422, "Görev için erişim profili atanmalı")

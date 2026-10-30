@@ -23,6 +23,8 @@ from pysnmp.hlapi.v3arch.asyncio import (
     walk_cmd,
 )
 
+from ..configuration.fortios import fetch_fortios_backup
+from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError
 from ..core import settings
 from .identification import rest_identity, snmp_identity, ssh_identity
 
@@ -243,7 +245,6 @@ class SNMPCollector:
 COMMANDS = {
     "ios": "show running-config",
     "junos": "show configuration | display set | no-more",
-    "fortios": "show full-configuration",
     "linux": "ip -details address show; ip route show table all; ip -6 route show table all",
 }
 
@@ -301,25 +302,9 @@ async def fetch_identity(device, secret):
 
 
 async def fetch_config(device, secret):
+    if device.adapter not in SSH_BACKUP_ADAPTERS:
+        raise BackupError("ssh_required")
     async with asyncio.timeout(90):
-        if device.adapter == "rest":
-            host = f"[{device.management_ip}]" if ":" in device.management_ip else device.management_ip
-            async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as client:
-                async with client.stream(
-                    "GET",
-                    f"https://{host}:{device.config_port}{device.config_path}",
-                    headers={"Authorization": f"Bearer {secret['token']}"},
-                ) as response:
-                    response.raise_for_status()
-                    chunks, size = [], 0
-                    async for chunk in response.aiter_bytes():
-                        size += len(chunk)
-                        if size > 4 * 1024 * 1024:
-                            raise NetworkError("Konfigürasyon 4 MB sınırını aşıyor")
-                        chunks.append(chunk)
-                    return b"".join(chunks).decode("utf-8", errors="replace")
-        if device.adapter not in COMMANDS:
-            raise NetworkError("Adaptör desteklenmiyor")
         async with asyncssh.connect(
             device.management_ip,
             port=device.config_port,
@@ -330,6 +315,8 @@ async def fetch_config(device, secret):
             connect_timeout=10,
             login_timeout=15,
         ) as connection:
+            if device.adapter == "fortios":
+                return await fetch_fortios_backup(connection)
             # A fresh read-only session; no device configuration commands.
             result = await connection.run(COMMANDS[device.adapter], check=True, timeout=60)
             if len(result.stdout.encode()) > 4 * 1024 * 1024:

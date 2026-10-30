@@ -1,5 +1,14 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## FortiGate SSH/SCP yedeği ve SSH zorunluluğu (30 Ekim 2026)
+
+- Üretim veritabanındaki son FortiGate kaydı yalnızca 962 byte, başlıksız ve `--More--` içeriyordu. Ham içerik/sırlar araç çıktısına alınmadan kontrol edildi. Kök neden `show full-configuration` ekran çıktısının sayfalama bitmeden başarılı yedek sayılmasıydı.
+- FortiGate artık mevcut SSH bağlantısı üzerinden SCP `sys_config` dosyasını indirir. SSH profili API ve worker'da zorunlu; REST/SNMP yedek kaynağı veya alternatif değildir. Eski kuyruk işleri de worker'da yeniden doğrulanır. Aktif config karşılaştırması aynı dosyayı kullanır; geçersiz eski FortiGate kaydıyla karşılaştırma başlamaz.
+- `pytest -q`: SNMPv2c ve CSV değişiklikleriyle birleştirme sonrasında 180 geçti; mevcut Starlette/httpx deprecation uyarısı sürüyor. Tam dosyanın şifreli saklanması, maskelenmiş yanıt/diff, REST/SNMPv3/SNMPv2c yedek reddi, eski işler, bağlantı değişimi, kesilmiş/sayfalanmış çıktı, boyut sınırı, hata ve iptalde geçici dosya temizliği doğrulandı.
+- `scripts/ssh_trust_check.py`: gerçek SSH/SCP protokolüyle yalnızca yerel loopback sunucusunda sys_config transferi geçti. Yetki reddi, kesilmiş transfer ve CLI sayfası reddedildi; bilinmeyen host anahtarı, açık güven seçimi, kayıtlı anahtar ve parola kontrolleri geçti.
+- `scripts/backup_devices_browser_check.py`: iki yedek ekranının cihaz listesi/ayrıntıları 1440 px açık ve 375 px koyu görünümde hizalama, taşma ve axe WCAG A/AA kontrollerini geçti. Görüntüler incelendi; JavaScript hatası yok. TypeScript/Vite, Ruff, Prettier ve `git diff --check` geçti.
+- Şema ve bağımlılık değişmedi. Gerçek FortiGate'e yeni ağ sorgusu veya ayar değişikliği yapılmadı; eski yedekler silinmedi. Cihazda SSH, admin-scp ve sürüme uygun yönetici yetkisi gerekir. [Resmi kaynaklar ve kapsam sınırları](fortigate-ssh-backup.md).
+
 ## Cihaz bazlı yedek gezinme (30 Ekim 2026)
 
 - Cihaz Yedekleri ve Karşılaştır ana ekranları yedek sayısı/son yedek zamanı içeren cihaz listesine dönüştürüldü. Cihaz seçilmeden yedek listesi istenmez; ayrıntı sorguları cihaz kimliğiyle sınırlandırılır.

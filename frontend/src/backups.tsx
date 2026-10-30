@@ -93,6 +93,16 @@ export function BackupWorkspace({
   const pending = job && ["queued", "running"].includes(job.status);
   return (
     <>
+      {(page === "configuration" || page === "backup-compare") && (
+        <div className="info-note">
+          <p>
+            Yedekler ve aktif config yalnızca SSH üzerinden okunur. FortiGate
+            için SCP ile sys_config dosyası alınır; cihazda admin-scp açık ve
+            SSH hesabı yedekleme yetkisine sahip olmalıdır. Eski, eksik kayıtlar
+            yerine yeni bir yedek alın.
+          </p>
+        </div>
+      )}
       {page === "backup-settings" && (
         <div className="info-note">
           <p>

@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from . import models as m
 from .alerting.engine import evaluate
+from .configuration.validation import BackupError
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
@@ -25,6 +26,7 @@ from .services import (
     IDENTITY_CONNECTION_FIELDS,
     SNMP_PROTOCOLS,
     authorized_device,
+    backup_profile,
     connection_profile,
     get,
     in_scope,
@@ -422,10 +424,13 @@ async def collect_device(job_id, collector):
         job = get(db, m.Job, job_id)
         device = get(db, m.Device, job.target_id)
         authorized_device(db, device)
-        credential = get(
-            db,
-            m.Credential,
-            device.config_credential_id if job.kind == "backup" else device.snmp_credential_id,
+        credential = (
+            backup_profile(db, device)
+            if job.kind == "backup"
+            else get(db, m.Credential, device.snmp_credential_id)
+        )
+        signature = tuple(getattr(device, key) for key in IDENTITY_CONNECTION_FIELDS) + (
+            credential.updated_at,
         )
         secret = secret_data(credential)
         existing = (
@@ -457,6 +462,11 @@ async def collect_device(job_id, collector):
         if job.cancel_requested:
             raise Cancelled()
         if job.kind == "backup":
+            current_profile = backup_profile(db, current)
+            if signature != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) + (
+                current_profile.updated_at,
+            ):
+                raise BackupError("connection_changed")
             if not data.strip():
                 raise NetworkError("Cihaz boş konfigürasyon döndürdü")
             previous = db.scalar(
@@ -606,6 +616,8 @@ async def execute(job_id, collector=None):
             job.error = (
                 "Görev iptal edildi"
                 if isinstance(exc, Cancelled)
+                else str(exc)
+                if isinstance(exc, BackupError)
                 else "Cihaz işlemi başarısız. Kapsam, erişim profili, protokol ve host anahtarını kontrol edin."
             )
             if job.status != "queued":

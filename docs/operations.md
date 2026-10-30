@@ -35,12 +35,12 @@ Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etki
 
 ## Kullanım sırası
 
-1. Erişim kasasında SNMPv3 authPriv (SHA256 veya SHA1 + AES128) veya SNMPv2c community profili oluşturun. SNMPv2c seçildiğinde yalnızca community alanı gerekir; şifreli saklanır ve API yanıtlarına dönmez. SSH/REST yedeği için ayrı profil oluşturun.
+1. Erişim kasasında SNMPv3 authPriv (SHA256 veya SHA1 + AES128) veya SNMPv2c community profili oluşturun. SNMPv2c seçildiğinde yalnızca community alanı gerekir; şifreli saklanır ve API yanıtlarına dönmez. Yedek için ayrı SSH profili oluşturun.
 2. Lokasyonları, gerekli VRF/VLAN/prefix'leri tanımlayın. Global VRF ilk kurulumda oluşur.
 3. Keşif kapsamına yalnızca yetkili olduğunuz CIDR'ı girin. Hariç tutmaları ve gerekirse açık hedef listesini ekleyin. Zamanlama 0 iken otomatik tarama yoktur.
 4. Manuel keşif başlatın; Görev merkezi üzerinden ilerleme, hata, kısmi sonuç ve iptali takip edin.
 5. Cihaz ayrıntılarında yönetilen envanteri ve gözlem kanıtını ayrı inceleyin. Arayüzleri, komşuluk güvenini ve ARP/NDP/FDB port adaylarını kontrol edin.
-6. Cihaza SSH/REST profili atayın, host anahtarını doğrulayın, manuel yedek alın. Arşivde maskelenmiş sürüm/diff'i inceleyin.
+6. Cihaza SSH profili atayın, host anahtarını doğrulayın, manuel yedek alın. FortiGate için admin-scp ve hesabın SCP yedek yetkisi gereklidir; [SSH/SCP yönergesini](fortigate-ssh-backup.md) izleyin. Arşivde maskelenmiş sürüm/diff'i inceleyin.
 7. SNMP profilini atayıp izlemeyi etkinleştirin. İlk örnek baseline'dır; ikinci geçerli örnekten sonra hız çıkar. Zamanlama aralığı en az 60 saniye.
 8. Alarm kuralları oluşturun. Erişilebilirlik ve config-change kurallarında eşik alanı kullanılmaz; kullanımda yüzde, no-data'da saniyedir. Kalıcı alarm akışı, görüldü ve iyileşme durumlarını takip edin.
 
@@ -88,7 +88,7 @@ Uygulama yalnızca VIP `10.2.0.31:3306` kullanır. DB düğümlerine doğrudan y
 - **Cihaz ayrıntısı → Arayüzler:** cihazdan gözlemlenen adaylardan seçim yapıp **Arayüz seçimini kaydet** ile uygulamaya alın. Yeni adayları görmek için yetkili kapsam ve SNMP profiliyle **Ölçüm al** kullanılabilir. Mevcut arayüzler migration sırasında korunur.
 - **Envanter → Arayüzler:** önce cihazı, sonra portlarını açın. Arama kapasite, ifIndex, durum ve cihaz türünü kapsar. Seçili portları devre dışı bırakmak NETRIX ölçümlerini durdurur; fiziksel port durumu değişmez. Silinen port geçmişi korunur ve cihaz ayrıntısından yeniden seçilebilir.
 - **Yedekler → Cihaz yedekleri:** önce yedeği bulunan cihazlar, yedek sayısı ve son yedek tarihiyle listelenir. Cihaz adına veya satırdaki görüntüleme düğmesine basınca yalnızca o cihazın yedekleri açılır; **Cihazlara dön** ile listeye dönülür. Arama, filtreleme ve sayfalama her iki düzeyde çalışır. Maskelenmiş görüntüleme/indirme, önceki sürümle fark ve admin için silme desteklenir. Arşivlenmiş cihazların yedekleri de erişilebilir. **Değişenler** yalnızca önceki yedeğe göre değişen sürümleri gösterir.
-- **Yedekler → Karşılaştır:** önce cihaz seçilir, ardından yalnızca o cihazın yedekleri arasından seçilen yedek ile cihazın o anda okunan aktif konfigürasyonu karşılaştırılır. Görev penceresinde durum/iptal/fark izlenir. Desteklenen SSH/API profili, aktif cihaz ve yetkili kapsam gerekir.
+- **Yedekler → Karşılaştır:** önce cihaz seçilir, ardından yalnızca o cihazın yedekleri arasından seçilen yedek ile cihazın o anda okunan aktif konfigürasyonu karşılaştırılır. Görev penceresinde durum/iptal/fark izlenir. Desteklenen SSH profili, aktif cihaz ve yetkili kapsam gerekir; SNMP/REST yedekleme veya karşılaştırma yapılmaz.
 - **Yedekler → Gruplandırma ayarları:** firewall, switch, controller, backbone gibi adlarla grup oluşturun; aralık ve tutulacak yedek sayısını belirleyin. **Yedekleme ayarları** ekranında cihazları seçip grubu veya cihaz politikasını uygulayın. Grup ayarı üyelerin cihaz ayarını geçersiz kılar. Aralık 0 kapalı, diğer değerler en az 300 saniye; saklama 0 sınırsızdır. Saklama sınırını azaltmak eski sürümleri otomatik siler. Karşılaştırmada kullanılan sürüm işlem tamamlanana kadar korunur.
 
 `20261030_05` öncesinde MariaDB yedeği alın. Geçiş yeni grup/politika ve arayüz seçim alanlarını ekler; downgrade bu yeni tercihleri kaybettirir. Veri içeren atılabilir MariaDB'de upgrade/downgrade/upgrade ve Alembic schema farkı kontrolü için `scripts/inventory_migration_check.py` yalnızca `netrix_test` veritabanını kabul eder.
