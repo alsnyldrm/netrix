@@ -148,3 +148,9 @@ Harita yalnızca merkezi envanterdeki cihazların adını ve yönetim IP adresin
 SNMP komşu adları ve portlar UTF-8 metin olarak çözümlenir. İkili 6 bayt kimlikler MAC, diğer ikili kimlikler hex biçimindedir. Önceden metin olarak saklanan kontrol karakterli MAC kimlikleri API sunumunda düzeltilir; ham gözlemler değiştirilmez. Sonraki toplama aynı eski linki yeniden kullanır. CDP sysName mevcutsa Device-ID yerine tercih edilir ([Cisco CISCO-CDP-MIB](https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-CDP-MIB.my)).
 
 Kullanıcı açıkça fiziksel bağlantıyı doğruladığında, işletim erişimiyle `scripts/confirm_topology_link.py --local-id UUID --remote-id UUID` çalıştırılabilir. Aynı VRF içindeki iki arşivlenmemiş cihaz için tekrar güvenli kayıt açar; kaynak `manual`, güven 1 olur ve olay geçmişine yazılır. Portlar verilmediğinden boş kalır. Bu işlem ağ sorgusu yapmaz ve otomatik keşif olarak sunulmaz.
+
+### Komşuluk kayıtlarının doğrulanması
+
+SNMP toplaması LLDP şasi/port alt türlerini, sistem adını ve yerel port açıklamasını birlikte okur. LLDP yerel port numarası doğrudan ifIndex kabul edilmez; IF-MIB eşleşmesi ilan edilen port kimliği/açıklamasıyla yapılır. CDP ile LLDP yalnızca aynı yerel portta tekil ve aynı MAC şasi kimliği gözlendiğinde birleştirilir; farklı isim veya birden fazla aday korunur. İsimsiz komşuda alınan şasi kimliği gösterilir.
+
+`topology_links.evidence`, protokol kimliklerini ve kullanılan ad/port kanıtını; `last_seen_at`, son başarılı gözlem zamanını tutar. Eksiksiz okunan protokol tablolarında artık görülmeyen kayıtlar `is_current=false` olur ve güncel bağlantı listesinden çıkar; geçmiş gözlemler ve olaylar korunur. Eksik, başarısız veya satır sınırına ulaşan bir toplama kayıp bağlantı kanıtı değildir. Kullanıcı doğrulamasıyla eklenen bağlantılar otomatik olarak kaldırılmaz. `20261030_09` migration'ı mevcut kayıtları korur; kanıt/geçmiş varken veri kaybettirecek downgrade'i engeller.

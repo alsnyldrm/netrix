@@ -266,6 +266,8 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         raise HTTPException(404, "Kaynak bulunamadı")
     model = RESOURCES[name][0]
     stmt = select(model)
+    if name == "links":
+        stmt = stmt.where(m.Link.is_current.is_(True))
     if name == "devices":
         stmt = stmt.where(m.Device.archived.is_(False))
     if name == "interfaces":

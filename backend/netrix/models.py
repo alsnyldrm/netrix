@@ -259,6 +259,9 @@ class Link(Entity, Base):
     remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(20), default="lldp")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_seen_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (UniqueConstraint("device_id", "interface_name", "remote_name", "remote_port"),)
 
 

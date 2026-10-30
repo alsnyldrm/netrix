@@ -240,3 +240,32 @@ async def test_rest_identity_has_separate_endpoint_bounded_response_and_no_redir
     else:
         with pytest.raises(httpx.HTTPStatusError if response_kind == "redirect" else p.NetworkError):
             await p.fetch_identity(device, {"token": "fixture-token"})
+
+
+async def test_unsupported_or_failed_neighbor_walks_are_not_complete(monkeypatch):
+    from pysnmp.proto.rfc1905 import NoSuchObject
+
+    monkeypatch.setattr(p, "SnmpEngine", Engine)
+    monkeypatch.setattr(p, "UdpTransportTarget", Transport)
+    monkeypatch.setattr(p, "ObjectType", lambda x: x)
+    monkeypatch.setattr(p, "ObjectIdentity", lambda x: x)
+
+    async def get(*args, **kwargs):
+        return None, 0, 0, list(zip(p.SYSTEM.values(), ["switch", "1.3.6.1.4.1", 1000, "core"]))
+
+    async def walk(engine, auth, target, context, oid, **kwargs):
+        if oid == p.TABLES["lldp_name"]:
+            yield None, 0, 0, [(oid + ".0", NoSuchObject())]
+        elif oid == p.TABLES["cdp_name"]:
+            yield "timeout", 0, 0, []
+        elif oid in (p.TABLES["if_name"], p.TABLES["if_descr"]):
+            yield None, 0, 0, [(oid + ".1", "port-1")]
+
+    monkeypatch.setattr(p, "get_cmd", get)
+    monkeypatch.setattr(p, "walk_cmd", walk)
+    result = await p.SNMPCollector().collect(
+        "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
+    )
+    assert result["neighbors"] == []
+    assert result["neighbor_protocols_complete"] == []
+    assert set(result["unsupported"]) == {"lldp_name", "cdp_name"}

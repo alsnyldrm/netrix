@@ -22,13 +22,14 @@ from pysnmp.hlapi.v3arch.asyncio import (
     usmHMACSHAAuthProtocol,
     walk_cmd,
 )
+from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
 
 from ..configuration.fortios import fetch_fortios_backup
 from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError
 from ..core import settings
 from .aruba import ARUBA_ADAPTERS, read_aruba
 from .identification import rest_identity, snmp_identity, ssh_identity
-from .neighbor_labels import neighbor_label
+from .neighbors import parse_neighbors
 
 
 class NetworkError(Exception):
@@ -51,6 +52,7 @@ TABLES = {
     "entity_model": "1.3.6.1.2.1.47.1.1.1.1.13",
     "if_name": "1.3.6.1.2.1.31.1.1.1.1",
     "if_descr": "1.3.6.1.2.1.2.2.1.2",
+    "if_alias": "1.3.6.1.2.1.31.1.1.1.18",
     "if_mac": "1.3.6.1.2.1.2.2.1.6",
     "if_speed": "1.3.6.1.2.1.31.1.1.1.15",
     "if_status": "1.3.6.1.2.1.2.2.1.8",
@@ -61,6 +63,12 @@ TABLES = {
     "in_discards": "1.3.6.1.2.1.2.2.1.13",
     "out_discards": "1.3.6.1.2.1.2.2.1.19",
     "discontinuity": "1.3.6.1.2.1.31.1.1.1.19",
+    "lldp_local_type": "1.0.8802.1.1.2.1.3.7.1.2",
+    "lldp_local_desc": "1.0.8802.1.1.2.1.3.7.1.4",
+    "lldp_chassis_type": "1.0.8802.1.1.2.1.4.1.1.4",
+    "lldp_chassis": "1.0.8802.1.1.2.1.4.1.1.5",
+    "lldp_port_type": "1.0.8802.1.1.2.1.4.1.1.6",
+    "lldp_port_desc": "1.0.8802.1.1.2.1.4.1.1.8",
     "lldp_local_id": "1.0.8802.1.1.2.1.3.7.1.3",
     "lldp_name": "1.0.8802.1.1.2.1.4.1.1.9",
     "lldp_port": "1.0.8802.1.1.2.1.4.1.1.7",
@@ -157,9 +165,18 @@ class SNMPCollector:
                             unsupported.append(key)
                             break
                         for binding in bindings:
+                            if isinstance(binding[1], (EndOfMibView, NoSuchInstance, NoSuchObject)):
+                                unsupported.append(key)
+                                continue
+                            if not str(binding[0]).startswith(oid + "."):
+                                unsupported.append(key)
+                                continue
                             index = str(binding[0])[len(oid) + 1 :]
                             table[index] = binding[1]
                     tables[key] = table
+                for key, table in tables.items():
+                    if len(table) >= 2048:
+                        unsupported.append(key)
                 system["identity"] = snmp_identity(system, tables)
                 if identity_only:
                     return system
@@ -200,33 +217,7 @@ class SNMPCollector:
                             discontinuity_ticks=number(tables["discontinuity"][index], 0),
                         )
                     interfaces.append(item)
-                neighbors = []
-                for index, name in tables["lldp_name"].items():
-                    pieces = index.split(".")
-                    local_index = pieces[-2] if len(pieces) >= 3 else ""
-                    local = str(tables["lldp_local_id"].get(local_index, f"LLDP-port-{local_index}"))
-                    neighbors.append(
-                        {
-                            "interface_name": local[:120],
-                            "remote_name": neighbor_label(name)[:190],
-                            "remote_port": neighbor_label(tables["lldp_port"].get(index, ""))[:120],
-                            "source": "lldp",
-                        }
-                    )
-                for index, name in tables["cdp_name"].items():
-                    name = neighbor_label(tables["cdp_sysname"].get(index)) or name
-                    local_index = index.split(".")[0]
-                    local = str(
-                        tables["if_name"].get(local_index, tables["if_descr"].get(local_index, local_index))
-                    )
-                    neighbors.append(
-                        {
-                            "interface_name": local[:120],
-                            "remote_name": neighbor_label(name)[:190],
-                            "remote_port": neighbor_label(tables["cdp_port"].get(index, ""))[:120],
-                            "source": "cdp",
-                        }
-                    )
+                neighbors = parse_neighbors(tables)
                 raw = {
                     key: {
                         i: mac(v) if key in ("arp_mac", "ndp_mac") else str(v) for i, v in tables[key].items()
@@ -237,6 +228,26 @@ class SNMPCollector:
                     **system,
                     "interfaces": interfaces,
                     "neighbors": neighbors,
+                    "neighbor_protocols_complete": [
+                        protocol
+                        for protocol, required in {
+                            "lldp": (
+                                "lldp_name",
+                                "lldp_chassis",
+                                "lldp_port",
+                                "lldp_local_id",
+                                "lldp_local_desc",
+                                "lldp_local_type",
+                                "lldp_chassis_type",
+                                "lldp_port_type",
+                                "if_name",
+                                "if_descr",
+                            ),
+                            "cdp": ("cdp_name", "cdp_port", "if_name", "if_descr"),
+                        }.items()
+                        if not any(key in unsupported for key in required)
+                        and any(tables[key] for key in required if key.startswith(protocol))
+                    ],
                     "tables": raw,
                     "unsupported": unsupported,
                 }

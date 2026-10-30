@@ -173,3 +173,9 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - Üretimde salt okunur olay sorgusu, ekran görüntüsündeki üç cihazın Backbone katalog kodunun kayıt sonrası SNMPv2c kimlik sorgusuyla `switch` değerine çevrildiğini doğruladı. Dört regresyon testi düzeltme öncesinde aynı tür kaybıyla başarısız oldu; düzeltme sonrası kimlik, cihaz türü ve envanter kapsamındaki 54 test geçti.
 - Yeni kayıt, tekli/toplu düzenleme ve sorgu sürerken değişen tür senaryoları gerçek yerel API ve sahte protokol istemcisiyle doğrulandı. Kimlik sorgusu ve izleme özel türü korurken üretici/modeli günceller; gözlemlenen `switch` keşif kanıtında kalır ve envanterde tür değişmiş gibi olay üretilmez. Standart türlerin otomatik tespiti mevcut testlerle korunur. Gerçek cihaz sorgusu yapılmadı.
 - Şema veya arayüz değişikliği yok. Ruff ve diff boşluk kontrolü geçti. Üretim düzeltmesi öncesi `/opt/netrix/backups/before-custom-kind-20261030.sql` yedeği alındı; izin 0600 ve boş olmadığı doğrulandı.
+
+## LLDP/CDP komşu kanıtı ve H3 düzeltmesi (30 Ekim 2026)
+
+- H3 örneğinde CDP `38:21:c7:3c:b2:40` ikili kimliği ile LLDP sistem adı `HP-SW-CO-01-A-09-01` ve uzak port `49` canlı, salt okunur SNMP sorgusunda eşleşti. LLDP yerel kimliği `227`, port açıklaması ve IF-MIB adı `H3` olarak gözlendi.
+- Backend test kümesi: 328 test geçti. Eklenen başarısız/desteklenmeyen komşuluk tablosu testiyle hedefli protokol/topoloji doğrulamaları ayrıca çalıştırıldı. Gerçek ağ erişimi testlerde yasak; canlı sorgu ayrı ve kullanıcı tetiklemesiyle yapıldı.
+- `scripts/neighbor_migration_check.py`: atılabilir, Docker `--internal` ağındaki MariaDB 11.8.3 / `netrix_test` üzerinde eski veriyle 08 → 09 geçişi, JSON kanıt, UTC son gözlem zamanı, H3 kaydının aynı kimlikle düzeltilmesi, geçmiş/güncel ayrımı, korumalı downgrade, round trip ve Alembic şema kontrolü geçti. Üretim verileri bu test ortamına taşınmadı.
