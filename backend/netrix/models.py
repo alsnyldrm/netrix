@@ -171,6 +171,7 @@ class Interface(Entity, Base):
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    auto_add_excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     __table_args__ = (UniqueConstraint("device_id", "name"), UniqueConstraint("device_id", "if_index"))
 
 

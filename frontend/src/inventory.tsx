@@ -1119,28 +1119,36 @@ export function InterfaceWorkspace(props: any) {
 }
 export function InterfacePicker({
   device,
+  refresh,
   canWrite,
   onSaved,
 }: {
   device: Row;
+  refresh: number;
   canWrite: boolean;
   onSaved: () => void;
 }) {
   const [ports, setPorts] = useState<Row[]>([]);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [changes, setChanges] = useState<Record<string, boolean>>({});
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const selected = ports
+    .filter((p) => changes[p.id] ?? (p.is_managed && !p.is_deleted))
+    .map((p) => p.id);
+  const choose = (ids: string[], checked: boolean) =>
+    setChanges((current) => ({
+      ...current,
+      ...Object.fromEntries(ids.map((id) => [id, checked])),
+    }));
   useEffect(() => {
+    if (busy) return;
     let active = true;
     allRows(`/inventory/interfaces?candidates=true&device_id=${device.id}`)
       .then((rows) => {
         if (active) {
           setPorts(rows);
-          setSelected(
-            rows.filter((r) => r.is_managed && !r.is_deleted).map((r) => r.id),
-          );
           setReady(true);
         }
       })
@@ -1150,7 +1158,7 @@ export function InterfacePicker({
     return () => {
       active = false;
     };
-  }, [device.id]);
+  }, [device.id, refresh, busy]);
   const visible = ports.filter((r) =>
     Object.values(r).some((v) =>
       String(v ?? "")
@@ -1167,8 +1175,10 @@ export function InterfacePicker({
         </span>
       </h3>
       <p className="muted">
-        Uygulamaya eklenecek arayüzleri seçin. Port durumları cihazdan
-        gözlemlenir; bu seçim cihaz yapılandırmasını değiştirmez.
+        Açık portlar otomatik eklenir; kapalı portlar açıldıklarında eklenir.
+        İşaretini kaldırıp kaydettiğiniz portlar tekrar açılsa da eklenmez.
+        Önceden eklenen portlar kapandığında listede kalır. Bu seçim cihaz
+        yapılandırmasını değiştirmez.
       </p>
       <div className="inventory-toolbar">
         <label className="inventory-search">
@@ -1184,10 +1194,12 @@ export function InterfacePicker({
             <button
               className="secondary"
               type="button"
+              disabled={!ready || busy}
               onClick={() =>
-                setSelected([
-                  ...new Set([...selected, ...visible.map((p) => p.id)]),
-                ])
+                choose(
+                  visible.map((p) => p.id),
+                  true,
+                )
               }
             >
               Görünenleri seç
@@ -1195,9 +1207,11 @@ export function InterfacePicker({
             <button
               className="secondary"
               type="button"
+              disabled={!ready || busy}
               onClick={() =>
-                setSelected(
-                  selected.filter((id) => !visible.some((p) => p.id === id)),
+                choose(
+                  visible.map((p) => p.id),
+                  false,
                 )
               }
             >
@@ -1219,19 +1233,17 @@ export function InterfacePicker({
               disabled={!canWrite || busy}
               aria-label={`${p.name} uygulamaya ekle`}
               checked={selected.includes(p.id)}
-              onChange={(e) =>
-                setSelected(
-                  e.target.checked
-                    ? [...selected, p.id]
-                    : selected.filter((id) => id !== p.id),
-                )
-              }
+              onChange={(e) => choose([p.id], e.target.checked)}
             />
             <span>
               <b>{p.name}</b>
               <small>
                 {speed(p.speed_bps)} · {tag(p.oper_status)}
               </small>
+              {(changes[p.id] === false ||
+                (changes[p.id] === undefined && p.auto_add_excluded)) && (
+                <small>Otomatik ekleme kapalı</small>
+              )}
             </span>
           </label>
         ))}
@@ -1247,14 +1259,30 @@ export function InterfacePicker({
         <div className="dialog-footer">
           <button
             className="primary"
-            disabled={!ready || busy}
+            disabled={!ready || busy || !Object.keys(changes).length}
             onClick={async () => {
               setBusy(true);
               setError("");
               try {
                 await api(`/devices/${device.id}/interfaces`, "PUT", {
-                  ids: selected,
+                  include_ids: Object.keys(changes).filter((id) => changes[id]),
+                  exclude_ids: Object.keys(changes).filter(
+                    (id) => !changes[id],
+                  ),
                 });
+                setPorts((current) =>
+                  current.map((p) =>
+                    p.id in changes
+                      ? {
+                          ...p,
+                          is_managed: changes[p.id],
+                          auto_add_excluded: !changes[p.id],
+                          is_deleted: changes[p.id] ? false : p.is_deleted,
+                        }
+                      : p,
+                  ),
+                );
+                setChanges({});
                 onSaved();
               } catch (e: any) {
                 setError(e.message);

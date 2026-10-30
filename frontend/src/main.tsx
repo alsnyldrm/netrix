@@ -3397,7 +3397,9 @@ function App() {
               ))}
             </dl>
             <InterfacePicker
+              key={detail.id}
               device={detail}
+              refresh={refresh}
               canWrite={canWrite}
               onSaved={() => {
                 reload();

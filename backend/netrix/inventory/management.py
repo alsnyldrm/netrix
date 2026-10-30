@@ -47,6 +47,7 @@ LABELS = {
     "oper_status": "Port durumu",
     "description": "Açıklama",
     "is_managed": "Uygulamaya ekli",
+    "auto_add_excluded": "Otomatik ekleme engelli",
     "device_name": "Cihaz",
     "device_kind": "Cihaz türü",
     "site_name": "Lokasyon",
@@ -206,7 +207,7 @@ def query(
             clauses.append(contains(m.DeviceType.name, value))
         if key in ("lifecycle_status", "reachability", "oper_status"):
             clauses.append(contains(case(TRANSLATIONS, value=col, else_=col), value))
-        if key in ("monitoring_enabled", "ssh_trust_host_key", "is_managed"):
+        if key in ("monitoring_enabled", "ssh_trust_host_key", "is_managed", "auto_add_excluded"):
             clauses.append(contains(case((col.is_(True), "Etkin Evet"), else_="Kapalı Hayır"), value))
         if key == "changed":
             clauses.append(contains(case((col.is_(True), "Değişti"), else_="Değişmedi"), value))
@@ -237,7 +238,13 @@ def query(
         if f.op in ("eq", "ne"):
             if f.field in ("lifecycle_status", "reachability", "oper_status"):
                 value = next((k for k, v in TRANSLATIONS.items() if v.casefold() == value.casefold()), value)
-            if f.field in ("monitoring_enabled", "ssh_trust_host_key", "changed", "is_managed"):
+            if f.field in (
+                "monitoring_enabled",
+                "ssh_trust_host_key",
+                "changed",
+                "is_managed",
+                "auto_add_excluded",
+            ):
                 converted = {
                     "true": True,
                     "false": False,
@@ -287,17 +294,21 @@ def query(
     return {"items": items, "total": total, "columns": [{"key": k, "label": LABELS.get(k, k)} for k in cols]}
 
 
-def select_interfaces(db, device_id, ids, user):
+def select_interfaces(db, device_id, payload, user):
     svc.get(db, m.Device, device_id)
     db.scalar(select(m.Device).where(m.Device.id == device_id).with_for_update())
     ports = db.scalars(select(m.Interface).where(m.Interface.device_id == device_id).with_for_update()).all()
-    selected = set(ids)
-    if selected - {p.id for p in ports}:
+    known = {p.id for p in ports}
+    included = set(payload.ids if payload.ids is not None else payload.include_ids)
+    excluded = known - included if payload.ids is not None else set(payload.exclude_ids)
+    if (included | excluded) - known:
         raise HTTPException(422, "Seçilen arayüzler bu cihaza ait olmalı")
     for port in ports:
-        port.is_managed = port.id in selected
-        if port.is_managed:
-            port.is_deleted = False
+        if port.id in included:
+            port.is_managed, port.is_deleted, port.auto_add_excluded = True, False, False
+        elif port.id in excluded:
+            port.is_managed, port.auto_add_excluded = False, True
+    selected = [p for p in ports if p.is_managed and not p.is_deleted]
     audit(db, user, "select_interfaces", "devices", device_id, f"{len(selected)} arayüz uygulamaya alındı")
     db.commit()
     svc.publish()
@@ -351,7 +362,7 @@ def bulk(db, resource, payload, user):
             raise HTTPException(422, "Geçersiz arayüz işlemi")
         for row in rows:
             if payload.action == "delete":
-                row.is_deleted, row.is_managed = True, False
+                row.is_deleted, row.is_managed, row.auto_add_excluded = True, False, True
             else:
                 row.monitoring_enabled = payload.action == "enable"
     for row in rows:

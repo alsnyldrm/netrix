@@ -265,6 +265,21 @@ class SelectionInput(Input):
     ids: list[str] = Field(max_length=4096)
 
 
+class InterfaceSelectionInput(Input):
+    # The old full selection request remains supported for existing API clients.
+    ids: list[str] | None = Field(default=None, max_length=4096)
+    include_ids: list[str] = Field(default_factory=list, max_length=4096)
+    exclude_ids: list[str] = Field(default_factory=list, max_length=4096)
+
+    @model_validator(mode="after")
+    def disjoint_selection(self):
+        if self.ids is not None and (self.include_ids or self.exclude_ids):
+            raise ValueError("Tam seçim ve değişen seçim birlikte gönderilemez")
+        if set(self.include_ids) & set(self.exclude_ids):
+            raise ValueError("Bir arayüz aynı anda eklenip kaldırılamaz")
+        return self
+
+
 class BulkInput(Input):
     ids: list[str] = Field(min_length=1, max_length=100)
     action: Literal["update", "delete", "disable", "enable", "restore"]

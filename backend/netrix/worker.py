@@ -64,7 +64,13 @@ def scope_targets(scope):
 
 def sync_interfaces(db, device, collected, job_id):
     interfaces = {
-        row.name: row for row in db.scalars(select(m.Interface).where(m.Interface.device_id == device.id))
+        row.name: row
+        for row in db.scalars(
+            select(m.Interface)
+            .where(m.Interface.device_id == device.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     }
     # ifIndex is an observation, never the durable identity of a port.
     for row in interfaces.values():
@@ -92,6 +98,8 @@ def sync_interfaces(db, device, collected, job_id):
             )
         for key in ("if_index", "mac_address", "description", "speed_bps", "oper_status"):
             setattr(row, key, port.get(key))
+        if row.oper_status == "up" and not row.auto_add_excluded and not row.is_deleted:
+            row.is_managed = True
         db.flush()
         counters = port.get("counters")
         if counters and row.is_managed and row.monitoring_enabled and not row.is_deleted:

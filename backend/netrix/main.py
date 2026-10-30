@@ -512,10 +512,12 @@ def inventory_bulk(resource: str, payload: s.BulkInput, user=Depends(operator), 
 
 
 @app.put(P + "/devices/{id}/interfaces")
-def manage_interfaces(id: str, payload: s.SelectionInput, user=Depends(operator), db=Depends(db_session)):
+def manage_interfaces(
+    id: str, payload: s.InterfaceSelectionInput, user=Depends(operator), db=Depends(db_session)
+):
     from .inventory.management import select_interfaces
 
-    return select_interfaces(db, id, payload.ids, user)
+    return select_interfaces(db, id, payload, user)
 
 
 @app.post(P + "/snapshots/{id}/compare-live", status_code=202)

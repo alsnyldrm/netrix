@@ -166,6 +166,7 @@ def test_only_selected_enabled_interfaces_receive_samples(env, records):
         }
         for selected, enabled in ((False, True), (True, False), (True, True)):
             port.is_managed = selected
+            port.auto_add_excluded = not selected
             port.monitoring_enabled = enabled
             job = m.Job(kind="monitor", target_id=device.id)
             db.add(job)

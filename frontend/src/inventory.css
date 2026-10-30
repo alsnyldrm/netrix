@@ -157,6 +157,8 @@
 .port-choice > span {
   min-width: 0;
   display: grid;
+  align-self: stretch;
+  align-content: start;
   gap: 6px;
 }
 .port-choice b {
