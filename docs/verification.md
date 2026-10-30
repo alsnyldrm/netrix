@@ -1,5 +1,11 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Geçerli konfigürasyon referansı — 30 Ekim 2026
+
+- Bildirilen HP cihazında 40 byte SSH hata çıktısının ardından gelen 13.199 byte ilk geçerli yedek `changed=true` olarak kaydedilmişti. Worker parmak izlerini doğrulanmamış son kayıtla karşılaştırıyor; Fark da aynı hatalı kaydı okuyup 422 veriyordu. İçerik veya sırlar teşhis çıktısına alınmadı.
+- Worker ve otomatik Fark aynı cihazın son geçerli yedeğini seçer; hatalı kayıtları atlar. İlk geçerli yedek değişiklik değildir; aynı içerik değişiklik değildir. Gerçek içerik değişikliği ve gizli değer değişikliği karşılaştırma öncesi maskelenmeden saptanır, API farkı maskelenir. Eşit zamanlarda kimlik ile deterministik sıralama uygulanır.
+- İlk regresyon çalıştırmasında beş test mevcut kusuru yeniden üretti. Düzeltme sonrasında 63 ilgili test geçti; veri onarımı eklenince yedi referans testi geçti. İlk geçerli/aynı/değişmiş içerik, hatalı ara kayıt, cihaz sınırı, eşit zaman, Fark HTTP 200, Değişenler filtresi, önizlemenin yazmaması, gerçek değişikliğin korunması, dosyaların korunması ve tekrarlı onarımın değişiklik yapmaması doğrulandı. Yeni şema/bağımlılık veya görsel değişiklik yok.
+
 ## İlk SSH yedeği ve hatalı CLI kaydı (30 Ekim 2026)
 
 - Üretimde bildirilen HP J9851A cihazı `linux` adaptörüyle kayıtlıydı; tek snapshot 40 byte uzunluğunda `SSH command execution is not supported.` yanıtıydı. Teşhis yalnızca model/adaptör, boyut ve hata eşleşmesini çıkardı; konfigürasyon veya erişim sırrı yazdırılmadı.

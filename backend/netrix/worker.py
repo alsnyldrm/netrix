@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from . import models as m
 from .alerting.engine import evaluate
 from .configuration.failures import backup_failure
+from .configuration.history import previous_valid_snapshot
 from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
@@ -449,14 +450,9 @@ async def collect_device(job_id, collector):
             ):
                 raise BackupError("connection_changed")
             validate_cli_output(data)
-            previous = db.scalar(
-                select(m.Snapshot)
-                .where(m.Snapshot.device_id == current.id)
-                .order_by(m.Snapshot.created_at.desc())
-                .limit(1)
-            )
+            previous, previous_content = previous_valid_snapshot(db, current.id)
             fingerprint = hashlib.sha256(data.encode()).hexdigest()
-            changed = previous is not None and previous.fingerprint != fingerprint
+            changed = previous is not None and previous_content != data
             db.add(
                 m.Snapshot(
                     device_id=current.id,

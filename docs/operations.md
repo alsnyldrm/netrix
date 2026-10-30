@@ -35,6 +35,10 @@ Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etki
 
 ## Kullanım sırası
 
+**Değişenler:** Yeni yedek aynı cihazın en son geçerli konfigürasyonuyla karşılaştırılır. Eski SSH komut hataları ve sayfalanmış/boş çıktılar referans alınmaz. Öncesinde geçerli yedek yoksa kayıt ilk konfigürasyon kabul edilir ve değişiklik oluşturmaz; aynı içerik de değişiklik oluşturmaz. Otomatik Fark görünümü aynı referansı seçer, referans yoksa önceki yedeğin bulunmadığını bildirir. Hatalı eski kayıtlar geçmişten silinmez.
+
+Eski yanlış değişiklik işaretlerini düzeltmek için `scripts/repair_backup_baselines.py --device-id <ID>` önce salt önizleme yapar; `--apply` verilen cihazın işaretlerini transaction içinde ve audit kaydıyla düzeltir. Konfigürasyon içerikleri yazdırılmaz, cihaz bağlantısı açılmaz. Saklama sınırı nedeniyle önceki yedeği artık bulunmayan ilk geçerli kaydın mevcut işareti korunur.
+
 Envantere yeni bir aktif cihaz kaydedildiğinde (form, API veya CSV/XLSX uygulama), IP adresi aynı VRF'deki etkin ve adresi hariç tutmayan keşif kapsamındaysa ilk SSH yedeği hemen worker kuyruğuna alınır. Uyumlu konfigürasyon adaptörü ve atanmış SSH profili gerekir; zamanlama aralığı 0 olsa da ilk yedek alınır. Önizleme ve normal cihaz düzenleme bu işlemi tetiklemez. Cihaz ile görev aynı transaction içinde kaydedilir; başarısız içe aktarma görev bırakmaz. API yanıtındaki `backup` alanı kuyruk kimliğini veya atlama gerekçesini içerir; ilerleme Görev merkezinden izlenir. Worker bağlantı öncesinde kapsamı ve yaşam döngüsünü tekrar doğrular. SNMP/REST yedek kaynağı değildir.
 
 `SSH command execution is not supported.` konfigürasyon değildir: bazı switch'ler SSH exec kanalını desteklemez. Örneğin HP J9851A/5400R için Linux yerine Aruba 54xx (`aruba_5400`) adaptörü seçilmelidir; bu adaptör aynı etkileşimli SSH oturumunda sayfalamayı kapatıp `show running-config` okur. CLI hata çıktısı, çıkış kodu 0 olsa da yedek olarak saklanmaz. Eski hatalı kayıtlar silinmez; içerik/diff/karşılaştırma isteği açıklayıcı hata verir. Adaptörü düzelttikten sonra yeni yedek alınmalıdır.

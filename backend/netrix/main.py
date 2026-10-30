@@ -18,6 +18,7 @@ from . import models as m
 from . import schemas as s
 from . import services as svc
 from .configuration.diff import config_diff, redact_config
+from .configuration.history import previous_valid_snapshot
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .identity.security import (
@@ -323,20 +324,16 @@ def snapshot_content(id: str, user=Depends(operator), db=Depends(db_session)):
 @app.get(P + "/snapshots/{id}/diff")
 def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator), db=Depends(db_session)):
     row = svc.get(db, m.Snapshot, id)
-    previous = (
-        svc.get(db, m.Snapshot, previous_id)
-        if previous_id
-        else db.scalar(
-            select(m.Snapshot)
-            .where(m.Snapshot.device_id == row.device_id, m.Snapshot.created_at < row.created_at)
-            .order_by(m.Snapshot.created_at.desc())
-            .limit(1)
-        )
-    )
-    if previous and previous.device_id != row.device_id:
-        raise HTTPException(422, "Sürümler aynı cihaza ait olmalı")
+    current_content = snapshot_text(row)
+    if previous_id:
+        previous = svc.get(db, m.Snapshot, previous_id)
+        if previous.device_id != row.device_id:
+            raise HTTPException(422, "Sürümler aynı cihaza ait olmalı")
+        previous_content = snapshot_text(previous)
+    else:
+        previous, previous_content = previous_valid_snapshot(db, row.device_id, before=row)
     return {
-        "diff": config_diff(snapshot_text(previous) if previous else "", snapshot_text(row)),
+        "diff": config_diff(previous_content, current_content) if previous else "",
         "previous_id": previous.id if previous else None,
         "current_id": row.id,
     }
