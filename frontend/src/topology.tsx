@@ -20,9 +20,43 @@ export function Topology<T extends TopologyDevice>({
 }) {
   const graph = useMemo(() => layoutTopology(devices, links), [devices, links]);
   const [selectedPair, setSelectedPair] = useState("");
+  const [connectionSearch, setConnectionSearch] = useState("");
   const pairKey = (link: TopologyLink) =>
     [link.device_id, link.remote_device_id].sort().join(":");
-  const selected = graph.links.find((link) => pairKey(link) === selectedPair);
+  const normalize = (value: string) =>
+    value.toLocaleLowerCase("tr-TR").replaceAll("ı", "i");
+  const connectionIndex = useMemo(() => {
+    const deviceById = new Map(devices.map((device) => [device.id, device]));
+    const entries = new Map<string, string[]>();
+    for (const link of links) {
+      const key = pairKey(link);
+      const values = entries.get(key) || [];
+      for (const id of [link.device_id, link.remote_device_id]) {
+        const device = id ? deviceById.get(id) : undefined;
+        if (device) values.push(device.name, device.management_ip);
+      }
+      values.push(
+        link.interface_name || "",
+        link.remote_port || "",
+        link.local_aggregate?.name || "",
+      );
+      entries.set(key, values);
+    }
+    return new Map(
+      [...entries].map(([key, values]) => [key, normalize(values.join(" "))]),
+    );
+  }, [devices, links]);
+  const searchTerms = normalize(connectionSearch.trim())
+    .split(/\s+/)
+    .filter(Boolean);
+  const visibleConnections = graph.links.filter((link) =>
+    searchTerms.every((term) =>
+      connectionIndex.get(pairKey(link))?.includes(term),
+    ),
+  );
+  const selected = visibleConnections.find(
+    (link) => pairKey(link) === selectedPair,
+  );
   const pairLinks = selected
     ? links.filter((link) => pairKey(link) === selectedPair)
     : [];
@@ -248,22 +282,46 @@ export function Topology<T extends TopologyDevice>({
       </div>
       {graph.links.length ? (
         <div className="topology-link-detail">
-          <label>
-            Bağlantı ayrıntısı
-            <select
-              aria-label="Bağlantı ayrıntısı"
-              name="topology-connection"
-              value={selected ? selectedPair : ""}
-              onChange={(event) => setSelectedPair(event.target.value)}
-            >
-              <option value="">Portlarını görmek için bağlantı seçin</option>
-              {graph.links.map((link) => (
-                <option key={link.id} value={pairKey(link)}>
-                  {name(link.device_id)} ↔ {name(link.remote_device_id!)}
+          <div className="topology-link-filters">
+            <label>
+              Bağlantılarda ara
+              <input
+                type="search"
+                placeholder="Cihaz adı, IP veya port…"
+                value={connectionSearch}
+                onChange={(event) => {
+                  setConnectionSearch(event.target.value);
+                  setSelectedPair("");
+                }}
+              />
+            </label>
+            <label>
+              Bağlantı ayrıntısı
+              <select
+                aria-label="Bağlantı ayrıntısı"
+                name="topology-connection"
+                disabled={!visibleConnections.length}
+                value={selected ? selectedPair : ""}
+                onChange={(event) => setSelectedPair(event.target.value)}
+              >
+                <option value="">
+                  {visibleConnections.length
+                    ? "Portlarını görmek için bağlantı seçin"
+                    : "Aramanıza uygun bağlantı yok"}
                 </option>
-              ))}
-            </select>
-          </label>
+                {visibleConnections.map((link) => (
+                  <option key={link.id} value={pairKey(link)}>
+                    {name(link.device_id)} ↔ {name(link.remote_device_id!)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          {connectionSearch.trim() && (
+            <small role="status">
+              {visibleConnections.length} bağlantı bulundu.
+            </small>
+          )}
           {selected ? (
             <div aria-live="polite">
               <div className="topology-port-heading">

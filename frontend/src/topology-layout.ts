@@ -56,7 +56,9 @@ export function layoutTopology(
   const levels = new Map<string, number>();
   const queue: string[] = [];
   for (const node of nodes) {
-    if (tier(node) === 0) {
+    // Seed infrastructure tiers before traversing links so a controller reached
+    // through a backbone stays beside it rather than falling into the edge tier.
+    if (tier(node) <= 1) {
       levels.set(node.id, tier(node));
       queue.push(node.id);
     }
@@ -70,14 +72,6 @@ export function layoutTopology(
           queue.push(peer);
         }
       }
-    }
-  }
-  visit();
-  queue.length = 0;
-  for (const node of nodes) {
-    if (!levels.has(node.id) && tier(node) === 1) {
-      levels.set(node.id, 1);
-      queue.push(node.id);
     }
   }
   visit();
