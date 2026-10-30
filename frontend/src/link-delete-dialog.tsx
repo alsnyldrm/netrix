@@ -37,7 +37,7 @@ export function LinkDeleteDialog({
       >
         <p>
           Bu komşuluk kaydı silinecek ve sonraki taramalarda yeniden eklenmesi
-          engellenecek.
+          engellenecek. Silinen komşuluklar menüsünden geri yükleyebilirsiniz.
         </p>
         <dl className="link-delete-details">
           <dt>Kaynak cihaz</dt>

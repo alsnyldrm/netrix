@@ -552,6 +552,8 @@ export function InventoryTable({
   const [group, setGroup] = useState("");
   const [notice, setNotice] = useState("");
   const archive = purpose === "archive";
+  const deletedLinks = purpose === "deleted-links";
+  const restorable = archive || deletedLinks;
   const pref = `netrix-columns:${user.id}:${purpose}`;
   const [shown, setShown] = useState<string[]>(() => {
     try {
@@ -599,6 +601,7 @@ export function InventoryTable({
       group_by: group,
       changed_only: String(purpose === "changes"),
       archived: String(archive),
+      deleted: String(deletedLinks),
       sort_by: sort.key,
       sort_direction: sort.direction,
     });
@@ -633,13 +636,14 @@ export function InventoryTable({
     offset,
     group,
     archive,
+    deletedLinks,
     sort,
   ]);
   const columns: Column[] = data.columns;
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";
   const hasActions =
-    (archive && user.role === "admin") ||
+    (restorable && user.role === "admin") ||
     (["devices", "backup-devices", "topology-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable) ||
@@ -667,7 +671,9 @@ export function InventoryTable({
       setDialog("");
       setNotice(
         action === "restore"
-          ? `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
+          ? deletedLinks
+            ? `${selected.length} komşuluk kaydı geri yüklendi. Tarama engelleri kaldırıldı.`
+            : `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
           : action === "delete" && resource === "devices"
             ? `${selected.length} cihaz arşivlendi. Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
             : action === "delete" && resource === "links"
@@ -685,11 +691,13 @@ export function InventoryTable({
     <section
       className={`panel inventory-panel ${["links", "topology-devices"].includes(resource) ? "topology-table" : ""}`}
       aria-label={
-        resource === "links"
-          ? "Bağlantı kayıtları"
-          : resource === "topology-devices"
-            ? "Bağlantı cihazları"
-            : undefined
+        deletedLinks
+          ? "Silinen komşuluk kayıtları"
+          : resource === "links"
+            ? "Bağlantı kayıtları"
+            : resource === "topology-devices"
+              ? "Bağlantı cihazları"
+              : undefined
       }
     >
       <div className="inventory-toolbar">
@@ -764,7 +772,7 @@ export function InventoryTable({
       {selected.length > 0 && (
         <div className="inventory-selection">
           <b role="status">{selected.length} kayıt seçildi</b>
-          {archive ? (
+          {restorable ? (
             <button
               className="secondary"
               disabled={busy}
@@ -798,7 +806,7 @@ export function InventoryTable({
               </button>
             </>
           ) : null}
-          {user.role === "admin" && !archive && (
+          {user.role === "admin" && !restorable && (
             <button className="secondary" onClick={() => setDialog("delete")}>
               <Trash size={16} aria-hidden="true" />
               Sil
@@ -1006,17 +1014,24 @@ export function InventoryTable({
                             <Eye size={18} aria-hidden="true" />
                           </button>
                         )}
-                        {archive && user.role === "admin" && (
+                        {restorable && user.role === "admin" && (
                           <button
                             className="secondary"
                             disabled={busy || loading}
-                            aria-label={`${row.name} geri yükle`}
+                            aria-label={
+                              deletedLinks
+                                ? `${row.interface_name || "Bilinmeyen port"} · ${row.remote_name} komşuluğunu geri yükle`
+                                : `${row.name} geri yükle`
+                            }
                             onClick={() => {
                               setSelected([row.id]);
                               setDialog("restore");
                             }}
                           >
-                            <ArrowCounterClockwise size={18} />
+                            <ArrowCounterClockwise
+                              size={18}
+                              aria-hidden="true"
+                            />
                             Geri yükle
                           </button>
                         )}
@@ -1193,7 +1208,7 @@ export function InventoryTable({
               {resource === "devices"
                 ? `${selected.length} cihaz arşivlenecek. Geçmişi korunur; Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
                 : resource === "links"
-                  ? `${selected.length} komşuluk kaydı silinecek ve sonraki taramalarda yeniden eklenmeleri engellenecek.`
+                  ? `${selected.length} komşuluk kaydı silinecek ve sonraki taramalarda yeniden eklenmeleri engellenecek. Silinen komşuluklar menüsünden geri yükleyebilirsiniz.`
                   : `${selected.length} kayıt uygulama listesinden kaldırılacak. Geçmiş kayıtlar korunur.`}
             </p>
             <div className="dialog-footer">
@@ -1230,25 +1245,35 @@ export function InventoryTable({
       )}
       {dialog === "restore" && (
         <Dialog
-          title="Cihazları geri yükle"
+          title={
+            deletedLinks ? "Komşulukları geri yükle" : "Cihazları geri yükle"
+          }
           onClose={() => {
             if (!busy) setDialog("");
           }}
         >
           <form
+            className={deletedLinks ? "link-restore-form" : undefined}
             onSubmit={(e) => {
               e.preventDefault();
               apply("restore");
             }}
           >
             <p>
-              {selected.length} cihaz, aynı kayıt kimliği ve geçmişiyle cihaz
-              envanterine dönecek.
+              {deletedLinks
+                ? `${selected.length} komşuluk kaydı bağlantı haritasına geri yüklenecek ve sonraki taramalarda yeniden güncellenebilecek.`
+                : `${selected.length} cihaz, aynı kayıt kimliği ve geçmişiyle cihaz envanterine dönecek.`}
             </p>
             <p className="muted">
-              Cihazlar Bakımda durumuyla geri yüklenir; otomatik izleme ve
-              yedekleme başlamaz. Cihaz ayarlarından yaşam döngüsünü Aktif
-              yapabilir, zamanlamaları düzenleyebilirsiniz.
+              {deletedLinks ? (
+                "Düzenlediğiniz komşu ve uzak port değerleri korunur. Son görülme tarihi değişmez."
+              ) : (
+                <>
+                  Cihazlar Bakımda durumuyla geri yüklenir; otomatik izleme ve
+                  yedekleme başlamaz. Cihaz ayarlarından yaşam döngüsünü Aktif
+                  yapabilir, zamanlamaları düzenleyebilirsiniz.
+                </>
+              )}
             </p>
             {error && (
               <p role="alert" className="error">
@@ -1264,8 +1289,8 @@ export function InventoryTable({
               >
                 Vazgeç
               </button>
-              <button className="primary" disabled={busy}>
-                <ArrowCounterClockwise size={18} />
+              <button className="primary" disabled={busy || !selected.length}>
+                <ArrowCounterClockwise size={18} aria-hidden="true" />
                 {busy ? "Geri yükleniyor…" : "Geri yükle"}
               </button>
             </div>

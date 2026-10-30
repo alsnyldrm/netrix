@@ -545,3 +545,7 @@
 .topology-table .inventory-selection button {
   min-height: 44px;
 }
+.link-restore-form button,
+.topology-table .inventory-actions .secondary {
+  min-height: 44px;
+}

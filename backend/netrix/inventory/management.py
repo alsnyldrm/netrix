@@ -131,6 +131,7 @@ def query(
     archived=False,
     sort_by="",
     sort_direction="asc",
+    deleted=False,
 ):
     models = {
         "devices": m.Device,
@@ -144,6 +145,8 @@ def query(
         raise HTTPException(404, "Kaynak bulunamadı")
     if archived and resource != "devices":
         raise HTTPException(422, "Arşiv görünümü yalnızca cihazlar için kullanılabilir")
+    if deleted and resource != "links":
+        raise HTTPException(422, "Silinenler görünümü yalnızca komşuluklar için kullanılabilir")
     model = models[resource]
     if group_by not in ("", "device_name", "backup_group") or (group_by and resource != "snapshots"):
         raise HTTPException(422, "Geçersiz gruplama")
@@ -196,7 +199,7 @@ def query(
         )
         if device_id:
             stmt = stmt.where(model.device_id == device_id)
-    if resource not in ("snapshots", "backup-devices"):
+    if resource not in ("snapshots", "backup-devices") and not deleted:
         stmt = stmt.where(m.Device.archived.is_(archived))
     if resource == "interfaces" and not candidates:
         stmt = stmt.where(m.Interface.is_managed.is_(True), m.Interface.is_deleted.is_(False))
@@ -242,9 +245,11 @@ def query(
         from ..discovery.link_edits import peer_column
 
         remote = aliased(m.Device)
-        stmt = stmt.outerjoin(remote, peer_column() == remote.id).where(
-            m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False)
-        )
+        stmt = stmt.outerjoin(remote, peer_column() == remote.id)
+        if deleted:
+            stmt = stmt.where(m.Link.auto_add_excluded.is_(True))
+        else:
+            stmt = stmt.where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
         cols = {
             "device_name": m.Device.name,
             "management_ip": m.Device.management_ip,
@@ -426,11 +431,11 @@ def bulk(db, resource, payload, user):
     if payload.action == "restore" and user.role != "admin":
         raise HTTPException(403, "Geri yükleme için yönetici yetkisi gerekli")
     if resource == "links":
-        from ..discovery.link_deletions import delete_links
+        from ..discovery.link_deletions import delete_links, restore_links
 
-        if payload.action != "delete" or payload.changes:
+        if payload.action not in ("delete", "restore") or payload.changes:
             raise HTTPException(422, "Geçersiz komşuluk işlemi")
-        return delete_links(db, payload.ids, user)
+        return (restore_links if payload.action == "restore" else delete_links)(db, payload.ids, user)
     ids = sorted(set(payload.ids))
     model = m.Device if resource == "devices" else m.Interface
     rows = db.scalars(select(model).where(model.id.in_(ids)).order_by(model.id).with_for_update()).all()

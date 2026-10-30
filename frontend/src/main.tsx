@@ -418,6 +418,13 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    key: "deleted-links",
+    title: "Silinen komşuluklar",
+    desc: "Silinen komşulukları arayın, filtreleyin ve geri yükleyin. Geri yüklenen kayıtların tarama engeli kaldırılır.",
+    group: "Keşif & bağlantı",
+    icon: Archive,
+  },
+  {
     key: "events",
     title: "Değişiklik günlüğü",
     desc: "IP, hostname, port, bağlantı ve alarm değişikliklerinin geçmişi.",
@@ -2825,6 +2832,21 @@ function App() {
                 refresh={refresh}
                 user={user!}
                 onSaved={reload}
+              />
+            ) : page.key === "deleted-links" ? (
+              <InventoryTable
+                key="deleted-links"
+                resource="links"
+                purpose="deleted-links"
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+                onContent={(row) =>
+                  setConfig({
+                    title: "Kayıt ayrıntıları",
+                    content: JSON.stringify(row, null, 2),
+                  })
+                }
               />
             ) : page.key === "interfaces" ? (
               <InterfaceWorkspace

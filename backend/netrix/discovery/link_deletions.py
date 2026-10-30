@@ -42,9 +42,7 @@ def delete_link(db, id, user):
     delete_links(db, [id], user)
 
 
-def delete_links(db, ids, user):
-    from .. import services as svc
-
+def locked_selection(db, ids):
     ids = sorted(set(ids))
     targets = list(db.scalars(select(m.Link).where(m.Link.id.in_(ids))))
     if len(targets) != len(ids):
@@ -59,6 +57,13 @@ def delete_links(db, ids, user):
             .execution_options(populate_existing=True)
         )
     )
+    return targets, links
+
+
+def delete_links(db, ids, user):
+    from .. import services as svc
+
+    targets, links = locked_selection(db, ids)
     devices = {target.device_id: db.get(m.Device, target.device_id) for target in targets}
     # Validate the entire selection before changing any observation or audit record.
     if any(
@@ -102,4 +107,52 @@ def delete_links(db, ids, user):
         )
     db.commit()
     svc.publish()
-    return {"updated": len(ids)}
+    return {"updated": len(targets)}
+
+
+def restore_links(db, ids, user):
+    from .. import services as svc
+
+    targets, links = locked_selection(db, ids)
+    devices = {target.device_id: db.get(m.Device, target.device_id) for target in targets}
+    if any(devices[target.device_id].archived for target in targets):
+        raise HTTPException(
+            409, "Önce kaynak cihazı Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyin"
+        )
+    if any(not target.auto_add_excluded and not target.is_current for target in targets):
+        raise HTTPException(409, "Yalnızca silinen komşuluk kayıtları geri yüklenebilir")
+    deleted_targets = [target for target in targets if target.auto_add_excluded]
+    for target in deleted_targets:
+        # Clear related tombstones too: any remaining protocol duplicate can
+        # suppress this restored observation on the next scan. Keep duplicates
+        # historical unless the user explicitly selected them for restoration.
+        pending = [target]
+        unblocked = {target.id}
+        while pending:
+            current = pending.pop()
+            for row in links:
+                if (
+                    row.device_id == target.device_id
+                    and row.auto_add_excluded
+                    and row.id not in unblocked
+                    and (matches(current, observation(row), db) or matches(row, observation(current), db))
+                ):
+                    unblocked.add(row.id)
+                    pending.append(row)
+        for row in links:
+            if row.id in unblocked:
+                row.auto_add_excluded = False
+        target.is_current = True
+        audit(db, user, "restore_link", "links", target.id, "Komşuluk geri yüklendi; keşif engeli kaldırıldı")
+        db.add(
+            m.Event(
+                device_id=target.device_id,
+                kind="link_restored",
+                message=f"{devices[target.device_id].name}: komşuluk geri yüklendi",
+                details={"link_id": target.id, "unblocked_ids": sorted(unblocked)},
+            )
+        )
+    # Restoring is a user action, not a new device observation: retain last_seen_at.
+    db.commit()
+    svc.publish()
+    return {"updated": len(targets)}

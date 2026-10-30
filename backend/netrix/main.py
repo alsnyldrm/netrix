@@ -494,6 +494,7 @@ def inventory_query(
     archived: bool = False,
     sort_by: str = Query("", max_length=80),
     sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
+    deleted: bool = False,
     user=Depends(current_user),
     db=Depends(db_session),
 ):
@@ -513,6 +514,7 @@ def inventory_query(
         archived,
         sort_by,
         sort_direction,
+        deleted,
     )
 
 
