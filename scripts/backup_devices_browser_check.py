@@ -63,6 +63,28 @@ with sync_playwright() as p:
         expect(page.locator("tbody")).not_to_contain_text("Fixture 01")
         expect(page.get_by_label("Grupla", exact=True)).to_have_count(0)
         check_screen(key + "-history")
+        if key == "configuration":
+            for width in (1440, 375):
+                page.set_viewport_size({"width": width, "height": 900})
+                page.get_by_role("button", name="Görüntüle", exact=True).first.click()
+                expect(page.locator(".backup-result pre")).to_contain_text("hostname fixture-")
+                expect(page.locator(".backup-result pre")).not_to_contain_text("FIXTURE-SECRET")
+                page.screenshot(path=f"artifacts/backup-content-{width}.png", full_page=True)
+                page.keyboard.press("Escape")
+                page.route(
+                    "**/api/v1/snapshots/*/content",
+                    lambda route: route.fulfill(
+                        status=422,
+                        json={
+                            "detail": "Bu eski kayıt konfigürasyon yerine SSH komut hatası içeriyor. Cihazın adaptörünü düzeltip yeniden yedek alın."
+                        },
+                    ),
+                )
+                page.get_by_role("button", name="Görüntüle", exact=True).first.click()
+                expect(page.get_by_role("alert")).to_contain_text("yeniden yedek alın")
+                expect(page.get_by_role("dialog")).to_have_count(0)
+                page.unroute("**/api/v1/snapshots/*/content")
+            page.set_viewport_size({"width": 1440, "height": 1000})
         page.get_by_role("button", name="Cihazlara dön", exact=True).click()
         expect(page.locator(".inventory-pagination")).to_contain_text("2 cihaz")
         page.get_by_role("button", name="Fixture 01 yedekleri", exact=True).click()

@@ -18,13 +18,13 @@ from . import models as m
 from . import schemas as s
 from . import services as svc
 from .configuration.diff import config_diff, redact_config
+from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .identity.security import (
     DUMMY_HASH,
     admin,
     audit,
     current_user,
-    decrypt,
     hasher,
     issue_session,
     operator,
@@ -314,9 +314,10 @@ def traffic(
 @app.get(P + "/snapshots/{id}/content")
 def snapshot_content(id: str, user=Depends(operator), db=Depends(db_session)):
     row = svc.get(db, m.Snapshot, id)
+    content = snapshot_text(row)
     audit(db, user, "read_config", "snapshots", id, "Maskelenmiş konfigürasyon görüntülendi")
     db.commit()
-    return {"content": redact_config(decrypt(row.encrypted_content)), "redacted": True}
+    return {"content": redact_config(content), "redacted": True}
 
 
 @app.get(P + "/snapshots/{id}/diff")
@@ -336,7 +337,7 @@ def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator
         raise HTTPException(422, "Sürümler aynı cihaza ait olmalı")
     return {
         "diff": config_diff(
-            decrypt(previous.encrypted_content) if previous else "", decrypt(row.encrypted_content)
+            snapshot_text(previous) if previous else "", snapshot_text(row)
         ),
         "previous_id": previous.id if previous else None,
         "current_id": row.id,

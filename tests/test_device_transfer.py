@@ -278,9 +278,9 @@ async def test_import_and_test_queues_assigned_protocols_and_reports_real_worker
     assert {row["protocol"] for row in queued} == {"SNMPv3", "SSH"}
     assert len([row for row in tests if row["status"] == "skipped"]) == 2
     assert calls == []
-    # Cancel ordinary identity jobs; only these tests exercise the fake protocol probe.
+    # Only connection-test jobs exercise the fake protocol probe here.
     with env() as db:
-        for job in db.scalars(select(m.Job).where(m.Job.kind == "identify")):
+        for job in db.scalars(select(m.Job).where(m.Job.kind.in_(("identify", "backup")))):
             job.status, job.active_key = "cancelled", None
         db.commit()
     ids = [row["job_id"] for row in queued]

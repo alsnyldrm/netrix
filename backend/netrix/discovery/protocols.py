@@ -25,7 +25,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
 from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
 
 from ..configuration.fortios import fetch_fortios_backup
-from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError
+from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError, validate_cli_output
 from ..core import settings
 from .aruba import ARUBA_ADAPTERS, read_aruba
 from .identification import rest_identity, snmp_identity, ssh_identity
@@ -338,6 +338,5 @@ async def fetch_config(device, secret):
                 return await read_aruba(connection, device.adapter, backup=True)
             # A fresh read-only session; no device configuration commands.
             result = await connection.run(COMMANDS[device.adapter], check=True, timeout=60)
-            if len(result.stdout.encode()) > 4 * 1024 * 1024:
-                raise NetworkError("Konfigürasyon 4 MB sınırını aşıyor")
+            validate_cli_output(result.stdout)
             return result.stdout

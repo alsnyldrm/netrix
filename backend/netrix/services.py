@@ -252,12 +252,25 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True):
             if exc.status_code != 422:
                 raise
             identification = {"status": "skipped", "message": str(exc.detail) + ". Manuel bilgiler korundu."}
+    initial_backup = None
+    if name == "devices" and not row_id:
+        # The inventory creation is the trigger, including CSV/XLSX imports.
+        # Keep the durable job in the same transaction; no network in the API.
+        try:
+            job = enqueue(db, "backup", row.id, user, commit=False)
+            initial_backup = {"status": "queued", "job_id": job.id}
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            initial_backup = {"status": "skipped", "message": str(exc.detail)}
     if commit:
         db.commit()
         publish()
     result = serialize(row)
     if identification:
         result["identification"] = identification
+    if initial_backup:
+        result["backup"] = initial_backup
     return result
 
 

@@ -9,7 +9,16 @@ from ..core import now, session_factory
 from ..discovery.protocols import fetch_config
 from ..identity.security import audit, decrypt
 from .diff import config_diff
-from .validation import BackupError, validate_fortios_backup
+from .validation import BackupError, validate_cli_output, validate_fortios_backup
+
+
+def snapshot_text(snapshot):
+    content = decrypt(snapshot.encrypted_content)
+    try:
+        validate_cli_output(content)
+    except BackupError:
+        raise HTTPException(422, BackupError.MESSAGES["invalid_saved_config"]) from None
+    return content
 
 
 def policy(db, device):
@@ -57,6 +66,7 @@ def start_comparison(db, snapshot_id, user):
             validate_fortios_backup(decrypt(snapshot.encrypted_content))
         except BackupError:
             raise HTTPException(422, BackupError.MESSAGES["invalid_baseline"]) from None
+    snapshot_text(snapshot)
     if job.result and job.result.get("base_snapshot_id") != snapshot_id:
         raise HTTPException(409, "Bu cihaz için başka bir karşılaştırma sürüyor")
     if not db.scalar(select(m.Snapshot.id).where(m.Snapshot.id == snapshot_id)):
@@ -80,7 +90,7 @@ async def compare_live(job_id):
         import json
 
         secret = json.loads(decrypt(profile.encrypted_secret))
-        baseline = decrypt(snapshot.encrypted_content)
+        baseline = snapshot_text(snapshot)
         if device.adapter == "fortios":
             try:
                 validate_fortios_backup(baseline)
@@ -92,8 +102,7 @@ async def compare_live(job_id):
         )
         base_id = snapshot.id
     content = await fetch_config(device, secret)
-    if not content.strip():
-        raise ValueError("Boş konfigürasyon")
+    validate_cli_output(content)
     with session_factory()() as db:
         current = svc.get(db, m.Device, device.id)
         svc.authorized_device(db, current)

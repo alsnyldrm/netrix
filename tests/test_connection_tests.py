@@ -46,8 +46,10 @@ def device_with_profiles(client, inventory, protocols):
     response = client.post("/api/v1/devices", json=payload)
     assert response.status_code == 201, response.text
     device = response.json()
-    if device.get("identification", {}).get("job_id"):
-        client.post("/api/v1/jobs/" + device["identification"]["job_id"] + "/cancel")
+    # These tests claim connection probes, not inventory-created background work.
+    for task in ("identification", "backup"):
+        if device.get(task, {}).get("job_id"):
+            client.post("/api/v1/jobs/" + device[task]["job_id"] + "/cancel")
     return device
 
 

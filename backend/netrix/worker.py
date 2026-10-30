@@ -12,7 +12,7 @@ from sqlalchemy.exc import OperationalError
 from . import models as m
 from .alerting.engine import evaluate
 from .configuration.failures import backup_failure
-from .configuration.validation import BackupError
+from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
@@ -446,8 +446,7 @@ async def collect_device(job_id, collector):
                 current_profile.updated_at,
             ):
                 raise BackupError("connection_changed")
-            if not data.strip():
-                raise NetworkError("Cihaz boş konfigürasyon döndürdü")
+            validate_cli_output(data)
             previous = db.scalar(
                 select(m.Snapshot)
                 .where(m.Snapshot.device_id == current.id)

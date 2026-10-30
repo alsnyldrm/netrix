@@ -1,5 +1,12 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## İlk SSH yedeği ve hatalı CLI kaydı (30 Ekim 2026)
+
+- Üretimde bildirilen HP J9851A cihazı `linux` adaptörüyle kayıtlıydı; tek snapshot 40 byte uzunluğunda `SSH command execution is not supported.` yanıtıydı. Teşhis yalnızca model/adaptör, boyut ve hata eşleşmesini çıkardı; konfigürasyon veya erişim sırrı yazdırılmadı.
+- SSH exec çıkış kodu 0 olsa da CLI hata metni veya sayfalama yedek kabul edilmez. Worker da saklamadan önce aynı denetimi uygular. Eski hatalı kayıtlar korunur; içerik, diff ve canlı karşılaştırma açıklayıcı 422 döndürür. FortiGate SCP ve Aruba etkileşimli SSH yolları korunur.
+- Yeni cihaz oluşturma, yetkili kapsam ve uyumlu SSH profili varsa aynı transaction içinde ilk yedek görevini oluşturur. Zamanlama 0, form/API ve CSV/XLSX apply, önizlemede yazma olmaması, rollback, manuel istekle tekrarsız kuyruk, normal düzenlemede tekrar oluşturmama; kapsam dışı, hariç tutma, kapalı kapsam, farklı VRF, aktif olmayan cihaz, eksik SSH ve REST reddi test edildi. Testler gerçek cihaz ağına erişmez.
+- Hedefli 94 test ve ardından tam test takımındaki 353 test geçti (mevcut Starlette/httpx deprecation uyarısı). `scripts/backup_devices_browser_check.py` cihaz listesi/ayrıntısı ve yedek içeriğini 1440/375 px boyutlarda doğruladı: maskelenmiş konfigürasyon açıldı, sahte 422 yanıtı açıklayıcı uyarıya dönüştü; JS hatası ve axe WCAG A/AA ihlali yok. Ekran görüntüleri incelendi. TypeScript/Vite, Ruff ve diff kontrolü geçti. Şema veya bağımlılık değişikliği yok.
+
 ## FortiGate SSH/SCP yedeği ve SSH zorunluluğu (30 Ekim 2026)
 
 - Üretim veritabanındaki son FortiGate kaydı yalnızca 962 byte, başlıksız ve `--More--` içeriyordu. Ham içerik/sırlar araç çıktısına alınmadan kontrol edildi. Kök neden `show full-configuration` ekran çıktısının sayfalama bitmeden başarılı yedek sayılmasıydı.
