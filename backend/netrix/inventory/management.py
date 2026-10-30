@@ -174,7 +174,7 @@ def query(
                 func.count(m.Link.id).label("neighbor_count"),
                 func.max(m.Link.last_seen_at).label("latest_neighbor_at"),
             )
-            .where(m.Link.is_current.is_(True))
+            .where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
             .group_by(m.Link.device_id)
             .subquery()
         )
@@ -240,7 +240,9 @@ def query(
         from ..discovery.link_edits import peer_column
 
         remote = aliased(m.Device)
-        stmt = stmt.outerjoin(remote, peer_column() == remote.id).where(m.Link.is_current.is_(True))
+        stmt = stmt.outerjoin(remote, peer_column() == remote.id).where(
+            m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False)
+        )
         cols = {
             "device_name": m.Device.name,
             "management_ip": m.Device.management_ip,

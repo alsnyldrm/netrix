@@ -46,7 +46,7 @@ def update_labels(db, id, payload, user):
     if link is None:
         raise HTTPException(404, "Bağlantı kaydı bulunamadı")
     device = db.get(m.Device, link.device_id)
-    if not link.is_current or device.archived:
+    if link.auto_add_excluded or not link.is_current or device.archived:
         raise HTTPException(409, "Yalnızca aktif cihazın güncel komşuluk kaydı düzenlenebilir")
     before = {"remote_name": link.manual_remote_name, "remote_port": link.manual_remote_port}
     link.manual_remote_name, link.manual_remote_port = payload.remote_name, payload.remote_port

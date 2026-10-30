@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now
+from .link_deletions import matches as excluded_match
 from .neighbor_detail import addresses, same_neighbor
 from .neighbor_labels import neighbor_label
 
@@ -39,9 +40,24 @@ def legacy_match(link, neighbor):
 
 
 def sync_links(db, device, collected):
-    links = list(db.scalars(select(m.Link).where(m.Link.device_id == device.id).with_for_update()))
+    links = list(
+        db.scalars(
+            select(m.Link)
+            .where(m.Link.device_id == device.id)
+            .order_by(m.Link.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
     seen = set()
     for neighbor in collected.get("neighbors", []):
+        if any(link.auto_add_excluded and excluded_match(link, neighbor, db) for link in links):
+            # Suppression also applies to protocol duplicates in partial snapshots.
+            for link in links:
+                if excluded_match(link, neighbor, db):
+                    link.auto_add_excluded = True
+                    link.is_current = False
+            continue
         fields = {key: neighbor[key] for key in ("interface_name", "remote_name", "remote_port")}
         link = next((l for l in links if all(getattr(l, k) == v for k, v in fields.items())), None)
         if link and link.source == "manual":

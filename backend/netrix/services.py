@@ -313,7 +313,7 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     model = RESOURCES[name][0]
     stmt = select(model)
     if name == "links":
-        stmt = stmt.where(m.Link.is_current.is_(True))
+        stmt = stmt.where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
     if name == "devices":
         stmt = stmt.where(m.Device.archived.is_(False))
     if name == "interfaces":
@@ -359,6 +359,12 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
 
 
 def delete_resource(db, name, id, user):
+    if name == "links":
+        if user.role != "admin":
+            raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
+        from .discovery.link_deletions import delete_link
+
+        return delete_link(db, id, user)
     if name not in RESOURCES or RESOURCES[name][1] is None:
         raise HTTPException(405, "Bu kaynak salt okunur")
     if user.role != "admin":

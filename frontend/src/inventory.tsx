@@ -15,6 +15,7 @@ import {
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
 import { LinkLabelEditor } from "./link-label-editor";
+import { LinkDeleteDialog } from "./link-delete-dialog";
 import {
   DeviceTransferImport,
   TransferMenu,
@@ -515,6 +516,7 @@ export function InventoryTable({
   user,
   onDevice,
   onEdit,
+  onDelete,
   onSaved,
   onContent,
 }: {
@@ -525,6 +527,7 @@ export function InventoryTable({
   user: Row;
   onDevice?: (r: Row) => void;
   onEdit?: (r: Row) => void;
+  onDelete?: (r: Row) => void;
   onSaved: () => void;
   onContent?: (r: Row, action: string) => void;
 }) {
@@ -621,7 +624,12 @@ export function InventoryTable({
     (["devices", "backup-devices", "topology-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable) ||
-    (resource === "links" && Boolean(onContent || (writable && onEdit)));
+    (resource === "links" &&
+      Boolean(
+        onContent ||
+        (writable && onEdit) ||
+        (user.role === "admin" && onDelete),
+      ));
   const selectRows =
     writable &&
     (!archive || user.role === "admin") &&
@@ -900,6 +908,17 @@ export function InventoryTable({
                             <PencilSimple size={18} aria-hidden="true" />
                           </button>
                         )}
+                        {resource === "links" &&
+                          user.role === "admin" &&
+                          onDelete && (
+                            <button
+                              className="icon-button"
+                              aria-label={`${row.interface_name || "Portsuz"} komşuluğunu sil`}
+                              onClick={() => onDelete(row)}
+                            >
+                              <Trash size={18} aria-hidden="true" />
+                            </button>
+                          )}
                         {resource === "links" && onContent && (
                           <button
                             className="icon-button"
@@ -1168,6 +1187,7 @@ export function TopologyRecords(
   >,
 ) {
   const [device, setDevice] = useState<Row | null>(null);
+  const [deleting, setDeleting] = useState<Row | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [notice, setNotice] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
@@ -1209,12 +1229,30 @@ export function TopologyRecords(
             resource="links"
             purpose="topology"
             deviceId={device.id}
+            onDelete={(row) => {
+              setNotice("");
+              setDeleting(row);
+            }}
             onEdit={(row) => {
               setNotice("");
               setEditing(row);
             }}
           />
         </>
+      )}
+      {deleting && (
+        <LinkDeleteDialog
+          row={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            setNotice(
+              "Komşuluk silindi. Sonraki taramalarda yeniden eklenmeyecek.",
+            );
+            props.onSaved();
+            heading.current?.focus();
+          }}
+        />
       )}
       {editing && (
         <LinkLabelEditor

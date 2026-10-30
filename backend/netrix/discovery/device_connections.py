@@ -66,7 +66,10 @@ def device_connections(db, device):
             select(m.Link)
             .join(m.Device, m.Device.id == m.Link.device_id)
             .where(
-                m.Device.vrf_id == device.vrf_id, m.Device.archived.is_(False), m.Link.is_current.is_(True)
+                m.Device.vrf_id == device.vrf_id,
+                m.Device.archived.is_(False),
+                m.Link.is_current.is_(True),
+                m.Link.auto_add_excluded.is_(False),
             )
         )
     )
