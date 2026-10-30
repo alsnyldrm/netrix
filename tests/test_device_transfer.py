@@ -4,11 +4,28 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from netrix import models as m
-from netrix.inventory.csv_transfer import render
+from netrix.inventory.csv_transfer import render as render_csv
 from netrix.inventory.xlsx_transfer import from_csv
 from netrix.worker import claim, execute
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import func, select
+
+pytestmark = pytest.mark.usefixtures("transfer_profiles")
+
+
+def render(rows):
+    return render_csv(
+        [
+            {
+                "snmp_credential_id": "SNMP-Profil-01",
+                "config_credential_id": "SSH-Profil-01",
+                "ssh_trust_host_key": False,
+                **row,
+            }
+            for row in rows
+        ]
+    )
+
 
 BASE = "/api/v1/inventory/devices"
 
@@ -35,9 +52,16 @@ def test_templates_mark_required_columns_and_accept_only_required_values(admin_c
         book = load_workbook(io.BytesIO(response.content))
         assert book.sheetnames == ["Cihazlar", "Açıklamalar"]
         assert book["Cihazlar"].freeze_panes == "A2"
-        assert book["Cihazlar"]["A1"].value == "Cihaz adı *"
+        assert [cell.value for cell in book["Cihazlar"][1]][:6] == [
+            "SNMP profili *",
+            "SSH / API profili *",
+            "Anahtara güven *",
+            "Cihaz adı *",
+            "Yönetim IP adresi *",
+            "VRF *",
+        ]
         assert book["Cihazlar"]["C1"].comment.text == "Zorunlu alan"
-        assert book["Cihazlar"]["D1"].comment.text.startswith("İsteğe bağlı")
+        assert book["Cihazlar"]["G1"].comment.text.startswith("İsteğe bağlı")
         content = encoded(response.content)
     else:
         assert '"Cihaz adı *","Yönetim IP adresi *","VRF *"' in response.text
@@ -57,16 +81,36 @@ def test_templates_mark_required_columns_and_accept_only_required_values(admin_c
 def test_xlsx_minimal_headers_sparse_optional_cells_and_invalid_rows(admin_client, env):
     data = workbook(
         [
-            ["Cihaz adı *", "Yönetim IP adresi *", "VRF *", "Model"],
-            ["İstanbul, cihaz", "192.0.2.2", "Global"],
-            ["İkinci", "invalid-ip", "Global", "X1"],
+            [
+                "SNMP profili *",
+                "SSH / API profili *",
+                "Anahtara güven *",
+                "Cihaz adı *",
+                "Yönetim IP adresi *",
+                "VRF *",
+                "Model",
+            ],
+            ["SNMP-Profil-01", "SSH-Profil-01", False, "İstanbul, cihaz", "192.0.2.2", "Global"],
+            ["SNMP-Profil-01", "SSH-Profil-01", True, "İkinci", "invalid-ip", "Global", "X1"],
         ]
     )
     result = admin_client.post(f"{BASE}/xlsx/import", json={"content": encoded(data), "apply": True}).json()
     assert result["imported"] == 0 and result["errors"][0]["row"] == 3
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.Device)) == 0
-    data = workbook([["name", "management_ip", "vrf_id"], ["Minimal", "192.0.2.2", "Global"]])
+    data = workbook(
+        [
+            [
+                "snmp_credential_id",
+                "config_credential_id",
+                "ssh_trust_host_key",
+                "name",
+                "management_ip",
+                "vrf_id",
+            ],
+            ["SNMP-Profil-01", "SSH-Profil-01", False, "Minimal", "192.0.2.2", "Global"],
+        ]
+    )
     result = admin_client.post(f"{BASE}/xlsx/import", json={"content": encoded(data), "apply": True}).json()
     assert result["imported"] == 1, result
 
@@ -167,7 +211,12 @@ async def test_import_and_test_queues_assigned_protocols_and_reports_real_worker
                 "snmp_credential_id": "Test SNMP",
                 "config_credential_id": ssh["id"],
             },
-            {"name": "No profile", "management_ip": "192.0.2.2", "vrf_id": "Global"},
+            {
+                "name": "Retired",
+                "management_ip": "192.0.2.2",
+                "vrf_id": "Global",
+                "lifecycle_status": "retired",
+            },
             {
                 "name": "Outside scope",
                 "management_ip": "198.51.100.1",
@@ -281,3 +330,93 @@ def test_transfer_permissions_and_job_status_scope(admin_client, env):
     assert admin_client.post(f"{BASE}/xlsx/import", json={"content": "x"}).status_code == 403
     assert admin_client.post(f"{BASE}/xlsx/export", json={"ids": [id]}).status_code == 403
     assert admin_client.post(f"{BASE}/import-tests/status", json={"ids": [id]}).status_code == 403
+
+
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+@pytest.mark.parametrize("field", ["snmp_credential_id", "config_credential_id", "ssh_trust_host_key"])
+@pytest.mark.parametrize("missing_column", [False, True])
+def test_import_access_fields_are_required_before_any_writes(
+    admin_client, env, format, field, missing_column
+):
+    import csv
+
+    from netrix.inventory.csv_transfer import FIELDS
+
+    row = {
+        "snmp_credential_id": "SNMP-Profil-01",
+        "config_credential_id": "SSH-Profil-01",
+        "ssh_trust_host_key": "Hayır",
+        "name": "Required fields",
+        "management_ip": "192.0.2.150",
+        "vrf_id": "Global",
+    }
+    output = io.StringIO()
+    if missing_column:
+        del row[field]
+    else:
+        row[field] = "  "
+    writer = csv.DictWriter(output, fieldnames=list(row))
+    writer.writeheader()
+    writer.writerow(row)
+    content = output.getvalue() if format == "csv" else encoded(workbook([list(row), list(row.values())]))
+    for apply in (False, True):
+        response = admin_client.post(
+            f"{BASE}/{format}/import", json={"content": content, "apply": apply, "test_after": True}
+        )
+        if missing_column:
+            assert response.status_code == 422 and FIELDS[field] in response.json()["detail"]
+        else:
+            report = response.json()
+            assert report["imported"] == 0 and report["valid"] == 0
+            assert report["errors"] == [
+                {"row": 2, "field": FIELDS[field], "message": "Zorunlu alan boş bırakılamaz"}
+            ]
+        with env() as db:
+            assert db.scalar(select(func.count()).select_from(m.Device)) == 0
+            assert db.scalar(select(func.count()).select_from(m.Job)) == 0
+
+
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+@pytest.mark.parametrize("value,expected", [("Hayır", False), ("Evet", True), (False, False), (True, True)])
+def test_import_requires_explicit_trust_choice_and_previews_profiles(
+    admin_client, env, format, value, expected
+):
+    content = render(
+        [
+            {
+                "name": "Explicit trust",
+                "management_ip": "192.0.2.151",
+                "vrf_id": "Global",
+                "ssh_trust_host_key": value,
+            }
+        ]
+    )
+    if format == "xlsx":
+        content = encoded(from_csv(content))
+    preview = admin_client.post(f"{BASE}/{format}/import", json={"content": content}).json()
+    assert preview["valid"] == 1, preview
+    assert preview["preview"][0]["snmp_profile"] == "SNMP-Profil-01"
+    assert preview["preview"][0]["config_profile"] == "SSH-Profil-01"
+    assert preview["preview"][0]["ssh_trust_host_key"] is expected
+    result = admin_client.post(f"{BASE}/{format}/import", json={"content": content, "apply": True}).json()
+    assert result["imported"] == 1, result
+    with env() as db:
+        assert db.scalar(select(m.Device)).ssh_trust_host_key is expected
+
+
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+def test_invalid_trust_does_not_default_to_false(admin_client, format):
+    content = render(
+        [
+            {
+                "name": "Invalid trust",
+                "management_ip": "192.0.2.152",
+                "vrf_id": "Global",
+                "ssh_trust_host_key": "maybe",
+            }
+        ]
+    )
+    if format == "xlsx":
+        content = encoded(from_csv(content))
+    report = admin_client.post(f"{BASE}/{format}/import", json={"content": content, "apply": True}).json()
+    assert report["imported"] == 0 and report["errors"][0]["field"] == "Anahtara güven"

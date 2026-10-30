@@ -23,7 +23,15 @@ type Report = {
   valid: number;
   imported: number;
   errors: { row: number; field: string; message: string }[];
-  preview: { row: number; name: string; management_ip: string; kind: string }[];
+  preview: {
+    row: number;
+    snmp_profile: string;
+    config_profile: string;
+    ssh_trust_host_key: boolean;
+    name: string;
+    management_ip: string;
+    kind: string;
+  }[];
 };
 
 export async function downloadDevices(format: TransferFormat, ids?: string[]) {
@@ -201,10 +209,12 @@ export function DeviceTransferImport({
         </label>
         <p className="csv-help">
           <strong>
-            Zorunlu alanlar (*): Cihaz adı, Yönetim IP adresi ve VRF.
+            Zorunlu alanlar (*): SNMP profili, SSH / API profili, Anahtara
+            güven, Cihaz adı, Yönetim IP adresi ve VRF.
           </strong>{" "}
-          Diğer alanlar isteğe bağlıdır; boş bırakabilirsiniz. VRF, lokasyon,
-          yedek grubu ve erişim profilleri için kayıtlı adları veya kimlikleri
+          Anahtara güven alanına Evet veya Hayır yazın; boş bırakılamaz. Diğer
+          alanlar isteğe bağlıdır; boş bırakabilirsiniz. VRF, lokasyon, yedek
+          grubu ve erişim profilleri için kayıtlı adları veya kimlikleri
           kullanın. Parola ve anahtar sütunları boş veya yıldızlı olmalıdır;
           erişim bilgileri Erişim kasasındaki profillerden alınır.
         </p>
@@ -265,10 +275,13 @@ export function DeviceTransferImport({
                   role="region"
                   aria-label={`${label} önizlemesi`}
                 >
-                  <table>
+                  <table className="transfer-preview-table">
                     <thead>
                       <tr>
                         <th>Satır</th>
+                        <th>SNMP profili *</th>
+                        <th>SSH / API profili *</th>
+                        <th>Anahtara güven *</th>
                         <th>Cihaz adı</th>
                         <th>Yönetim IP adresi</th>
                         <th>Cihaz türü</th>
@@ -278,6 +291,9 @@ export function DeviceTransferImport({
                       {report.preview.map((item) => (
                         <tr key={item.row}>
                           <td>{item.row}</td>
+                          <td>{item.snmp_profile}</td>
+                          <td>{item.config_profile}</td>
+                          <td>{item.ssh_trust_host_key ? "Evet" : "Hayır"}</td>
                           <td>{item.name}</td>
                           <td>{item.management_ip}</td>
                           <td>{tag(item.kind)}</td>

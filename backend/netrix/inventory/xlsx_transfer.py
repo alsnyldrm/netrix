@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.utils.cell import column_index_from_string, coordinate_from_string
 from openpyxl.utils.exceptions import IllegalCharacterError
 
-from .csv_transfer import FIELDS, MAX_BYTES, MAX_ROWS, REQUIRED, SECRETS
+from .csv_transfer import FIELDS, MAX_BYTES, MAX_ROWS, REQUIRED, SECRETS, TEMPLATE_FIELDS
 
 MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -31,7 +31,8 @@ def from_csv(content, *, is_template=False):
                 cell.data_type = "s"
                 cell.font = Font(name="Arial", size=11)
                 cell.alignment = Alignment(vertical="center", wrap_text=True)
-        for col, (key, label) in enumerate({**FIELDS, **SECRETS}.items(), 1):
+        fields = TEMPLATE_FIELDS if is_template else FIELDS
+        for col, (key, label) in enumerate({**fields, **SECRETS}.items(), 1):
             cell = sheet.cell(1, col)
             cell.fill = PatternFill("solid", fgColor="1D4ED8" if key in REQUIRED else "334155")
             cell.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
@@ -46,11 +47,12 @@ def from_csv(content, *, is_template=False):
             guide = book.create_sheet("Açıklamalar")
             for line in (
                 "Cihazlar sayfasındaki örnek satırı kendi cihazınızın bilgileriyle değiştirin; her yeni cihaz için bir satır ekleyin.",
-                "* işaretli Cihaz adı, Yönetim IP adresi ve VRF zorunludur. Diğer sütunlar isteğe bağlıdır; boş bırakılabilir veya kaldırılabilir.",
+                "* işaretli SNMP profili, SSH / API profili, Anahtara güven, Cihaz adı, Yönetim IP adresi ve VRF zorunludur. Diğer sütunlar isteğe bağlıdır; boş bırakılabilir veya kaldırılabilir.",
                 "192.0.2.10 örnek adrestir. Global, mevcut VRF adıdır; kendi VRF adınızı veya kimliğini kullanın.",
-                "Lokasyon, yedek grubu ve profiller için kayıtlı ad veya kimlik kullanın. Profilleri önce Erişim kasasında oluşturun.",
+                "Lokasyon, yedek grubu ve profiller için kayıtlı ad veya kimlik kullanın. Örnek SNMP-Profil-01 ve SSH-Profil-01 adlarını kayıtlı profil adlarınızla değiştirin.",
+                "Anahtara güven: Evet veya Hayır girin; boş bırakılamaz. Örnek Hayır değeri SSH host anahtarı doğrulamasını korur.",
                 "Parola, token, community ve anahtar sütunlarını boş veya yıldızlı bırakın. Formül kullanmayın.",
-                "İçeri Aktar ve Test Et: atanmış profiller yetkili ağ kapsamlarında test edilir. Profil/kapsam eksikse test edilemedi olarak gösterilir.",
+                "İçeri Aktar ve Test Et: atanmış profiller yetkili ağ kapsamlarında test edilir. Kapsam uygun değilse test edilemedi olarak gösterilir.",
                 "En fazla 500 cihaz / 1 MiB. Mevcut cihazlar güncellenmez; hatalı satır varsa dosyanın tamamı reddedilir.",
             ):
                 guide.append([line])

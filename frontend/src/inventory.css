@@ -360,3 +360,7 @@
   gap: 16px;
   padding: 20px 22px 22px;
 }
+
+.csv-preview .transfer-preview-table {
+  min-width: 960px;
+}

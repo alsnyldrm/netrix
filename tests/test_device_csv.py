@@ -5,8 +5,26 @@ import pytest
 from fastapi import HTTPException
 from netrix import models as m
 from netrix import services as svc
-from netrix.inventory.csv_transfer import FIELDS, render
+from netrix.inventory.csv_transfer import FIELDS
+from netrix.inventory.csv_transfer import render as render_csv
 from sqlalchemy import func, select
+
+pytestmark = pytest.mark.usefixtures("transfer_profiles")
+
+
+def render(rows):
+    return render_csv(
+        [
+            {
+                "snmp_credential_id": "SNMP-Profil-01",
+                "config_credential_id": "SSH-Profil-01",
+                "ssh_trust_host_key": False,
+                **row,
+            }
+            for row in rows
+        ]
+    )
+
 
 BASE = "/api/v1/inventory/devices/csv"
 
@@ -123,7 +141,7 @@ def test_export_is_selected_only_masks_every_secret_and_round_trips(
         {"management_ip": "not-an-ip"},
         {"vrf_id": "missing"},
         {"monitor_interval": "3"},
-        {"monitoring_enabled": "true"},
+        {"snmp_credential_id": ""},
         {"adapter": "rest", "config_credential_id": "Test SNMP"},
         {"ssh_password": "PLAINTEXT-SECRET"},
     ],
@@ -220,7 +238,7 @@ def test_malformed_csv_is_rejected(admin_client, content):
 
 
 def test_limits_and_viewer_permissions(admin_client):
-    content = "name,management_ip,vrf_id\n" + "a,192.0.2.1,Global\n" * 501
+    content = render([{"name": "a", "management_ip": "192.0.2.1", "vrf_id": "Global"}] * 501)
     assert admin_client.post(BASE + "/import", json={"content": content}).status_code == 422
     assert admin_client.post(BASE + "/import", json={"content": "ü" * 600000}).status_code == 413
     admin_client.post(

@@ -118,3 +118,20 @@ def inventory(admin_client):
         },
     ).json()
     return {"vrf": vrf, "credential": credential, "scope": scope}
+
+
+@pytest.fixture
+def transfer_profiles(admin_client):
+    """Existing public profile references required by device file imports."""
+    for name, protocol, secret in (
+        (
+            "SNMP-Profil-01",
+            "snmpv3",
+            {"username": "fixture", "auth_key": "fixture-auth", "priv_key": "fixture-priv"},
+        ),
+        ("SSH-Profil-01", "ssh", {"username": "fixture", "password": "fixture-password"}),
+    ):
+        response = admin_client.post(
+            "/api/v1/credentials", json={"name": name, "protocol": protocol, "secret": secret}
+        )
+        assert response.status_code == 201, response.text

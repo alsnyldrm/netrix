@@ -15,7 +15,14 @@ from ..identity.security import audit
 
 MAX_ROWS = 500
 MAX_BYTES = 1024 * 1024
-REQUIRED = {"name", "management_ip", "vrf_id"}
+REQUIRED = (
+    "snmp_credential_id",
+    "config_credential_id",
+    "ssh_trust_host_key",
+    "name",
+    "management_ip",
+    "vrf_id",
+)
 FIELDS = {
     "name": "Cihaz adı",
     "management_ip": "Yönetim IP adresi",
@@ -39,6 +46,7 @@ FIELDS = {
     "backup_group_id": "Yedek grubu",
     "backup_retention": "En fazla yedek sayısı",
 }
+TEMPLATE_FIELDS = {key: FIELDS[key] for key in REQUIRED} | FIELDS
 SECRETS = {
     "ssh_password": "SSH parolası",
     "api_token": "API token",
@@ -95,16 +103,17 @@ def unescape_cell(value):
 
 
 def render(rows, *, is_template=False):
+    fields = TEMPLATE_FIELDS if is_template else FIELDS
     output = io.StringIO(newline="")
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
     writer.writerow(
         [
             label + (" *" if is_template and key in REQUIRED else "")
-            for key, label in {**FIELDS, **SECRETS}.items()
+            for key, label in {**fields, **SECRETS}.items()
         ]
     )
     for row in rows:
-        writer.writerow([safe_cell(row.get(key)) for key in (*FIELDS, *SECRETS)])
+        writer.writerow([safe_cell(row.get(key)) for key in (*fields, *SECRETS)])
     return "\ufeff" + output.getvalue()
 
 
@@ -112,6 +121,9 @@ def template():
     return render(
         [
             {
+                "snmp_credential_id": "SNMP-Profil-01",
+                "config_credential_id": "SSH-Profil-01",
+                "ssh_trust_host_key": "Hayır",
                 "name": "Cihaz-01",
                 "management_ip": "192.0.2.10",
                 "vrf_id": "Global",
@@ -184,8 +196,9 @@ def parse(content):
         keys = [aliases.get(normalized(cell)) for cell in header]
         if not keys or None in keys or len(set(keys)) != len(keys):
             raise HTTPException(422, "Bilinmeyen veya yinelenen sütun başlığı var; CSV şablonunu kullanın")
-        if not {"name", "management_ip", "vrf_id"}.issubset(keys):
-            raise HTTPException(422, "Cihaz adı, Yönetim IP adresi ve VRF sütunları gerekli")
+        missing = [FIELDS[key] for key in REQUIRED if key not in keys]
+        if missing:
+            raise HTTPException(422, "Zorunlu sütunlar eksik: " + ", ".join(missing))
         rows = []
         for cells in reader:
             if not any(cell.strip() for cell in cells):
@@ -206,6 +219,13 @@ def validate(db, raw):
     refs = reference_rows(db)
     errors, valid, seen = [], [], set()
     for line, cells in raw:
+        missing = [key for key in REQUIRED if not cells.get(key, "").strip()]
+        if missing:
+            errors.extend(
+                {"row": line, "field": FIELDS[key], "message": "Zorunlu alan boş bırakılamaz"}
+                for key in missing
+            )
+            continue
         try:
             for key in SECRETS:
                 value = cells.get(key, "").strip()
@@ -280,6 +300,7 @@ def import_devices(db, content, apply, user, *, test_after=False, file_format="c
     if errors:
         return {"total": len(raw), "valid": len(valid), "imported": 0, "errors": errors, "preview": []}
     if not apply:
+        profiles = dict(db.execute(select(m.Credential.id, m.Credential.name)).all())
         return {
             "total": len(raw),
             "valid": len(valid),
@@ -288,6 +309,9 @@ def import_devices(db, content, apply, user, *, test_after=False, file_format="c
             "preview": [
                 {
                     "row": line,
+                    "snmp_profile": profiles[data["snmp_credential_id"]],
+                    "config_profile": profiles[data["config_credential_id"]],
+                    "ssh_trust_host_key": data["ssh_trust_host_key"],
                     "name": data["name"],
                     "management_ip": data["management_ip"],
                     "kind": data["kind"],

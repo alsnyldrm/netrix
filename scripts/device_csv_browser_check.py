@@ -100,9 +100,17 @@ with sync_playwright() as p:
         data = Path(template.value.path()).read_bytes()
         assert template.value.suggested_filename.endswith("." + format)
         if format == "xlsx":
-            assert load_workbook(io.BytesIO(data)).active["A1"].value == "Cihaz adı *"
+            assert [cell.value for cell in load_workbook(io.BytesIO(data)).active[1]][:3] == [
+                "SNMP profili *",
+                "SSH / API profili *",
+                "Anahtara güven *",
+            ]
         else:
-            assert "Cihaz adı *" in data.decode("utf-8-sig")
+            assert next(csv.reader(io.StringIO(data.decode("utf-8-sig"))))[:3] == [
+                "SNMP profili *",
+                "SSH / API profili *",
+                "Anahtara güven *",
+            ]
         file_input = page.get_by_label(f"{format.upper()} dosyası", exact=True)
         file_input.set_input_files(
             {"name": "bad." + format, "mimeType": "application/octet-stream", "buffer": b"invalid"}
@@ -110,26 +118,81 @@ with sync_playwright() as p:
         expect(dialog.get_by_role("alert")).to_be_visible()
         expect(dialog.get_by_role("button", name="İçeri Aktar ve Test Et", exact=True)).to_be_disabled()
         rows = [
-            ["Cihaz adı *", "Yönetim IP adresi *", "VRF *", "SSH / API profili"],
-            [format + " başarılı", f"192.0.2.{start + 1}", "Global", "Fixture SSH"],
-            [format + " başarısız", f"192.0.2.{start + 2}", "Global", "Fixture SSH"],
-            [format + " profilsiz", f"192.0.2.{start + 3}", "Global", ""],
+            [
+                "SNMP profili *",
+                "SSH / API profili *",
+                "Anahtara güven *",
+                "Cihaz adı *",
+                "Yönetim IP adresi *",
+                "VRF *",
+                "Yaşam döngüsü",
+            ],
+            [
+                "Fixture SNMP",
+                "Fixture SSH",
+                "Hayır",
+                format + " başarılı",
+                f"192.0.2.{start + 1}",
+                "Global",
+                "active",
+            ],
+            [
+                "Fixture SNMP",
+                "Fixture SSH",
+                "Evet",
+                format + " başarısız",
+                f"192.0.2.{start + 2}",
+                "Global",
+                "active",
+            ],
+            [
+                "Fixture SNMP",
+                "Fixture SSH",
+                "Hayır",
+                format + " pasif",
+                f"192.0.2.{start + 3}",
+                "Global",
+                "retired",
+            ],
         ]
-        if format == "csv":
-            output = io.StringIO()
-            csv.writer(output, delimiter=";").writerows(rows)
-            payload = output.getvalue().encode()
-        else:
+
+        def file_bytes(values):
+            if format == "csv":
+                output = io.StringIO()
+                csv.writer(output, delimiter=";").writerows(values)
+                return output.getvalue().encode()
             book = Workbook()
-            for row in rows:
+            for row in values:
                 book.active.append(row)
             output = io.BytesIO()
             book.save(output)
-            payload = output.getvalue()
+            return output.getvalue()
+
+        invalid = [rows[0], [*rows[1]]]
+        invalid[1][2] = ""
+        file_input.set_input_files(
+            {
+                "name": "missing-trust." + format,
+                "mimeType": "application/octet-stream",
+                "buffer": file_bytes(invalid),
+            }
+        )
+        expect(dialog.locator(".csv-summary")).to_contain_text("1 hatalı satır")
+        expect(dialog.get_by_role("cell", name="Anahtara güven", exact=True)).to_be_visible()
+        expect(dialog.get_by_role("button", name="İçeri Aktar", exact=True)).to_be_disabled()
+        expect(dialog.get_by_role("button", name="İçeri Aktar ve Test Et", exact=True)).to_be_disabled()
+        screen(format + "-required-error")
+        payload = file_bytes(rows)
         file_input.set_input_files(
             {"name": "devices." + format, "mimeType": "application/octet-stream", "buffer": payload}
         )
         expect(dialog.locator(".csv-summary")).to_contain_text("3 geçerli")
+        assert dialog.locator(".transfer-preview-table th").all_text_contents()[1:4] == [
+            "SNMP profili *",
+            "SSH / API profili *",
+            "Anahtara güven *",
+        ]
+        expect(dialog.locator(".transfer-preview-table tbody tr").first).to_contain_text("Hayır")
         screen(format + "-preview")
         # Exercise the import-and-test action on a phone, including footer reachability.
         page.set_viewport_size({"width": 375, "height": 812})
@@ -159,7 +222,7 @@ with sync_playwright() as p:
         {
             "name": "minimal.csv",
             "mimeType": "text/csv",
-            "buffer": b"name,management_ip,vrf_id\nPlain import,192.0.2.120,Global",
+            "buffer": b"snmp_credential_id,config_credential_id,ssh_trust_host_key,name,management_ip,vrf_id\nFixture SNMP,Fixture SSH,false,Plain import,192.0.2.120,Global",
         }
     )
     dialog = page.get_by_role("dialog")
