@@ -33,9 +33,13 @@ with sync_playwright() as p:
     page.screenshot(path="artifacts/overview-desktop.png", full_page=True)
     # Her grup bağımsız açılır/kapanır; kapalı bağlantılar Tab sırasından çıkar.
     groups = page.locator(".nav-group-title")
-    expect(groups).to_have_count(6)
+    expect(groups).to_have_count(7)
+    expect(page.locator('.nav-group-title[aria-expanded="true"]')).to_have_count(0)
     for heading in groups.all():
         panel = page.locator("#" + heading.get_attribute("aria-controls"))
+        expect(panel).not_to_be_visible()
+        heading.click()
+        expect(heading).to_have_attribute("aria-expanded", "true")
         heading.click()
         expect(heading).to_have_attribute("aria-expanded", "false")
         expect(panel).not_to_be_visible()
@@ -46,7 +50,8 @@ with sync_playwright() as p:
     ipam = page.get_by_role("button", name="IP adres yönetimi", exact=True)
     inventory.click()
     inventory.press("Tab")
-    expect(ipam).to_be_focused()
+    expect(page.get_by_role("button", name="Yedekler", exact=True)).to_be_focused()
+    ipam.focus()
     ipam.press("Space")
     expect(ipam).to_have_attribute("aria-expanded", "false")
     expect(inventory).to_have_attribute("aria-expanded", "false")
@@ -57,6 +62,10 @@ with sync_playwright() as p:
     expect(page.get_by_role("button", name="Lokasyonlar", exact=True)).to_have_attribute(
         "aria-current", "page"
     )
+    page.reload()
+    expect(page.get_by_role("heading", name="Lokasyonlar", exact=True)).to_be_visible()
+    expect(page.locator('.nav-group-title[aria-expanded="true"]')).to_have_count(0)
+    inventory.click()
     page.screenshot(path="artifacts/menu-groups-desktop.png", full_page=True)
     # Use live DOM names discovered from the command palette and navigation.
     page.get_by_role("button", name="Cihaz envanteri", exact=True).click()
@@ -111,7 +120,7 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Kaydı kaydet").click()
     saved_device = saved_response.value.json()
     assert saved_device["identification"]["status"] == "skipped"
-    expect(page.get_by_role("button", name=fixture_name + " Model belirtilmedi")).to_be_visible()
+    expect(page.get_by_role("button", name=fixture_name, exact=True)).to_be_visible()
     page.get_by_role("button", name=fixture_name + " ayrıntıları").click()
     expect(page.get_by_role("heading", name=fixture_name, exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Bilgileri cihazdan al", exact=True)).to_be_disabled()

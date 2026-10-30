@@ -583,6 +583,7 @@ textarea {
   align-items: center;
   gap: 4px;
   height: var(--topbar-h);
+  flex-shrink: 0;
   padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
 }
@@ -594,11 +595,9 @@ textarea {
   padding: 0 4px;
   border-radius: var(--radius-sm);
 }
-.sidebar-collapse svg {
-  transition: transform 220ms var(--ease);
-}
-.collapsed .sidebar-collapse svg {
-  transform: rotate(180deg);
+.sidebar-collapse {
+  flex-shrink: 0;
+  margin-left: -12px;
 }
 .sidebar-close {
   display: none;
@@ -751,11 +750,8 @@ textarea {
 /* Daraltılmış masaüstü sidebar */
 @media (min-width: 1024px) {
   .collapsed .sidebar-head {
-    flex-direction: column;
     justify-content: center;
-    height: auto;
-    padding: 10px 0;
-    gap: 6px;
+    padding: 0;
   }
   .collapsed .sidebar-brand {
     flex: none;

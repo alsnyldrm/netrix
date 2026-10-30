@@ -62,7 +62,7 @@ import {
   Sun,
   Moon,
   List,
-  CaretDoubleLeft,
+  SidebarSimple,
   CaretDown,
   CaretUp,
 } from "@phosphor-icons/react";
@@ -2376,12 +2376,8 @@ function App() {
     () => readPref("netrix-sidebar") === "collapsed",
   );
   const [drawer, setDrawer] = useState(false);
-  const [closedGroups, setClosedGroups] = useState<string[]>([]);
+  const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
   const page = PAGES.find((p) => p.key === current) || PAGES[0];
-  useEffect(() => {
-    // Komut paleti veya bağlantıyla gidilen sayfanın menüsü görünür kalsın.
-    setClosedGroups((groups) => groups.filter((g) => g !== page.group));
-  }, [current, page.group]);
   useEffect(() => {
     const expired = () => setUser(null);
     window.addEventListener("netrix:session-expired", expired);
@@ -2405,6 +2401,7 @@ function App() {
     location.hash = key;
     setCurrent(key);
     setGroup(p.group);
+    setClosedGroups((groups) => groups.filter((g) => g !== p.group));
     setOffset(0);
     setQuery("");
     setError("");
@@ -2417,6 +2414,7 @@ function App() {
       if (p) {
         setCurrent(p.key);
         setGroup(p.group);
+        setClosedGroups((groups) => groups.filter((g) => g !== p.group));
         setOffset(0);
         setQuery("");
       }
@@ -2697,7 +2695,7 @@ function App() {
       <a className="skip-link" href="#main">
         İçeriğe atla
       </a>
-      <aside className="sidebar" aria-label="Ana menü">
+      <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
         <div className="sidebar-head">
           <button
             className="sidebar-brand"
@@ -2705,17 +2703,6 @@ function App() {
             aria-label="NETRIX ana sayfa"
           >
             <Brand small={collapsed} />
-          </button>
-          <button
-            className="icon-button sidebar-collapse"
-            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-            aria-expanded={!collapsed}
-            onClick={() => {
-              writePref("netrix-sidebar", collapsed ? "expanded" : "collapsed");
-              setCollapsed(!collapsed);
-            }}
-          >
-            <CaretDoubleLeft size={16} />
           </button>
           <button
             className="icon-button sidebar-close"
@@ -2821,6 +2808,19 @@ function App() {
       />
       <div className="main-shell">
         <header className="topbar">
+          <button
+            className="icon-button sidebar-collapse"
+            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            aria-expanded={!collapsed}
+            aria-controls="main-sidebar"
+            onClick={() => {
+              writePref("netrix-sidebar", collapsed ? "expanded" : "collapsed");
+              setCollapsed(!collapsed);
+            }}
+          >
+            <SidebarSimple size={20} aria-hidden="true" />
+          </button>
           <button
             className="icon-button menu-button"
             aria-label="Menüyü aç"
