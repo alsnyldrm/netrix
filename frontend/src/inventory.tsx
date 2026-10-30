@@ -11,6 +11,9 @@ import {
   DownloadSimple,
   ArrowsClockwise,
   ArrowCounterClockwise,
+  ArrowUp,
+  ArrowDown,
+  ArrowsDownUp,
 } from "@phosphor-icons/react";
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
@@ -535,6 +538,10 @@ export function InventoryTable({
   const search = useDeferredValue(query);
   const [rules, setRules] = useState<Rule[]>([]);
   const [offset, setOffset] = useState(0);
+  const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({
+    key: "",
+    direction: "asc",
+  });
   const [data, setData] = useState<Row>({ items: [], total: 0, columns: [] });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -581,7 +588,7 @@ export function InventoryTable({
   const encoded = JSON.stringify(effective);
   useEffect(() => {
     setSelected([]);
-  }, [search, encoded, offset, deviceId, group]);
+  }, [search, encoded, offset, deviceId, group, sort]);
   useEffect(() => {
     let active = true;
     const qs = new URLSearchParams({
@@ -592,6 +599,8 @@ export function InventoryTable({
       group_by: group,
       changed_only: String(purpose === "changes"),
       archived: String(archive),
+      sort_by: sort.key,
+      sort_direction: sort.direction,
     });
     if (deviceId) qs.set("device_id", deviceId);
     const key = qs.toString();
@@ -615,7 +624,17 @@ export function InventoryTable({
     return () => {
       active = false;
     };
-  }, [resource, deviceId, refresh, search, encoded, offset, group, archive]);
+  }, [
+    resource,
+    deviceId,
+    refresh,
+    search,
+    encoded,
+    offset,
+    group,
+    archive,
+    sort,
+  ]);
   const columns: Column[] = data.columns;
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";
@@ -831,7 +850,43 @@ export function InventoryTable({
                 </th>
               )}
               {visible.map((c) => (
-                <th key={c.key}>{c.label}</th>
+                <th
+                  key={c.key}
+                  className="sortable-heading"
+                  aria-label={c.label}
+                  aria-sort={
+                    sort.key === c.key
+                      ? sort.direction === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    className="column-sort"
+                    aria-label={`${c.label}: ${sort.key === c.key && sort.direction === "asc" ? "azalan" : "artan"} sırala`}
+                    onClick={() => {
+                      setSort((current) => ({
+                        key: c.key,
+                        direction:
+                          current.key === c.key && current.direction === "asc"
+                            ? "desc"
+                            : "asc",
+                      }));
+                      setOffset(0);
+                    }}
+                  >
+                    <span>{c.label}</span>
+                    {sort.key !== c.key ? (
+                      <ArrowsDownUp size={16} aria-hidden="true" />
+                    ) : sort.direction === "asc" ? (
+                      <ArrowUp size={16} aria-hidden="true" />
+                    ) : (
+                      <ArrowDown size={16} aria-hidden="true" />
+                    )}
+                  </button>
+                </th>
               ))}
               {hasActions && <th>İşlemler</th>}
             </tr>

@@ -129,6 +129,8 @@ def query(
     group_by="",
     changed_only=False,
     archived=False,
+    sort_by="",
+    sort_direction="asc",
 ):
     models = {
         "devices": m.Device,
@@ -364,16 +366,32 @@ def query(
         stmt = stmt.where(expression)
     if resource == "snapshots" and changed_only:
         stmt = stmt.where(m.Snapshot.changed.is_(True))
+    if (sort_by and sort_by not in cols) or sort_direction not in ("asc", "desc"):
+        raise HTTPException(422, "Geçersiz sıralama")
+    ordering = [cols[group_by]] if group_by and group_by != sort_by else []
+    if sort_by:
+        column = cols[sort_by]
+        if sort_by in ("kind", "device_kind"):
+            column = m.DeviceType.name
+        elif sort_by in ("lifecycle_status", "reachability", "oper_status"):
+            column = case(TRANSLATIONS, value=column, else_=column)
+        elif resource == "links" and sort_by == "source":
+            column = case(LINK_SOURCES, value=column, else_=column)
+        elif resource == "interfaces" and sort_by == "capacity":
+            column = m.Interface.speed_bps
+        if isinstance(column.type, String):
+            column = func.lower(column)
+        # Missing values stay last in either direction; ID makes pagination stable.
+        ordering.extend([column.is_(None), column.asc() if sort_direction == "asc" else column.desc()])
+    else:
+        ordering.append(model.created_at.desc())
+    ordering.append(model.id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     extras = {k: v for k, v in cols.items() if k not in inspect(model).column_attrs.keys()}
     if resource in ("interfaces", "links"):
         extras["device_kind_name"] = m.DeviceType.name
     stmt = stmt.add_columns(*[v.label(k) for k, v in extras.items()])
-    result = db.execute(
-        stmt.order_by(*([cols[group_by]] if group_by else []), model.created_at.desc(), model.id)
-        .offset(offset)
-        .limit(limit)
-    ).all()
+    result = db.execute(stmt.order_by(*ordering).offset(offset).limit(limit)).all()
     items = [{**svc.serialize(row[0]), **dict(zip(extras, row[1:]))} for row in result]
     labels = {**LABELS, **(LINK_LABELS if resource == "links" else {})}
     return {"items": items, "total": total, "columns": [{"key": k, "label": labels.get(k, k)} for k in cols]}

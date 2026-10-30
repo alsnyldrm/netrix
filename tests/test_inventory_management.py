@@ -572,3 +572,37 @@ def test_not_contains_is_complement_in_every_inventory_resource(
         results.append({row["id"] for row in response.json()["items"]})
     assert not results[0] & results[1]
     assert len(results[0] | results[1]) == 2
+
+
+def test_sort_group_direction_and_numeric_capacity(admin_client, records, env):
+    with env() as db:
+        for i, device_id in enumerate(records["devices"]):
+            port = db.get(m.Interface, records["ports"][i])
+            port.is_managed = True
+            port.speed_bps = 1000000000 if i == 0 else 100000000
+            job = m.Job(kind="backup", target_id=device_id)
+            db.add(job)
+            db.flush()
+            db.add(
+                m.Snapshot(
+                    device_id=device_id,
+                    job_id=job.id,
+                    fingerprint=str(i),
+                    encrypted_content=encrypt("fixture"),
+                    size_bytes=7,
+                )
+            )
+        db.commit()
+    response = admin_client.get("/api/v1/inventory/interfaces", params={"sort_by": "capacity"})
+    assert response.status_code == 200
+    assert [r["speed_bps"] for r in response.json()["items"]] == [100000000, 1000000000]
+    response = admin_client.get(
+        "/api/v1/inventory/snapshots",
+        params={
+            "group_by": "device_name",
+            "sort_by": "device_name",
+            "sort_direction": "desc",
+        },
+    )
+    assert response.status_code == 200
+    assert [r["device_name"] for r in response.json()["items"]] == ["Device 1", "Device 0"]

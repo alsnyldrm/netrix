@@ -492,3 +492,31 @@
   background: var(--danger-soft);
   border-color: var(--danger);
 }
+.inventory-panel th.sortable-heading {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+.inventory-panel .column-sort {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+}
+.inventory-panel .column-sort svg {
+  flex-shrink: 0;
+}
+.inventory-panel .column-sort:hover,
+.inventory-panel th[aria-sort] .column-sort {
+  color: var(--text);
+}

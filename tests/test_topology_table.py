@@ -188,3 +188,69 @@ def test_not_contains_localized_null_and_literal_values(admin_client, links, fie
     assert response.status_code == 200, response.text
     assert response.json()["total"] == total
     assert len(response.json()["items"]) == min(1, total)
+
+
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_sorting_covers_all_pages_and_uses_effective_labels(admin_client, links, env, direction):
+    from sqlalchemy import select
+
+    with env() as db:
+        row = db.scalar(select(m.Link).where(m.Link.remote_name == "Peer 29"))
+        row.manual_remote_name = "aaa edited peer"
+        row.manual_remote_port = "001"
+        db.commit()
+    pages = [
+        query(admin_client, [], sort_by="remote_name", sort_direction=direction, offset=offset).json()
+        for offset in (0, 25)
+    ]
+    rows = pages[0]["items"] + pages[1]["items"]
+    assert len(rows) == len({row["id"] for row in rows}) == 32
+    names = [row["remote_name"] for row in rows]
+    assert names == sorted(names, key=str.lower, reverse=direction == "desc")
+    assert query(admin_client, [], sort_by="remote_port").json()["items"][0]["remote_port"] == "001"
+    assert query(admin_client, [], sort_by="remote_name", sort_direction=direction).json() == pages[0]
+
+
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_sorting_numeric_values_and_device_scope(admin_client, links, direction):
+    directory = admin_client.get(
+        "/api/v1/inventory/topology-devices",
+        params={
+            "sort_by": "neighbor_count",
+            "sort_direction": direction,
+        },
+    ).json()["items"]
+    assert [row["neighbor_count"] for row in directory] == ([2, 30] if direction == "asc" else [30, 2])
+    source = next(row["id"] for row in directory if row["name"] == "Core A")
+    rows = query(
+        admin_client,
+        [{"field": "remote_name", "op": "contains", "value": "Edge"}],
+        device_id=source,
+        sort_by="confidence_percent",
+        sort_direction=direction,
+    ).json()["items"]
+    assert [row["confidence_percent"] for row in rows] == ([50, 100] if direction == "asc" else [100, 50])
+    assert all(row["device_id"] == source for row in rows)
+
+
+def test_sorting_missing_values_last_and_display_source_names(admin_client, links):
+    for direction in ("asc", "desc"):
+        rows = query(
+            admin_client, [], sort_by="remote_device_name", sort_direction=direction, limit=200
+        ).json()["items"]
+        assert rows[0]["remote_device_name"] == "Core B"
+        assert all(row["remote_device_name"] is None for row in rows[1:])
+    rows = query(admin_client, [], sort_by="source", limit=200).json()["items"]
+    assert [rows[0]["source"], rows[30]["source"], rows[31]["source"]] == ["cdp", "manual", "lldp+cdp"]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"sort_by": "evidence"},
+        {"sort_by": "device_name; DROP TABLE devices"},
+        {"sort_by": "remote_name", "sort_direction": "sideways"},
+    ],
+)
+def test_sorting_rejects_unexposed_fields_and_invalid_direction(admin_client, links, params):
+    assert query(admin_client, [], **params).status_code == 422

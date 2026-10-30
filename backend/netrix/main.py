@@ -492,13 +492,27 @@ def inventory_query(
     group_by: str = "",
     changed_only: bool = False,
     archived: bool = False,
+    sort_by: str = Query("", max_length=80),
+    sort_direction: str = Query("asc", pattern="^(asc|desc)$"),
     user=Depends(current_user),
     db=Depends(db_session),
 ):
     from .inventory.management import query
 
     return query(
-        db, resource, limit, offset, q, filters, device_id, candidates, group_by, changed_only, archived
+        db,
+        resource,
+        limit,
+        offset,
+        q,
+        filters,
+        device_id,
+        candidates,
+        group_by,
+        changed_only,
+        archived,
+        sort_by,
+        sort_direction,
     )
 
 
