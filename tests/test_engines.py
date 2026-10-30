@@ -331,7 +331,9 @@ def test_multiple_ports_use_highest_utilization_for_device_alarm(admin_client, i
         db.flush()
         ports = []
         for i in (1, 2):
-            port = m.Interface(name=f"Gi{i}", device_id=device.id, if_index=i, oper_status="up")
+            port = m.Interface(
+                name=f"Gi{i}", device_id=device.id, if_index=i, oper_status="up", is_managed=True
+            )
             db.add(port)
             db.flush()
             db.add(

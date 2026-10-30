@@ -90,6 +90,18 @@ class Credential(Entity, Base):
     __table_args__ = (CheckConstraint("protocol in ('snmpv3','ssh','rest')", name="ck_credential_protocol"),)
 
 
+class BackupGroup(Entity, Base):
+    __tablename__ = "backup_groups"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    retention_count: Mapped[int] = mapped_column(Integer, default=0)
+    __table_args__ = (
+        CheckConstraint("interval_seconds = 0 OR interval_seconds >= 300", name="ck_backup_group_interval"),
+        CheckConstraint("retention_count >= 0", name="ck_backup_group_retention"),
+    )
+
+
 class Device(Entity, Base):
     __tablename__ = "devices"
     name: Mapped[str] = mapped_column(String(120))
@@ -120,6 +132,11 @@ class Device(Entity, Base):
     backup_interval: Mapped[int] = mapped_column(Integer, default=0)
     last_seen_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     last_monitor_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    backup_group_id: Mapped[str | None] = mapped_column(
+        ForeignKey("backup_groups.id"), nullable=True, index=True
+    )
+    backup_retention: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_backup_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
         UniqueConstraint("vrf_id", "management_ip"),
@@ -139,6 +156,9 @@ class Interface(Entity, Base):
     speed_bps: Mapped[int | None] = mapped_column(Numeric(20, 0), nullable=True)
     oper_status: Mapped[str] = mapped_column(String(20), default="unknown")
     description: Mapped[str] = mapped_column(String(400), default="")
+    is_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     __table_args__ = (UniqueConstraint("device_id", "name"), UniqueConstraint("device_id", "if_index"))
 
 

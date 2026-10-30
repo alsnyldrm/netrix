@@ -1,0 +1,216 @@
+.inventory-panel {
+  overflow: hidden;
+}
+.inventory-toolbar,
+.inventory-selection,
+.inventory-breadcrumb,
+.inventory-pagination,
+.inventory-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.inventory-toolbar,
+.inventory-selection,
+.inventory-pagination {
+  padding: 16px;
+}
+.inventory-toolbar {
+  border-bottom: 1px solid var(--border);
+}
+.inventory-search {
+  flex: 1 1 240px;
+}
+.inventory-toolbar > button,
+.inventory-toolbar > label input,
+.inventory-toolbar > label select {
+  min-height: 40px;
+}
+.inventory-toolbar > label:not(.inventory-search) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.inventory-toolbar > label:not(.inventory-search) select {
+  width: auto;
+}
+.inventory-selection {
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+}
+.inventory-pagination {
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+}
+.inventory-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.inventory-actions {
+  flex-wrap: nowrap;
+}
+.selection-cell {
+  width: 48px;
+  text-align: center;
+}
+.selection-cell input {
+  vertical-align: middle;
+}
+.inventory-group th {
+  background: var(--surface);
+  color: var(--accent);
+}
+.inventory-panel .error,
+.inventory-panel > [role="status"],
+.empty-inline {
+  margin: 16px;
+}
+.filter-rule {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) 32px;
+  align-items: end;
+  gap: 12px;
+}
+.filter-rule label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.filter-rule button {
+  margin-bottom: 4px;
+}
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.choice-row input {
+  flex: 0 0 18px;
+}
+.bulk-fields {
+  display: grid;
+  gap: 16px;
+}
+.bulk-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+.bulk-field .choice-row {
+  flex-wrap: nowrap;
+}
+.inventory-breadcrumb {
+  margin-bottom: 16px;
+}
+.interface-picker {
+  display: grid;
+  gap: 16px;
+  margin: 20px 0;
+}
+.interface-picker h3,
+.interface-picker p {
+  margin: 0;
+}
+.interface-picker .inventory-toolbar {
+  padding: 0 0 16px;
+}
+.selectable-ports .port-choice {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  min-width: 0;
+  cursor: pointer;
+  background: var(--surface);
+}
+.port-choice:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.port-choice input {
+  flex: 0 0 18px;
+}
+.port-choice > span {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.port-choice b {
+  overflow-wrap: anywhere;
+}
+.port-choice small {
+  color: var(--text-2);
+}
+.backup-result {
+  padding: 20px;
+}
+.backup-result pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 55vh;
+  overflow: auto;
+  background: var(--surface);
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+@media (max-width: 640px) {
+  .filter-rule {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+  }
+  .filter-rule button {
+    justify-self: end;
+    grid-column: 2;
+  }
+  .choice-grid,
+  .bulk-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bulk-field {
+    gap: 8px;
+  }
+  .inventory-toolbar > button {
+    flex: 1 1 auto;
+  }
+  .inventory-toolbar > label:not(.inventory-search) {
+    width: 100%;
+  }
+  .inventory-toolbar > label:not(.inventory-search) select {
+    flex: 1;
+  }
+  .selectable-ports {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.inventory-panel td .text-button {
+  white-space: nowrap;
+}
+
+.inventory-panel td > .text-button {
+  padding-inline: 0;
+}

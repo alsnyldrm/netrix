@@ -66,6 +66,8 @@ class DeviceInput(Input):
     monitoring_enabled: bool = False
     monitor_interval: int = Field(default=300, ge=60, le=86400)
     backup_interval: int = Field(default=0, ge=0, le=2592000)
+    backup_group_id: str | None = None
+    backup_retention: int = Field(default=0, ge=0, le=10000)
 
     @field_validator("management_ip")
     @classmethod
@@ -223,3 +225,34 @@ class LoginInput(Input):
 class PasswordInput(Input):
     current_password: str = Field(max_length=200)
     new_password: str = Field(min_length=12, max_length=200)
+
+
+class BackupGroupInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+    interval_seconds: int = Field(default=0, ge=0, le=2592000)
+    retention_count: int = Field(default=0, ge=0, le=10000)
+
+    @field_validator("interval_seconds")
+    @classmethod
+    def interval(cls, value):
+        if 0 < value < 300:
+            raise ValueError("Aralık 0 veya en az 300 saniye olmalı")
+        return value
+
+
+class SelectionInput(Input):
+    ids: list[str] = Field(max_length=4096)
+
+
+class BulkInput(Input):
+    ids: list[str] = Field(min_length=1, max_length=100)
+    action: Literal["update", "delete", "disable", "enable"]
+    changes: dict = Field(default_factory=dict)
+
+
+class InventoryFilter(Input):
+    field: str
+    op: Literal["contains", "eq", "ne", "gt", "lt"] = "contains"
+    value: str = Field(max_length=200)
+    join: Literal["and", "or"] = "and"

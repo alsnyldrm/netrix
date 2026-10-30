@@ -86,8 +86,8 @@ with sync_playwright() as p:
                     },
                 }
         else:
-            rows = [device] if path == "devices" else []
-            data = {"items": rows, "total": len(rows)}
+            rows = [device] if path in ("devices", "inventory/devices") else []
+            data = {"items": rows, "total": len(rows), "columns": [{"key": k, "label": k} for k in device]}
         route.fulfill(json=data)
 
     page.route("**/api/v1/**", api)

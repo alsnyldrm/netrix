@@ -72,6 +72,12 @@ import "@fontsource/ibm-plex-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
+import {
+  InventoryTable,
+  InterfaceWorkspace,
+  InterfacePicker,
+} from "./inventory";
+import { BackupWorkspace } from "./backups";
 
 type Row = Record<string, any>;
 type Field = {
@@ -112,7 +118,7 @@ const options = (
     options: values,
     default: value || values[0],
   });
-const PAGES: Page[] = [
+export const PAGES: Page[] = [
   {
     key: "overview",
     title: "Operasyon panoraması",
@@ -187,6 +193,12 @@ const PAGES: Page[] = [
       f("monitor_interval", "İzleme aralığı (saniye)", {
         type: "number",
         default: 300,
+      }),
+      ref("backup_group_id", "Yedek grubu", "backup-groups"),
+      f("backup_retention", "En fazla yedek sayısı", {
+        type: "number",
+        default: 0,
+        hint: "Grupsuz cihazlarda uygulanır. 0: sınırsız.",
       }),
       f("backup_interval", "Yedekleme aralığı (saniye)", {
         type: "number",
@@ -403,9 +415,9 @@ const PAGES: Page[] = [
   },
   {
     key: "configuration",
-    title: "Konfigürasyon arşivi",
+    title: "Cihaz yedekleri",
     desc: "Şifreli yedekler, sürüm geçmişi ve satır bazında farklar.",
-    group: "Operasyon",
+    group: "Yedekler",
     icon: TerminalWindow,
     resource: "snapshots",
     columns: [
@@ -414,6 +426,55 @@ const PAGES: Page[] = [
       ["size_bytes", "Boyut"],
       ["changed", "Değişiklik"],
       ["fingerprint", "SHA-256"],
+    ],
+  },
+  {
+    key: "backup-changes",
+    title: "Değişenler",
+    desc: "Konfigürasyonu değişen cihaz yedekleri.",
+    group: "Yedekler",
+    icon: ArrowsClockwise,
+  },
+  {
+    key: "backup-compare",
+    title: "Karşılaştır",
+    desc: "Kayıtlı yedeği cihazdan şimdi okunan aktif konfigürasyonla karşılaştırın.",
+    group: "Yedekler",
+    icon: GitBranch,
+  },
+  {
+    key: "backup-settings",
+    title: "Yedekleme ayarları",
+    desc: "Cihaz veya gruba zamanlama ve saklama sınırı uygulayın. 0: kapalı / sınırsız.",
+    group: "Yedekler",
+    icon: GearSix,
+  },
+  {
+    key: "backup-groups",
+    title: "Gruplandırma ayarları",
+    desc: "Firewall, switch, controller ve backbone gibi kendi yedek gruplarınızı oluşturun.",
+    group: "Yedekler",
+    icon: Stack,
+    resource: "backup-groups",
+    columns: [
+      ["name", "Grup"],
+      ["description", "Açıklama"],
+      ["interval_seconds", "Aralık (sn)"],
+      ["retention_count", "Saklama sınırı"],
+    ],
+    fields: [
+      f("name", "Grup adı", { required: true }),
+      f("description", "Açıklama"),
+      f("interval_seconds", "Yedekleme aralığı (saniye)", {
+        type: "number",
+        default: 0,
+        hint: "0: kapalı. Etkinleştirmek için en az 300.",
+      }),
+      f("retention_count", "En fazla yedek sayısı", {
+        type: "number",
+        default: 0,
+        hint: "Cihaz başına. 0: sınırsız. Eski yedekler bu sınıra göre silinir.",
+      }),
     ],
   },
   {
@@ -556,6 +617,7 @@ const PAGES: Page[] = [
 const GROUPS = [
   "Genel bakış",
   "Envanter",
+  "Yedekler",
   "IP adres yönetimi",
   "Keşif & bağlantı",
   "Operasyon",
@@ -653,6 +715,7 @@ const LABELS: Record<string, string> = {
   info: "Bilgi",
   discovery: "Keşif",
   backup: "Yedekleme",
+  compare: "Aktif config karşılaştırması",
   monitor: "İzleme",
   identify: "Cihaz bilgisi sorgusu",
   test_snmp: "SNMPv3 bağlantı testi",
@@ -666,8 +729,8 @@ const LABELS: Record<string, string> = {
   operator: "Operatör",
   admin: "Yönetici",
 };
-const tag = (v: string) => LABELS[v] || v;
-const date = (v: any) =>
+export const tag = (v: string) => LABELS[v] || v;
+export const date = (v: any) =>
   v
     ? new Date(v).toLocaleString("tr-TR", {
         day: "2-digit",
@@ -676,7 +739,7 @@ const date = (v: any) =>
         minute: "2-digit",
       })
     : "—";
-const speed = (v: any) =>
+export const speed = (v: any) =>
   v == null
     ? "—"
     : v >= 1e9
@@ -686,7 +749,7 @@ const speed = (v: any) =>
         : v >= 1e3
           ? (v / 1e3).toFixed(1) + " Kbps"
           : Math.round(v) + " bps";
-async function api(path: string, method = "GET", body?: any) {
+export async function api(path: string, method = "GET", body?: any) {
   const response = await fetch("/api/v1" + path, {
     method,
     headers: { "Content-Type": "application/json", "X-Netrix-Request": "1" },
@@ -750,7 +813,7 @@ function Empty({
     </div>
   );
 }
-function Dialog({
+export function Dialog({
   title,
   children,
   onClose,
@@ -2323,6 +2386,7 @@ function App() {
           "vlans",
           "prefixes",
           "credentials",
+          "backup-groups",
           "interfaces",
           "scopes",
           "links",
@@ -2347,7 +2411,12 @@ function App() {
     };
   }, [user, refresh]);
   useEffect(() => {
-    if (!user || !page.resource) return;
+    if (
+      !user ||
+      !page.resource ||
+      ["devices", "interfaces", "configuration"].includes(page.key)
+    )
+      return;
     let active = true;
     const queryKey = JSON.stringify([user.id, page.resource, offset, search]);
     // Live events and polling update rows in place without removing the table.
@@ -2783,6 +2852,40 @@ function App() {
                 navigate={navigate}
                 onAdd={add}
                 onDevice={inspectDevice}
+              />
+            ) : page.key === "devices" ? (
+              <InventoryTable
+                key="devices"
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+                onDevice={inspectDevice}
+                onEdit={(row) =>
+                  setForm({
+                    page: PAGES.find((p) => p.key === "devices")!,
+                    row,
+                  })
+                }
+                onTest={setTestDevice}
+              />
+            ) : page.key === "interfaces" ? (
+              <InterfaceWorkspace
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+              />
+            ) : [
+                "configuration",
+                "backup-changes",
+                "backup-compare",
+                "backup-settings",
+              ].includes(page.key) ? (
+              <BackupWorkspace
+                key={page.key}
+                page={page.key}
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
               />
             ) : page.key === "monitoring" ? (
               <Traffic refs={refs} refresh={refresh} />
@@ -3373,28 +3476,14 @@ function App() {
                 </div>
               ))}
             </dl>
-            <h3>
-              Arayüzler{" "}
-              <span className="count-pill">{detail.ports.length}</span>
-            </h3>
-            {detail.ports.length ? (
-              <div className="port-grid">
-                {detail.ports.map((port: Row) => (
-                  <div key={port.id}>
-                    <PlugsConnected
-                      size={19}
-                      className={port.oper_status === "up" ? "mint" : "muted"}
-                    />
-                    <b>{port.name}</b>
-                    <span>{speed(port.speed_bps)}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">
-                Arayüzler ilk başarılı SNMPv3 gözleminden sonra görünür.
-              </p>
-            )}
+            <InterfacePicker
+              device={detail}
+              canWrite={canWrite}
+              onSaved={() => {
+                reload();
+                notify("Arayüz seçimi kaydedildi.");
+              }}
+            />
             <h3>Keşif kanıtı</h3>
             {detail.observations.length ? (
               <div className="evidence">

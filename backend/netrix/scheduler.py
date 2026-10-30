@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from . import models as m
 from .alerting.engine import evaluate
+from .configuration.management import policy, prune
 from .core import now, session_factory, settings
 from .services import enqueue, publish
 from .worker import heartbeat
@@ -41,13 +42,14 @@ def tick():
             backup_reference = max(
                 [v for v in (device.last_backup_at, latest_backup_attempt) if v], default=None
             )
-            if device.backup_interval and (
-                not backup_reference or (now() - backup_reference).total_seconds() >= device.backup_interval
-            ):
+            interval, _ = policy(db, device)
+            if interval and (not backup_reference or (now() - backup_reference).total_seconds() >= interval):
                 try:
                     enqueue(db, "backup", device.id)
                 except HTTPException:
                     db.rollback()
+            db.scalar(select(m.Device).where(m.Device.id == device.id).with_for_update())
+            prune(db, device)
             if device.monitoring_enabled:
                 last = device.last_seen_at or device.created_at
                 evaluate(db, device, "no_data", (now() - last).total_seconds())

@@ -235,7 +235,7 @@ async def test_changed_endpoint_during_read_cannot_apply_stale_metadata(admin_cl
 async def test_monitoring_applies_identity_without_clearing_ports_on_identify(admin_client, inventory, env):
     device, _ = create_device(admin_client, inventory)
     with env() as db:
-        db.add(m.Interface(device_id=device["id"], name="Retained port", oper_status="up"))
+        db.add(m.Interface(device_id=device["id"], name="Retained port", oper_status="up", is_managed=True))
         db.commit()
     claim()
     await execute(

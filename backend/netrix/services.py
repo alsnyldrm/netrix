@@ -12,6 +12,7 @@ from .core import now, redis_client
 from .identity.security import audit, encrypt
 
 RESOURCES = {
+    "backup-groups": (m.BackupGroup, s.BackupGroupInput),
     "sites": (m.Site, s.SiteInput),
     "vrfs": (m.VRF, s.VRFInput),
     "vlans": (m.VLAN, s.VLANInput),
@@ -52,6 +53,8 @@ def serialize(obj):
         if col.key in HIDDEN:
             continue
         value = getattr(obj, col.key)
+        if isinstance(obj, m.Job) and obj.kind == "compare" and col.key == "result":
+            value = {k: v for k, v in value.items() if k != "diff"}
         if isinstance(value, datetime):
             value = value.isoformat()
         if isinstance(value, Decimal):
@@ -88,6 +91,7 @@ def validate_relations(db, name, data, row_id=None):
     if data.get("site_id"):
         require_ref(db, m.Site, data["site_id"])
     if name == "devices":
+        require_ref(db, m.BackupGroup, data.get("backup_group_id"))
         for key, protocols in [
             ("snmp_credential_id", ["snmpv3"]),
             ("config_credential_id", ["rest"] if data["adapter"] == "rest" else ["ssh"]),
@@ -146,7 +150,7 @@ def validate_relations(db, name, data, row_id=None):
             alert.state, alert.active_key, alert.resolved_at = "resolved", None, now()
 
 
-def save_resource(db, name, payload, user, row_id=None):
+def save_resource(db, name, payload, user, row_id=None, *, commit=True):
     if name not in RESOURCES or RESOURCES[name][1] is None:
         raise HTTPException(405, "Bu kaynak salt okunur")
     model, schema = RESOURCES[name]
@@ -221,8 +225,9 @@ def save_resource(db, name, payload, user, row_id=None):
             if exc.status_code != 422:
                 raise
             identification = {"status": "skipped", "message": str(exc.detail) + ". Manuel bilgiler korundu."}
-    db.commit()
-    publish()
+    if commit:
+        db.commit()
+        publish()
     result = serialize(row)
     if identification:
         result["identification"] = identification
@@ -234,6 +239,12 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         raise HTTPException(404, "Kaynak bulunamadı")
     model = RESOURCES[name][0]
     stmt = select(model)
+    if name == "devices":
+        stmt = stmt.where(m.Device.archived.is_(False))
+    if name == "interfaces":
+        stmt = stmt.join(m.Device, m.Interface.device_id == m.Device.id).where(
+            m.Interface.is_managed.is_(True), m.Interface.is_deleted.is_(False), m.Device.archived.is_(False)
+        )
     if q:
         fields = [
             getattr(model, key)
@@ -282,6 +293,7 @@ def delete_resource(db, name, id, user):
     if name in ("users", "vrfs"):
         raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
     if name == "devices":
+        row.archived = True
         row.lifecycle_status = "retired"
         row.monitoring_enabled, row.backup_interval = False, 0
     else:
@@ -355,7 +367,7 @@ def connection_test_options(db, device):
 
 
 def enqueue(db, kind, target_id, user=None, *, commit=True):
-    if kind not in ("discovery", "backup", "monitor", "identify", *CONNECTION_TESTS):
+    if kind not in ("discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
     if kind == "discovery":
         target = get(db, m.Scope, target_id)
@@ -374,7 +386,11 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
             credential_id = (
                 (target.snmp_credential_id or target.config_credential_id)
                 if kind == "identify"
-                else (target.config_credential_id if kind == "backup" else target.snmp_credential_id)
+                else (
+                    target.config_credential_id
+                    if kind in ("backup", "compare")
+                    else target.snmp_credential_id
+                )
             )
             if not credential_id:
                 raise HTTPException(422, "Görev için erişim profili atanmalı")

@@ -32,7 +32,7 @@ async def check():
             url = urlparse(route.request.url)
             query = parse_qs(url.query)
             name = url.path.removeprefix("/api/v1/")
-            foreground = (name == "devices" and query.get("limit") == ["25"]) or name == "traffic"
+            foreground = (name == "inventory/devices" and query.get("limit") == ["25"]) or name == "traffic"
             if delayed and foreground:
                 await pending.put(name)
                 await release.wait()
@@ -60,8 +60,12 @@ async def check():
                 }
             else:
                 rows = {"devices": [dict(device, name=f"Fixture switch {version}")], "interfaces": ports}
-                items = [] if query.get("q") else rows.get(name, [])
-                data = {"items": items, "total": len(items)}
+                items = [] if query.get("q") else rows.get(name.removeprefix("inventory/"), [])
+                data = {
+                    "items": items,
+                    "total": len(items),
+                    "columns": [{"key": k, "label": k} for k in device],
+                }
             await route.fulfill(json=data)
 
         await page.route("**/api/v1/**", api)
@@ -83,7 +87,7 @@ async def check():
         async def finish_refresh():
             nonlocal delayed
             async with page.expect_response(
-                lambda response: "/traffic?" in response.url or "/devices?limit=25" in response.url
+                lambda response: "/traffic?" in response.url or "/inventory/devices?" in response.url
             ):
                 release.set()
             await expect(page.locator("main .loading")).to_have_count(0)

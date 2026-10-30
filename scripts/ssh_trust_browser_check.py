@@ -71,8 +71,8 @@ with sync_playwright() as p:
                 "devices": [device],
                 "vrfs": [{"id": "vrf-1", "name": "Global"}],
                 "credentials": [{"id": "ssh-1", "name": "Fixture SSH", "protocol": "ssh"}],
-            }.get(path, [])
-            data = {"items": rows, "total": len(rows)}
+            }.get(path.removeprefix("inventory/"), [])
+            data = {"items": rows, "total": len(rows), "columns": [{"key": k, "label": k} for k in device]}
         route.fulfill(json=data)
 
     page.route("**/api/v1/**", api)
@@ -130,6 +130,7 @@ with sync_playwright() as p:
         "rules",
         "credentials",
         "users",
+        "backup-groups",
     ):
         for width in (1440, 375):
             page.set_viewport_size({"width": width, "height": 1000})
@@ -145,7 +146,7 @@ with sync_playwright() as p:
             {
                 "ssh_trust_form": "PASS",
                 "create_edit_toggle_persistence": True,
-                "alignment": "PASS: device and 9 shared resource forms",
+                "alignment": "PASS: device and 10 shared resource forms",
                 "axe": violations,
                 "console_errors": errors,
             }

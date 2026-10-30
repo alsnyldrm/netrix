@@ -90,7 +90,7 @@ def sync_interfaces(db, device, collected, job_id):
             setattr(row, key, port.get(key))
         db.flush()
         counters = port.get("counters")
-        if counters:
+        if counters and row.is_managed and row.monitoring_enabled and not row.is_deleted:
             existing = db.scalar(
                 select(m.Sample.id).where(m.Sample.interface_id == row.id, m.Sample.job_id == job_id)
             )
@@ -472,6 +472,10 @@ async def collect_device(job_id, collector):
                 )
             )
             current.last_backup_at = now()
+            db.flush()
+            from .configuration.management import prune
+
+            prune(db, current)
             if changed:
                 db.add(
                     m.Event(
@@ -526,8 +530,12 @@ async def execute(job_id, collector=None):
     collector = collector or SNMPCollector()
     with session_factory()() as db:
         kind = get(db, m.Job, job_id).kind
+    from .configuration.management import compare_live
+
     task = asyncio.create_task(
-        discover(job_id, collector)
+        compare_live(job_id)
+        if kind == "compare"
+        else discover(job_id, collector)
         if kind == "discovery"
         else (
             test_device_connection(job_id, collector)

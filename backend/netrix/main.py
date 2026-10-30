@@ -234,6 +234,9 @@ def dashboard(user=Depends(current_user), db=Depends(db_session)):
             ("sites", m.Site),
         ]
     }
+    counts["devices"] = db.scalar(
+        select(func.count()).select_from(m.Device).where(m.Device.archived.is_(False))
+    )
     counts["reachable"] = db.scalar(
         select(func.count())
         .select_from(m.Device)
@@ -390,6 +393,80 @@ def toggle_user(id: str, user=Depends(admin), db=Depends(db_session)):
     audit(db, user, "toggle_user", "users", id, "Hesap erişimi değiştirildi")
     db.commit()
     return svc.serialize(row)
+
+
+@app.post(P + "/backup-settings")
+def backup_settings(payload: s.BulkInput, user=Depends(operator), db=Depends(db_session)):
+    if (
+        payload.action != "update"
+        or not payload.changes
+        or set(payload.changes) - {"backup_group_id", "backup_interval", "backup_retention"}
+    ):
+        raise HTTPException(422, "Geçersiz yedekleme ayarı")
+    for id in sorted(set(payload.ids)):
+        row = db.scalar(select(m.Device).where(m.Device.id == id).with_for_update())
+        if not row or row.archived:
+            raise HTTPException(404, "Cihaz bulunamadı")
+        data = {key: getattr(row, key) for key in s.DeviceInput.model_fields}
+        svc.save_resource(db, "devices", {**data, **payload.changes}, user, row.id, commit=False)
+    db.commit()
+    svc.publish()
+    return {"updated": len(set(payload.ids))}
+
+
+@app.get(P + "/inventory/{resource}")
+def inventory_query(
+    resource: str,
+    limit: int = Query(25, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=120),
+    filters: str = Query("[]", max_length=20000),
+    device_id: str | None = None,
+    candidates: bool = False,
+    group_by: str = "",
+    changed_only: bool = False,
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    from .inventory.management import query
+
+    return query(db, resource, limit, offset, q, filters, device_id, candidates, group_by, changed_only)
+
+
+@app.post(P + "/inventory/{resource}/bulk")
+def inventory_bulk(resource: str, payload: s.BulkInput, user=Depends(operator), db=Depends(db_session)):
+    from .inventory.management import bulk
+
+    return bulk(db, resource, payload, user)
+
+
+@app.put(P + "/devices/{id}/interfaces")
+def manage_interfaces(id: str, payload: s.SelectionInput, user=Depends(operator), db=Depends(db_session)):
+    from .inventory.management import select_interfaces
+
+    return select_interfaces(db, id, payload.ids, user)
+
+
+@app.post(P + "/snapshots/{id}/compare-live", status_code=202)
+def compare_snapshot(id: str, user=Depends(operator), db=Depends(db_session)):
+    from .configuration.management import start_comparison
+
+    return start_comparison(db, id, user)
+
+
+@app.get(P + "/backup-comparisons/{id}")
+def comparison_result(id: str, user=Depends(operator), db=Depends(db_session)):
+    job = svc.get(db, m.Job, id)
+    if job.kind != "compare":
+        raise HTTPException(404, "Karşılaştırma bulunamadı")
+    return {**svc.serialize(job), "result": job.result}
+
+
+@app.delete(P + "/snapshots/{id}", status_code=204)
+def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
+    from .configuration.management import delete_snapshot
+
+    delete_snapshot(db, id, user)
 
 
 @app.get(P + "/{resource}")
