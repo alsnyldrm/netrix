@@ -166,7 +166,7 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             alert.state, alert.active_key, alert.resolved_at = "resolved", None, now()
 
 
-def save_resource(db, name, payload, user, row_id=None, *, commit=True):
+def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_fields=None):
     if name not in RESOURCES or RESOURCES[name][1] is None:
         raise HTTPException(405, "Bu kaynak salt okunur")
     model, schema = RESOURCES[name]
@@ -176,7 +176,17 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True):
         raise HTTPException(405, "Kullanıcı parolası için parola değiştirme işlemini kullanın")
     value = schema.model_validate(payload)
     data = value.model_dump()
-    row = get(db, model, row_id) if row_id else model()
+    if name == "devices" and row_id:
+        row = db.scalar(
+            select(model)
+            .where(model.id == row_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if not row:
+            raise HTTPException(404, "Kayıt bulunamadı")
+    else:
+        row = get(db, model, row_id) if row_id else model()
     identify_changed = name == "devices" and (
         not row_id
         or any(
@@ -225,6 +235,15 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True):
                 details={"previous": row.management_ip, "current": data["management_ip"]},
             )
         )
+    if name == "devices" and row_id:
+        # Full edit forms include unchanged observations: protect actual edits only.
+        # Bulk operations explicitly select fields, including a value already in use.
+        changed = {
+            key
+            for key in ("vendor", "model", "kind")
+            if getattr(row, key) != data[key] or key in (manual_fields or ())
+        }
+        row.manual_identity_fields = sorted(set(row.manual_identity_fields or []) | changed)
     for key, val in data.items():
         setattr(row, key, val)
     db.add(row)

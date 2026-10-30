@@ -1,4 +1,4 @@
-"""Apply only observed identity fields; missing values never erase managed inventory."""
+"""Keep manual inventory edits authoritative over protocol observations."""
 
 from sqlalchemy import select
 
@@ -7,7 +7,18 @@ from ..discovery.identification import KINDS, normalize
 
 
 def apply_identity(db, device, fields, job_id, source):
+    # A collection may have started before the user saved a manual preference.
+    # Lock and refresh persisted state before applying any observed value.
+    if device.id:
+        db.scalar(
+            select(m.Device)
+            .where(m.Device.id == device.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
     fields = normalize(fields)
+    for key in device.manual_identity_fields or []:
+        fields.pop(key, None)
     # Backbone/controller and other catalog extensions are managed classifications,
     # not hardware classes inferred by a protocol. Keep the user's finer distinction.
     if device.kind not in KINDS | {"other", None}:

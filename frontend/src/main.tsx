@@ -1225,10 +1225,9 @@ function ResourceForm({
           <div className="info-note">
             <Info size={20} />
             <p>
-              Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMP veya
-              SSH/API profiliyle yetkili kapsam içinde sorgulanır. Cihazdan
-              okunabilen alanlar güncellenir; okunamayan alanlarda girdiğiniz
-              bilgiler korunur.
+              {row
+                ? "Burada değiştirdiğiniz üretici, cihaz türü ve model bilgileri kalıcı olarak korunur. SNMP ve SSH/API sorguları bu alanların üzerine yazmaz."
+                : "Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMP veya SSH/API profiliyle yetkili kapsam içinde sorgulanır. Cihazdan okunabilen alanlar güncellenir; okunamayan alanlarda girdiğiniz bilgiler korunur."}
             </p>
           </div>
         )}

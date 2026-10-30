@@ -23,6 +23,7 @@ type Row = Record<string, any>;
 type Column = { key: string; label: string };
 type Rule = { field: string; op: string; value: string; join: string };
 const BULK = [
+  "backup_group_id",
   "vrf_id",
   "site_id",
   "vendor",
@@ -374,8 +375,9 @@ export function BulkEditor({
         <p className="muted">
           {ids.length} cihaz seçildi. Yalnızca işaretlediğiniz alanlar
           değiştirilir.
-          {backup &&
-            " Grup seçiliyse grubun aralık ve saklama ayarları kullanılır. 0: zamanlama kapalı / saklama sınırsız."}
+          {backup
+            ? " Grup seçiliyse grubun aralık ve saklama ayarları kullanılır. 0: zamanlama kapalı / saklama sınırsız."
+            : " Üretici, cihaz türü ve model için uyguladığınız değerler cihaz sorgularında korunur."}
         </p>
         <div className="bulk-fields">
           {fields.map((f: any) => {

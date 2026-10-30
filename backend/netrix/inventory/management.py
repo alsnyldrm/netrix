@@ -98,6 +98,7 @@ TRANSLATIONS = {
     "down": "Kapalı",
 }
 BULK_FIELDS = {
+    "backup_group_id",
     "vrf_id",
     "site_id",
     "vendor",
@@ -145,7 +146,7 @@ def query(
     cols = {
         c.key: getattr(model, c.key)
         for c in inspect(model).column_attrs
-        if c.key not in svc.HIDDEN | {"archived", "is_deleted"}
+        if c.key not in svc.HIDDEN | {"archived", "is_deleted", "manual_identity_fields"}
     }
     if resource == "backup-devices":
         backups = (
@@ -392,7 +393,9 @@ def bulk(db, resource, payload, user):
                     raise HTTPException(409, "Arşivlenmiş cihaz düzenlenemez")
                 data = {key: getattr(row, key) for key in s.DeviceInput.model_fields}
                 data.update(payload.changes)
-                svc.save_resource(db, "devices", data, user, row.id, commit=False)
+                svc.save_resource(
+                    db, "devices", data, user, row.id, commit=False, manual_fields=payload.changes
+                )
         else:
             for row in rows:
                 row.archived, row.lifecycle_status, row.monitoring_enabled, row.backup_interval = (
