@@ -44,6 +44,14 @@ Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etki
 7. SNMP profilini atayıp izlemeyi etkinleştirin. İlk örnek baseline'dır; ikinci geçerli örnekten sonra hız çıkar. Zamanlama aralığı en az 60 saniye.
 8. Alarm kuralları oluşturun. Erişilebilirlik ve config-change kurallarında eşik alanı kullanılmaz; kullanımda yüzde, no-data'da saniyedir. Kalıcı alarm akışı, görüldü ve iyileşme durumlarını takip edin.
 
+## Cihaz türleri
+
+**Envanter → Lokasyonlar** menüsünün hemen altındaki **Cihaz Türü** ekranından tür adı ve açıklaması eklenir/düzenlenir. Cihaz ekleme/düzenleme, toplu değişiklik, cihaz/arayüz araması ve CSV/XLSX aktarımı aynı listeyi kullanır. Excel şablonundaki tür listesi indirme anında yenilenir. Türün adını değiştirmek cihazın kimliğini veya geçmişini değiştirmez; bağlı cihaz ve arayüzlerde yeni ad görünür.
+
+Operatör/yönetici ekleyip düzenleyebilir, yalnızca yönetici silebilir. Arşiv dahil herhangi bir cihaza atanmış tür silinemez; önce bu cihazlara başka bir tür atayın. Sınıflandırılamayan yeni cihazlar için kullanılan varsayılan **Diğer** türünün adı düzenlenebilir, fakat kayıt silinemez. Kullanılmayan diğer türler silinebilir. Cihazdan okunan tür katalogdan silinmişse mevcut manuel tür korunur.
+
+`20261030_07` migration'ı eski tür kodlarını ve bağlı cihazları koruyarak `device_types` tablosunu ve FK kısıtını ekler. Özelleştirilmiş tür verisi varken downgrade veri kaybetmek yerine durur.
+
 ## Arşivlenmiş cihazlar
 
 Cihaz envanterindeki **Sil** işlemi fiziksel silme yapmaz; cihazı arşivler ve normal listeden kaldırır. Aynı VRF/IP kimliği, arayüzleri ve yedek geçmişi korunur. Bu yüzden arşivdeki cihaz aynı IP ile yeniden içeri aktarılamaz; aktarım hatası arşiv menüsüne yönlendirir.

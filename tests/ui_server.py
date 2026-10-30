@@ -59,6 +59,10 @@ services.redis_client = lambda: r
 Path(".secrets").mkdir(mode=0o700, exist_ok=True)
 Base.metadata.create_all(engine())
 with Session(engine()) as db:
+    from netrix.inventory.device_types import seed_defaults
+
+    seed_defaults(db)
+    db.commit()
     if not db.get(models.SystemState, "setup"):
         db.add(models.SystemState(key="setup", value="pending"))
         db.commit()

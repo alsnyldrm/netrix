@@ -48,6 +48,11 @@ class VLANInput(Input):
     vid: int = Field(ge=1, le=4094)
 
 
+class DeviceTypeInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+
+
 class DeviceInput(Input):
     name: str = Field(min_length=1, max_length=120)
     management_ip: str
@@ -55,7 +60,7 @@ class DeviceInput(Input):
     site_id: str | None = None
     vendor: str = Field(default="", max_length=80)
     model: str = Field(default="", max_length=100)
-    kind: Literal["switch", "router", "firewall", "server", "other"] = "other"
+    kind: str = Field(default="other", min_length=1, max_length=20)
     lifecycle_status: Literal["planned", "active", "maintenance", "retired"] = "active"
     adapter: Literal[
         "ios",

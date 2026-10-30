@@ -58,6 +58,9 @@ def env(tmp_path, monkeypatch):
     Base.metadata.create_all(engine())
     sf = sessionmaker(engine(), expire_on_commit=False)
     with sf() as db:
+        from netrix.inventory.device_types import seed_defaults
+
+        seed_defaults(db)
         db.add(SystemState(key="setup", value="pending"))
         db.commit()
     memory = MemoryRedis()

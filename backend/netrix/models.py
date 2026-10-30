@@ -14,7 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .core import Base, UTCDateTime, now
 
@@ -104,6 +104,13 @@ class BackupGroup(Entity, Base):
     )
 
 
+class DeviceType(Entity, Base):
+    __tablename__ = "device_types"
+    code: Mapped[str] = mapped_column(String(20), unique=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+
+
 class Device(Entity, Base):
     __tablename__ = "devices"
     name: Mapped[str] = mapped_column(String(120))
@@ -112,7 +119,10 @@ class Device(Entity, Base):
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     vendor: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
-    kind: Mapped[str] = mapped_column(String(20), default="other")
+    kind: Mapped[str] = mapped_column(
+        String(20), ForeignKey("device_types.code", name="fk_device_type"), default="other", index=True
+    )
+    device_type: Mapped[DeviceType] = relationship(lazy="joined")
     lifecycle_status: Mapped[str] = mapped_column(String(20), default="active")
     reachability: Mapped[str] = mapped_column(String(20), default="unknown")
     adapter: Mapped[str] = mapped_column(String(20), default="ios")

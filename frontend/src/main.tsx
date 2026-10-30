@@ -77,6 +77,7 @@ import {
   InventoryTable,
   InterfaceWorkspace,
   InterfacePicker,
+  allRows,
 } from "./inventory";
 import { BackupWorkspace } from "./backups";
 
@@ -148,12 +149,12 @@ export const PAGES: Page[] = [
       f("management_ip", "Yönetim IP adresi", { required: true }),
       ref("vrf_id", "VRF", "vrfs", true),
       ref("site_id", "Lokasyon", "sites"),
-      options(
-        "kind",
-        "Cihaz türü",
-        ["switch", "router", "firewall", "server", "other"],
-        "other",
-      ),
+      f("kind", "Cihaz türü", {
+        type: "select",
+        ref: "device-types",
+        default: "other",
+        required: true,
+      }),
       f("vendor", "Üretici"),
       f("model", "Model"),
       options("lifecycle_status", "Yaşam döngüsü", [
@@ -253,6 +254,22 @@ export const PAGES: Page[] = [
       f("code", "Benzersiz kod", { required: true }),
       f("description", "Açıklama"),
       f("timezone", "Saat dilimi", { default: "Europe/Istanbul" }),
+    ],
+  },
+  {
+    key: "device-types",
+    title: "Cihaz Türü",
+    desc: "Cihazlarda kullanılan türleri ekleyin, adlarını düzenleyin ve yönetin.",
+    group: "Envanter",
+    icon: Stack,
+    resource: "device-types",
+    columns: [
+      ["name", "Cihaz türü"],
+      ["description", "Açıklama"],
+    ],
+    fields: [
+      f("name", "Tür adı", { required: true }),
+      f("description", "Açıklama"),
     ],
   },
   {
@@ -1258,7 +1275,10 @@ function ResourceForm({
                                       ? "rest"
                                       : "ssh")),
                             )
-                            .map((r) => [r.id, r.name || r.cidr || r.address])
+                            .map((r) => [
+                              field.ref === "device-types" ? r.code : r.id,
+                              r.name || r.cidr || r.address,
+                            ])
                         : field.options || []
                       ).map((option: any) => {
                         const [key, label] = Array.isArray(option)
@@ -2448,6 +2468,7 @@ function App() {
         const names = [
           "devices",
           "sites",
+          "device-types",
           "vrfs",
           "vlans",
           "prefixes",
@@ -2463,7 +2484,9 @@ function App() {
         const rows = await Promise.all(
           names.map(async (name) => [
             name,
-            (await api("/" + name + "?limit=200")).items,
+            name === "device-types"
+              ? await allRows("/device-types")
+              : (await api("/" + name + "?limit=200")).items,
           ]),
         );
         if (active) setRefs(Object.fromEntries(rows));
@@ -2574,6 +2597,7 @@ function App() {
     refs[resource]?.find((r) => r.id === id)?.display_name ||
     "—";
   const cell = (key: string, value: any, row: Row) => {
+    if (key === "kind" && row.management_ip) return row.kind_name || tag(value);
     if (key.endsWith("_at")) return date(value);
     if (key === "speed_bps") return speed(value);
     if (key === "size_bytes") return (value / 1024).toFixed(1) + " KB";

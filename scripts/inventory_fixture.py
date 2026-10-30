@@ -45,6 +45,9 @@ memory = MemoryRedis()
 main.redis_client = services.redis_client = lambda: memory
 Base.metadata.create_all(engine())
 with session_factory()() as db:
+    from netrix.inventory.device_types import seed_defaults
+
+    seed_defaults(db)
     db.add(m.SystemState(key="setup", value="complete"))
     db.add(
         m.User(

@@ -315,10 +315,9 @@ export function BulkEditor({
   useEffect(() => {
     let active = true;
     Promise.all(
-      ["vrfs", "sites", "credentials", "backup-groups"].map(async (key) => [
-        key,
-        await allRows("/" + key),
-      ]),
+      ["vrfs", "sites", "credentials", "backup-groups", "device-types"].map(
+        async (key) => [key, await allRows("/" + key)],
+      ),
     )
       .then((r) => {
         if (active) setRefs(Object.fromEntries(r));
@@ -426,7 +425,10 @@ export function BulkEditor({
                               f.key !== "config_credential_id" ||
                               ["ssh", "rest"].includes(r.protocol),
                           )
-                          .map((r) => [r.id, r.name])
+                          .map((r) => [
+                            f.ref === "device-types" ? r.code : r.id,
+                            r.name,
+                          ])
                       : (f.options || []).map((o: any) =>
                           Array.isArray(o) ? o : [o, tag(o)],
                         )
@@ -832,6 +834,10 @@ export function InventoryTable({
                         >
                           {row.name}
                         </button>
+                      ) : c.key === "kind" ? (
+                        row.kind_name || row.kind
+                      ) : c.key === "device_kind" ? (
+                        row.device_kind_name || tag(row.device_kind)
                       ) : (
                         value(c.key, row[c.key])
                       )}
@@ -1095,7 +1101,7 @@ export function InterfaceWorkspace(props: any) {
             Cihazlara dön
           </button>
           <h2>
-            {device.name} · {tag(device.kind)}
+            {device.name} · {device.kind_name || tag(device.kind)}
           </h2>
         </div>
       )}

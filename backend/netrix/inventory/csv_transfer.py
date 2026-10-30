@@ -58,6 +58,7 @@ SECRETS = {
     "snmp_community": "SNMP community",
 }
 REFERENCES = {
+    "kind": m.DeviceType,
     "vrf_id": m.VRF,
     "site_id": m.Site,
     "snmp_credential_id": m.Credential,
@@ -75,13 +76,6 @@ ENUMS = {
         "aruba_7200": "Aruba 72xx Controller · ArubaOS",
         "linux": "linux",
         "rest": "rest",
-    },
-    "kind": {
-        "switch": "Switch",
-        "router": "Router",
-        "firewall": "Firewall",
-        "server": "Sunucu",
-        "other": "Diğer",
     },
     "lifecycle_status": {
         "active": "Aktif",
@@ -156,7 +150,10 @@ def template(choices=None):
 
 def reference_rows(db):
     # Select only public columns: even an encrypted secret must not enter an export.
-    return {model: db.execute(select(model.id, model.name)).all() for model in set(REFERENCES.values())}
+    return {
+        model: db.execute(select(model.code if model is m.DeviceType else model.id, model.name)).all()
+        for model in set(REFERENCES.values())
+    }
 
 
 def export_devices(db, ids, user, *, file_format="csv"):

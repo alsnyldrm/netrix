@@ -29,6 +29,8 @@ Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential,
 
 ## 2. Merkezi cihaz envanteri
 
+MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)` kataloğu uygulanmıştır. `devices.kind`, değişmez `device_types.code` değerine FK ile bağlanır; görünen ad bağımsız düzenlenir. Aktif/arşiv cihaz ilişkileri silmeyi engeller. Varsayılan `other` kaydı, sınıflandırılmamış cihazlar için korunur.
+
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |
 | --- | --- | --- |
 | `sites` | name, code, description, timezone | Tekil code |

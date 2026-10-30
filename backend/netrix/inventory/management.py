@@ -158,6 +158,7 @@ def query(
     if resource == "interfaces" and not candidates:
         stmt = stmt.where(m.Interface.is_managed.is_(True), m.Interface.is_deleted.is_(False))
     stmt = stmt.outerjoin(m.Site, m.Device.site_id == m.Site.id).outerjoin(m.VRF, m.Device.vrf_id == m.VRF.id)
+    stmt = stmt.join(m.DeviceType, m.Device.kind == m.DeviceType.code)
     stmt = stmt.outerjoin(m.BackupGroup, m.Device.backup_group_id == m.BackupGroup.id)
     cols.update(site_name=m.Site.name, vrf_name=m.VRF.name, backup_group=m.BackupGroup.name)
     if resource == "devices":
@@ -201,7 +202,9 @@ def query(
 
     def field_contains(key, col, value):
         clauses = [contains(col, value)]
-        if key in ("kind", "device_kind", "lifecycle_status", "reachability", "oper_status"):
+        if key in ("kind", "device_kind"):
+            clauses.append(contains(m.DeviceType.name, value))
+        if key in ("lifecycle_status", "reachability", "oper_status"):
             clauses.append(contains(case(TRANSLATIONS, value=col, else_=col), value))
         if key in ("monitoring_enabled", "ssh_trust_host_key", "is_managed"):
             clauses.append(contains(case((col.is_(True), "Etkin Evet"), else_="Kapalı Hayır"), value))
@@ -232,7 +235,7 @@ def query(
             except (ValueError, InvalidOperation, NotImplementedError):
                 raise HTTPException(422, "Sayısal filtre için sayısal alan ve değer gerekli") from None
         if f.op in ("eq", "ne"):
-            if f.field in ("kind", "device_kind", "lifecycle_status", "reachability", "oper_status"):
+            if f.field in ("lifecycle_status", "reachability", "oper_status"):
                 value = next((k for k, v in TRANSLATIONS.items() if v.casefold() == value.casefold()), value)
             if f.field in ("monitoring_enabled", "ssh_trust_host_key", "changed", "is_managed"):
                 converted = {
@@ -255,6 +258,12 @@ def query(
             "gt": lambda: col > value,
             "lt": lambda: col < value,
         }[f.op]()
+        if f.field in ("kind", "device_kind") and f.op in ("eq", "ne"):
+            clause = (
+                or_(m.DeviceType.name == value, m.Device.kind == value)
+                if f.op == "eq"
+                else and_(m.DeviceType.name != value, m.Device.kind != value)
+            )
         expression = (
             clause
             if expression is None
@@ -266,6 +275,8 @@ def query(
         stmt = stmt.where(m.Snapshot.changed.is_(True))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     extras = {k: v for k, v in cols.items() if k not in inspect(model).column_attrs.keys()}
+    if resource == "interfaces":
+        extras["device_kind_name"] = m.DeviceType.name
     stmt = stmt.add_columns(*[v.label(k) for k, v in extras.items()])
     result = db.execute(
         stmt.order_by(*([cols[group_by]] if group_by else []), model.created_at.desc(), model.id)

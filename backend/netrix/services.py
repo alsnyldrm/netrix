@@ -2,6 +2,7 @@ import ipaddress
 import json
 from datetime import datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import func, inspect, or_, select
@@ -15,6 +16,7 @@ from .identity.security import audit, encrypt
 RESOURCES = {
     "backup-groups": (m.BackupGroup, s.BackupGroupInput),
     "sites": (m.Site, s.SiteInput),
+    "device-types": (m.DeviceType, s.DeviceTypeInput),
     "vrfs": (m.VRF, s.VRFInput),
     "vlans": (m.VLAN, s.VLANInput),
     "devices": (m.Device, s.DeviceInput),
@@ -62,6 +64,8 @@ def serialize(obj):
         if isinstance(value, Decimal):
             value = int(value)
         result[col.key] = value
+    if isinstance(obj, m.Device):
+        result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind
     return result
 
 
@@ -96,6 +100,8 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
     if data.get("site_id"):
         require_ref(db, m.Site, data["site_id"])
     if name == "devices":
+        if not db.scalar(select(m.DeviceType.id).where(m.DeviceType.code == data["kind"])):
+            raise HTTPException(422, "Cihaz türü bulunamadı; Cihaz Türü menüsündeki kayıtlı bir türü seçin")
         require_ref(db, m.BackupGroup, data.get("backup_group_id"))
         for key, protocols in [
             ("snmp_credential_id", SNMP_PROTOCOLS),
@@ -176,6 +182,15 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True):
         )
     )
     validate_relations(db, name, data, row_id)
+    if name == "device-types":
+        if db.scalar(
+            select(m.DeviceType.id).where(
+                func.lower(m.DeviceType.name) == data["name"].lower(), m.DeviceType.id != (row_id or "")
+            )
+        ):
+            raise HTTPException(409, "Bu cihaz türü adı zaten var")
+        if not row_id:
+            data["code"] = uuid4().hex[:20]
     if name == "credentials":
         if row_id and row.protocol != data["protocol"]:
             raise HTTPException(409, "Profil protokolü değiştirilemez; yeni bir erişim profili oluşturun")
@@ -211,6 +226,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True):
         setattr(row, key, val)
     db.add(row)
     db.flush()
+    if name == "devices":
+        db.expire(row, ["device_type"])
     audit(
         db,
         user,
@@ -299,6 +316,13 @@ def delete_resource(db, name, id, user):
     row = get(db, model, id)
     if name in ("users", "vrfs"):
         raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
+    if name == "device-types":
+        if row.code == "other":
+            raise HTTPException(409, "Varsayılan cihaz türü silinemez; adını düzenleyebilirsiniz")
+        if db.scalar(select(m.Device.id).where(m.Device.kind == row.code).limit(1)):
+            raise HTTPException(
+                409, "Bu türü kullanan cihazlar var (arşiv dahil). Önce cihazlara başka bir tür atayın"
+            )
     if name == "devices":
         row.archived = True
         row.lifecycle_status = "retired"

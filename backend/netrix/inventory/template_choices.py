@@ -30,7 +30,7 @@ def reference_choices(rows):
 def template_choices(db):
     choices = {}
     for key, model in REFERENCES.items():
-        statement = select(model.id, model.name)
+        statement = select(model.code if model is m.DeviceType else model.id, model.name)
         if model is m.Credential:
             protocols = ("snmpv3", "snmpv2c") if key == "snmp_credential_id" else ("ssh", "rest")
             statement = statement.where(m.Credential.protocol.in_(protocols))
