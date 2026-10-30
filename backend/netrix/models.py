@@ -87,7 +87,9 @@ class Credential(Entity, Base):
     protocol: Mapped[str] = mapped_column(String(20))
     encrypted_secret: Mapped[str] = mapped_column(Text)
     key_version: Mapped[int] = mapped_column(Integer, default=1)
-    __table_args__ = (CheckConstraint("protocol in ('snmpv3','ssh','rest')", name="ck_credential_protocol"),)
+    __table_args__ = (
+        CheckConstraint("protocol in ('snmpv3','snmpv2c','ssh','rest')", name="ck_credential_protocol"),
+    )
 
 
 class BackupGroup(Entity, Base):

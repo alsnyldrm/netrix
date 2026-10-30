@@ -413,7 +413,7 @@ export function BulkEditor({
                           .filter(
                             (r) =>
                               f.key !== "snmp_credential_id" ||
-                              r.protocol === "snmpv3",
+                              ["snmpv3", "snmpv2c"].includes(r.protocol),
                           )
                           .filter(
                             (r) =>

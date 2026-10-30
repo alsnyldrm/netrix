@@ -9,12 +9,14 @@ class Input(BaseModel):
 
 
 class JobInput(Input):
-    kind: Literal["discovery", "backup", "monitor", "identify", "test_snmp", "test_ssh", "test_api"]
+    kind: Literal[
+        "discovery", "backup", "monitor", "identify", "test_snmp", "test_snmpv2c", "test_ssh", "test_api"
+    ]
     target_id: str = Field(min_length=1, max_length=36)
 
 
 class ConnectionTestInput(Input):
-    protocol: Literal["snmpv3", "ssh", "rest"]
+    protocol: Literal["snmpv3", "snmpv2c", "ssh", "rest"]
 
 
 class SiteInput(Input):
@@ -158,12 +160,13 @@ class SecretInput(Input):
     auth_key: str = Field(default="", max_length=200)
     priv_key: str = Field(default="", max_length=200)
     auth_protocol: Literal["sha256", "sha1"] = "sha256"
+    community: str = Field(default="", max_length=255)
     token: str = Field(default="", max_length=2000)
 
 
 class CredentialInput(Input):
     name: str = Field(min_length=1, max_length=120)
-    protocol: Literal["snmpv3", "ssh", "rest"]
+    protocol: Literal["snmpv3", "snmpv2c", "ssh", "rest"]
     secret: SecretInput
 
     @model_validator(mode="after")
@@ -174,6 +177,8 @@ class CredentialInput(Input):
             raise ValueError(
                 "SNMPv3 authPriv için kullanıcı, en az 8 karakter auth ve AES privacy anahtarı gerekli"
             )
+        if self.protocol == "snmpv2c" and not self.secret.community.strip():
+            raise ValueError("SNMPv2c community gerekli")
         if self.protocol == "ssh" and (not self.secret.username or not self.secret.password):
             raise ValueError("SSH kullanıcı ve parola gerekli")
         if self.protocol == "rest" and not self.secret.token:

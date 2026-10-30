@@ -25,7 +25,13 @@ class MAC:
         return bytes.fromhex("aabbccddeeff")
 
 
-async def test_snmpv3_adapter_parses_standard_tables_and_closes_transport(monkeypatch):
+@pytest.mark.parametrize("version", ["snmpv3", "snmpv2c"])
+async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypatch, version):
+    secret = (
+        {"protocol": version, "community": "fixture-community"}
+        if version == "snmpv2c"
+        else {"username": "user", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
+    )
     instance = Engine()
     monkeypatch.setattr(p, "SnmpEngine", lambda: instance)
     monkeypatch.setattr(p, "UdpTransportTarget", Transport)
@@ -34,6 +40,12 @@ async def test_snmpv3_adapter_parses_standard_tables_and_closes_transport(monkey
     walked = []
 
     async def get(*args, **kwargs):
+        auth = args[1]
+        if version == "snmpv2c":
+            assert isinstance(auth, p.CommunityData)
+            assert auth.message_processing_model == 1 and auth.communityName == "fixture-community"
+        else:
+            assert isinstance(auth, p.UsmUserData)
         return (
             None,
             0,
@@ -71,9 +83,7 @@ async def test_snmpv3_adapter_parses_standard_tables_and_closes_transport(monkey
 
     monkeypatch.setattr(p, "get_cmd", get)
     monkeypatch.setattr(p, "walk_cmd", walk)
-    data = await p.SNMPCollector().collect(
-        "192.0.2.1", 161, {"username": "user", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
-    )
+    data = await p.SNMPCollector().collect("192.0.2.1", 161, secret)
     assert data["hostname"] == "edge-observed"
     assert data["identity"] == {"vendor": "Cisco", "model": "C9300-48P", "kind": "switch"}
     port = data["interfaces"][0]
@@ -82,18 +92,11 @@ async def test_snmpv3_adapter_parses_standard_tables_and_closes_transport(monkey
     assert data["neighbors"][0]["remote_name"] == "peer"
     assert instance.closed
     walked.clear()
-    data = await p.SNMPCollector().identify(
-        "192.0.2.1", 161, {"username": "user", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
-    )
+    data = await p.SNMPCollector().identify("192.0.2.1", 161, secret)
     assert data["identity"]["model"] == "C9300-48P" and "interfaces" not in data
     assert set(walked) == {oid for key, oid in p.TABLES.items() if key.startswith("entity_")}
     walked.clear()
-    assert (
-        await p.SNMPCollector().probe(
-            "192.0.2.1", 1161, {"username": "user", "auth_key": "fixture-auth", "priv_key": "fixture-priv"}
-        )
-        is None
-    )
+    assert await p.SNMPCollector().probe("192.0.2.1", 1161, secret) is None
     assert walked == []  # The connection test performs GET only, never a full table scan.
     assert instance.closed
 

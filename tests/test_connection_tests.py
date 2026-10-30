@@ -13,6 +13,17 @@ def device_with_profiles(client, inventory, protocols):
     if "snmpv3" in protocols:
         payload["snmp_credential_id"] = inventory["credential"]["id"]
         payload["snmp_port"] = 1161
+    if "snmpv2c" in protocols:
+        response = client.post(
+            "/api/v1/credentials",
+            json={
+                "name": "Connection v2c",
+                "protocol": "snmpv2c",
+                "secret": {"community": "fixture-community"},
+            },
+        )
+        assert response.status_code == 201
+        payload.update(snmp_credential_id=response.json()["id"], snmp_port=1161)
     for protocol in ("ssh", "rest"):
         if protocol in protocols:
             credential = client.post(
@@ -41,7 +52,17 @@ def device_with_profiles(client, inventory, protocols):
 
 
 @pytest.mark.parametrize(
-    "protocols", [[], ["snmpv3"], ["ssh"], ["rest"], ["snmpv3", "ssh"], ["snmpv3", "rest"]]
+    "protocols",
+    [
+        [],
+        ["snmpv2c"],
+        ["snmpv2c", "ssh"],
+        ["snmpv3"],
+        ["ssh"],
+        ["rest"],
+        ["snmpv3", "ssh"],
+        ["snmpv3", "rest"],
+    ],
 )
 def test_options_only_enable_assigned_compatible_profiles(admin_client, inventory, protocols):
     device = device_with_profiles(admin_client, inventory, protocols)
@@ -56,7 +77,7 @@ def test_options_only_enable_assigned_compatible_profiles(admin_client, inventor
     assert not any(
         row["kind"].startswith("test_") for row in admin_client.get("/api/v1/jobs").json()["items"]
     )
-    for protocol in {"snmpv3", "ssh", "rest"} - set(protocols):
+    for protocol in {"snmpv3", "snmpv2c", "ssh", "rest"} - set(protocols):
         assert (
             admin_client.post(
                 f"/api/v1/devices/{device['id']}/connection-tests", json={"protocol": protocol}
@@ -65,7 +86,7 @@ def test_options_only_enable_assigned_compatible_profiles(admin_client, inventor
         )
 
 
-@pytest.mark.parametrize("protocol", ["snmpv3", "ssh", "rest"])
+@pytest.mark.parametrize("protocol", ["snmpv3", "snmpv2c", "ssh", "rest"])
 async def test_selected_protocol_uses_saved_profile_and_no_fallback(
     admin_client, inventory, monkeypatch, protocol
 ):
@@ -79,6 +100,8 @@ async def test_selected_protocol_uses_saved_profile_and_no_fallback(
         assert target.management_ip == "192.0.2.1" and selected == protocol
         if protocol == "snmpv3":
             assert secret["auth_key"] == "fixture-auth" and target.snmp_port == 1161
+        elif protocol == "snmpv2c":
+            assert secret["community"] == "fixture-community" and target.snmp_port == 1161
         else:
             assert secret["password" if protocol == "ssh" else "token"].startswith("fixture-")
         return "Fixture successful probe"

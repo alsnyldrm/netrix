@@ -23,6 +23,7 @@ from .monitoring.rates import calculate_rate
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
+    SNMP_PROTOCOLS,
     authorized_device,
     connection_profile,
     get,
@@ -126,12 +127,12 @@ def sync_interfaces(db, device, collected, job_id):
         evaluate(db, device, "utilization", max(utilizations))
 
 
-def persist_collection(db, device, collected, job):
+def persist_collection(db, device, collected, job, protocol="snmpv3"):
     identity = normalize(collected.get("identity")) or snmp_identity(collected, {})
-    apply_identity(db, device, identity, job.id, "snmpv3")
+    apply_identity(db, device, identity, job.id, protocol)
     prior = db.scalar(
         select(m.Observation)
-        .where(m.Observation.device_id == device.id, m.Observation.source == "snmpv3")
+        .where(m.Observation.device_id == device.id, m.Observation.source.in_(SNMP_PROTOCOLS))
         .order_by(m.Observation.created_at.desc())
         .limit(1)
     )
@@ -149,7 +150,12 @@ def persist_collection(db, device, collected, job):
     evidence["port_candidates"] = correlate(collected.get("tables", {}), collected.get("neighbors", []))
     db.add(
         m.Observation(
-            job_id=job.id, device_id=device.id, address=device.management_ip, evidence=evidence, confidence=1
+            job_id=job.id,
+            device_id=device.id,
+            address=device.management_ip,
+            source=protocol,
+            evidence=evidence,
+            confidence=1,
         )
     )
     sync_interfaces(db, device, collected, job.id)
@@ -213,7 +219,7 @@ async def identify_device(job_id, collector):
         if len(fields) == 3:
             break
         try:
-            if protocol == "snmpv3":
+            if protocol in SNMP_PROTOCOLS:
                 collect = getattr(collector, "identify", collector.collect)
                 response = await collect(device.management_ip, device.snmp_port, secret)
                 values = normalize(response.get("identity")) or snmp_identity(response, {})
@@ -284,7 +290,7 @@ async def test_device_connection(job_id, collector):
                 target.vrf_id,
                 credential.id,
                 credential.updated_at,
-                target.snmp_port if protocol == "snmpv3" else target.config_port,
+                target.snmp_port if protocol in SNMP_PROTOCOLS else target.config_port,
                 target.identity_path if protocol == "rest" else "",
                 target.ssh_trust_host_key if protocol == "ssh" else False,
             )
@@ -294,7 +300,7 @@ async def test_device_connection(job_id, collector):
     result = {
         "protocol": protocol,
         "target": device.management_ip,
-        "port": device.snmp_port if protocol == "snmpv3" else device.config_port,
+        "port": device.snmp_port if protocol in SNMP_PROTOCOLS else device.config_port,
     }
     try:
         result.update(success=True, message=await probe_connection(device, protocol, secret, collector))
@@ -393,7 +399,7 @@ async def discover(job_id, collector):
                             details={"address": address},
                         )
                     )
-                persist_collection(db, device, collected, job)
+                persist_collection(db, device, collected, job, secret["protocol"])
                 job.progress += 1
                 db.commit()
                 publish()
@@ -486,7 +492,7 @@ async def collect_device(job_id, collector):
                 )
             evaluate(db, current, "config_change", int(changed))
         else:
-            persist_collection(db, current, data, job)
+            persist_collection(db, current, data, job, secret["protocol"])
             current.last_monitor_at = now()
         job.progress, job.total = 1, 1
         db.commit()

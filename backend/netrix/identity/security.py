@@ -24,7 +24,9 @@ def decrypt(value):
 
 
 def secret_data(credential):
-    return json.loads(decrypt(credential.encrypted_secret))
+    secret = json.loads(decrypt(credential.encrypted_secret))
+    secret["protocol"] = credential.protocol
+    return secret
 
 
 def verify(password, digest):

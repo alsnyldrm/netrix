@@ -12,7 +12,7 @@
 
 ## Yayın ve kontrol
 
-Cihaz bağlantısını denemek için **Envanter → Cihaz envanteri → satır sonundaki Test** yolunu kullanın. Pencerede yalnızca kayıtlı SNMPv3 veya SSH/API profiline ait seçenekler etkin olur. Protokolü seçip **Test et** düğmesine basın; gerçek cihaz yanıtı, hata ve süre aynı pencerede görünür. Aktif cihazın yetkili kapsamda olması gerekir. SSH için güvenilir host anahtarı veya cihazda açık **Anahtara güven** ayarı; API için doğrulanabilir HTTPS sertifikası ve doğru REST cihaz bilgisi yolu gereklidir. Testi iptal edebilir veya pencereyi kapatıp sonucunu Görev merkezinden izleyebilirsiniz.
+Cihaz bağlantısını denemek için **Envanter → Cihaz envanteri → satır sonundaki Test** yolunu kullanın. Pencerede yalnızca kayıtlı SNMPv3/SNMPv2c veya SSH/API profiline ait seçenekler etkin olur. Protokolü seçip **Test et** düğmesine basın; gerçek cihaz yanıtı, hata ve süre aynı pencerede görünür. Aktif cihazın yetkili kapsamda olması gerekir. SSH için güvenilir host anahtarı veya cihazda açık **Anahtara güven** ayarı; API için doğrulanabilir HTTPS sertifikası ve doğru REST cihaz bilgisi yolu gereklidir. Testi iptal edebilir veya pencereyi kapatıp sonucunu Görev merkezinden izleyebilirsiniz.
 
 `netrix` stack'inde yalnızca `netrix-app` servisi ve `netrix` container'ı vardır. API, Redis, worker ve zamanlayıcı aynı container içindedir. `docker compose up -d` container başlangıcında önce migration'ı çalıştırır. API/worker/scheduler migration başarılı olmadan başlamaz. Harici MariaDB kullanıcısının schema oluşturma/güncelleme ve uygulama tablolarında CRUD yetkisi gerekir. Redis dışarıya port açmaz. API yalnızca host loopback portunu açar.
 
@@ -35,7 +35,7 @@ Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etki
 
 ## Kullanım sırası
 
-1. Erişim kasasında SNMPv3 authPriv (SHA256 veya SHA1 + AES128) profili oluşturun. SSH/REST yedeği için ayrı profil oluşturun.
+1. Erişim kasasında SNMPv3 authPriv (SHA256 veya SHA1 + AES128) veya SNMPv2c community profili oluşturun. SNMPv2c seçildiğinde yalnızca community alanı gerekir; şifreli saklanır ve API yanıtlarına dönmez. SSH/REST yedeği için ayrı profil oluşturun.
 2. Lokasyonları, gerekli VRF/VLAN/prefix'leri tanımlayın. Global VRF ilk kurulumda oluşur.
 3. Keşif kapsamına yalnızca yetkili olduğunuz CIDR'ı girin. Hariç tutmaları ve gerekirse açık hedef listesini ekleyin. Zamanlama 0 iken otomatik tarama yoktur.
 4. Manuel keşif başlatın; Görev merkezi üzerinden ilerleme, hata, kısmi sonuç ve iptali takip edin.
@@ -92,3 +92,9 @@ Uygulama yalnızca VIP `10.2.0.31:3306` kullanır. DB düğümlerine doğrudan y
 - **Yedekler → Gruplandırma ayarları:** firewall, switch, controller, backbone gibi adlarla grup oluşturun; aralık ve tutulacak yedek sayısını belirleyin. **Yedekleme ayarları** ekranında cihazları seçip grubu veya cihaz politikasını uygulayın. Grup ayarı üyelerin cihaz ayarını geçersiz kılar. Aralık 0 kapalı, diğer değerler en az 300 saniye; saklama 0 sınırsızdır. Saklama sınırını azaltmak eski sürümleri otomatik siler. Karşılaştırmada kullanılan sürüm işlem tamamlanana kadar korunur.
 
 `20261030_05` öncesinde MariaDB yedeği alın. Geçiş yeni grup/politika ve arayüz seçim alanlarını ekler; downgrade bu yeni tercihleri kaybettirir. Veri içeren atılabilir MariaDB'de upgrade/downgrade/upgrade ve Alembic schema farkı kontrolü için `scripts/inventory_migration_check.py` yalnızca `netrix_test` veritabanını kabul eder.
+
+## SNMPv2c erişim profilleri
+
+**Yönetim → Erişim kasası → Yeni kayıt → Protokol: SNMPv2c** yolunda profil adı ve cihazın community değerini girin. Düzenlemede community yeniden girilerek değiştirilir. Profil, cihazın SNMP profili ve keşif kapsamının SNMP erişim profili alanlarında seçilebilir; keşif, izleme, kimlik okuma ve bağlantı testi aynı kayıtlı sürümü kullanır. SNMPv3 varsayılanı korunur; sürümler arasında otomatik geçiş yapılmaz.
+
+`20261030_06` migration'ı yalnızca erişim profili protokol kısıtını genişletir. Mevcut şifreli değerleri değiştirmez. Downgrade, SNMPv2c profili varsa veri silmeden durur; önce bu profillerin bağımlılıkları kaldırılıp profiller silinmelidir. Atılabilir `netrix_test` veritabanındaki doğrulama: `scripts/snmpv2c_migration_check.py`.

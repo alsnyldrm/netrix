@@ -8,6 +8,7 @@ from typing import Protocol
 import asyncssh
 import httpx
 from pysnmp.hlapi.v3arch.asyncio import (
+    CommunityData,
     ContextData,
     ObjectIdentity,
     ObjectType,
@@ -97,15 +98,18 @@ class SNMPCollector:
     async def _collect(self, host, port, secret, identity_only=False, probe_only=False):
         snmp = SnmpEngine()
         try:
-            auth = UsmUserData(
-                secret["username"],
-                secret["auth_key"],
-                secret["priv_key"],
-                authProtocol=usmHMAC192SHA256AuthProtocol
-                if secret.get("auth_protocol", "sha256") == "sha256"
-                else usmHMACSHAAuthProtocol,
-                privProtocol=usmAesCfb128Protocol,
-            )
+            if secret.get("protocol", "snmpv3") == "snmpv2c":
+                auth = CommunityData(secret["community"], mpModel=1)
+            else:
+                auth = UsmUserData(
+                    secret["username"],
+                    secret["auth_key"],
+                    secret["priv_key"],
+                    authProtocol=usmHMAC192SHA256AuthProtocol
+                    if secret.get("auth_protocol", "sha256") == "sha256"
+                    else usmHMACSHAAuthProtocol,
+                    privProtocol=usmAesCfb128Protocol,
+                )
             transport_type = (
                 Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
             )
@@ -122,12 +126,12 @@ class SNMPCollector:
                     lookupMib=False,
                 )
                 if error or status:
-                    raise NetworkError("SNMPv3 erişimi başarısız")
+                    raise NetworkError("SNMP erişimi başarısız")
                 system = {key: str(values[i][1]) for i, key in enumerate(SYSTEM)}
                 system["uptime"] = number(values[2][1], 0)
                 if probe_only:
                     if number(values[2][1]) is None:
-                        raise NetworkError("SNMPv3 sistem OID okuması başarısız")
+                        raise NetworkError("SNMP sistem OID okuması başarısız")
                     return
                 for key, oid in TABLES.items():
                     if identity_only and not key.startswith("entity_"):
@@ -231,7 +235,7 @@ class SNMPCollector:
                     "unsupported": unsupported,
                 }
         except TimeoutError as exc:
-            raise NetworkError("SNMPv3 toplama zaman aşımı") from exc
+            raise NetworkError("SNMP toplama zaman aşımı") from exc
         finally:
             snmp.close_dispatcher()
 

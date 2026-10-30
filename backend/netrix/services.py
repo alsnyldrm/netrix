@@ -33,7 +33,8 @@ RESOURCES = {
     "users": (m.User, s.UserInput),
 }
 HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key"}
-CONNECTION_TESTS = {"test_snmp": "snmpv3", "test_ssh": "ssh", "test_api": "rest"}
+SNMP_PROTOCOLS = ("snmpv3", "snmpv2c")
+CONNECTION_TESTS = {"test_snmp": "snmpv3", "test_snmpv2c": "snmpv2c", "test_ssh": "ssh", "test_api": "rest"}
 IDENTITY_CONNECTION_FIELDS = (
     "management_ip",
     "vrf_id",
@@ -93,13 +94,13 @@ def validate_relations(db, name, data, row_id=None):
     if name == "devices":
         require_ref(db, m.BackupGroup, data.get("backup_group_id"))
         for key, protocols in [
-            ("snmp_credential_id", ["snmpv3"]),
+            ("snmp_credential_id", SNMP_PROTOCOLS),
             ("config_credential_id", ["rest"] if data["adapter"] == "rest" else ["ssh"]),
         ]:
             if data.get(key) and get(db, m.Credential, data[key]).protocol not in protocols:
                 raise HTTPException(422, "Erişim profilinin protokolü adaptörle uyumlu değil")
         if data["monitoring_enabled"] and not data.get("snmp_credential_id"):
-            raise HTTPException(422, "İzleme için SNMPv3 profili gerekli")
+            raise HTTPException(422, "İzleme için SNMPv3 veya SNMPv2c profili gerekli")
         if data["backup_interval"] and not data.get("config_credential_id"):
             raise HTTPException(422, "Yedekleme için erişim profili gerekli")
         if row_id:
@@ -141,8 +142,8 @@ def validate_relations(db, name, data, row_id=None):
             device = get(db, m.Device, interface.device_id)
             if device.vrf_id != data["vrf_id"] or (prefix.site_id and prefix.site_id != device.site_id):
                 raise HTTPException(422, "Arayüzün VRF veya site bilgisi prefix ile uyumsuz")
-    if name == "scopes" and get(db, m.Credential, data["credential_id"]).protocol != "snmpv3":
-        raise HTTPException(422, "Keşif SNMPv3 profili gerektirir")
+    if name == "scopes" and get(db, m.Credential, data["credential_id"]).protocol not in SNMP_PROTOCOLS:
+        raise HTTPException(422, "Keşif SNMPv3 veya SNMPv2c profili gerektirir")
     if name == "rules" and row_id and not data["enabled"]:
         for alert in db.scalars(
             select(m.Alert).where(m.Alert.rule_id == row_id, m.Alert.active_key.is_not(None))
@@ -326,7 +327,7 @@ def authorized_device(db, device):
 
 
 def connection_profile(db, device, protocol):
-    profile_id = device.snmp_credential_id if protocol == "snmpv3" else device.config_credential_id
+    profile_id = device.snmp_credential_id if protocol in SNMP_PROTOCOLS else device.config_credential_id
     profile = db.get(m.Credential, profile_id) if profile_id else None
     if not profile or profile.protocol != protocol:
         return None
@@ -339,7 +340,7 @@ def connection_profile(db, device, protocol):
 
 def connection_test_options(db, device):
     options = []
-    for protocol, label in (("snmpv3", "SNMPv3"), ("ssh", "SSH"), ("rest", "API")):
+    for protocol, label in (("snmpv3", "SNMPv3"), ("snmpv2c", "SNMPv2c"), ("ssh", "SSH"), ("rest", "API")):
         profile = connection_profile(db, device, protocol)
         options.append(
             {
@@ -347,7 +348,7 @@ def connection_test_options(db, device):
                 "label": label,
                 "enabled": profile is not None,
                 "profile_name": profile.name if profile else None,
-                "port": device.snmp_port if protocol == "snmpv3" else device.config_port,
+                "port": device.snmp_port if protocol in SNMP_PROTOCOLS else device.config_port,
                 "path": device.identity_path if protocol == "rest" else None,
             }
         )

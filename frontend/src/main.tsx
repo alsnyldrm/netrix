@@ -168,7 +168,7 @@ export const PAGES: Page[] = [
         "linux",
         "rest",
       ]),
-      ref("snmp_credential_id", "SNMPv3 profili", "credentials"),
+      ref("snmp_credential_id", "SNMP profili", "credentials"),
       ref("config_credential_id", "SSH / API profili", "credentials"),
       f("snmp_port", "SNMP portu", { type: "number", default: 161 }),
       f("config_port", "SSH / HTTPS portu", {
@@ -349,7 +349,7 @@ export const PAGES: Page[] = [
         hint: "Kapsamı kaydetmek bu ağda işlem yapma yetkiniz olduğunu belirtir.",
       }),
       ref("vrf_id", "VRF", "vrfs", true),
-      ref("credential_id", "SNMPv3 erişim profili", "credentials", true),
+      ref("credential_id", "SNMP erişim profili", "credentials", true),
       ref("site_id", "Lokasyon", "sites"),
       f("exclusions", "Hariç tutulan CIDR listesi", {
         type: "array",
@@ -540,7 +540,7 @@ export const PAGES: Page[] = [
   {
     key: "credentials",
     title: "Erişim kasası",
-    desc: "SNMPv3, SSH ve API sırları uygulama katmanında şifrelenir.",
+    desc: "SNMPv3, SNMPv2c, SSH ve API sırları uygulama katmanında şifrelenir.",
     group: "Yönetim",
     icon: Key,
     resource: "credentials",
@@ -552,7 +552,8 @@ export const PAGES: Page[] = [
     ],
     fields: [
       f("name", "Profil adı", { required: true }),
-      options("protocol", "Protokol", ["snmpv3", "ssh", "rest"]),
+      options("protocol", "Protokol", ["snmpv3", "snmpv2c", "ssh", "rest"]),
+      f("community", "SNMP community", { type: "password", required: true }),
       f("username", "Kullanıcı adı"),
       f("password", "SSH parolası", { type: "password" }),
       f("auth_key", "SNMP auth anahtarı", {
@@ -718,7 +719,10 @@ const LABELS: Record<string, string> = {
   compare: "Aktif config karşılaştırması",
   monitor: "İzleme",
   identify: "Cihaz bilgisi sorgusu",
+  snmpv3: "SNMPv3",
+  snmpv2c: "SNMPv2c",
   test_snmp: "SNMPv3 bağlantı testi",
+  test_snmpv2c: "SNMPv2c bağlantı testi",
   test_ssh: "SSH bağlantı testi",
   test_api: "API bağlantı testi",
   availability: "Erişilebilirlik",
@@ -1101,6 +1105,7 @@ function ResourceForm({
       (field) =>
         page.key !== "credentials" ||
         ![
+          "community",
           "username",
           "password",
           "auth_key",
@@ -1112,6 +1117,7 @@ function ResourceForm({
           ["username", "auth_key", "priv_key", "auth_protocol"].includes(
             field.key,
           )) ||
+        (values.protocol === "snmpv2c" && field.key === "community") ||
         (values.protocol === "ssh" &&
           ["username", "password"].includes(field.key)) ||
         (values.protocol === "rest" && field.key === "token"),
@@ -1133,6 +1139,7 @@ function ResourceForm({
       if (page.key === "credentials") {
         const secret: Row = {};
         for (const key of [
+          "community",
           "username",
           "password",
           "auth_key",
@@ -1140,7 +1147,8 @@ function ResourceForm({
           "auth_protocol",
           "token",
         ]) {
-          secret[key] = data[key];
+          if (fields.some((field) => field.key === key))
+            secret[key] = data[key];
           delete data[key];
         }
         data.secret = secret;
@@ -1168,7 +1176,7 @@ function ResourceForm({
           <div className="info-note">
             <Info size={20} />
             <p>
-              Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMPv3 veya
+              Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMP veya
               SSH/API profiliyle yetkili kapsam içinde sorgulanır. Cihazdan
               okunabilen alanlar güncellenir; okunamayan alanlarda girdiğiniz
               bilgiler korunur.
@@ -1223,7 +1231,7 @@ function ResourceForm({
                                   "config_credential_id",
                                 ].includes(field.key) ||
                                 (field.key === "snmp_credential_id"
-                                  ? r.protocol === "snmpv3"
+                                  ? ["snmpv3", "snmpv2c"].includes(r.protocol)
                                   : r.protocol ===
                                     (values.adapter === "rest"
                                       ? "rest"
@@ -1843,7 +1851,10 @@ function ConnectionTestDialog({
                 <p>
                   <b>{current.profile_name}</b>
                   <br />
-                  {selected === "snmpv3" ? "UDP" : "TCP"} {current.port}
+                  {["snmpv3", "snmpv2c"].includes(selected)
+                    ? "UDP"
+                    : "TCP"}{" "}
+                  {current.port}
                   {selected === "rest" && (
                     <span className="mono"> · {current.path}</span>
                   )}

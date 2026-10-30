@@ -11,9 +11,10 @@ from .protocols import NetworkError, ssh_known_hosts
 
 async def probe(device, protocol, secret, collector):
     async with asyncio.timeout(30):
-        if protocol == "snmpv3":
+        if protocol in ("snmpv3", "snmpv2c"):
             await collector.probe(device.management_ip, device.snmp_port, secret)
-            return "SNMPv3 authPriv bağlantısı ve sistem OID okuması başarılı."
+            label = "SNMPv2c" if protocol == "snmpv2c" else "SNMPv3 authPriv"
+            return f"{label} bağlantısı ve sistem OID okuması başarılı."
         if protocol == "ssh":
             async with asyncssh.connect(
                 device.management_ip,
@@ -77,6 +78,8 @@ def failure(exc, protocol):
         )
     if protocol == "rest" and isinstance(exc, ValueError):
         return "invalid_response", "API uç noktası geçerli bir JSON yanıtı vermedi. API yolunu kontrol edin."
+    if protocol == "snmpv2c":
+        return "snmp_failed", "SNMPv2c testi başarısız. Community, port ve ağ erişimini kontrol edin."
     if protocol == "snmpv3":
         return (
             "snmp_failed",
