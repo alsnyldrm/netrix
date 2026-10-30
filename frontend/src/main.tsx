@@ -656,9 +656,9 @@ export const PAGES: Page[] = [
 const GROUPS = [
   "Genel bakış",
   "Envanter",
-  "Yedekler",
-  "IP adres yönetimi",
   "Keşif & bağlantı",
+  "IP adres yönetimi",
+  "Yedekler",
   "Operasyon",
   "Yönetim",
 ];
