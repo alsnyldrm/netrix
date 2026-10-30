@@ -301,11 +301,18 @@ def validate(db, raw):
             if identity in seen:
                 raise HTTPException(422, "Dosyada aynı VRF ve IP adresi birden fazla kez var")
             seen.add(identity)
-            if db.scalar(
-                select(m.Device.id)
+            existing = db.execute(
+                select(m.Device.id, m.Device.archived)
                 .where(m.Device.vrf_id == identity[0], m.Device.management_ip == identity[1])
                 .limit(1)
-            ):
+            ).first()
+            if existing and existing.archived:
+                raise HTTPException(
+                    422,
+                    "Bu VRF ve IP adresindeki cihaz arşivde. "
+                    "Envanter → Arşivlenmiş cihazlar menüsünden kaydı geri yükleyin; yeniden içeri aktarmayın.",
+                )
+            if existing:
                 raise HTTPException(
                     422, "Bu VRF ve IP adresinde zaten cihaz var; mevcut kayıtlar değiştirilmez"
                 )

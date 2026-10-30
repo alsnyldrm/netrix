@@ -50,6 +50,7 @@ import {
   ArrowUp,
   LockKey,
   HardDrives,
+  Archive,
   TreeStructure,
   ListNumbers,
   Rows,
@@ -210,6 +211,13 @@ export const PAGES: Page[] = [
         hint: "0: kapalı. Etkinleştirmek için en az 300.",
       }),
     ],
+  },
+  {
+    key: "archived-devices",
+    title: "Arşivlenmiş cihazlar",
+    desc: "Listeden kaldırılan cihazları geçmişleriyle birlikte görüntüleyin ve geri yükleyin.",
+    group: "Envanter",
+    icon: Archive,
   },
   {
     key: "interfaces",
@@ -2926,6 +2934,14 @@ function App() {
                     row,
                   })
                 }
+              />
+            ) : page.key === "archived-devices" ? (
+              <InventoryTable
+                key="archived-devices"
+                purpose="archive"
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
               />
             ) : page.key === "interfaces" ? (
               <InterfaceWorkspace

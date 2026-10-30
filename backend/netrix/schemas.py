@@ -262,7 +262,7 @@ class SelectionInput(Input):
 
 class BulkInput(Input):
     ids: list[str] = Field(min_length=1, max_length=100)
-    action: Literal["update", "delete", "disable", "enable"]
+    action: Literal["update", "delete", "disable", "enable", "restore"]
     changes: dict = Field(default_factory=dict)
 
 

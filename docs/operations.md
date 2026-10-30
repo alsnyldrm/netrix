@@ -44,6 +44,14 @@ Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etki
 7. SNMP profilini atayıp izlemeyi etkinleştirin. İlk örnek baseline'dır; ikinci geçerli örnekten sonra hız çıkar. Zamanlama aralığı en az 60 saniye.
 8. Alarm kuralları oluşturun. Erişilebilirlik ve config-change kurallarında eşik alanı kullanılmaz; kullanımda yüzde, no-data'da saniyedir. Kalıcı alarm akışı, görüldü ve iyileşme durumlarını takip edin.
 
+## Arşivlenmiş cihazlar
+
+Cihaz envanterindeki **Sil** işlemi fiziksel silme yapmaz; cihazı arşivler ve normal listeden kaldırır. Aynı VRF/IP kimliği, arayüzleri ve yedek geçmişi korunur. Bu yüzden arşivdeki cihaz aynı IP ile yeniden içeri aktarılamaz; aktarım hatası arşiv menüsüne yönlendirir.
+
+**Envanter → Arşivlenmiş cihazlar** bölümünde IP/ad dahil bütün kayıt alanlarında arama, VE/VEYA filtreleri ve sütun seçimi kullanılabilir. Yönetici, satırdaki **Geri yükle** düğmesiyle veya birden çok cihazı seçerek kayıtları geri yükler. İzleyici ve operatör arşivi görüntüleyebilir; geri yükleme yönetici yetkisi ister.
+
+Geri yüklenen cihaz aynı kimlikle **Cihaz envanteri** listesine **Bakımda** durumunda döner. Profiller, güven tercihi, grup ve geçmiş korunur; izleme kapalı, cihazın yedek aralığı 0 olur. Bakımda durumu, korunan yedek grubunun zamanlamasını da durdurur. Cihaz ayarlarından yaşam döngüsünü Aktif yapıp izleme/zamanlama ayarlarını düzenleyin. Geri yükleme kendi başına bağlantı testi veya keşif başlatmaz.
+
 ## Yedekleme ve geri yükleme
 
 Host üzerinde Python 3 ve Docker ile; MariaDB istemcisi çalışan NETRIX container'ında kullanılır, ek container açılmaz:

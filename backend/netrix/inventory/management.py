@@ -109,6 +109,7 @@ def query(
     candidates=False,
     group_by="",
     changed_only=False,
+    archived=False,
 ):
     models = {
         "devices": m.Device,
@@ -118,6 +119,8 @@ def query(
     }
     if resource not in models:
         raise HTTPException(404, "Kaynak bulunamadı")
+    if archived and resource != "devices":
+        raise HTTPException(422, "Arşiv görünümü yalnızca cihazlar için kullanılabilir")
     model = models[resource]
     if group_by not in ("", "device_name", "backup_group") or (group_by and resource != "snapshots"):
         raise HTTPException(422, "Geçersiz gruplama")
@@ -151,7 +154,7 @@ def query(
         if device_id:
             stmt = stmt.where(model.device_id == device_id)
     if resource not in ("snapshots", "backup-devices"):
-        stmt = stmt.where(m.Device.archived.is_(False))
+        stmt = stmt.where(m.Device.archived.is_(archived))
     if resource == "interfaces" and not candidates:
         stmt = stmt.where(m.Interface.is_managed.is_(True), m.Interface.is_deleted.is_(False))
     stmt = stmt.outerjoin(m.Site, m.Device.site_id == m.Site.id).outerjoin(m.VRF, m.Device.vrf_id == m.VRF.id)
@@ -295,15 +298,27 @@ def bulk(db, resource, payload, user):
         raise HTTPException(404, "Kaynak bulunamadı")
     if payload.action == "delete" and user.role != "admin":
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
+    if payload.action == "restore" and user.role != "admin":
+        raise HTTPException(403, "Geri yükleme için yönetici yetkisi gerekli")
     ids = sorted(set(payload.ids))
     model = m.Device if resource == "devices" else m.Interface
     rows = db.scalars(select(model).where(model.id.in_(ids)).order_by(model.id).with_for_update()).all()
     if len(rows) != len(ids):
         raise HTTPException(404, "Seçilen kayıtlardan biri bulunamadı")
     if resource == "devices":
-        if payload.action not in ("update", "delete"):
+        if payload.action not in ("update", "delete", "restore"):
             raise HTTPException(422, "Geçersiz cihaz işlemi")
-        if payload.action == "update":
+        if payload.action == "restore":
+            if payload.changes:
+                raise HTTPException(422, "Geri yükleme sırasında alanlar değiştirilemez")
+            if any(not row.archived for row in rows):
+                raise HTTPException(409, "Yalnızca arşivlenmiş cihazlar geri yüklenebilir")
+            for row in rows:
+                # Retain identity, relationships and history. Maintenance also prevents
+                # a retained backup group's schedule from restarting automatically.
+                row.archived, row.lifecycle_status = False, "maintenance"
+                row.monitoring_enabled, row.backup_interval = False, 0
+        elif payload.action == "update":
             if not payload.changes or set(payload.changes) - BULK_FIELDS:
                 raise HTTPException(422, "Toplu düzenlemede yalnızca izin verilen alanlar değiştirilebilir")
             for row in rows:

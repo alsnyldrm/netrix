@@ -493,12 +493,15 @@ def inventory_query(
     candidates: bool = False,
     group_by: str = "",
     changed_only: bool = False,
+    archived: bool = False,
     user=Depends(current_user),
     db=Depends(db_session),
 ):
     from .inventory.management import query
 
-    return query(db, resource, limit, offset, q, filters, device_id, candidates, group_by, changed_only)
+    return query(
+        db, resource, limit, offset, q, filters, device_id, candidates, group_by, changed_only, archived
+    )
 
 
 @app.post(P + "/inventory/{resource}/bulk")

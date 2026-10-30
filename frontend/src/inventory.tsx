@@ -10,6 +10,7 @@ import {
   Eye,
   DownloadSimple,
   ArrowsClockwise,
+  ArrowCounterClockwise,
 } from "@phosphor-icons/react";
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
@@ -509,6 +510,8 @@ export function InventoryTable({
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState("");
+  const [notice, setNotice] = useState("");
+  const archive = purpose === "archive";
   const pref = `netrix-columns:${user.id}:${purpose}`;
   const [shown, setShown] = useState<string[]>(() => {
     try {
@@ -555,6 +558,7 @@ export function InventoryTable({
       limit: "25",
       group_by: group,
       changed_only: String(purpose === "changes"),
+      archived: String(archive),
     });
     if (deviceId) qs.set("device_id", deviceId);
     const key = qs.toString();
@@ -578,16 +582,18 @@ export function InventoryTable({
     return () => {
       active = false;
     };
-  }, [resource, deviceId, refresh, search, encoded, offset, group]);
+  }, [resource, deviceId, refresh, search, encoded, offset, group, archive]);
   const columns: Column[] = data.columns;
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";
   const hasActions =
+    (archive && user.role === "admin") ||
     (["devices", "backup-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable);
   const selectRows =
     writable &&
+    (!archive || user.role === "admin") &&
     purpose !== "interface-devices" &&
     ["devices", "interfaces"].includes(resource);
   const apply = async (action: string) => {
@@ -600,6 +606,13 @@ export function InventoryTable({
       });
       setSelected([]);
       setDialog("");
+      setNotice(
+        action === "restore"
+          ? `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
+          : action === "delete" && resource === "devices"
+            ? `${selected.length} cihaz arşivlendi. Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
+            : "İşlem tamamlandı.",
+      );
       onSaved();
     } catch (e: any) {
       setError(e.message);
@@ -681,7 +694,16 @@ export function InventoryTable({
       {selected.length > 0 && (
         <div className="inventory-selection">
           <b>{selected.length} kayıt seçildi</b>
-          {resource === "devices" ? (
+          {archive ? (
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDialog("restore")}
+            >
+              <ArrowCounterClockwise size={16} />
+              Geri yükle
+            </button>
+          ) : resource === "devices" ? (
             <button className="secondary" onClick={() => setDialog("bulk")}>
               <PencilSimple size={16} />
               {purpose === "backup-settings"
@@ -706,7 +728,7 @@ export function InventoryTable({
               </button>
             </>
           )}
-          {user.role === "admin" && (
+          {user.role === "admin" && !archive && (
             <button className="secondary" onClick={() => setDialog("delete")}>
               <Trash size={16} />
               Sil
@@ -722,6 +744,7 @@ export function InventoryTable({
           {error}
         </p>
       )}
+      {notice && <p role="status">{notice}</p>}
       {loading && (
         <p role="status" className="muted">
           Kayıtlar yükleniyor…
@@ -817,6 +840,20 @@ export function InventoryTable({
                   {hasActions && (
                     <td>
                       <div className="inventory-actions">
+                        {archive && user.role === "admin" && (
+                          <button
+                            className="secondary"
+                            disabled={busy || loading}
+                            aria-label={`${row.name} geri yükle`}
+                            onClick={() => {
+                              setSelected([row.id]);
+                              setDialog("restore");
+                            }}
+                          >
+                            <ArrowCounterClockwise size={18} />
+                            Geri yükle
+                          </button>
+                        )}
                         {["devices", "backup-devices"].includes(resource) && (
                           <>
                             {onDevice && (
@@ -959,7 +996,14 @@ export function InventoryTable({
         />
       )}
       {dialog === "delete" && (
-        <Dialog title="Seçilen kayıtları sil" onClose={() => setDialog("")}>
+        <Dialog
+          title={
+            resource === "devices"
+              ? "Seçilen cihazları arşivle"
+              : "Seçilen kayıtları sil"
+          }
+          onClose={() => setDialog("")}
+        >
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -967,8 +1011,9 @@ export function InventoryTable({
             }}
           >
             <p>
-              {selected.length} kayıt uygulama listesinden kaldırılacak. Geçmiş
-              kayıtlar korunur.
+              {resource === "devices"
+                ? `${selected.length} cihaz arşivlenecek. Geçmişi korunur; Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
+                : `${selected.length} kayıt uygulama listesinden kaldırılacak. Geçmiş kayıtlar korunur.`}
             </p>
             <div className="dialog-footer">
               <button
@@ -979,7 +1024,9 @@ export function InventoryTable({
                 Vazgeç
               </button>
               <button className="primary" disabled={busy}>
-                Seçilenleri sil
+                {resource === "devices"
+                  ? "Seçilenleri arşivle"
+                  : "Seçilenleri sil"}
               </button>
             </div>
             {error && (
@@ -987,6 +1034,50 @@ export function InventoryTable({
                 {error}
               </p>
             )}
+          </form>
+        </Dialog>
+      )}
+      {dialog === "restore" && (
+        <Dialog
+          title="Cihazları geri yükle"
+          onClose={() => {
+            if (!busy) setDialog("");
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              apply("restore");
+            }}
+          >
+            <p>
+              {selected.length} cihaz, aynı kayıt kimliği ve geçmişiyle cihaz
+              envanterine dönecek.
+            </p>
+            <p className="muted">
+              Cihazlar Bakımda durumuyla geri yüklenir; otomatik izleme ve
+              yedekleme başlamaz. Cihaz ayarlarından yaşam döngüsünü Aktif
+              yapabilir, zamanlamaları düzenleyebilirsiniz.
+            </p>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <div className="dialog-footer">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setDialog("")}
+              >
+                Vazgeç
+              </button>
+              <button className="primary" disabled={busy}>
+                <ArrowCounterClockwise size={18} />
+                {busy ? "Geri yükleniyor…" : "Geri yükle"}
+              </button>
+            </div>
           </form>
         </Dialog>
       )}

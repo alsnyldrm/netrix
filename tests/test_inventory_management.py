@@ -428,3 +428,99 @@ def test_backup_device_directory_counts_and_scopes_history(admin_client, records
             ).json()
             assert history["total"] == total
             assert all(row["device_id"] == device_id for row in history["items"])
+
+
+def test_archive_restore_preserves_identity_history_and_stops_schedules(
+    admin_client, records, env, inventory
+):
+    c = admin_client
+    device_id = records["devices"][0]
+    with env() as db:
+        device = db.get(m.Device, device_id)
+        group = m.BackupGroup(name="Scheduled", interval_seconds=300)
+        db.add(group)
+        db.flush()
+        device.backup_group_id = group.id
+        device.snmp_credential_id = inventory["credential"]["id"]
+        device.monitoring_enabled = True
+        device.backup_interval = 300
+        job = m.Job(kind="backup", target_id=device_id, status="succeeded")
+        db.add(job)
+        db.flush()
+        snapshot = m.Snapshot(
+            device_id=device_id,
+            job_id=job.id,
+            encrypted_content=encrypt("fixture"),
+            fingerprint="fixture",
+            size_bytes=7,
+        )
+        db.add(snapshot)
+        db.commit()
+        group_id, snapshot_id = group.id, snapshot.id
+    assert c.delete("/api/v1/devices/" + device_id).status_code == 204
+    assert c.get("/api/v1/inventory/devices", params={"q": "Device 0"}).json()["total"] == 0
+    archived = c.get("/api/v1/inventory/devices", params={"archived": True, "q": "192.0.2.1"}).json()
+    assert archived["total"] == 1 and archived["items"][0]["id"] == device_id
+    assert archived["items"][0]["snmp_profile"] == "Test SNMP"
+    assert "encrypted_content" not in str(archived) and "encrypted_secret" not in str(archived)
+    assert c.get("/api/v1/inventory/interfaces", params={"archived": True}).status_code == 422
+    restore = {"action": "restore", "ids": [device_id]}
+    assert c.post("/api/v1/inventory/devices/bulk", json=restore).json() == {"updated": 1}
+    assert c.get("/api/v1/inventory/devices", params={"archived": True}).json()["total"] == 0
+    assert c.get("/api/v1/inventory/devices", params={"q": "192.0.2.1"}).json()["items"][0]["id"] == device_id
+    with env() as db:
+        device = db.get(m.Device, device_id)
+        assert not device.archived and device.lifecycle_status == "maintenance"
+        assert not device.monitoring_enabled and device.backup_interval == 0
+        assert device.backup_group_id == group_id
+        assert device.snmp_credential_id == inventory["credential"]["id"]
+        assert db.get(m.Snapshot, snapshot_id).device_id == device_id
+        assert db.get(m.Interface, records["ports"][0]).device_id == device_id
+        assert db.scalar(select(func.count()).select_from(m.Job)) == 1
+        assert db.scalar(
+            select(m.Audit).where(m.Audit.action == "bulk_restore", m.Audit.entity_id == device_id)
+        )
+    assert c.post("/api/v1/inventory/devices/bulk", json=restore).status_code == 409
+
+
+def test_restore_is_atomic_rejects_changes_and_non_devices(admin_client, records, env):
+    c = admin_client
+    first, second = records["devices"]
+    c.delete("/api/v1/devices/" + first)
+    for payload, status in (
+        ({"ids": [first, second], "action": "restore"}, 409),
+        ({"ids": [first, "absent"], "action": "restore"}, 404),
+        ({"ids": [first], "action": "restore", "changes": {"vendor": "altered"}}, 422),
+    ):
+        assert c.post("/api/v1/inventory/devices/bulk", json=payload).status_code == status
+        with env() as db:
+            assert db.get(m.Device, first).archived
+            assert not db.scalar(select(m.Audit).where(m.Audit.action == "bulk_restore"))
+    assert (
+        c.post(
+            "/api/v1/inventory/interfaces/bulk", json={"ids": records["ports"], "action": "restore"}
+        ).status_code
+        == 422
+    )
+    assert (
+        c.post("/api/v1/inventory/devices/bulk", json={"ids": [first], "action": "restore"}).status_code
+        == 200
+    )
+
+
+@pytest.mark.parametrize("role", ["operator", "viewer"])
+def test_archive_can_be_read_but_only_admin_can_restore(admin_client, records, env, role):
+    device_id = records["devices"][0]
+    admin_client.delete("/api/v1/devices/" + device_id)
+    with env() as db:
+        db.scalar(select(m.User).where(m.User.email == "owner@example.test")).role = role
+        db.commit()
+    assert admin_client.get("/api/v1/inventory/devices", params={"archived": True}).json()["total"] == 1
+    assert (
+        admin_client.post(
+            "/api/v1/inventory/devices/bulk", json={"action": "restore", "ids": [device_id]}
+        ).status_code
+        == 403
+    )
+    with env() as db:
+        assert db.get(m.Device, device_id).archived

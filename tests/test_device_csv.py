@@ -299,3 +299,33 @@ def test_snmpv2c_csv_masks_community_and_uses_existing_profile(admin_client, inv
         BASE + "/import", json={"content": content.replace("********", "PRIVATE-COMMUNITY")}
     )
     assert rejected.json()["errors"] and "PRIVATE-COMMUNITY" not in rejected.text
+
+
+@pytest.mark.parametrize("apply", [False, True])
+def test_archived_duplicate_points_to_restore_without_importing(admin_client, inventory, env, apply):
+    with env() as db:
+        device = m.Device(
+            name="Archived",
+            management_ip="192.0.2.21",
+            vrf_id=inventory["vrf"]["id"],
+            archived=True,
+            lifecycle_status="retired",
+        )
+        db.add(device)
+        db.commit()
+        device_id = device.id
+    content = render(
+        [
+            {"name": "New name", "management_ip": "192.0.2.21", "vrf_id": "Global"},
+            {"name": "Otherwise valid", "management_ip": "192.0.2.22", "vrf_id": "Global"},
+        ]
+    )
+    report = admin_client.post(BASE + "/import", json={"content": content, "apply": apply}).json()
+    assert report["imported"] == 0
+    assert "Arşivlenmiş cihazlar" in report["errors"][0]["message"]
+    assert "geri yükleyin" in report["errors"][0]["message"]
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.Device)) == 1
+        assert db.get(m.Device, device_id).archived
+        assert db.get(m.Device, device_id).name == "Archived"
+        assert db.scalar(select(func.count()).select_from(m.Job)) == 0
