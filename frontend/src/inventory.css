@@ -366,3 +366,33 @@
 .csv-preview .transfer-preview-table {
   min-width: 1440px;
 }
+
+.topology-table .inventory-toolbar > button,
+.topology-table .inventory-search input {
+  min-height: 44px;
+}
+.topology-table .inventory-pagination button {
+  min-height: 44px;
+}
+.topology-filter-form input,
+.topology-filter-form select,
+.topology-filter-form button {
+  min-height: 44px;
+}
+.topology-filter-form .filter-rule button {
+  margin-bottom: 0;
+}
+@media (min-width: 641px) {
+  .topology-filter-form .filter-rule {
+    grid-template-columns: 96px minmax(0, 1fr) minmax(0, 1fr) minmax(
+        0,
+        1fr
+      ) 44px;
+  }
+}
+@media (max-width: 640px) {
+  .topology-filter-form .filter-rule label:nth-of-type(2),
+  .topology-filter-form .filter-rule label:nth-of-type(4) {
+    grid-column: 1 / -1;
+  }
+}

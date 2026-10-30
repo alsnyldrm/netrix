@@ -179,3 +179,8 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - H3 örneğinde CDP `38:21:c7:3c:b2:40` ikili kimliği ile LLDP sistem adı `HP-SW-CO-01-A-09-01` ve uzak port `49` canlı, salt okunur SNMP sorgusunda eşleşti. LLDP yerel kimliği `227`, port açıklaması ve IF-MIB adı `H3` olarak gözlendi.
 - Backend test kümesi: 328 test geçti. Eklenen başarısız/desteklenmeyen komşuluk tablosu testiyle hedefli protokol/topoloji doğrulamaları ayrıca çalıştırıldı. Gerçek ağ erişimi testlerde yasak; canlı sorgu ayrı ve kullanıcı tetiklemesiyle yapıldı.
 - `scripts/neighbor_migration_check.py`: atılabilir, Docker `--internal` ağındaki MariaDB 11.8.3 / `netrix_test` üzerinde eski veriyle 08 → 09 geçişi, JSON kanıt, UTC son gözlem zamanı, H3 kaydının aynı kimlikle düzeltilmesi, geçmiş/güncel ayrımı, korumalı downgrade, round trip ve Alembic şema kontrolü geçti. Üretim verileri bu test ortamına taşınmadı.
+
+## Bağlantı tablosu filtreleri ve sütun seçimi (30 Ekim 2026)
+
+- Topoloji/envanter API testleri: 28 test geçti. Karışık VE/VEYA'nın soldan sağa değerlendirilmesi, filtrelerin sayfalama öncesinde uygulanması, kaynak cihaz alanları, eşleşen komşu alanları, yüzde filtresi, yerelleştirilmiş protokol araması, tarihî/arşiv kayıtların dışlanması ve salt okunur kullanıcı erişimi doğrulandı.
+- `scripts/topology_table_browser_check.py`: üç koşullu filtre, koşul silme/temizleme, seçilen sütunlar, boş seçimi engelleme, yenilemede tercihin korunması, Escape/odak dönüşü ve kayıt ayrıntıları kontrol edilir. 1440×1000, 375×812 ve 812×375 boyutlarında açık/koyu temalar; 18 ekran görüntüsü, taşma/hizalama ve axe WCAG A/AA kontrolleri uygulanır.

@@ -1,11 +1,12 @@
 """Topology UI regression checks, against a disposable local fixture only."""
 
 import json
+import os
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-base = "http://127.0.0.1:8216"
+base = os.environ.get("NETRIX_BROWSER_URL", "http://127.0.0.1:8216")
 Path("artifacts").mkdir(exist_ok=True)
 with sync_playwright() as p:
     # Headless Chromium hides scrollbars by default; retain desktop scrollbar

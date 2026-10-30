@@ -2343,7 +2343,7 @@ function App() {
     if (
       !user ||
       !page.resource ||
-      ["devices", "interfaces", "configuration"].includes(page.key)
+      ["devices", "interfaces", "configuration", "topology"].includes(page.key)
     )
       return;
     let active = true;
@@ -2827,21 +2827,36 @@ function App() {
                 user={user!}
                 onSaved={reload}
               />
+            ) : page.key === "topology" ? (
+              <>
+                <section className="panel topology-panel">
+                  <Topology
+                    devices={(refs.devices || []) as TopologyDevice[]}
+                    links={(refs.links || []) as TopologyLink[]}
+                    onDevice={inspectDevice}
+                  />
+                </section>
+                <InventoryTable
+                  key={`topology:${user!.id}`}
+                  resource="links"
+                  purpose="topology"
+                  refresh={refresh}
+                  user={user!}
+                  onSaved={reload}
+                  onContent={(row) =>
+                    setConfig({
+                      title: "Kayıt ayrıntıları",
+                      content: JSON.stringify(row, null, 2),
+                    })
+                  }
+                />
+              </>
             ) : page.key === "monitoring" ? (
               <Traffic refs={refs} refresh={refresh} />
             ) : page.key === "settings" ? (
               <Settings onLogout={() => setUser(null)} />
             ) : (
               <>
-                {page.key === "topology" && (
-                  <section className="panel topology-panel">
-                    <Topology
-                      devices={(refs.devices || []) as TopologyDevice[]}
-                      links={(refs.links || []) as TopologyLink[]}
-                      onDevice={inspectDevice}
-                    />
-                  </section>
-                )}
                 {page.key === "discovery" && (
                   <div className="scope-banner">
                     <div className="scope-banner-icon">

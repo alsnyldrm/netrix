@@ -66,6 +66,21 @@ LABELS = {
     "snapshot_count": "Yedek sayısı",
     "latest_snapshot_at": "Son yedek",
 }
+LINK_LABELS = {
+    "device_name": "Kaynak cihaz",
+    "management_ip": "Kaynak IP",
+    "device_kind": "Kaynak cihaz türü",
+    "vendor": "Kaynak üretici",
+    "model": "Kaynak model",
+    "interface_name": "Yerel port",
+    "remote_name": "Komşu",
+    "remote_port": "Uzak port",
+    "remote_device_name": "Eşleşen cihaz",
+    "remote_management_ip": "Komşu yönetim IP",
+    "source": "Kaynak",
+    "confidence_percent": "Güven (%)",
+}
+LINK_SOURCES = {"lldp": "LLDP", "cdp": "CDP", "lldp+cdp": "LLDP + CDP", "manual": "Kullanıcı doğrulaması"}
 TRANSLATIONS = {
     "switch": "Switch",
     "router": "Router",
@@ -117,6 +132,7 @@ def query(
         "backup-devices": m.Device,
         "interfaces": m.Interface,
         "snapshots": m.Snapshot,
+        "links": m.Link,
     }
     if resource not in models:
         raise HTTPException(404, "Kaynak bulunamadı")
@@ -196,6 +212,27 @@ def query(
             else_=capacity(1000000, " Mbps"),
         )
 
+    if resource == "links":
+        remote = aliased(m.Device)
+        stmt = stmt.outerjoin(remote, m.Link.remote_device_id == remote.id).where(m.Link.is_current.is_(True))
+        cols = {
+            "device_name": m.Device.name,
+            "management_ip": m.Device.management_ip,
+            "device_kind": m.Device.kind,
+            "vendor": m.Device.vendor,
+            "model": m.Device.model,
+            "site_name": m.Site.name,
+            "vrf_name": m.VRF.name,
+            "interface_name": m.Link.interface_name,
+            "remote_name": m.Link.remote_name,
+            "remote_port": m.Link.remote_port,
+            "remote_device_name": remote.name,
+            "remote_management_ip": remote.management_ip,
+            "source": m.Link.source,
+            "confidence_percent": m.Link.confidence * 100,
+            "last_seen_at": m.Link.last_seen_at,
+        }
+
     def contains(col, value):
         return cast(col, String).ilike(
             "%" + value.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%", escape="!"
@@ -209,6 +246,8 @@ def query(
             clauses.append(contains(case(TRANSLATIONS, value=col, else_=col), value))
         if key in ("monitoring_enabled", "ssh_trust_host_key", "is_managed", "auto_add_excluded"):
             clauses.append(contains(case((col.is_(True), "Etkin Evet"), else_="Kapalı Hayır"), value))
+        if resource == "links" and key == "source":
+            clauses.append(contains(case(LINK_SOURCES, value=col, else_=col), value))
         if key == "changed":
             clauses.append(contains(case((col.is_(True), "Değişti"), else_="Değişmedi"), value))
         return or_(*clauses)
@@ -236,6 +275,10 @@ def query(
             except (ValueError, InvalidOperation, NotImplementedError):
                 raise HTTPException(422, "Sayısal filtre için sayısal alan ve değer gerekli") from None
         if f.op in ("eq", "ne"):
+            if resource == "links" and f.field == "source":
+                value = next(
+                    (k for k, v in LINK_SOURCES.items() if v.casefold() == value.casefold()), value.lower()
+                )
             if f.field in ("lifecycle_status", "reachability", "oper_status"):
                 value = next((k for k, v in TRANSLATIONS.items() if v.casefold() == value.casefold()), value)
             if f.field in (
@@ -282,7 +325,7 @@ def query(
         stmt = stmt.where(m.Snapshot.changed.is_(True))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     extras = {k: v for k, v in cols.items() if k not in inspect(model).column_attrs.keys()}
-    if resource == "interfaces":
+    if resource in ("interfaces", "links"):
         extras["device_kind_name"] = m.DeviceType.name
     stmt = stmt.add_columns(*[v.label(k) for k, v in extras.items()])
     result = db.execute(
@@ -291,7 +334,8 @@ def query(
         .limit(limit)
     ).all()
     items = [{**svc.serialize(row[0]), **dict(zip(extras, row[1:]))} for row in result]
-    return {"items": items, "total": total, "columns": [{"key": k, "label": LABELS.get(k, k)} for k in cols]}
+    labels = {**LABELS, **(LINK_LABELS if resource == "links" else {})}
+    return {"items": items, "total": total, "columns": [{"key": k, "label": labels.get(k, k)} for k in cols]}
 
 
 def select_interfaces(db, device_id, payload, user):

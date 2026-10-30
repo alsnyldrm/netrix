@@ -38,6 +38,14 @@ const BULK = [
   "backup_interval",
 ];
 const DEFAULTS: Record<string, string[]> = {
+  links: [
+    "device_name",
+    "interface_name",
+    "remote_name",
+    "remote_port",
+    "source",
+    "confidence_percent",
+  ],
   "backup-devices": [
     "name",
     "management_ip",
@@ -96,6 +104,12 @@ function value(key: string, v: any) {
         }
       />
     );
+  if (key === "confidence_percent")
+    return `${Math.round(v)}% · ${v < 90 ? "Belirsiz" : "Doğrulandı"}`;
+  if (key === "source")
+    return v === "manual"
+      ? "Kullanıcı doğrulaması"
+      : String(v).toUpperCase().replace("+", " + ");
   if (key.endsWith("_at")) return date(v);
   if (key === "speed_bps") return speed(v);
   if (key === "changed") return v ? "Değişti" : "Değişmedi";
@@ -108,11 +122,13 @@ function value(key: string, v: any) {
 }
 function Filters({
   columns,
+  wide = false,
   rules,
   onSave,
   onClose,
 }: {
   columns: Column[];
+  wide?: boolean;
   rules: Rule[];
   onSave: (r: Rule[]) => void;
   onClose: () => void;
@@ -121,8 +137,9 @@ function Filters({
   const change = (i: number, k: string, v: string) =>
     setDraft(draft.map((r, j) => (i === j ? { ...r, [k]: v } : r)));
   return (
-    <Dialog title="Filtreler" onClose={onClose}>
+    <Dialog title="Filtreler" onClose={onClose} wide={wide}>
       <form
+        className={wide ? "topology-filter-form" : undefined}
         onSubmit={(e) => {
           e.preventDefault();
           onSave(draft);
@@ -592,7 +609,8 @@ export function InventoryTable({
     (archive && user.role === "admin") ||
     (["devices", "backup-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
-    (resource === "snapshots" && writable);
+    (resource === "snapshots" && writable) ||
+    (resource === "links" && Boolean(onContent));
   const selectRows =
     writable &&
     (!archive || user.role === "admin") &&
@@ -623,7 +641,10 @@ export function InventoryTable({
     }
   };
   return (
-    <section className="panel inventory-panel">
+    <section
+      className={`panel inventory-panel ${resource === "links" ? "topology-table" : ""}`}
+      aria-label={resource === "links" ? "Bağlantı kayıtları" : undefined}
+    >
       <div className="inventory-toolbar">
         <label className="inventory-search">
           <span className="sr-only">Kayıtlarda ara</span>
@@ -846,6 +867,15 @@ export function InventoryTable({
                   {hasActions && (
                     <td>
                       <div className="inventory-actions">
+                        {resource === "links" && (
+                          <button
+                            className="icon-button"
+                            aria-label="Kayıt ayrıntıları"
+                            onClick={() => onContent?.(row, "details")}
+                          >
+                            <Eye size={18} aria-hidden="true" />
+                          </button>
+                        )}
                         {archive && user.role === "admin" && (
                           <button
                             className="secondary"
@@ -968,6 +998,7 @@ export function InventoryTable({
       )}
       {dialog === "filters" && (
         <Filters
+          wide={resource === "links"}
           columns={columns}
           rules={rules}
           onSave={(r) => {
