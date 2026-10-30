@@ -17,6 +17,7 @@ from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
 from .discovery.correlation import correlate
 from .discovery.identification import normalize, snmp_identity
+from .discovery.neighbor_labels import neighbor_label
 from .discovery.protocols import NetworkError, SNMPCollector, fetch_config, fetch_identity
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
@@ -171,6 +172,20 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
         )
         link = db.scalar(query)
         if not link:
+            # Reuse historical binary identifiers after fixing their decoding.
+            prior_links = db.scalars(select(m.Link).where(
+                m.Link.device_id == device.id,
+                m.Link.interface_name == neighbor["interface_name"],
+                m.Link.source == neighbor["source"],
+            ))
+            matches = [candidate for candidate in prior_links if
+                       neighbor_label(candidate.remote_name) == neighbor["remote_name"] and
+                       neighbor_label(candidate.remote_port) == neighbor["remote_port"]]
+            if len(matches) == 1:
+                link = matches[0]
+                link.remote_name = neighbor["remote_name"]
+                link.remote_port = neighbor["remote_port"]
+        if not link:
             link = m.Link(device_id=device.id, **neighbor)
             db.add(link)
             db.add(
@@ -181,6 +196,8 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
                     details={"remote_name": neighbor["remote_name"]},
                 )
             )
+        if link.source == "manual":
+            continue
         # A unique advertised name is only a candidate, never proof of a physical link.
         candidates = list(
             db.scalars(

@@ -28,6 +28,7 @@ from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError
 from ..core import settings
 from .aruba import ARUBA_ADAPTERS, read_aruba
 from .identification import rest_identity, snmp_identity, ssh_identity
+from .neighbor_labels import neighbor_label
 
 
 class NetworkError(Exception):
@@ -64,6 +65,7 @@ TABLES = {
     "lldp_name": "1.0.8802.1.1.2.1.4.1.1.9",
     "lldp_port": "1.0.8802.1.1.2.1.4.1.1.7",
     "cdp_name": "1.3.6.1.4.1.9.9.23.1.2.1.1.6",
+    "cdp_sysname": "1.3.6.1.4.1.9.9.23.1.2.1.1.17",
     "cdp_port": "1.3.6.1.4.1.9.9.23.1.2.1.1.7",
     "arp_mac": "1.3.6.1.2.1.4.22.1.2",
     "ndp_mac": "1.3.6.1.2.1.4.35.1.4",
@@ -206,12 +208,13 @@ class SNMPCollector:
                     neighbors.append(
                         {
                             "interface_name": local[:120],
-                            "remote_name": str(name)[:190],
-                            "remote_port": str(tables["lldp_port"].get(index, ""))[:120],
+                            "remote_name": neighbor_label(name)[:190],
+                            "remote_port": neighbor_label(tables["lldp_port"].get(index, ""))[:120],
                             "source": "lldp",
                         }
                     )
                 for index, name in tables["cdp_name"].items():
+                    name = neighbor_label(tables["cdp_sysname"].get(index)) or name
                     local_index = index.split(".")[0]
                     local = str(
                         tables["if_name"].get(local_index, tables["if_descr"].get(local_index, local_index))
@@ -219,8 +222,8 @@ class SNMPCollector:
                     neighbors.append(
                         {
                             "interface_name": local[:120],
-                            "remote_name": str(name)[:190],
-                            "remote_port": str(tables["cdp_port"].get(index, ""))[:120],
+                            "remote_name": neighbor_label(name)[:190],
+                            "remote_port": neighbor_label(tables["cdp_port"].get(index, ""))[:120],
                             "source": "cdp",
                         }
                     )

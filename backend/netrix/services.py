@@ -11,6 +11,7 @@ from . import models as m
 from . import schemas as s
 from .configuration.validation import BackupError, require_ssh_backup
 from .core import now, redis_client
+from .discovery.neighbor_labels import neighbor_label
 from .identity.security import audit, encrypt
 
 RESOURCES = {
@@ -57,6 +58,8 @@ def serialize(obj):
         if col.key in HIDDEN:
             continue
         value = getattr(obj, col.key)
+        if isinstance(obj, m.Link) and col.key in ("remote_name", "remote_port", "interface_name"):
+            value = neighbor_label(value)
         if isinstance(obj, m.Job) and obj.kind == "compare" and col.key == "result":
             value = {k: v for k, v in value.items() if k != "diff"}
         if isinstance(value, datetime):

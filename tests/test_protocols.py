@@ -4,6 +4,7 @@ import pytest
 from netrix.core import settings
 from netrix.discovery import protocols as p
 from netrix.discovery.correlation import correlate
+from pysnmp.proto.rfc1902 import OctetString
 
 
 class Engine:
@@ -74,6 +75,9 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
             p.TABLES["in_octets"]: {"1": 1000},
             p.TABLES["out_octets"]: {"1": 2000},
             p.TABLES["discontinuity"]: {"1": 0},
+            p.TABLES["cdp_name"]: {"1.1": OctetString(bytes.fromhex("187a3b4f1440")), "1.2": "device-id"},
+            p.TABLES["cdp_sysname"]: {"1.2": "edge-sysname"},
+            p.TABLES["cdp_port"]: {"1.1": OctetString(bytes.fromhex("ec0273652940"))},
             p.TABLES["lldp_local_id"]: {"1": "Gi1"},
             p.TABLES["lldp_name"]: {"0.1.1": "peer"},
             p.TABLES["lldp_port"]: {"0.1.1": "Gi2"},
@@ -90,6 +94,9 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
     assert port["speed_bps"] == 1000000000 and port["counters"]["in_octets"] == 1000
     assert port["mac_address"] == "aa:bb:cc:dd:ee:ff"
     assert data["neighbors"][0]["remote_name"] == "peer"
+    assert data["neighbors"][1]["remote_name"] == "18:7a:3b:4f:14:40"
+    assert data["neighbors"][1]["remote_port"] == "ec:02:73:65:29:40"
+    assert data["neighbors"][2]["remote_name"] == "edge-sysname"
     assert instance.closed
     walked.clear()
     data = await p.SNMPCollector().identify("192.0.2.1", 161, secret)

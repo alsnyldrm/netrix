@@ -1,0 +1,114 @@
+.topology-map {
+  min-width: 0;
+}
+.topology-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.topology-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.topology-controls button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.topology-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.topology-controls output {
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.topology-viewport {
+  height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.compact .topology-viewport {
+  height: 300px;
+}
+.topology-canvas {
+  position: relative;
+  overflow: hidden;
+}
+.topology-drawing,
+.topology-nodes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  transform-origin: top left;
+}
+.topology-nodes {
+  pointer-events: none;
+}
+.topology-edge {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.topology-device {
+  position: absolute;
+  height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.topology-device span {
+  white-space: nowrap;
+  line-height: 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.topology-device .mono {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.topology-device:hover {
+  border-color: var(--accent);
+}
+.topology-device:focus-visible,
+.topology-controls button:focus-visible,
+.topology-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .topology-controls {
+    padding: 8px;
+    gap: 4px;
+  }
+  .topology-viewport {
+    height: 340px;
+  }
+}

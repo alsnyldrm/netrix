@@ -1,3 +1,5 @@
+import { Topology } from "./topology";
+import type { TopologyDevice, TopologyLink } from "./topology-layout";
 import React, {
   useState,
   useEffect,
@@ -399,7 +401,7 @@ export const PAGES: Page[] = [
   {
     key: "topology",
     title: "Bağlantı haritası",
-    desc: "LLDP / CDP kanıtlarından oluşan ağınızın görünümü.",
+    desc: "Cihazların bağlantı hiyerarşisi ve komşuluk kayıtları.",
     group: "Keşif & bağlantı",
     icon: Graph,
     resource: "links",
@@ -1369,168 +1371,6 @@ function ResourceForm({
     </Dialog>
   );
 }
-function Topology({
-  devices,
-  links,
-  onDevice,
-  compact = false,
-}: {
-  devices: Row[];
-  links: Row[];
-  onDevice: (row: Row) => void;
-  compact?: boolean;
-}) {
-  const nodes = devices.slice(0, 12);
-  const positions = nodes.map((_, i) => ({
-    x:
-      400 +
-      Math.cos((i * 2 * Math.PI) / Math.max(nodes.length, 1) - Math.PI / 2) *
-        (nodes.length > 1 ? 240 : 0),
-    y:
-      180 +
-      Math.sin((i * 2 * Math.PI) / Math.max(nodes.length, 1) - Math.PI / 2) *
-        110,
-  }));
-  if (!nodes.length)
-    return (
-      <div className={"topology-empty " + (compact ? "compact" : "")}>
-        <svg className="orbit-grid" viewBox="0 0 800 350" aria-hidden="true">
-          <defs>
-            <pattern
-              id="dots"
-              width="22"
-              height="22"
-              patternUnits="userSpaceOnUse"
-            >
-              <circle cx="1" cy="1" r="1" />
-            </pattern>
-          </defs>
-          <rect width="800" height="350" fill="url(#dots)" />
-          <ellipse cx="400" cy="175" rx="220" ry="90" />
-          <ellipse cx="400" cy="175" rx="145" ry="145" />
-          <path d="M150 100L400 175L650 90M400 175L560 290M400 175L210 275" />
-          {[
-            [150, 100],
-            [650, 90],
-            [560, 290],
-            [210, 275],
-          ].map(([x, y], i) => (
-            <g key={i}>
-              <rect x={x - 12} y={y - 12} width="24" height="24" rx="6" />
-              <circle cx={x} cy={y} r="3" />
-            </g>
-          ))}
-        </svg>
-        <div className="network-seed">
-          <Graph size={26} />
-          <span>İlk sinyali bekliyor</span>
-          <small>Keşfedilen bağlantılar burada hayat bulacak.</small>
-        </div>
-        <span className="diagram-label">
-          Başlangıç şeması · henüz cihaz yok
-        </span>
-      </div>
-    );
-  return (
-    <div className="topology-real">
-      <svg
-        viewBox="0 0 800 370"
-        role="group"
-        aria-label={`${devices.length} cihaz, ${links.length} gözlemlenen komşuluk`}
-      >
-        <defs>
-          <pattern
-            id="networkdots"
-            width="22"
-            height="22"
-            patternUnits="userSpaceOnUse"
-          >
-            <circle cx="1" cy="1" r="1" />
-          </pattern>
-        </defs>
-        <rect width="800" height="370" fill="url(#networkdots)" />
-        {links.map((link, i) => {
-          const from = nodes.findIndex((n) => n.id === link.device_id);
-          const to = nodes.findIndex((n) => n.id === link.remote_device_id);
-          if (from < 0) return null;
-          const a = positions[from];
-          const b = to >= 0 ? positions[to] : { x: a.x + 60, y: a.y + 45 };
-          return (
-            <g key={i}>
-              <line
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
-                className="topo-link"
-                strokeDasharray={link.confidence < 0.9 ? "5 6" : undefined}
-              />
-              {to < 0 && (
-                <>
-                  <circle cx={b.x} cy={b.y} r="6" className="topo-remote" />
-                  <text x={b.x + 10} y={b.y + 4} className="svg-label">
-                    {link.remote_name}
-                  </text>
-                </>
-              )}
-            </g>
-          );
-        })}
-        {nodes.map((node, i) => (
-          <g
-            className="network-node"
-            key={node.id}
-            onClick={() => onDevice(node)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") onDevice(node);
-            }}
-            tabIndex={0}
-            role="button"
-            aria-label={node.name + " cihazını görüntüle"}
-          >
-            <title>{node.name + " · " + node.management_ip}</title>
-            <rect
-              x={positions[i].x - 23}
-              y={positions[i].y - 23}
-              width="46"
-              height="46"
-              rx="12"
-              className={
-                "topo-node " +
-                (node.reachability === "reachable" ? "reachable" : "")
-              }
-            />
-            <path
-              d={`M${positions[i].x - 9} ${positions[i].y - 6}h18v12h-18z`}
-              className="topo-glyph"
-            />
-            <text
-              x={positions[i].x}
-              y={positions[i].y + 43}
-              textAnchor="middle"
-              className="svg-node-label"
-            >
-              {node.name.slice(0, 24)}
-            </text>
-            <text
-              x={positions[i].x}
-              y={positions[i].y + 60}
-              textAnchor="middle"
-              className="svg-label"
-            >
-              {node.management_ip}
-            </text>
-          </g>
-        ))}
-      </svg>
-      {devices.length > 12 && (
-        <small>
-          Haritada ilk 12 cihaz gösteriliyor. Tüm ilişkiler aşağıdaki tabloda.
-        </small>
-      )}
-    </div>
-  );
-}
 function Overview({
   dashboard,
   refs,
@@ -1651,8 +1491,8 @@ function Overview({
             </button>
           </header>
           <Topology
-            devices={refs.devices || []}
-            links={refs.links || []}
+            devices={(refs.devices || []) as TopologyDevice[]}
+            links={(refs.links || []) as TopologyLink[]}
             onDevice={onDevice}
             compact
           />
@@ -2484,8 +2324,8 @@ function App() {
         const rows = await Promise.all(
           names.map(async (name) => [
             name,
-            name === "device-types"
-              ? await allRows("/device-types")
+            ["device-types", "devices", "links"].includes(name)
+              ? await allRows("/" + name)
               : (await api("/" + name + "?limit=200")).items,
           ]),
         );
@@ -2616,6 +2456,7 @@ function App() {
           {value}%
         </span>
       );
+    if (key === "source" && value === "manual") return "Kullanıcı doğrulaması";
     if (key === "confidence")
       return (
         <span className="confidence">
@@ -2995,19 +2836,10 @@ function App() {
                 {page.key === "topology" && (
                   <section className="panel topology-panel">
                     <Topology
-                      devices={refs.devices || []}
-                      links={refs.links || []}
+                      devices={(refs.devices || []) as TopologyDevice[]}
+                      links={(refs.links || []) as TopologyLink[]}
                       onDevice={inspectDevice}
                     />
-                    <div className="info-note">
-                      <Info size={19} />
-                      <p>
-                        Kesik çizgiler aday komşulukları gösterir. İsim
-                        eşleşmeleri fiziksel bağlantı kanıtı sayılmaz; güven
-                        düzeyi tabloda belirtilir. Son gözlem tarihi kayıt
-                        ayrıntılarındadır.
-                      </p>
-                    </div>
                   </section>
                 )}
                 {page.key === "discovery" && (
