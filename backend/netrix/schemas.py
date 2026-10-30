@@ -261,3 +261,13 @@ class InventoryFilter(Input):
     op: Literal["contains", "eq", "ne", "gt", "lt"] = "contains"
     value: str = Field(max_length=200)
     join: Literal["and", "or"] = "and"
+
+
+class DeviceCSVInput(Input):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    content: str = Field(min_length=1, max_length=1048576)
+    apply: bool = False
+
+
+class DeviceCSVExportInput(Input):
+    ids: list[str] = Field(min_length=1, max_length=500)

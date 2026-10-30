@@ -414,6 +414,35 @@ def backup_settings(payload: s.BulkInput, user=Depends(operator), db=Depends(db_
     return {"updated": len(set(payload.ids))}
 
 
+def csv_response(content, filename):
+    return Response(
+        content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
+
+@app.get(P + "/inventory/devices/csv/template")
+def device_csv_template(user=Depends(operator)):
+    from .inventory.csv_transfer import template
+
+    return csv_response(template(), "netrix-cihaz-sablonu.csv")
+
+
+@app.post(P + "/inventory/devices/csv/export")
+def device_csv_export(payload: s.DeviceCSVExportInput, user=Depends(operator), db=Depends(db_session)):
+    from .inventory.csv_transfer import export_devices
+
+    return csv_response(export_devices(db, payload.ids, user), "netrix-cihazlar.csv")
+
+
+@app.post(P + "/inventory/devices/csv/import")
+def device_csv_import(payload: s.DeviceCSVInput, user=Depends(operator), db=Depends(db_session)):
+    from .inventory.csv_transfer import import_devices
+
+    return import_devices(db, payload.content, payload.apply, user)
+
+
 @app.get(P + "/inventory/{resource}")
 def inventory_query(
     resource: str,

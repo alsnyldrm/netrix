@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Funnel,
+  UploadSimple,
   Columns,
   Trash,
   PencilSimple,
@@ -13,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
+import { DeviceCSVImport, downloadDeviceCSV } from "./device-csv";
 type Row = Record<string, any>;
 type Column = { key: string; label: string };
 type Rule = { field: string; op: string; value: string; join: string };
@@ -632,6 +634,36 @@ export function InventoryTable({
           <Columns size={18} />
           Sütunlar
         </button>
+        {purpose === "devices" && writable && (
+          <>
+            <button
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDialog("csv")}
+            >
+              <UploadSimple size={18} aria-hidden="true" />
+              CSV içeri aktar
+            </button>
+            <button
+              className="secondary"
+              disabled={!selected.length || busy || loading}
+              onClick={async () => {
+                setBusy(true);
+                setError("");
+                try {
+                  await downloadDeviceCSV(selected);
+                } catch (e: any) {
+                  setError(e.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <DownloadSimple size={18} aria-hidden="true" />
+              Seçilenleri CSV dışarı aktar
+            </button>
+          </>
+        )}
         {resource === "snapshots" && !deviceId && (
           <label>
             Grupla
@@ -884,6 +916,15 @@ export function InventoryTable({
           </button>
         </div>
       </footer>
+      {dialog === "csv" && (
+        <DeviceCSVImport
+          onClose={() => setDialog("")}
+          onSaved={() => {
+            setSelected([]);
+            onSaved();
+          }}
+        />
+      )}
       {dialog === "filters" && (
         <Filters
           columns={columns}

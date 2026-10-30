@@ -86,9 +86,12 @@ def lock_vrf(db, vrf_id):
     return row
 
 
-def validate_relations(db, name, data, row_id=None):
+def validate_relations(db, name, data, row_id=None, *, lock=True):
     if "vrf_id" in data:
-        lock_vrf(db, data["vrf_id"])
+        if lock:
+            lock_vrf(db, data["vrf_id"])
+        else:
+            get(db, m.VRF, data["vrf_id"])
     if data.get("site_id"):
         require_ref(db, m.Site, data["site_id"])
     if name == "devices":

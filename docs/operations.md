@@ -98,3 +98,13 @@ Uygulama yalnızca VIP `10.2.0.31:3306` kullanır. DB düğümlerine doğrudan y
 **Yönetim → Erişim kasası → Yeni kayıt → Protokol: SNMPv2c** yolunda profil adı ve cihazın community değerini girin. Düzenlemede community yeniden girilerek değiştirilir. Profil, cihazın SNMP profili ve keşif kapsamının SNMP erişim profili alanlarında seçilebilir; keşif, izleme, kimlik okuma ve bağlantı testi aynı kayıtlı sürümü kullanır. SNMPv3 varsayılanı korunur; sürümler arasında otomatik geçiş yapılmaz.
 
 `20261030_06` migration'ı yalnızca erişim profili protokol kısıtını genişletir. Mevcut şifreli değerleri değiştirmez. Downgrade, SNMPv2c profili varsa veri silmeden durur; önce bu profillerin bağımlılıkları kaldırılıp profiller silinmelidir. Atılabilir `netrix_test` veritabanındaki doğrulama: `scripts/snmpv2c_migration_check.py`.
+
+## Cihazları CSV ile içe/dışa aktarma
+
+**Envanter → Cihaz envanteri → CSV içeri aktar** üzerinden şablonu indirin. UTF-8 dosyalarında virgül, noktalı virgül veya sekme desteklenir; üst sınır 1 MiB / 500 cihazdır. `Cihaz adı`, `Yönetim IP adresi`, `VRF` zorunludur. Diğer sütunlar cihaz formundaki alanları kapsar. Başlıklar şablondaki Türkçe adlarla veya `DeviceInput` alan anahtarlarıyla verilebilir. Boş isteğe bağlı alanlar yeni cihaz varsayılanını kullanır. Şablondaki IP örnektir; kendi yönetim adreslerinizi yazın.
+
+VRF, lokasyon, yedek grubu ve erişim profilleri kayıtlı adlarıyla veya kayıt kimlikleriyle eşleştirilir. Aynı adlı birden fazla kayıt varsa kimliğini kullanın. Profiller cihaz adaptörüyle uyumlu olmalıdır. Parola/token/SNMP anahtarı/community sütunları boş veya yıldızlı olabilir; gerçek sırlar **Erişim kasası** üzerinden yönetilir. İçe aktarma erişim profillerinin sırlarını değiştirmez.
+
+Dosya seçildiğinde salt okunur doğrulama ve önizleme yapılır. Hatalı satır varsa hiçbir cihaz eklenmez. **İçeri aktar** tekrar doğrular ve tüm cihazları tek transaction ile oluşturur. Aynı VRF/IP adresindeki cihazlar, arşivlenmiş olanlar dahil, mükerrer kabul edilir; mevcut cihazlar güncellenmez. Başarılı kayıtta olağan kimlik sorgusu yalnızca atanmış profil ve yetkili kapsam varsa worker'a alınır; önizleme hiçbir ağ işi oluşturmaz.
+
+Dışa aktarmak için cihazların kutularını seçin ve **Seçilenleri CSV dışarı aktar** düğmesine basın. Yalnızca seçili cihazlar çıkarılır. SSH parolası, API token, SNMP anahtarları ve community atanmış profillere göre sabit `********` olarak yazılır; secret payload'ı okunmaz veya çözülmez. CSV UTF-8 BOM içerir. Excel formülü olarak yorumlanabilecek hücrelere koruyucu tek tırnak eklenir; NETRIX yeniden içe aktarırken bu korumayı geri alır. İçe ve dışa aktarma admin/operator yetkisi gerektirir ve denetim kaydına yalnızca işlem/satır sayısı yazılır.
