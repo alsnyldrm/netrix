@@ -9,6 +9,16 @@ from openpyxl import Workbook, load_workbook
 from playwright.sync_api import expect, sync_playwright
 
 BASE = "http://127.0.0.1:8215"
+REQUIRED_HEADERS = [
+    "Cihaz adı *",
+    "Yönetim IP adresi *",
+    "SNMP profili *",
+    "SSH / API profili *",
+    "Anahtara güven *",
+    "Lokasyon *",
+    "Yaşam döngüsü *",
+    "Konfigürasyon adaptörü *",
+]
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page(
@@ -44,10 +54,21 @@ with sync_playwright() as p:
             for width, height in ((1440, 1000), (375, 812)):
                 page.set_viewport_size({"width": width, "height": height})
                 page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+                # Viewport changes can schedule focus scrolling on the next frame.
+                page.evaluate(
+                    "() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))"
+                )
                 assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth"), name
                 if page.get_by_role("dialog").count():
                     dialog = page.get_by_role("dialog")
-                    assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth"), name
+                    assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth"), {
+                        "screen": name,
+                        "theme": theme,
+                        "width": width,
+                        "layout": dialog.evaluate(
+                            "e=>({scroll:e.scrollWidth,client:e.clientWidth,left:e.scrollLeft,children:[...e.querySelectorAll('form,form>*')].map(c=>({class:c.className,width:c.getBoundingClientRect().width,left:c.getBoundingClientRect().left,scroll:c.scrollWidth}))})"
+                        ),
+                    }
                     summary = dialog.locator(".csv-summary")
                     if summary.count():
                         assert (
@@ -100,60 +121,36 @@ with sync_playwright() as p:
         data = Path(template.value.path()).read_bytes()
         assert template.value.suggested_filename.endswith("." + format)
         if format == "xlsx":
-            assert [cell.value for cell in load_workbook(io.BytesIO(data)).active[1]][:3] == [
-                "SNMP profili *",
-                "SSH / API profili *",
-                "Anahtara güven *",
-            ]
+            book = load_workbook(io.BytesIO(data))
+            assert [cell.value for cell in book.active[1]][:8] == REQUIRED_HEADERS
+            assert all(dv.showDropDown is False for dv in book.active.data_validations.dataValidation)
+            title, bounds = next(book.defined_names["netrix_snmp_credential_id"].destinations)
+            assert [c.value for row in book[title][bounds] for c in row] == ["Fixture SNMP"]
+            Path("artifacts/device-template-dropdowns.xlsx").write_bytes(data)
         else:
-            assert next(csv.reader(io.StringIO(data.decode("utf-8-sig"))))[:3] == [
-                "SNMP profili *",
-                "SSH / API profili *",
-                "Anahtara güven *",
-            ]
+            assert next(csv.reader(io.StringIO(data.decode("utf-8-sig"))))[:8] == REQUIRED_HEADERS
         file_input = page.get_by_label(f"{format.upper()} dosyası", exact=True)
         file_input.set_input_files(
             {"name": "bad." + format, "mimeType": "application/octet-stream", "buffer": b"invalid"}
         )
         expect(dialog.get_by_role("alert")).to_be_visible()
         expect(dialog.get_by_role("button", name="İçeri Aktar ve Test Et", exact=True)).to_be_disabled()
-        rows = [
+        rows = [REQUIRED_HEADERS] + [
             [
-                "SNMP profili *",
-                "SSH / API profili *",
-                "Anahtara güven *",
-                "Cihaz adı *",
-                "Yönetim IP adresi *",
-                "VRF *",
-                "Yaşam döngüsü",
-            ],
-            [
+                format + " " + suffix,
+                f"192.0.2.{start + index}",
                 "Fixture SNMP",
                 "Fixture SSH",
-                "Hayır",
-                format + " başarılı",
-                f"192.0.2.{start + 1}",
-                "Global",
-                "active",
-            ],
-            [
-                "Fixture SNMP",
-                "Fixture SSH",
-                "Evet",
-                format + " başarısız",
-                f"192.0.2.{start + 2}",
-                "Global",
-                "active",
-            ],
-            [
-                "Fixture SNMP",
-                "Fixture SSH",
-                "Hayır",
-                format + " pasif",
-                f"192.0.2.{start + 3}",
-                "Global",
-                "retired",
-            ],
+                trust,
+                "Kuzey Kampüs",
+                lifecycle,
+                "ios",
+            ]
+            for index, suffix, trust, lifecycle in [
+                (1, "başarılı", "Hayır", "Aktif"),
+                (2, "başarısız", "Evet", "Aktif"),
+                (3, "pasif", "Hayır", "Arşiv"),
+            ]
         ]
 
         def file_bytes(values):
@@ -169,7 +166,7 @@ with sync_playwright() as p:
             return output.getvalue()
 
         invalid = [rows[0], [*rows[1]]]
-        invalid[1][2] = ""
+        invalid[1][4] = ""
         file_input.set_input_files(
             {
                 "name": "missing-trust." + format,
@@ -187,11 +184,8 @@ with sync_playwright() as p:
             {"name": "devices." + format, "mimeType": "application/octet-stream", "buffer": payload}
         )
         expect(dialog.locator(".csv-summary")).to_contain_text("3 geçerli")
-        assert dialog.locator(".transfer-preview-table th").all_text_contents()[1:4] == [
-            "SNMP profili *",
-            "SSH / API profili *",
-            "Anahtara güven *",
-        ]
+        assert dialog.locator(".transfer-preview-table th").all_text_contents()[1:9] == REQUIRED_HEADERS
+        expect(dialog.locator(".transfer-preview-table tbody tr").first).to_contain_text("Global")
         expect(dialog.locator(".transfer-preview-table tbody tr").first).to_contain_text("Hayır")
         screen(format + "-preview")
         # Exercise the import-and-test action on a phone, including footer reachability.
@@ -222,7 +216,7 @@ with sync_playwright() as p:
         {
             "name": "minimal.csv",
             "mimeType": "text/csv",
-            "buffer": b"snmp_credential_id,config_credential_id,ssh_trust_host_key,name,management_ip,vrf_id\nFixture SNMP,Fixture SSH,false,Plain import,192.0.2.120,Global",
+            "buffer": "snmp_credential_id,config_credential_id,ssh_trust_host_key,name,management_ip,site_id,lifecycle_status,adapter\nFixture SNMP,Fixture SSH,false,Plain import,192.0.2.120,Kuzey Kampüs,active,ios".encode(),
         }
     )
     dialog = page.get_by_role("dialog")

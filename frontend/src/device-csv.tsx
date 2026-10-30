@@ -30,6 +30,10 @@ type Report = {
     ssh_trust_host_key: boolean;
     name: string;
     management_ip: string;
+    site: string;
+    lifecycle_status: string;
+    adapter: string;
+    vrf: string;
     kind: string;
   }[];
 };
@@ -209,14 +213,20 @@ export function DeviceTransferImport({
         </label>
         <p className="csv-help">
           <strong>
-            Zorunlu alanlar (*): SNMP profili, SSH / API profili, Anahtara
-            güven, Cihaz adı, Yönetim IP adresi ve VRF.
+            Zorunlu alanlar (*): Cihaz adı, Yönetim IP adresi, SNMP profili, SSH
+            / API profili, Anahtara güven, Lokasyon, Yaşam döngüsü ve
+            Konfigürasyon adaptörü.
           </strong>{" "}
           Anahtara güven alanına Evet veya Hayır yazın; boş bırakılamaz. Diğer
-          alanlar isteğe bağlıdır; boş bırakabilirsiniz. VRF, lokasyon, yedek
-          grubu ve erişim profilleri için kayıtlı adları veya kimlikleri
-          kullanın. Parola ve anahtar sütunları boş veya yıldızlı olmalıdır;
-          erişim bilgileri Erişim kasasındaki profillerden alınır.
+          alanlar isteğe bağlıdır. VRF boş bırakılırsa Global kullanılır. VRF,
+          lokasyon, yedek grubu ve erişim profilleri için kayıtlı adları veya
+          kimlikleri kullanın. Parola ve anahtar sütunları boş veya yıldızlı
+          olmalıdır; erişim bilgileri Erişim kasasındaki profillerden alınır.
+        </p>
+        <p className="csv-help">
+          {format === "xlsx"
+            ? "Excel’de hücreyi seçip yanındaki oktan seçim yapın. Listeler şablon indirilirken sistemdeki kayıtlardan doldurulur. Serbest alanlara yeni değer de yazabilirsiniz; yeni kayıtlar için şablonu yeniden indirin."
+            : "CSV açılır liste desteklemez. Sistem kayıtlarını listeden seçerek doldurmak için XLSX şablonunu kullanın."}
         </p>
         <p className="csv-help">
           Yeni cihazlar eklenir. Aynı VRF ve IP adresindeki mevcut cihazlar
@@ -279,24 +289,30 @@ export function DeviceTransferImport({
                     <thead>
                       <tr>
                         <th>Satır</th>
+                        <th>Cihaz adı *</th>
+                        <th>Yönetim IP adresi *</th>
                         <th>SNMP profili *</th>
                         <th>SSH / API profili *</th>
                         <th>Anahtara güven *</th>
-                        <th>Cihaz adı</th>
-                        <th>Yönetim IP adresi</th>
-                        <th>Cihaz türü</th>
+                        <th>Lokasyon *</th>
+                        <th>Yaşam döngüsü *</th>
+                        <th>Konfigürasyon adaptörü *</th>
+                        <th>VRF</th>
                       </tr>
                     </thead>
                     <tbody>
                       {report.preview.map((item) => (
                         <tr key={item.row}>
                           <td>{item.row}</td>
+                          <td>{item.name}</td>
+                          <td>{item.management_ip}</td>
                           <td>{item.snmp_profile}</td>
                           <td>{item.config_profile}</td>
                           <td>{item.ssh_trust_host_key ? "Evet" : "Hayır"}</td>
-                          <td>{item.name}</td>
-                          <td>{item.management_ip}</td>
-                          <td>{tag(item.kind)}</td>
+                          <td>{item.site}</td>
+                          <td>{tag(item.lifecycle_status)}</td>
+                          <td>{tag(item.adapter)}</td>
+                          <td>{item.vrf}</td>
                         </tr>
                       ))}
                     </tbody>

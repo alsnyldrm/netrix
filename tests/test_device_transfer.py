@@ -20,6 +20,9 @@ def render(rows):
                 "snmp_credential_id": "SNMP-Profil-01",
                 "config_credential_id": "SSH-Profil-01",
                 "ssh_trust_host_key": False,
+                "site_id": "Site-01",
+                "lifecycle_status": "active",
+                "adapter": "ios",
                 **row,
             }
             for row in rows
@@ -50,21 +53,24 @@ def test_templates_mark_required_columns_and_accept_only_required_values(admin_c
     assert response.status_code == 200 and f".{format}" in response.headers["content-disposition"]
     if format == "xlsx":
         book = load_workbook(io.BytesIO(response.content))
-        assert book.sheetnames == ["Cihazlar", "Açıklamalar"]
+        assert book.sheetnames == ["Cihazlar", "Açıklamalar", "Seçenekler"]
         assert book["Cihazlar"].freeze_panes == "A2"
-        assert [cell.value for cell in book["Cihazlar"][1]][:6] == [
+        assert [cell.value for cell in book["Cihazlar"][1]][:8] == [
+            "Cihaz adı *",
+            "Yönetim IP adresi *",
             "SNMP profili *",
             "SSH / API profili *",
             "Anahtara güven *",
-            "Cihaz adı *",
-            "Yönetim IP adresi *",
-            "VRF *",
+            "Lokasyon *",
+            "Yaşam döngüsü *",
+            "Konfigürasyon adaptörü *",
         ]
         assert book["Cihazlar"]["C1"].comment.text == "Zorunlu alan"
-        assert book["Cihazlar"]["G1"].comment.text.startswith("İsteğe bağlı")
+        assert book["Cihazlar"]["I1"].comment.text.startswith("İsteğe bağlı")
         content = encoded(response.content)
     else:
-        assert '"Cihaz adı *","Yönetim IP adresi *","VRF *"' in response.text
+        assert '"Cihaz adı *","Yönetim IP adresi *","SNMP profili *"' in response.text
+        assert '"VRF *"' not in response.text
         content = response.text
     preview = admin_client.post(
         f"{BASE}/{format}/import", json={"content": content, "test_after": True}
@@ -87,11 +93,32 @@ def test_xlsx_minimal_headers_sparse_optional_cells_and_invalid_rows(admin_clien
                 "Anahtara güven *",
                 "Cihaz adı *",
                 "Yönetim IP adresi *",
-                "VRF *",
+                "Lokasyon *",
+                "Yaşam döngüsü *",
+                "Konfigürasyon adaptörü *",
                 "Model",
             ],
-            ["SNMP-Profil-01", "SSH-Profil-01", False, "İstanbul, cihaz", "192.0.2.2", "Global"],
-            ["SNMP-Profil-01", "SSH-Profil-01", True, "İkinci", "invalid-ip", "Global", "X1"],
+            [
+                "SNMP-Profil-01",
+                "SSH-Profil-01",
+                False,
+                "İstanbul, cihaz",
+                "192.0.2.2",
+                "Site-01",
+                "Aktif",
+                "ios",
+            ],
+            [
+                "SNMP-Profil-01",
+                "SSH-Profil-01",
+                True,
+                "İkinci",
+                "invalid-ip",
+                "Site-01",
+                "Aktif",
+                "ios",
+                "X1",
+            ],
         ]
     )
     result = admin_client.post(f"{BASE}/xlsx/import", json={"content": encoded(data), "apply": True}).json()
@@ -106,9 +133,11 @@ def test_xlsx_minimal_headers_sparse_optional_cells_and_invalid_rows(admin_clien
                 "ssh_trust_host_key",
                 "name",
                 "management_ip",
-                "vrf_id",
+                "site_id",
+                "lifecycle_status",
+                "adapter",
             ],
-            ["SNMP-Profil-01", "SSH-Profil-01", False, "Minimal", "192.0.2.2", "Global"],
+            ["SNMP-Profil-01", "SSH-Profil-01", False, "Minimal", "192.0.2.2", "Site-01", "Aktif", "ios"],
         ]
     )
     result = admin_client.post(f"{BASE}/xlsx/import", json={"content": encoded(data), "apply": True}).json()
@@ -333,7 +362,19 @@ def test_transfer_permissions_and_job_status_scope(admin_client, env):
 
 
 @pytest.mark.parametrize("format", ["csv", "xlsx"])
-@pytest.mark.parametrize("field", ["snmp_credential_id", "config_credential_id", "ssh_trust_host_key"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "name",
+        "management_ip",
+        "snmp_credential_id",
+        "config_credential_id",
+        "ssh_trust_host_key",
+        "site_id",
+        "lifecycle_status",
+        "adapter",
+    ],
+)
 @pytest.mark.parametrize("missing_column", [False, True])
 def test_import_access_fields_are_required_before_any_writes(
     admin_client, env, format, field, missing_column
@@ -349,6 +390,9 @@ def test_import_access_fields_are_required_before_any_writes(
         "name": "Required fields",
         "management_ip": "192.0.2.150",
         "vrf_id": "Global",
+        "site_id": "Site-01",
+        "lifecycle_status": "Aktif",
+        "adapter": "ios",
     }
     output = io.StringIO()
     if missing_column:

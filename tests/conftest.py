@@ -123,6 +123,8 @@ def inventory(admin_client):
 @pytest.fixture
 def transfer_profiles(admin_client):
     """Existing public profile references required by device file imports."""
+    response = admin_client.post("/api/v1/sites", json={"name": "Site-01", "code": "TRANSFER"})
+    assert response.status_code == 201, response.text
     for name, protocol, secret in (
         (
             "SNMP-Profil-01",

@@ -415,11 +415,13 @@ def backup_settings(payload: s.BulkInput, user=Depends(operator), db=Depends(db_
     return {"updated": len(set(payload.ids))}
 
 
-def transfer_response(content, file_format, filename, *, is_template=False):
+def transfer_response(content, file_format, filename, *, is_template=False, choices=None):
     from .inventory.xlsx_transfer import MIME, from_csv
 
     return Response(
-        from_csv(content, is_template=is_template) if file_format == "xlsx" else content.encode("utf-8"),
+        from_csv(content, is_template=is_template, choices=choices)
+        if file_format == "xlsx"
+        else content.encode("utf-8"),
         media_type=MIME if file_format == "xlsx" else "text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}.{file_format}"',
@@ -429,10 +431,16 @@ def transfer_response(content, file_format, filename, *, is_template=False):
 
 
 @app.get(P + "/inventory/devices/{file_format}/template")
-def device_transfer_template(file_format: Literal["csv", "xlsx"], user=Depends(operator)):
+def device_transfer_template(
+    file_format: Literal["csv", "xlsx"], user=Depends(operator), db=Depends(db_session)
+):
     from .inventory.csv_transfer import template
+    from .inventory.template_choices import template_choices
 
-    return transfer_response(template(), file_format, "netrix-cihaz-sablonu", is_template=True)
+    choices = template_choices(db)
+    return transfer_response(
+        template(choices), file_format, "netrix-cihaz-sablonu", is_template=True, choices=choices
+    )
 
 
 @app.post(P + "/inventory/devices/{file_format}/export")

@@ -16,12 +16,14 @@ from ..identity.security import audit
 MAX_ROWS = 500
 MAX_BYTES = 1024 * 1024
 REQUIRED = (
+    "name",
+    "management_ip",
     "snmp_credential_id",
     "config_credential_id",
     "ssh_trust_host_key",
-    "name",
-    "management_ip",
-    "vrf_id",
+    "site_id",
+    "lifecycle_status",
+    "adapter",
 )
 FIELDS = {
     "name": "Cihaz adı",
@@ -47,6 +49,7 @@ FIELDS = {
     "backup_retention": "En fazla yedek sayısı",
 }
 TEMPLATE_FIELDS = {key: FIELDS[key] for key in REQUIRED} | FIELDS
+TEMPLATE_FIELDS["adapter"] = "Konfigürasyon adaptörü"
 SECRETS = {
     "ssh_password": "SSH parolası",
     "api_token": "API token",
@@ -62,6 +65,17 @@ REFERENCES = {
     "backup_group_id": m.BackupGroup,
 }
 ENUMS = {
+    "adapter": {
+        "ios": "ios",
+        "junos": "junos",
+        "fortios": "fortios",
+        "aruba_5400": "Aruba 54xx · ArubaOS-Switch",
+        "aruba_2900": "Aruba 2900 · ArubaOS-Switch",
+        "aruba_6100": "Aruba 61xx · AOS-CX",
+        "aruba_7200": "Aruba 72xx Controller · ArubaOS",
+        "linux": "linux",
+        "rest": "rest",
+    },
     "kind": {
         "switch": "Switch",
         "router": "Router",
@@ -117,16 +131,23 @@ def render(rows, *, is_template=False):
     return "\ufeff" + output.getvalue()
 
 
-def template():
+def template(choices=None):
+    choices = choices or {}
+
+    def first(key, fallback=""):
+        return next(iter(choices.get(key, [])), fallback)
+
     return render(
         [
             {
-                "snmp_credential_id": "SNMP-Profil-01",
-                "config_credential_id": "SSH-Profil-01",
+                "snmp_credential_id": first("snmp_credential_id"),
+                "config_credential_id": first("config_credential_id"),
                 "ssh_trust_host_key": "Hayır",
                 "name": "Cihaz-01",
                 "management_ip": "192.0.2.10",
-                "vrf_id": "Global",
+                "site_id": first("site_id"),
+                "lifecycle_status": "Aktif",
+                "adapter": choices.get("_example_adapter", "ios"),
             }
         ],
         is_template=True,
@@ -189,7 +210,9 @@ def parse(content):
     reader = csv.reader(io.StringIO(content, newline=""), dialect=dialect, strict=True)
     aliases = {normalized(label): key for key, label in {**FIELDS, **SECRETS}.items()}
     aliases.update({normalized(key): key for key in (*FIELDS, *SECRETS)})
-    aliases.update({normalized(FIELDS[key] + " *"): key for key in REQUIRED})
+    aliases.update({normalized(label): key for key, label in TEMPLATE_FIELDS.items()})
+    aliases.update({normalized(TEMPLATE_FIELDS[key] + " *"): key for key in REQUIRED})
+    aliases.update({normalized("VRF *"): "vrf_id", normalized("Adaptör"): "adapter"})
     aliases[normalized("SNMPv3 profili")] = "snmp_credential_id"
     try:
         header = next(reader)
@@ -235,6 +258,14 @@ def validate(db, raw):
                         "Parola ve anahtar sütunları boş veya yıldızlı olmalı; kayıtlı erişim profili kullanın",
                     )
             data = {key: value.strip() for key, value in cells.items() if key in FIELDS and value.strip()}
+            if "vrf_id" not in data:
+                defaults = [id for id, name in refs[m.VRF] if normalized(name) == normalized("Global")]
+                if len(defaults) != 1:
+                    raise HTTPException(
+                        422,
+                        "Varsayılan Global VRF bulunamadı; VRF sütununda kayıtlı VRF adını veya kimliğini seçin",
+                    )
+                data["vrf_id"] = defaults[0]
             for key, model in REFERENCES.items():
                 if key not in data:
                     continue
@@ -301,6 +332,8 @@ def import_devices(db, content, apply, user, *, test_after=False, file_format="c
         return {"total": len(raw), "valid": len(valid), "imported": 0, "errors": errors, "preview": []}
     if not apply:
         profiles = dict(db.execute(select(m.Credential.id, m.Credential.name)).all())
+        sites = dict(db.execute(select(m.Site.id, m.Site.name)).all())
+        vrfs = dict(db.execute(select(m.VRF.id, m.VRF.name)).all())
         return {
             "total": len(raw),
             "valid": len(valid),
@@ -314,6 +347,10 @@ def import_devices(db, content, apply, user, *, test_after=False, file_format="c
                     "ssh_trust_host_key": data["ssh_trust_host_key"],
                     "name": data["name"],
                     "management_ip": data["management_ip"],
+                    "site": sites[data["site_id"]],
+                    "lifecycle_status": data["lifecycle_status"],
+                    "adapter": data["adapter"],
+                    "vrf": vrfs[data["vrf_id"]],
                     "kind": data["kind"],
                 }
                 for line, data in valid

@@ -19,6 +19,9 @@ def render(rows):
                 "snmp_credential_id": "SNMP-Profil-01",
                 "config_credential_id": "SSH-Profil-01",
                 "ssh_trust_host_key": False,
+                "site_id": "Site-01",
+                "lifecycle_status": "active",
+                "adapter": "ios",
                 **row,
             }
             for row in rows
@@ -88,6 +91,7 @@ def test_export_is_selected_only_masks_every_secret_and_round_trips(
                 name="=SUM(1,2)" if i == 0 else f"Device {i}",
                 management_ip=f"192.0.2.{i + 1}",
                 vrf_id=inventory["vrf"]["id"],
+                site_id=db.scalar(select(m.Site.id).where(m.Site.name == "Site-01")),
                 vendor='İmalatçı, "özel"\nseri',
                 adapter="rest" if i == 1 else "ios",
                 snmp_credential_id=inventory["credential"]["id"],

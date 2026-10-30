@@ -187,6 +187,8 @@ def test_api_bulk_and_file_import_accept_aruba(admin_client, inventory, transfer
                         "snmp_credential_id": "SNMP-Profil-01",
                         "config_credential_id": "SSH-Profil-01",
                         "ssh_trust_host_key": "Hayır",
+                        "site_id": "Site-01",
+                        "lifecycle_status": "active",
                         "adapter": adapter,
                     },
                 )
