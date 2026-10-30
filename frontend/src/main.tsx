@@ -1,3 +1,4 @@
+import { DeviceConnections } from "./device-connections";
 import { Topology } from "./topology";
 import type { TopologyDevice, TopologyLink } from "./topology-layout";
 import React, {
@@ -3427,6 +3428,12 @@ function App() {
                 </div>
               ))}
             </dl>
+            <DeviceConnections
+              key={`connections:${detail.id}`}
+              deviceId={detail.id}
+              refresh={refresh}
+              onDevice={inspectDevice}
+            />
             <InterfacePicker
               key={detail.id}
               device={detail}

@@ -512,6 +512,13 @@ def inventory_bulk(resource: str, payload: s.BulkInput, user=Depends(operator), 
     return bulk(db, resource, payload, user)
 
 
+@app.get(P + "/devices/{id}/connections")
+def device_connections(id: str, user=Depends(current_user), db=Depends(db_session)):
+    from .discovery.device_connections import device_connections as connections
+
+    return connections(db, svc.get(db, m.Device, id))
+
+
 @app.put(P + "/devices/{id}/interfaces")
 def manage_interfaces(
     id: str, payload: s.InterfaceSelectionInput, user=Depends(operator), db=Depends(db_session)
