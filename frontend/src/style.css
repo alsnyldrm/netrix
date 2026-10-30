@@ -1966,6 +1966,24 @@ tbody tr:last-child td {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Pending tests have three actions: keep the grid inside the modal on phones. */
+.dialog .connection-test-form {
+  grid-template-columns: minmax(0, 1fr);
+  overflow-wrap: anywhere;
+}
+.connection-test-form > * {
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .connection-test-form .dialog-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connection-test-form .dialog-footer button {
+    min-height: 44px;
+  }
+}
+
 .connection-test-protocols {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

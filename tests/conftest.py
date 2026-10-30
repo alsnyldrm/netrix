@@ -1,4 +1,5 @@
 import socket
+from contextlib import nullcontext
 
 import pytest
 from cryptography.fernet import Fernet
@@ -11,6 +12,9 @@ from sqlalchemy.orm import sessionmaker
 class MemoryRedis:
     def __init__(self):
         self.data = {}
+
+    def lock(self, *args, **kwargs):
+        return nullcontext()
 
     def ping(self):
         return True
@@ -64,6 +68,12 @@ def env(tmp_path, monkeypatch):
         db.add(SystemState(key="setup", value="pending"))
         db.commit()
     memory = MemoryRedis()
+    # API tests use a fake ready interactive worker; no real protocol operations.
+    from netrix.core import now
+    from netrix.discovery import interactive_tests
+
+    memory.set("netrix:tests:heartbeat", now().isoformat())
+    monkeypatch.setattr(interactive_tests, "redis_client", lambda: memory)
     for module in (main, services, worker):
         monkeypatch.setattr(module, "redis_client", lambda: memory)
     yield sf

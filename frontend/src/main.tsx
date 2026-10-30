@@ -1677,6 +1677,7 @@ function ConnectionTestDialog({
   return (
     <Dialog title={`Bağlantı testi · ${device.name}`} onClose={onClose}>
       <form
+        className="connection-test-form"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!selected || !current?.enabled || !options?.can_test || pending)
@@ -1793,7 +1794,7 @@ function ConnectionTestDialog({
               {pending
                 ? job?.status === "running"
                   ? "Cihazda test çalışıyor…"
-                  : "Test sıraya alınıyor…"
+                  : "Test başlatılıyor…"
                 : job?.status === "cancelled"
                   ? "Test iptal edildi"
                   : job?.status === "succeeded" && job?.result?.success === true
@@ -1802,7 +1803,7 @@ function ConnectionTestDialog({
             </h3>
             <p>
               {pending
-                ? "Sonuç cihaz yanıt verdikten sonra burada görünecek."
+                ? "Test diğer cihaz işlerini beklemeden başlatılır. Sonuç cihaz yanıt verdiğinde burada görünür."
                 : job?.result?.message || job?.error || "Test tamamlanmadı."}
             </p>
             {!pending && job?.result?.checked_at && (

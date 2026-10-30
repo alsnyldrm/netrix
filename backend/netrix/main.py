@@ -336,9 +336,7 @@ def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator
     if previous and previous.device_id != row.device_id:
         raise HTTPException(422, "Sürümler aynı cihaza ait olmalı")
     return {
-        "diff": config_diff(
-            snapshot_text(previous) if previous else "", snapshot_text(row)
-        ),
+        "diff": config_diff(snapshot_text(previous) if previous else "", snapshot_text(row)),
         "previous_id": previous.id if previous else None,
         "current_id": row.id,
     }
@@ -358,8 +356,10 @@ def connection_test_options(id: str, user=Depends(operator), db=Depends(db_sessi
 def start_connection_test(
     id: str, payload: s.ConnectionTestInput, user=Depends(operator), db=Depends(db_session)
 ):
+    from .discovery.interactive_tests import start
+
     kind = next(kind for kind, protocol in svc.CONNECTION_TESTS.items() if protocol == payload.protocol)
-    return svc.serialize(svc.enqueue(db, kind, id, user))
+    return start(db, kind, id, user)
 
 
 @app.post(P + "/jobs/{id}/cancel")

@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import hashlib
 import ipaddress
@@ -18,6 +19,7 @@ from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
 from .discovery.correlation import correlate
 from .discovery.identification import normalize, snmp_identity
+from .discovery.interactive_tests import CAPACITY, POLL_SECONDS, interactive_condition
 from .discovery.links import sync_links
 from .discovery.protocols import NetworkError, SNMPCollector, fetch_config, fetch_identity
 from .identity.security import encrypt, secret_data
@@ -488,24 +490,37 @@ async def collect_device(job_id, collector):
     return {"saved": True}
 
 
-def claim():
+def claim(interactive=None):
+    lane = (
+        [] if interactive is None else [interactive_condition() if interactive else ~interactive_condition()]
+    )
     with session_factory()() as db:
         stale = list(
             db.scalars(
                 select(m.Job)
-                .where(m.Job.status == "running", m.Job.heartbeat_at < now() - timedelta(seconds=90))
+                .where(m.Job.status == "running", m.Job.heartbeat_at < now() - timedelta(seconds=90), *lane)
                 .with_for_update(skip_locked=True)
             )
         )
         for job in stale:
-            job.status = "cancelled" if job.cancel_requested else "failed" if job.attempts >= 3 else "queued"
-            job.error = "Worker bağlantısı kesildi; görev yeniden ele alındı"
+            job.status = (
+                "cancelled"
+                if job.cancel_requested
+                else "failed"
+                if job.attempts >= 3 or job.result.get("interactive")
+                else "queued"
+            )
+            job.error = (
+                "Test çalıştırıcısı kesildi. Yeniden test edin."
+                if job.result.get("interactive")
+                else "Worker bağlantısı kesildi; görev yeniden ele alındı"
+            )
             if job.status in ("failed", "cancelled"):
                 job.active_key, job.finished_at = None, now()
         db.flush()
         job = db.scalar(
             select(m.Job)
-            .where(m.Job.status == "queued", m.Job.available_at <= now())
+            .where(m.Job.status == "queued", m.Job.available_at <= now(), *lane)
             .order_by(m.Job.created_at)
             .with_for_update(skip_locked=True)
             .limit(1)
@@ -520,10 +535,11 @@ def claim():
         return None
 
 
-async def execute(job_id, collector=None):
+async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     collector = collector or SNMPCollector()
     with session_factory()() as db:
-        kind = get(db, m.Job, job_id).kind
+        initial = get(db, m.Job, job_id)
+        kind, interactive = initial.kind, initial.result.get("interactive", False)
     from .configuration.management import compare_live
 
     task = asyncio.create_task(
@@ -543,13 +559,13 @@ async def execute(job_id, collector=None):
     )
     try:
         while not task.done():
-            await asyncio.wait({task}, timeout=5)
+            await asyncio.wait({task}, timeout=0.25 if interactive else 5)
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
                 job.heartbeat_at = now()
                 cancelled = job.cancel_requested
                 db.commit()
-            heartbeat("worker")
+            heartbeat(heartbeat_role)
             if cancelled or stop:
                 task.cancel()
                 try:
@@ -584,8 +600,10 @@ async def execute(job_id, collector=None):
             job = get(db, m.Job, job_id)
             if isinstance(exc, Cancelled):
                 job.status = "cancelled"
-            elif job.attempts < 3 and isinstance(
-                exc, (NetworkError, OSError, TimeoutError, OperationalError)
+            elif (
+                not interactive
+                and job.attempts < 3
+                and isinstance(exc, (NetworkError, OSError, TimeoutError, OperationalError))
             ):
                 job.status = "queued"
                 job.available_at = now() + timedelta(seconds=15 * 2 ** (job.attempts - 1))
@@ -622,7 +640,7 @@ async def worker_loop():
     while not stop:
         heartbeat("worker")
         try:
-            job = claim()
+            job = claim(interactive=False)
             if job:
                 await execute(job)
             else:
@@ -630,6 +648,36 @@ async def worker_loop():
         except Exception as exc:
             log.warning("worker_cycle_failed error_class=%s", type(exc).__name__)
             await asyncio.sleep(5)
+
+
+async def interactive_test_loop():
+    tasks = set()
+    last_heartbeat = 0.0
+    try:
+        while not stop:
+            try:
+                if time.monotonic() - last_heartbeat >= 2:
+                    heartbeat("tests")
+                    last_heartbeat = time.monotonic()
+                done = {task for task in tasks if task.done()}
+                for task in done:
+                    # Surface failures without logging connection data.
+                    if not task.cancelled() and task.exception():
+                        log.warning("interactive_test_failed error_class=%s", type(task.exception()).__name__)
+                tasks -= done
+                while len(tasks) < CAPACITY:
+                    job_id = claim(interactive=True)
+                    if not job_id:
+                        break
+                    tasks.add(asyncio.create_task(execute(job_id, heartbeat_role="tests")))
+                await asyncio.sleep(POLL_SECONDS)
+            except Exception as exc:
+                log.warning("interactive_test_cycle_failed error_class=%s", type(exc).__name__)
+                await asyncio.sleep(1)
+    finally:
+        # execute() observes stop and records cancellation; do not abandon probes.
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def request_stop(*args):
@@ -641,4 +689,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    asyncio.run(worker_loop())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--interactive-tests", action="store_true")
+    args = parser.parse_args()
+    asyncio.run(interactive_test_loop() if args.interactive_tests else worker_loop())

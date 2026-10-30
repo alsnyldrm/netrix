@@ -32,6 +32,7 @@ with sync_playwright() as p:
     reads = 0
     selected = ""
     cancelling = False
+    admission_error = 0
 
     def api(route):
         global reads, selected
@@ -44,6 +45,11 @@ with sync_playwright() as p:
             data = {"counts": {}}
         elif path == "devices/device-1/connection-tests":
             if route.request.method == "POST":
+                if admission_error:
+                    route.fulfill(
+                        status=admission_error, json={"detail": "İstek sıraya alınmadı; yeniden deneyin."}
+                    )
+                    return
                 selected = route.request.post_data_json["protocol"]
                 assert selected in enabled
                 submissions.append(selected)
@@ -151,6 +157,15 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     expect(trigger).to_be_focused()
 
+    for admission_error in (429, 503):
+        trigger.click()
+        page.get_by_role("button", name="Test et", exact=True).click()
+        expect(page.get_by_role("alert")).to_contain_text("İstek sıraya alınmadı")
+        expect(page.get_by_role("button", name="Test et", exact=True)).to_be_enabled()
+        expect(page.get_by_role("button", name="Testi iptal et", exact=True)).to_have_count(0)
+        page.keyboard.press("Escape")
+    admission_error = 0
+
     # Inspect both themes, mobile layouts, keyboard focus and modal accessibility.
     Path("artifacts").mkdir(exist_ok=True)
     violations = {}
@@ -181,6 +196,9 @@ with sync_playwright() as p:
         page.screenshot(path=f"artifacts/aruba-adapter-{theme}-{width}.png", full_page=True)
         trigger.click()
         expect(page.get_by_role("radio", name="API", exact=True)).to_be_checked()
+        page.get_by_role("button", name="Test et", exact=True).click()
+        expect(page.get_by_role("heading", name="Cihazda test çalışıyor…", exact=True)).to_be_visible()
+        expect(page.get_by_role("dialog").last).not_to_contain_text("sıraya alınıyor")
         assert page.locator("body").evaluate("e => e.scrollWidth <= window.innerWidth")
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
         report = page.evaluate(
@@ -189,7 +207,18 @@ with sync_playwright() as p:
         violations[f"{theme}-{width}"] = [
             {"id": v["id"], "nodes": [n["target"] for n in v["nodes"]]} for v in report["violations"]
         ]
+        dialog = page.get_by_role("dialog").last
+        assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth")
         page.screenshot(path=f"artifacts/connection-test-{theme}-{width}.png", full_page=True)
+        if width == 375:
+            footer = dialog.locator(".dialog-footer")
+            footer.scroll_into_view_if_needed()
+            boxes = footer.locator("button").evaluate_all(
+                "es=>es.map(e=>{const r=e.getBoundingClientRect();return {x:r.x,w:r.width}})"
+            )
+            assert max(b["x"] for b in boxes) - min(b["x"] for b in boxes) <= 1
+            assert max(b["w"] for b in boxes) - min(b["w"] for b in boxes) <= 1
+            page.screenshot(path=f"artifacts/connection-test-actions-{theme}-{width}.png")
         page.keyboard.press("Escape")
     expect(draft_name).to_have_value("Korunan taslak")
     assert not writes, writes
