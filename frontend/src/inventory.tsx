@@ -1,7 +1,6 @@
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Funnel,
-  UploadSimple,
   Columns,
   Trash,
   PencilSimple,
@@ -14,7 +13,11 @@ import {
 } from "@phosphor-icons/react";
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
-import { DeviceCSVImport, downloadDeviceCSV } from "./device-csv";
+import {
+  DeviceTransferImport,
+  TransferMenu,
+  downloadDevices,
+} from "./device-csv";
 type Row = Record<string, any>;
 type Column = { key: string; label: string };
 type Rule = { field: string; op: string; value: string; join: string };
@@ -636,32 +639,26 @@ export function InventoryTable({
         </button>
         {purpose === "devices" && writable && (
           <>
-            <button
-              className="secondary"
+            <TransferMenu
+              mode="import"
               disabled={busy}
-              onClick={() => setDialog("csv")}
-            >
-              <UploadSimple size={18} aria-hidden="true" />
-              CSV içeri aktar
-            </button>
-            <button
-              className="secondary"
+              onSelect={(format) => setDialog(format)}
+            />
+            <TransferMenu
+              mode="export"
               disabled={!selected.length || busy || loading}
-              onClick={async () => {
+              onSelect={async (format) => {
                 setBusy(true);
                 setError("");
                 try {
-                  await downloadDeviceCSV(selected);
+                  await downloadDevices(format, selected);
                 } catch (e: any) {
                   setError(e.message);
                 } finally {
                   setBusy(false);
                 }
               }}
-            >
-              <DownloadSimple size={18} aria-hidden="true" />
-              Seçilenleri CSV dışarı aktar
-            </button>
+            />
           </>
         )}
         {resource === "snapshots" && !deviceId && (
@@ -916,8 +913,9 @@ export function InventoryTable({
           </button>
         </div>
       </footer>
-      {dialog === "csv" && (
-        <DeviceCSVImport
+      {(dialog === "csv" || dialog === "xlsx") && (
+        <DeviceTransferImport
+          format={dialog}
           onClose={() => setDialog("")}
           onSaved={() => {
             setSelected([]);

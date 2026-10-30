@@ -263,11 +263,16 @@ class InventoryFilter(Input):
     join: Literal["and", "or"] = "and"
 
 
-class DeviceCSVInput(Input):
+class DeviceTransferInput(Input):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
-    content: str = Field(min_length=1, max_length=1048576)
+    content: str = Field(min_length=1, max_length=1398104)
     apply: bool = False
+    test_after: bool = False
 
 
 class DeviceCSVExportInput(Input):
     ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class ImportTestStatusInput(Input):
+    ids: list[str] = Field(min_length=1, max_length=1000)

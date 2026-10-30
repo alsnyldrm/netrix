@@ -22,6 +22,9 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 | cffi | 2.1.1 | MIT-0 |
 | click | 8.5.0 | BSD-3-Clause |
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
+| openpyxl | 3.1.5 | MIT |
+| defusedxml | 0.7.1 | PSF |
+| et_xmlfile | 2.0.0 | MIT |
 | fastapi | 0.162.0 | MIT |
 | h11 | 0.16.0 | MIT |
 | httpcore | 1.0.9 | BSD-3-Clause |
@@ -68,3 +71,5 @@ NETRIX için bağımsız bir açık kaynak lisansı verilmemiştir. Üçüncü t
 Resmi kaynaklar: [Redis lisans seçenekleri](https://redis.io/legal/licenses/), [AsyncSSH proje lisansı](https://github.com/ronf/asyncssh/blob/develop/COPYING), [PySNMP lisansı](https://github.com/lextudio/pysnmp/blob/main/LICENSE.rst). Python paketlerinin lisans dosyaları kurulu wheel dağıtımlarında korunur.
 
 Tek container imajında Redis 8.2.2 binary'leri resmi `redis:8.2.2-bookworm` imajından alınır; Supervisor 4.3.0 süreçleri yönetir. MariaDB istemcisi Debian bookworm paketinden yüklenir; bu dağıtımda sürümü `1:10.11.19-0+deb12u1` olarak doğrulandı (`dpkg-query -W mariadb-client`). [Supervisor yapılandırması](https://supervisord.org/configuration.html) başlangıç/kapanış öncelikleri ve süreç yeniden başlatma davranışının kaynağıdır.
+
+XLSX içe/dışa aktarımı openpyxl ile yapılır; defusedxml XML entity saldırılarına karşı ayrıştırıcıyı korur. ZIP açılmış boyutu, satır/sütun sayısı ve dosya boyutu ayrıca sınırlandırılır; formül ve makrolar kabul edilmez. [openpyxl güvenlik ve lisans belgesi](https://openpyxl.readthedocs.io/en/stable/) esas alınmıştır.

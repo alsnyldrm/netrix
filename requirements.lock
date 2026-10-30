@@ -34,3 +34,6 @@ typing_extensions==4.16.0
 uvicorn==0.54.0
 websockets==17.3
 supervisor==4.3.0
+openpyxl==3.1.5
+defusedxml==0.7.1
+et_xmlfile==2.0.0

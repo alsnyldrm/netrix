@@ -15,6 +15,7 @@ from ..identity.security import audit
 
 MAX_ROWS = 500
 MAX_BYTES = 1024 * 1024
+REQUIRED = {"name", "management_ip", "vrf_id"}
 FIELDS = {
     "name": "Cihaz adı",
     "management_ip": "Yönetim IP adresi",
@@ -93,10 +94,15 @@ def unescape_cell(value):
     return value
 
 
-def render(rows):
+def render(rows, *, is_template=False):
     output = io.StringIO(newline="")
     writer = csv.writer(output, quoting=csv.QUOTE_ALL)
-    writer.writerow([*FIELDS.values(), *SECRETS.values()])
+    writer.writerow(
+        [
+            label + (" *" if is_template and key in REQUIRED else "")
+            for key, label in {**FIELDS, **SECRETS}.items()
+        ]
+    )
     for row in rows:
         writer.writerow([safe_cell(row.get(key)) for key in (*FIELDS, *SECRETS)])
     return "\ufeff" + output.getvalue()
@@ -109,11 +115,9 @@ def template():
                 "name": "Cihaz-01",
                 "management_ip": "192.0.2.10",
                 "vrf_id": "Global",
-                "kind": "switch",
-                "lifecycle_status": "planned",
-                "adapter": "ios",
             }
-        ]
+        ],
+        is_template=True,
     )
 
 
@@ -122,7 +126,7 @@ def reference_rows(db):
     return {model: db.execute(select(model.id, model.name)).all() for model in set(REFERENCES.values())}
 
 
-def export_devices(db, ids, user):
+def export_devices(db, ids, user, *, file_format="csv"):
     ids = list(dict.fromkeys(ids))
     devices = db.scalars(
         select(m.Device)
@@ -148,7 +152,14 @@ def export_devices(db, ids, user):
         if device.config_credential_id:
             row["api_token" if device.adapter == "rest" else "ssh_password"] = "********"
         rows.append(row)
-    audit(db, user, "csv_export", "devices", None, f"{len(rows)} cihaz CSV olarak dışa aktarıldı")
+    audit(
+        db,
+        user,
+        f"{file_format}_export",
+        "devices",
+        None,
+        f"{len(rows)} cihaz {file_format.upper()} olarak dışa aktarıldı",
+    )
     db.commit()
     return render(rows)
 
@@ -166,6 +177,7 @@ def parse(content):
     reader = csv.reader(io.StringIO(content, newline=""), dialect=dialect, strict=True)
     aliases = {normalized(label): key for key, label in {**FIELDS, **SECRETS}.items()}
     aliases.update({normalized(key): key for key in (*FIELDS, *SECRETS)})
+    aliases.update({normalized(FIELDS[key] + " *"): key for key in REQUIRED})
     aliases[normalized("SNMPv3 profili")] = "snmp_credential_id"
     try:
         header = next(reader)
@@ -262,7 +274,7 @@ def validate(db, raw):
     return valid, errors
 
 
-def import_devices(db, content, apply, user):
+def import_devices(db, content, apply, user, *, test_after=False, file_format="csv"):
     raw = parse(content)
     valid, errors = validate(db, raw)
     if errors:
@@ -290,9 +302,67 @@ def import_devices(db, content, apply, user):
     if errors:
         db.rollback()
         return {"total": len(raw), "valid": len(valid), "imported": 0, "errors": errors, "preview": []}
+    tests = []
     for _, data in valid:
-        svc.save_resource(db, "devices", data, user, commit=False)
-    audit(db, user, "csv_import", "devices", None, f"{len(valid)} cihaz CSV olarak içe aktarıldı")
+        device = svc.save_resource(db, "devices", data, user, commit=False)
+        if test_after:
+            tests.extend(queue_import_tests(db, device, user))
+    audit(
+        db,
+        user,
+        f"{file_format}_import",
+        "devices",
+        None,
+        f"{len(valid)} cihaz {file_format.upper()} olarak içe aktarıldı",
+    )
     db.commit()
     svc.publish()
-    return {"total": len(raw), "valid": len(valid), "imported": len(valid), "errors": [], "preview": []}
+    return {
+        "total": len(raw),
+        "valid": len(valid),
+        "imported": len(valid),
+        "errors": [],
+        "preview": [],
+        "tests": tests,
+    }
+
+
+def queue_import_tests(db, device, user):
+    """Use the ordinary authorized worker queue inside the import transaction."""
+    target = svc.get(db, m.Device, device["id"])
+    options = svc.connection_test_options(db, target)
+    base = {"device_id": target.id, "name": target.name, "management_ip": target.management_ip}
+    if not options["can_test"]:
+        return [{**base, "protocol": "—", "status": "skipped", "message": options["reason"], "job_id": None}]
+    rows = []
+    for option in options["protocols"]:
+        if not option["enabled"]:
+            continue
+        kind = next(k for k, p in svc.CONNECTION_TESTS.items() if p == option["protocol"])
+        job = svc.enqueue(db, kind, target.id, user, commit=False)
+        rows.append(
+            {
+                **base,
+                "protocol": option["label"],
+                "job_id": job.id,
+                "status": job.status,
+                "message": "Test sırada.",
+            }
+        )
+    return rows
+
+
+def import_test_status(db, ids):
+    jobs = db.scalars(select(m.Job).where(m.Job.id.in_(set(ids)), m.Job.kind.in_(svc.CONNECTION_TESTS))).all()
+    if len(jobs) != len(set(ids)):
+        raise HTTPException(404, "Bağlantı testi bulunamadı")
+    return [
+        {
+            "job_id": job.id,
+            "status": job.status,
+            "message": (job.result or {}).get("message")
+            or job.error
+            or ("Test çalışıyor…" if job.status == "running" else "Test sırada."),
+        }
+        for job in jobs
+    ]

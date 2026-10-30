@@ -12,3 +12,5 @@ pydantic-settings==2.16.2
 uvicorn==0.54.0
 websockets==17.3
 supervisor==4.3.0
+openpyxl==3.1.5
+defusedxml==0.7.1

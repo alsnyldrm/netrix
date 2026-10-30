@@ -280,3 +280,83 @@
     flex: 1 1 auto;
   }
 }
+
+.transfer-menu {
+  position: relative;
+}
+.transfer-menu > button {
+  min-height: 40px;
+  width: 100%;
+}
+.transfer-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 160px;
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.transfer-options button {
+  min-height: 44px;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--text);
+}
+.transfer-options button:hover,
+.transfer-options button:focus-visible {
+  background: var(--accent-soft);
+}
+.import-test-table {
+  max-height: 420px;
+}
+.import-test-table table {
+  min-width: 720px;
+  table-layout: fixed;
+}
+.import-test-table th:first-child {
+  width: 24%;
+}
+.import-test-table th:nth-child(2) {
+  width: 13%;
+}
+.import-test-table th:nth-child(3) {
+  width: 20%;
+}
+.import-test-status {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.import-test-status[data-state="succeeded"] {
+  color: var(--success);
+  background: var(--success-soft);
+}
+.import-test-status[data-state="failed"],
+.import-test-status[data-state="partial"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+@media (max-width: 640px) {
+  .transfer-menu {
+    flex: 1 1 140px;
+  }
+  .csv-footer button {
+    min-height: 44px;
+  }
+}
+
+.import-test-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 20px 22px 22px;
+}

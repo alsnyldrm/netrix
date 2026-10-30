@@ -851,9 +851,13 @@ export function Dialog({
   }, []);
   return (
     <dialog
+      aria-label={title}
       className={"dialog " + (wide ? "wide" : "")}
       ref={dialog}
-      onCancel={onClose}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
     >
       <div className="dialog-header">
         <h2>{title}</h2>

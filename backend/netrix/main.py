@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
@@ -414,33 +415,63 @@ def backup_settings(payload: s.BulkInput, user=Depends(operator), db=Depends(db_
     return {"updated": len(set(payload.ids))}
 
 
-def csv_response(content, filename):
+def transfer_response(content, file_format, filename, *, is_template=False):
+    from .inventory.xlsx_transfer import MIME, from_csv
+
     return Response(
-        content.encode("utf-8"),
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+        from_csv(content, is_template=is_template) if file_format == "xlsx" else content.encode("utf-8"),
+        media_type=MIME if file_format == "xlsx" else "text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}.{file_format}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 
-@app.get(P + "/inventory/devices/csv/template")
-def device_csv_template(user=Depends(operator)):
+@app.get(P + "/inventory/devices/{file_format}/template")
+def device_transfer_template(file_format: Literal["csv", "xlsx"], user=Depends(operator)):
     from .inventory.csv_transfer import template
 
-    return csv_response(template(), "netrix-cihaz-sablonu.csv")
+    return transfer_response(template(), file_format, "netrix-cihaz-sablonu", is_template=True)
 
 
-@app.post(P + "/inventory/devices/csv/export")
-def device_csv_export(payload: s.DeviceCSVExportInput, user=Depends(operator), db=Depends(db_session)):
+@app.post(P + "/inventory/devices/{file_format}/export")
+def device_transfer_export(
+    file_format: Literal["csv", "xlsx"],
+    payload: s.DeviceCSVExportInput,
+    user=Depends(operator),
+    db=Depends(db_session),
+):
     from .inventory.csv_transfer import export_devices
 
-    return csv_response(export_devices(db, payload.ids, user), "netrix-cihazlar.csv")
+    return transfer_response(
+        export_devices(db, payload.ids, user, file_format=file_format), file_format, "netrix-cihazlar"
+    )
 
 
-@app.post(P + "/inventory/devices/csv/import")
-def device_csv_import(payload: s.DeviceCSVInput, user=Depends(operator), db=Depends(db_session)):
+@app.post(P + "/inventory/devices/{file_format}/import")
+def device_transfer_import(
+    file_format: Literal["csv", "xlsx"],
+    payload: s.DeviceTransferInput,
+    user=Depends(operator),
+    db=Depends(db_session),
+):
     from .inventory.csv_transfer import import_devices
+    from .inventory.xlsx_transfer import to_csv
 
-    return import_devices(db, payload.content, payload.apply, user)
+    content = to_csv(payload.content) if file_format == "xlsx" else payload.content
+    return import_devices(
+        db, content, payload.apply, user, test_after=payload.test_after, file_format=file_format
+    )
+
+
+@app.post(P + "/inventory/devices/import-tests/status")
+def device_import_test_status(
+    payload: s.ImportTestStatusInput, user=Depends(operator), db=Depends(db_session)
+):
+    from .inventory.csv_transfer import import_test_status
+
+    return import_test_status(db, payload.ids)
 
 
 @app.get(P + "/inventory/{resource}")
