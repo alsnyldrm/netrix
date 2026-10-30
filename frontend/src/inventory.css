@@ -111,6 +111,18 @@
 .inventory-breadcrumb {
   margin-bottom: 16px;
 }
+.backup-device-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.backup-device-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+.backup-device-heading p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+}
 .interface-picker {
   display: grid;
   gap: 16px;

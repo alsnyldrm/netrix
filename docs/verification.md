@@ -1,5 +1,12 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Cihaz bazlı yedek gezinme (30 Ekim 2026)
+
+- Cihaz Yedekleri ve Karşılaştır ana ekranları yedek sayısı/son yedek zamanı içeren cihaz listesine dönüştürüldü. Cihaz seçilmeden yedek listesi istenmez; ayrıntı sorguları cihaz kimliğiyle sınırlandırılır.
+- Envanter/yedek backend testleri: 15 geçti. Aynı adlı cihazlar, arşivlenmiş cihaz geçmişi, yedeği olmayan cihazın dışlanması, cihaz sayfalaması, sayısal filtre ve 25 kaydı aşan yedek geçmişinde cihaz sınırı doğrulandı. Yeni migration veya bağımlılık yok.
+- `scripts/backup_devices_browser_check.py`: iki sayfada cihaz listesi/cihaz geçmişi, geri dönüş, arama, klavye odağı, yalnızca cihaza ait yedek istekleri ve sahte aktif config sonucu geçti. 1440 px açık / 375 px koyu görünümde hizalama, yatay taşma ve axe WCAG A/AA kontrolleri geçti; JavaScript hatası yok. Ekran görüntüleri görsel olarak incelendi. Gerçek cihaz sorgusu çalıştırılmadı.
+- TypeScript/Vite derlemesi, Ruff ve `git diff --check` geçti.
+
 ## Form satır hizalaması düzeltmesi (30 Ekim 2026)
 
 - Önceki checkbox kontrolü yalnızca kutu/metin iç hizasını ölçüyordu; komşu girişlerle satır hizasını kapsamıyordu. Ortak kaynak formu başlık, kontrol ve açıklama için paylaşılan grid satırlarına geçirildi. Checkbox kontrolleri girişlerle aynı yükseklik ve genişlikte; açıklamalar alanın sol kenarından başlıyor.

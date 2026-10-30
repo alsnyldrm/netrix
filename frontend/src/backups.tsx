@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ArrowLeft } from "@phosphor-icons/react";
 import { api, Dialog, date } from "./main";
 import { InventoryTable } from "./inventory";
 type Row = Record<string, any>;
@@ -17,6 +18,12 @@ export function BackupWorkspace({
   const [job, setJob] = useState<Row | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [device, setDevice] = useState<Row | null>(null);
+  const deviceFirst = page === "configuration" || page === "backup-compare";
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    heading.current?.focus();
+  }, [device?.id]);
   useEffect(() => {
     if (!job?.id) return;
     let active = true;
@@ -102,22 +109,57 @@ export function BackupWorkspace({
         </p>
       )}
       {busy && !view && <p role="status">Yedek okunuyor…</p>}
-      <InventoryTable
-        resource={page === "backup-settings" ? "devices" : "snapshots"}
-        purpose={
-          page === "backup-changes"
-            ? "changes"
-            : page === "backup-compare"
-              ? "compare"
-              : page === "backup-settings"
-                ? "backup-settings"
-                : "snapshots"
-        }
-        refresh={refresh}
-        user={user}
-        onSaved={onSaved}
-        onContent={action}
-      />
+      {deviceFirst && device && (
+        <div className="inventory-breadcrumb backup-device-heading">
+          <button
+            className="secondary"
+            onClick={() => {
+              setDevice(null);
+              setError("");
+            }}
+          >
+            <ArrowLeft size={18} aria-hidden="true" /> Cihazlara dön
+          </button>
+          <div>
+            <h2 tabIndex={-1} ref={heading}>
+              {device.name}
+            </h2>
+            <p>
+              {device.management_ip} · {device.backup_group || "Grupsuz"}
+            </p>
+          </div>
+        </div>
+      )}
+      {deviceFirst && !device ? (
+        <InventoryTable
+          key="backup-devices"
+          resource="backup-devices"
+          purpose="backup-devices"
+          refresh={refresh}
+          user={user}
+          onSaved={onSaved}
+          onDevice={setDevice}
+        />
+      ) : (
+        <InventoryTable
+          key={device?.id || page}
+          deviceId={device?.id}
+          resource={page === "backup-settings" ? "devices" : "snapshots"}
+          purpose={
+            page === "backup-changes"
+              ? "changes"
+              : page === "backup-compare"
+                ? "compare"
+                : page === "backup-settings"
+                  ? "backup-settings"
+                  : "snapshots"
+          }
+          refresh={refresh}
+          user={user}
+          onSaved={onSaved}
+          onContent={action}
+        />
+      )}
       {view && (
         <Dialog
           title={

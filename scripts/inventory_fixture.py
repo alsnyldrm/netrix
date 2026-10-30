@@ -91,7 +91,8 @@ with session_factory()() as db:
                         is_managed=j == 0,
                     )
                 )
-            for j in range(2):
+        if i in (0, 1):
+            for j in range(2 if i == 0 else 1):
                 job = m.Job(kind="backup", target_id=device.id, status="succeeded")
                 db.add(job)
                 db.flush()

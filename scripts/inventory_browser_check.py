@@ -93,6 +93,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Filtreleri uygula", exact=True).click()
     expect(page.locator(".inventory-pagination")).to_contain_text("1 kayıt")
     page.goto(BASE + "/#configuration")
+    page.get_by_role("button", name="Fixture 00 yedekleri", exact=True).click()
     expect(page.locator(".inventory-pagination")).to_contain_text("2 kayıt")
     page.get_by_role("button", name="Görüntüle", exact=True).first.click()
     expect(page.locator(".backup-result pre")).to_contain_text("hostname")
@@ -101,6 +102,7 @@ with sync_playwright() as p:
     page.goto(BASE + "/#backup-changes")
     expect(page.locator(".inventory-pagination")).to_contain_text("1 kayıt")
     page.goto(BASE + "/#backup-compare")
+    page.get_by_role("button", name="Fixture 00 yedekleri", exact=True).click()
     page.get_by_role("button", name="Aktif config ile karşılaştır", exact=True).first.click()
     expect(page.get_by_role("dialog")).to_contain_text(
         "kapsamında"

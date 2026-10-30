@@ -32,6 +32,13 @@ const BULK = [
   "backup_interval",
 ];
 const DEFAULTS: Record<string, string[]> = {
+  "backup-devices": [
+    "name",
+    "management_ip",
+    "backup_group",
+    "snapshot_count",
+    "latest_snapshot_at",
+  ],
   devices: [
     "name",
     "management_ip",
@@ -562,11 +569,13 @@ export function InventoryTable({
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";
   const hasActions =
-    (resource === "devices" &&
+    (["devices", "backup-devices"].includes(resource) &&
       Boolean(onDevice || (writable && (onEdit || onTest)))) ||
     (resource === "snapshots" && writable);
   const selectRows =
-    writable && purpose !== "interface-devices" && resource !== "snapshots";
+    writable &&
+    purpose !== "interface-devices" &&
+    ["devices", "interfaces"].includes(resource);
   const apply = async (action: string) => {
     setBusy(true);
     setError("");
@@ -614,7 +623,7 @@ export function InventoryTable({
           <Columns size={18} />
           Sütunlar
         </button>
-        {resource === "snapshots" && (
+        {resource === "snapshots" && !deviceId && (
           <label>
             Grupla
             <select
@@ -770,12 +779,12 @@ export function InventoryTable({
                   {hasActions && (
                     <td>
                       <div className="inventory-actions">
-                        {resource === "devices" && (
+                        {["devices", "backup-devices"].includes(resource) && (
                           <>
                             {onDevice && (
                               <button
                                 className="icon-button"
-                                aria-label={`${row.name} ${purpose === "interface-devices" ? "arayüzleri" : "ayrıntıları"}`}
+                                aria-label={`${row.name} ${resource === "backup-devices" ? "yedekleri" : purpose === "interface-devices" ? "arayüzleri" : "ayrıntıları"}`}
                                 onClick={() => onDevice(row)}
                               >
                                 <Eye size={18} />
@@ -854,7 +863,8 @@ export function InventoryTable({
       )}
       <footer className="inventory-pagination">
         <span>
-          {data.total} kayıt · {selected.length} seçili
+          {data.total} {resource === "backup-devices" ? "cihaz" : "kayıt"}
+          {selectRows ? ` · ${selected.length} seçili` : ""}
         </span>
         <div>
           <button

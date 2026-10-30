@@ -62,6 +62,8 @@ LABELS = {
     "capacity": "Kapasite",
     "effective_backup_interval": "Uygulanan yedek aralığı",
     "effective_retention": "Uygulanan saklama sınırı",
+    "snapshot_count": "Yedek sayısı",
+    "latest_snapshot_at": "Son yedek",
 }
 TRANSLATIONS = {
     "switch": "Switch",
@@ -108,7 +110,12 @@ def query(
     group_by="",
     changed_only=False,
 ):
-    models = {"devices": m.Device, "interfaces": m.Interface, "snapshots": m.Snapshot}
+    models = {
+        "devices": m.Device,
+        "backup-devices": m.Device,
+        "interfaces": m.Interface,
+        "snapshots": m.Snapshot,
+    }
     if resource not in models:
         raise HTTPException(404, "Kaynak bulunamadı")
     model = models[resource]
@@ -120,14 +127,30 @@ def query(
         for c in inspect(model).column_attrs
         if c.key not in svc.HIDDEN | {"archived", "is_deleted"}
     }
-    if resource != "devices":
+    if resource == "backup-devices":
+        backups = (
+            select(
+                m.Snapshot.device_id,
+                func.count(m.Snapshot.id).label("snapshot_count"),
+                func.max(m.Snapshot.created_at).label("latest_snapshot_at"),
+            )
+            .group_by(m.Snapshot.device_id)
+            .subquery()
+        )
+        stmt = stmt.join(backups, backups.c.device_id == m.Device.id)
+        cols = {
+            key: cols[key]
+            for key in ("id", "name", "management_ip", "kind", "vendor", "model", "lifecycle_status")
+        }
+        cols.update(snapshot_count=backups.c.snapshot_count, latest_snapshot_at=backups.c.latest_snapshot_at)
+    if resource not in ("devices", "backup-devices"):
         stmt = stmt.join(m.Device, model.device_id == m.Device.id)
         cols.update(
             device_name=m.Device.name, device_kind=m.Device.kind, management_ip=m.Device.management_ip
         )
         if device_id:
             stmt = stmt.where(model.device_id == device_id)
-    if resource != "snapshots":
+    if resource not in ("snapshots", "backup-devices"):
         stmt = stmt.where(m.Device.archived.is_(False))
     if resource == "interfaces" and not candidates:
         stmt = stmt.where(m.Interface.is_managed.is_(True), m.Interface.is_deleted.is_(False))

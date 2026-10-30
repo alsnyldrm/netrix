@@ -378,3 +378,53 @@ def test_group_schedule_overrides_device_interval_without_duplicates(admin_clien
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind == "backup")) == 1
     row = c.get("/api/v1/inventory/devices", params={"q": "Device 0"}).json()["items"][0]
     assert row["effective_backup_interval"] == 900 and row["effective_retention"] == 3
+
+
+def test_backup_device_directory_counts_and_scopes_history(admin_client, records, env):
+    c = admin_client
+    assert c.get("/api/v1/inventory/backup-devices").json()["total"] == 0
+    ids = records["devices"]
+    latest = now()
+    with env() as db:
+        # Names are not identities. Archived devices must retain access to their backups.
+        for index, device_id in enumerate(ids):
+            device = db.get(m.Device, device_id)
+            device.name = "Same name"
+            device.archived = index == 1
+            for i in range(27 if index == 0 else 1):
+                job = m.Job(kind="backup", target_id=device_id)
+                db.add(job)
+                db.flush()
+                db.add(
+                    m.Snapshot(
+                        device_id=device_id,
+                        job_id=job.id,
+                        fingerprint=str(i),
+                        encrypted_content=encrypt("hostname test"),
+                        size_bytes=13,
+                        created_at=latest - timedelta(minutes=i),
+                    )
+                )
+        db.add(m.Device(name="No backup", management_ip="192.0.2.99", vrf_id=device.vrf_id))
+        db.commit()
+    directory = c.get("/api/v1/inventory/backup-devices").json()
+    assert directory["total"] == 2
+    rows = {r["id"]: r for r in directory["items"]}
+    assert rows[ids[0]]["snapshot_count"] == 27
+    assert rows[ids[1]]["snapshot_count"] == 1
+    assert rows[ids[0]]["latest_snapshot_at"] == latest.isoformat()
+    assert "encrypted_content" not in str(directory)
+    first = c.get("/api/v1/inventory/backup-devices?limit=1").json()
+    second = c.get("/api/v1/inventory/backup-devices?limit=1&offset=1").json()
+    assert first["total"] == second["total"] == 2
+    assert first["items"][0]["id"] != second["items"][0]["id"]
+    assert c.get("/api/v1/inventory/backup-devices", params={"q": "192.0.2.1"}).json()["total"] == 1
+    filters = json.dumps([{"field": "snapshot_count", "op": "gt", "value": "1"}])
+    assert c.get("/api/v1/inventory/backup-devices", params={"filters": filters}).json()["total"] == 1
+    for device_id, total in zip(ids, (27, 1)):
+        for offset in (0, 25):
+            history = c.get(
+                "/api/v1/inventory/snapshots", params={"device_id": device_id, "offset": offset}
+            ).json()
+            assert history["total"] == total
+            assert all(row["device_id"] == device_id for row in history["items"])

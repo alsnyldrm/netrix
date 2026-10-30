@@ -416,7 +416,7 @@ export const PAGES: Page[] = [
   {
     key: "configuration",
     title: "Cihaz yedekleri",
-    desc: "Şifreli yedekler, sürüm geçmişi ve satır bazında farklar.",
+    desc: "Yedeklerini ve sürüm geçmişini görüntülemek için bir cihaz seçin.",
     group: "Yedekler",
     icon: TerminalWindow,
     resource: "snapshots",
@@ -438,7 +438,7 @@ export const PAGES: Page[] = [
   {
     key: "backup-compare",
     title: "Karşılaştır",
-    desc: "Kayıtlı yedeği cihazdan şimdi okunan aktif konfigürasyonla karşılaştırın.",
+    desc: "Önce cihazı, ardından aktif konfigürasyonla karşılaştırılacak yedeği seçin.",
     group: "Yedekler",
     icon: GitBranch,
   },
