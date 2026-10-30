@@ -128,6 +128,32 @@ def ssh_identity(adapter, text):
         match = re.search(r"^\s*Version:\s*(Forti(?:Gate|WiFi)-[\w-]+)\s+v", text, re.M | re.I)
         if match:
             fields.update(vendor="Fortinet", model=match[1])
+    elif adapter in ("aruba_5400", "aruba_2900"):
+        # Chassis lines identify the switch; module descriptions and hostnames do not.
+        models = set(re.findall(r"^\s*Chassis\s*:\s*([^\r\n]+)", text, re.M | re.I))
+        models = {re.split(r"\s+Serial Number\s*:", model, flags=re.I)[0].strip() for model in models}
+        if len(models) == 1:
+            model = models.pop()
+            fields["model"] = model
+            if re.search(r"\b(?:54\d\d|29\d\d)[\w-]*\b", model):
+                fields["kind"] = "switch"
+        if re.search(r"\bAruba\b", text):
+            fields["vendor"] = "Aruba"
+        elif re.search(r"\b(?:HP|HPE|Hewlett[ -]Packard)\b", text):
+            fields["vendor"] = "HPE"
+    elif adapter == "aruba_6100":
+        for field, label in (("vendor", "Vendor"), ("model", "Product Name")):
+            match = re.search(rf"^\s*{label}\s*:\s*([^\r\n]+)", text, re.M | re.I)
+            if match:
+                fields[field] = match[1].strip()
+        if re.search(r"\b61\d\d[\w-]*\b", fields.get("model", "")):
+            fields["kind"] = "switch"
+    elif adapter == "aruba_7200":
+        match = re.search(r"ArubaOS\s*\(MODEL:\s*([^\r\n)]+)\)", text, re.I)
+        if match:
+            fields["model"] = match[1].strip()
+            if re.search(r"\bAruba\s*72\d\d\b", match[1], re.I):
+                fields["vendor"] = "Aruba"
     elif adapter == "linux":
         for field in ("vendor", "model"):
             match = re.search(rf"^NETRIX_{field.upper()}=([^\r\n]*)", text, re.M)

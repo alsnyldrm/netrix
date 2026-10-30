@@ -323,13 +323,20 @@ def in_scope(address, scope):
 
 
 def authorized_device(db, device):
+    if device.archived:
+        raise ValueError("Cihaz arşivlenmiş; bağlantı testi ve cihaz sorguları çalıştırılamaz.")
     if device.lifecycle_status in ("retired", "planned", "maintenance"):
-        raise ValueError("Cihaz aktif durumda değil")
+        raise ValueError("Cihaz aktif durumda değil. Cihaz ayarlarında yaşam döngüsünü Aktif yapıp kaydedin.")
     scopes = db.scalars(
         select(m.Scope).where(m.Scope.vrf_id == device.vrf_id, m.Scope.enabled.is_(True))
     ).all()
     if not any(in_scope(device.management_ip, scope) for scope in scopes):
-        raise ValueError("Cihaz etkin ve yetkilendirilmiş bir keşif kapsamında olmalı")
+        address = ipaddress.ip_address(device.management_ip)
+        raise ValueError(
+            f"{address} için cihazın VRF'inde etkin, adresi hariç tutmayan bir keşif kapsamı yok. "
+            f"Ağ keşfi menüsünde bu cihaz için {address}/{address.max_prefixlen} kapsamı "
+            "veya yetkili ağınızı tanımlayıp etkinleştirin. Henüz bağlantı denenmedi."
+        )
 
 
 def connection_profile(db, device, protocol):

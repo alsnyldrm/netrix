@@ -28,6 +28,7 @@ with sync_playwright() as p:
         "lifecycle_status": "active",
     }
     enabled = {"snmpv3", "ssh"}
+    block_reason = ""
     reads = 0
     selected = ""
     cancelling = False
@@ -51,18 +52,23 @@ with sync_playwright() as p:
                 return
             data = {
                 "target": device["management_ip"],
-                "can_test": bool(enabled),
-                "reason": "",
+                "can_test": bool(enabled) and not block_reason,
+                "reason": block_reason,
                 "protocols": [
                     {
                         "protocol": protocol,
                         "label": label,
                         "enabled": protocol in enabled,
                         "profile_name": "Fixture " + label,
-                        "port": 161 if protocol == "snmpv3" else 22,
+                        "port": 161 if protocol in ("snmpv3", "snmpv2c") else 22,
                         "path": "/api/system" if protocol == "rest" else None,
                     }
-                    for protocol, label in [("snmpv3", "SNMPv3"), ("ssh", "SSH"), ("rest", "API")]
+                    for protocol, label in [
+                        ("snmpv3", "SNMPv3"),
+                        ("snmpv2c", "SNMPv2c"),
+                        ("ssh", "SSH"),
+                        ("rest", "API"),
+                    ]
                 ],
             }
         elif path.startswith("jobs/job-"):
@@ -98,6 +104,15 @@ with sync_playwright() as p:
     trigger = page.get_by_role("button", name="Fixture firewall bağlantı testi", exact=True)
     expect(trigger).to_have_count(0)
     page.get_by_role("button", name="Kaydı düzenle", exact=True).click()
+    adapter_select = page.get_by_role("combobox", name="Konfigürasyon adaptörü", exact=True)
+    for value, label in (
+        ("aruba_5400", "Aruba 54xx · ArubaOS-Switch"),
+        ("aruba_2900", "Aruba 2900 · ArubaOS-Switch"),
+        ("aruba_6100", "Aruba 61xx · AOS-CX"),
+        ("aruba_7200", "Aruba 72xx Controller · ArubaOS"),
+    ):
+        expect(adapter_select.locator(f'option[value="{value}"]')).to_have_text(label)
+    adapter_select.select_option("aruba_7200")
     draft_name = page.get_by_label("Cihaz adı", exact=False)
     draft_name.fill("Korunan taslak")
     expect(page.locator(".device-test-settings")).to_contain_text("Kayıtlı erişim bilgileri")
@@ -161,6 +176,9 @@ with sync_playwright() as p:
         )
         violations[f"settings-{theme}-{width}"] = [v["id"] for v in settings_report["violations"]]
         page.screenshot(path=f"artifacts/test-settings-{theme}-{width}.png", full_page=True)
+        adapter_select.scroll_into_view_if_needed()
+        assert adapter_select.evaluate("e=>e.getBoundingClientRect().right<=window.innerWidth")
+        page.screenshot(path=f"artifacts/aruba-adapter-{theme}-{width}.png", full_page=True)
         trigger.click()
         expect(page.get_by_role("radio", name="API", exact=True)).to_be_checked()
         assert page.locator("body").evaluate("e => e.scrollWidth <= window.innerWidth")
@@ -175,6 +193,21 @@ with sync_playwright() as p:
         page.keyboard.press("Escape")
     expect(draft_name).to_have_value("Korunan taslak")
     assert not writes, writes
+    enabled = {"snmpv2c", "ssh"}
+    block_reason = (
+        "192.0.2.1 için cihazın VRF'inde etkin, adresi hariç tutmayan bir keşif kapsamı yok. "
+        "Ağ keşfi menüsünde bu cihaz için 192.0.2.1/32 kapsamı veya yetkili ağınızı "
+        "tanımlayıp etkinleştirin. Henüz bağlantı denenmedi."
+    )
+    for width, height in [(1440, 1000), (375, 812)]:
+        page.set_viewport_size({"width": width, "height": height})
+        trigger.click()
+        expect(page.get_by_role("radio", name="SNMPv2c", exact=True)).to_be_checked()
+        expect(page.get_by_role("button", name="Test et", exact=True)).to_be_disabled()
+        expect(page.get_by_role("status")).to_contain_text("192.0.2.1/32")
+        assert page.get_by_role("dialog").last.evaluate("e=>e.scrollWidth<=e.clientWidth")
+        page.screenshot(path=f"artifacts/connection-scope-block-{width}.png", full_page=True)
+        page.keyboard.press("Escape")
     page.keyboard.press("Escape")
     expect(trigger).to_have_count(0)
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()

@@ -57,7 +57,17 @@ class DeviceInput(Input):
     model: str = Field(default="", max_length=100)
     kind: Literal["switch", "router", "firewall", "server", "other"] = "other"
     lifecycle_status: Literal["planned", "active", "maintenance", "retired"] = "active"
-    adapter: Literal["ios", "junos", "fortios", "linux", "rest"] = "ios"
+    adapter: Literal[
+        "ios",
+        "junos",
+        "fortios",
+        "linux",
+        "rest",
+        "aruba_5400",
+        "aruba_2900",
+        "aruba_6100",
+        "aruba_7200",
+    ] = "ios"
     snmp_credential_id: str | None = None
     config_credential_id: str | None = None
     snmp_port: int = Field(default=161, ge=1, le=65535)

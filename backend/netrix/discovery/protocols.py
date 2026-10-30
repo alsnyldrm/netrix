@@ -26,6 +26,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
 from ..configuration.fortios import fetch_fortios_backup
 from ..configuration.validation import SSH_BACKUP_ADAPTERS, BackupError
 from ..core import settings
+from .aruba import ARUBA_ADAPTERS, read_aruba
 from .identification import rest_identity, snmp_identity, ssh_identity
 
 
@@ -283,7 +284,7 @@ async def fetch_identity(device, secret):
                         if len(body) > 256 * 1024:
                             raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
                     return rest_identity(json.loads(body))
-        if device.adapter not in IDENTITY_COMMANDS:
+        if device.adapter not in IDENTITY_COMMANDS and device.adapter not in ARUBA_ADAPTERS:
             raise NetworkError("Kimlik sorgusu adaptörü desteklenmiyor")
         async with asyncssh.connect(
             device.management_ip,
@@ -295,6 +296,8 @@ async def fetch_identity(device, secret):
             connect_timeout=10,
             login_timeout=15,
         ) as connection:
+            if device.adapter in ARUBA_ADAPTERS:
+                return ssh_identity(device.adapter, await read_aruba(connection, device.adapter))
             result = await connection.run(IDENTITY_COMMANDS[device.adapter], check=True, timeout=30)
             if len(result.stdout.encode()) > 256 * 1024:
                 raise NetworkError("Cihaz kimlik yanıtı boyut sınırını aşıyor")
@@ -317,6 +320,8 @@ async def fetch_config(device, secret):
         ) as connection:
             if device.adapter == "fortios":
                 return await fetch_fortios_backup(connection)
+            if device.adapter in ARUBA_ADAPTERS:
+                return await read_aruba(connection, device.adapter, backup=True)
             # A fresh read-only session; no device configuration commands.
             result = await connection.run(COMMANDS[device.adapter], check=True, timeout=60)
             if len(result.stdout.encode()) > 4 * 1024 * 1024:

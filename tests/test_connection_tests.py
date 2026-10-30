@@ -196,6 +196,8 @@ def test_connection_tests_enforce_scope_and_roles(admin_client, inventory, env):
         db.commit()
     url = f"/api/v1/devices/{device['id']}/connection-tests"
     assert admin_client.get(url).json()["can_test"] is False
+    assert "198.51.100.1/32" in admin_client.get(url).json()["reason"]
+    assert "Henüz bağlantı denenmedi" in admin_client.get(url).json()["reason"]
     assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 422
     assert (
         admin_client.post("/api/v1/jobs", json={"kind": "test_snmp", "target_id": device["id"]}).status_code
@@ -216,6 +218,42 @@ def test_connection_tests_enforce_scope_and_roles(admin_client, inventory, env):
     )
     assert admin_client.get(url).status_code == 403
     assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 403
+
+
+@pytest.mark.parametrize(
+    "state", ["planned", "maintenance", "retired", "archived", "excluded", "disabled", "wrong_vrf"]
+)
+def test_connection_block_reason_and_post_enforce_same_policy(admin_client, inventory, env, state):
+    device = device_with_profiles(admin_client, inventory, ["snmpv3"])
+    with env() as db:
+        row = db.get(m.Device, device["id"])
+        scope = db.get(m.Scope, inventory["scope"]["id"])
+        if state == "archived":
+            row.archived = True  # Even a legacy archived row with active lifecycle must be rejected.
+        elif state == "excluded":
+            scope.exclusions = ["192.0.2.1/32"]
+        elif state == "disabled":
+            scope.enabled = False
+        elif state == "wrong_vrf":
+            other = m.VRF(name="Other")
+            db.add(other)
+            db.flush()
+            scope.vrf_id = other.id
+        else:
+            row.lifecycle_status = state
+        db.commit()
+    url = f"/api/v1/devices/{device['id']}/connection-tests"
+    options = admin_client.get(url).json()
+    assert options["can_test"] is False
+    assert (
+        "arşivlenmiş"
+        if state == "archived"
+        else "aktif durumda değil"
+        if state in ("planned", "maintenance", "retired")
+        else "192.0.2.1/32"
+    ) in options["reason"]
+    result = admin_client.post(url, json={"protocol": "snmpv3"})
+    assert result.status_code == 422 and result.json()["detail"] == options["reason"]
 
 
 @pytest.mark.parametrize("trust", [False, True])

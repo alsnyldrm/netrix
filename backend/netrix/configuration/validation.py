@@ -2,12 +2,17 @@
 
 import re
 
-SSH_BACKUP_ADAPTERS = frozenset({"ios", "junos", "fortios", "linux"})
+SSH_BACKUP_ADAPTERS = frozenset(
+    {"ios", "junos", "fortios", "linux", "aruba_5400", "aruba_2900", "aruba_6100", "aruba_7200"}
+)
 MAX_CONFIG_BYTES = 4 * 1024 * 1024
 
 
 class BackupError(ValueError):
     MESSAGES = {
+        "aruba_privilege": "Aruba hesabı Manager/Enable (#) yetkisinde oturum açmalı. Cihazdaki SSH hesabının okuma yetkisini kontrol edin.",
+        "aruba_command": "Aruba komutu reddedildi veya çıktı sayfalandı. Adaptör seçimini ve hesabın komut yetkilerini kontrol edin; yedek kaydedilmedi.",
+        "aruba_incomplete": "Aruba yanıtı eksik veya geçerli bir konfigürasyon değil; yedek kaydedilmedi.",
         "ssh_required": "Yedekleme ve karşılaştırma yalnızca SSH ile yapılır. Cihaza SSH profili ve uyumlu adaptör atayın.",
         "scp_failed": "FortiGate SCP yedeği alınamadı. SSH erişimini, admin-scp ayarını ve hesabın SCP yedekleme yetkisini kontrol edin.",
         "too_large": "Konfigürasyon 4 MB sınırını aşıyor; yedek kaydedilmedi.",

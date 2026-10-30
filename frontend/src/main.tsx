@@ -165,6 +165,10 @@ export const PAGES: Page[] = [
         "ios",
         "junos",
         "fortios",
+        "aruba_5400",
+        "aruba_2900",
+        "aruba_6100",
+        "aruba_7200",
         "linux",
         "rest",
       ]),
@@ -677,6 +681,10 @@ function ThemeToggle({
   );
 }
 const LABELS: Record<string, string> = {
+  aruba_5400: "Aruba 54xx · ArubaOS-Switch",
+  aruba_2900: "Aruba 2900 · ArubaOS-Switch",
+  aruba_6100: "Aruba 61xx · AOS-CX",
+  aruba_7200: "Aruba 72xx Controller · ArubaOS",
   hostname_change: "Hostname değişimi",
   ip_assignment_change: "IP ataması",
   management_ip_change: "Yönetim adresi",
@@ -1174,6 +1182,7 @@ function ResourceForm({
     <Dialog
       title={(row ? "Kaydı düzenle" : "Yeni kayıt") + " · " + page.title}
       onClose={onClose}
+      wide={page.key === "devices"}
     >
       <form onSubmit={submit}>
         {page.key === "devices" && (
