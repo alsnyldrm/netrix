@@ -26,9 +26,16 @@ export function Topology<T extends TopologyDevice>({
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
-    const observer = new ResizeObserver(() =>
-      setSize({ width: element.clientWidth, height: element.clientHeight }),
-    );
+    const observer = new ResizeObserver(([entry]) => {
+      // clientWidth/clientHeight round fractional CSS pixels at browser zoom.
+      // Rounding up can toggle both scrollbars and trigger a resize loop.
+      const { width, height } = entry.contentRect;
+      setSize((current) =>
+        current.width === width && current.height === height
+          ? current
+          : { width, height },
+      );
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, [graph.nodes.length > 0]);
