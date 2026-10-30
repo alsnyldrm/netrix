@@ -22,6 +22,7 @@ export function Topology<T extends TopologyDevice>({
   const viewport = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 800, height: 420 });
   const [zoom, setZoom] = useState(1);
+  const [fitToViewport, setFitToViewport] = useState(false);
   useLayoutEffect(() => {
     const element = viewport.current;
     if (!element) return;
@@ -32,9 +33,19 @@ export function Topology<T extends TopologyDevice>({
     return () => observer.disconnect();
   }, [graph.nodes.length > 0]);
   const fit = Math.min(1, size.width / graph.width, size.height / graph.height);
-  const scale = fit * zoom;
+  const baseScale = fitToViewport ? fit : Math.max(0.85, fit);
+  const scale = baseScale * zoom;
   const inset = Math.max(0, (size.width - graph.width * scale) / 2);
+  useLayoutEffect(() => {
+    const element = viewport.current;
+    if (element)
+      element.scrollLeft = Math.max(
+        0,
+        (graph.width * baseScale - size.width) / 2,
+      );
+  }, [size.width, graph.width, baseScale]);
   function reset() {
+    setFitToViewport(true);
     setZoom(1);
     viewport.current?.scrollTo({ left: 0, top: 0 });
   }
@@ -108,6 +119,8 @@ export function Topology<T extends TopologyDevice>({
               const a = graph.positions.get(link.device_id)!;
               const b = graph.positions.get(link.remote_device_id!)!;
               const sameRow = a.y === b.y;
+              const bypass =
+                sameRow && Math.abs(a.x - b.x) > graph.cardWidth + 33;
               const start = {
                 x:
                   a.x +
@@ -129,9 +142,11 @@ export function Topology<T extends TopologyDevice>({
                   className="topology-edge"
                   strokeDasharray={link.confidence < 0.9 ? "6 6" : undefined}
                   d={
-                    sameRow
-                      ? `M${start.x},${start.y} L${end.x},${end.y}`
-                      : `M${start.x},${start.y} C${start.x},${middle} ${end.x},${middle} ${end.x},${end.y}`
+                    bypass
+                      ? `M${a.x},${a.y + 32} V${a.y + 60} H${b.x} V${b.y + 32}`
+                      : sameRow
+                        ? `M${start.x},${start.y} L${end.x},${end.y}`
+                        : `M${start.x},${start.y} C${start.x},${middle} ${end.x},${middle} ${end.x},${end.y}`
                   }
                 />
               );
