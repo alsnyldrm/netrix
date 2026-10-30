@@ -258,6 +258,11 @@ class Link(Entity, Base):
     remote_name: Mapped[str] = mapped_column(String(190))
     remote_port: Mapped[str] = mapped_column(String(120))
     remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    manual_remote_name: Mapped[str | None] = mapped_column(String(190), nullable=True)
+    manual_remote_port: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    manual_remote_device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("devices.id", name="fk_link_manual_remote_device"), nullable=True
+    )
     source: Mapped[str] = mapped_column(String(20), default="lldp")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)

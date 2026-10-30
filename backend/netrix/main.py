@@ -516,6 +516,13 @@ def device_connections(id: str, user=Depends(current_user), db=Depends(db_sessio
     return connections(db, svc.get(db, m.Device, id))
 
 
+@app.put(P + "/links/{id}/labels")
+def update_link_labels(id: str, payload: s.LinkLabelsInput, user=Depends(operator), db=Depends(db_session)):
+    from .discovery.link_edits import update_labels
+
+    return update_labels(db, id, payload, user)
+
+
 @app.put(P + "/devices/{id}/interfaces")
 def manage_interfaces(
     id: str, payload: s.InterfaceSelectionInput, user=Depends(operator), db=Depends(db_session)

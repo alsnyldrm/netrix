@@ -237,8 +237,10 @@ def query(
         )
 
     if resource == "links":
+        from ..discovery.link_edits import peer_column
+
         remote = aliased(m.Device)
-        stmt = stmt.outerjoin(remote, m.Link.remote_device_id == remote.id).where(m.Link.is_current.is_(True))
+        stmt = stmt.outerjoin(remote, peer_column() == remote.id).where(m.Link.is_current.is_(True))
         cols = {
             "device_name": m.Device.name,
             "management_ip": m.Device.management_ip,
@@ -248,12 +250,23 @@ def query(
             "site_name": m.Site.name,
             "vrf_name": m.VRF.name,
             "interface_name": m.Link.interface_name,
-            "remote_name": m.Link.remote_name,
-            "remote_port": m.Link.remote_port,
+            "remote_name": func.coalesce(m.Link.manual_remote_name, m.Link.remote_name),
+            "remote_port": func.coalesce(m.Link.manual_remote_port, m.Link.remote_port),
             "remote_device_name": remote.name,
             "remote_management_ip": remote.management_ip,
             "source": m.Link.source,
-            "confidence_percent": m.Link.confidence * 100,
+            "confidence_percent": case(
+                (
+                    and_(
+                        m.Link.manual_remote_name.is_not(None),
+                        ~m.Link.manual_remote_device_id.is_not_distinct_from(m.Link.remote_device_id),
+                        m.Link.confidence > 0.65,
+                    ),
+                    0.65,
+                ),
+                else_=m.Link.confidence,
+            )
+            * 100,
             "last_seen_at": m.Link.last_seen_at,
         }
 

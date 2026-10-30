@@ -68,9 +68,18 @@ def serialize(obj):
             value = int(value)
         result[col.key] = value
     if isinstance(obj, m.Link):
+        from .discovery.link_edits import confidence, name_label, peer_id, port_label
         from .discovery.neighbor_detail import remote_port
 
-        result["remote_port"] = remote_port(obj.evidence or {}, obj.remote_port)
+        result["observed_remote_name"] = neighbor_label(obj.remote_name)
+        result["observed_remote_port"] = remote_port(obj.evidence or {}, obj.remote_port)
+        result["remote_name"] = name_label(obj)
+        result["remote_port"] = port_label(obj)
+        result["remote_device_id"] = peer_id(obj)
+        result["confidence"] = confidence(obj)
+        result["has_manual_changes"] = (
+            obj.manual_remote_name is not None or obj.manual_remote_port is not None
+        )
         result["local_aggregate"] = (obj.evidence or {}).get("local_aggregate")
     if isinstance(obj, m.Device):
         result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind

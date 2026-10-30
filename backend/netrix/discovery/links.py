@@ -52,7 +52,14 @@ def sync_links(db, device, collected):
                 l for l in links if l.source != "manual" and l.id not in seen and legacy_match(l, neighbor)
             ]
             # When joining LLDP and CDP, preserve one ID and retire the duplicate.
-            link = next((l for l in candidates if l.source == "cdp"), candidates[0] if candidates else None)
+            link = next(
+                (
+                    l
+                    for l in candidates
+                    if l.manual_remote_name is not None or l.manual_remote_port is not None
+                ),
+                None,
+            ) or next((l for l in candidates if l.source == "cdp"), candidates[0] if candidates else None)
         if not link:
             link = m.Link(device_id=device.id, **fields, source=neighbor["source"])
             db.add(link)

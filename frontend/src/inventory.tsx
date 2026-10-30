@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
 import "./inventory.css";
+import { LinkLabelEditor } from "./link-label-editor";
 import {
   DeviceTransferImport,
   TransferMenu,
@@ -620,7 +621,7 @@ export function InventoryTable({
     (["devices", "backup-devices", "topology-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable) ||
-    (resource === "links" && Boolean(onContent));
+    (resource === "links" && Boolean(onContent || (writable && onEdit)));
   const selectRows =
     writable &&
     (!archive || user.role === "admin") &&
@@ -875,6 +876,13 @@ export function InventoryTable({
                         row.kind_name || row.kind
                       ) : c.key === "device_kind" ? (
                         row.device_kind_name || tag(row.device_kind)
+                      ) : resource === "links" &&
+                        ["remote_name", "remote_port"].includes(c.key) &&
+                        row[`manual_${c.key}`] != null ? (
+                        <span className="edited-link-value">
+                          {value(c.key, row[c.key])}
+                          <small className="muted">Düzenlendi</small>
+                        </span>
                       ) : (
                         value(c.key, row[c.key])
                       )}
@@ -883,7 +891,16 @@ export function InventoryTable({
                   {hasActions && (
                     <td>
                       <div className="inventory-actions">
-                        {resource === "links" && (
+                        {resource === "links" && writable && onEdit && (
+                          <button
+                            className="icon-button"
+                            aria-label={`${row.interface_name || "Portsuz"} komşuluğunu düzenle`}
+                            onClick={() => onEdit(row)}
+                          >
+                            <PencilSimple size={18} aria-hidden="true" />
+                          </button>
+                        )}
+                        {resource === "links" && onContent && (
                           <button
                             className="icon-button"
                             aria-label="Kayıt ayrıntıları"
@@ -1151,6 +1168,8 @@ export function TopologyRecords(
   >,
 ) {
   const [device, setDevice] = useState<Row | null>(null);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [notice, setNotice] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const trigger = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -1159,6 +1178,7 @@ export function TopologyRecords(
   }, [device]);
   return (
     <>
+      {notice && <p role="status">{notice}</p>}
       <div className="topology-directory" hidden={Boolean(device)}>
         <InventoryTable
           {...props}
@@ -1189,8 +1209,23 @@ export function TopologyRecords(
             resource="links"
             purpose="topology"
             deviceId={device.id}
+            onEdit={(row) => {
+              setNotice("");
+              setEditing(row);
+            }}
           />
         </>
+      )}
+      {editing && (
+        <LinkLabelEditor
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            setNotice("Komşuluk kaydı güncellendi.");
+            props.onSaved();
+          }}
+        />
       )}
     </>
   );

@@ -419,3 +419,43 @@
   min-width: 0;
   max-width: 100%;
 }
+
+.link-label-form {
+  display: grid;
+  gap: 16px;
+}
+.link-label-form p {
+  margin: 0;
+}
+.link-label-form input,
+.link-label-form button {
+  min-height: 44px;
+}
+.link-label-form label {
+  display: grid;
+  gap: 8px;
+}
+.link-label-context,
+.link-observed-values dd {
+  overflow-wrap: anywhere;
+}
+.link-label-form summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+.link-observed-values {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px 16px;
+}
+.link-observed-values dd {
+  margin: 0;
+}
+.link-label-form .dialog-footer {
+  flex-wrap: wrap;
+}
+.edited-link-value {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}

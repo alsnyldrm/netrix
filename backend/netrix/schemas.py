@@ -317,3 +317,15 @@ class DeviceCSVExportInput(Input):
 
 class ImportTestStatusInput(Input):
     ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class LinkLabelsInput(Input):
+    remote_name: str | None = Field(min_length=1, max_length=190)
+    remote_port: str | None = Field(max_length=120)
+
+    @field_validator("remote_name", "remote_port")
+    @classmethod
+    def printable_label(cls, value):
+        if value is not None and any(not c.isprintable() for c in value):
+            raise ValueError("Alan yalnızca okunabilir karakterler içermeli")
+        return value

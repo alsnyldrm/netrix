@@ -6,7 +6,8 @@ import re
 from sqlalchemy import select
 
 from .. import models as m
-from .neighbor_detail import remote_port as observed_remote_port
+from .link_edits import confidence, name_label, port_label
+from .link_edits import peer_id as effective_peer_id
 from .neighbor_labels import neighbor_label
 
 
@@ -24,7 +25,7 @@ def anchor_level(device):
 def hierarchy(devices, links):
     adjacent = {id: set() for id in devices}
     for link in links:
-        a, b = link.device_id, link.remote_device_id
+        a, b = link.device_id, effective_peer_id(link)
         if a in devices and b in devices and a != b:
             adjacent[a].add(b)
             adjacent[b].add(a)
@@ -82,16 +83,16 @@ def device_connections(db, device):
 
     for link in links:
         if device.id == link.device_id:
-            peer_id = link.remote_device_id
+            peer_id = effective_peer_id(link)
             local_port, remote_port = (
                 link.interface_name,
-                observed_remote_port(link.evidence or {}, link.remote_port),
+                port_label(link),
             )
-            advertised_name = neighbor_label(link.remote_name)
-        elif device.id == link.remote_device_id:
+            advertised_name = name_label(link)
+        elif device.id == effective_peer_id(link):
             peer_id = link.device_id
             local_port, remote_port = (
-                observed_remote_port(link.evidence or {}, link.remote_port),
+                port_label(link),
                 link.interface_name,
             )
             advertised_name = devices[peer_id].name
@@ -128,7 +129,7 @@ def device_connections(db, device):
         entry = connections.get(key)
         if entry:
             entry["sources"] = sorted(set(entry["sources"]) | set(link.source.split("+")))
-            entry["confidence"] = max(entry["confidence"], link.confidence)
+            entry["confidence"] = max(entry["confidence"], confidence(link))
             if observed and (not entry["last_seen_at"] or observed.isoformat() > entry["last_seen_at"]):
                 entry["last_seen_at"] = observed.isoformat()
             continue
@@ -144,7 +145,7 @@ def device_connections(db, device):
             ),
             "remote_name": peer.name if peer else advertised_name,
             "direction": direction,
-            "confidence": link.confidence,
+            "confidence": confidence(link),
             "sources": sorted(link.source.split("+")),
             "last_seen_at": observed.isoformat() if observed else None,
         }
