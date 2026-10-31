@@ -2,7 +2,9 @@
 
 import re
 
-AOSS_HEADER = re.compile(r"^;[^\n]*Configuration Editor;[^\n]*Created on release", re.I)
+AOSS_HEADER = re.compile(
+    r"^(?:Running configuration:\s*)?;[^\n]*Configuration Editor;[^\n]*Created on release", re.I
+)
 
 
 def config_text(content):

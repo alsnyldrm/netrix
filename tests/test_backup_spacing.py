@@ -9,12 +9,14 @@ from netrix.discovery.aruba import terminal_text
 from netrix.identity.security import decrypt, encrypt
 from sqlalchemy import select
 
-HEADER = "; J9851A Configuration Editor; Created on release #KB.16.11\n"
+HEADER = "Running configuration:\n\n; J9851A Configuration Editor; Created on release #KB.16.11\n"
 CLEAN = (
-    HEADER
+    HEADER.replace("\n\n", "\n")
     + 'hostname "fixture"\nqos udp-port ipv4 range 50000 50019 dscp ef\nqos tcp-port ipv4 range 50020 50039 dscp af41\n'
 )
-GAPPED = CLEAN.replace("\nqos tcp", "\n\n\n\nqos tcp")
+GAPPED = CLEAN.replace("\nqos tcp", "\n\n\n\nqos tcp").replace(
+    "Running configuration:\n", "Running configuration:\n\n"
+)
 
 
 def test_terminal_cursor_redraw_is_one_boundary_not_blank_lines():
@@ -115,3 +117,10 @@ async def test_spacing_cleanup_only_reports_real_changes(admin_client, inventory
     assert result["status"] == "succeeded"
     assert result["result"]["changed"] is changed
     assert bool(result["result"]["diff"]) is changed
+
+
+def test_aoss_native_file_without_cli_heading_is_also_normalized(env):
+    content = GAPPED.removeprefix("Running configuration:\n\n")
+    assert snapshot_text(m.Snapshot(encrypted_content=encrypt(content))) == CLEAN.removeprefix(
+        "Running configuration:\n"
+    )

@@ -11,7 +11,11 @@ app = fixture.app
 with fixture.session_factory()() as db:
     for snapshot in db.scalars(select(fixture.m.Snapshot)):
         original = decrypt(snapshot.encrypted_content)
-        content = "; J9851A Configuration Editor; Created on release #KB.16.11\n" + original + "\n"
+        content = (
+            "Running configuration:\n\n; J9851A Configuration Editor; Created on release #KB.16.11\n"
+            + original
+            + "\n"
+        )
         for index in range(1, 31):
             content += f"qos udp-port ipv4 range {50000 + index * 2} {50001 + index * 2} dscp ef\n"
             if index % 5 == 0:
