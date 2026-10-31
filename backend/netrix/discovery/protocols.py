@@ -58,13 +58,6 @@ TABLES = {
     "if_mac": "1.3.6.1.2.1.2.2.1.6",
     "if_speed": "1.3.6.1.2.1.31.1.1.1.15",
     "if_status": "1.3.6.1.2.1.2.2.1.8",
-    "in_octets": "1.3.6.1.2.1.31.1.1.1.6",
-    "out_octets": "1.3.6.1.2.1.31.1.1.1.10",
-    "in_errors": "1.3.6.1.2.1.2.2.1.14",
-    "out_errors": "1.3.6.1.2.1.2.2.1.20",
-    "in_discards": "1.3.6.1.2.1.2.2.1.13",
-    "out_discards": "1.3.6.1.2.1.2.2.1.19",
-    "discontinuity": "1.3.6.1.2.1.31.1.1.1.19",
     "lldp_local_type": "1.0.8802.1.1.2.1.3.7.1.2",
     "lldp_local_desc": "1.0.8802.1.1.2.1.3.7.1.4",
     "lldp_chassis_type": "1.0.8802.1.1.2.1.4.1.1.4",
@@ -109,48 +102,6 @@ class SNMPCollector:
 
     async def probe(self, host, port, secret):
         return await self._collect(host, port, secret, probe_only=True)
-
-    async def interface_counters(self, host, port, secret, if_index):
-        engine = SnmpEngine()
-        try:
-            auth = (
-                CommunityData(secret["community"], mpModel=1)
-                if secret.get("protocol") == "snmpv2c"
-                else UsmUserData(
-                    secret["username"],
-                    secret["auth_key"],
-                    secret["priv_key"],
-                    authProtocol=usmHMAC192SHA256AuthProtocol
-                    if secret.get("auth_protocol", "sha256") == "sha256"
-                    else usmHMACSHAAuthProtocol,
-                    privProtocol=usmAesCfb128Protocol,
-                )
-            )
-            transport = Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
-            target = await transport.create((host, port), timeout=1, retries=1)
-            keys = {
-                "in_octets": TABLES["in_octets"] + f".{if_index}",
-                "out_octets": TABLES["out_octets"] + f".{if_index}",
-                "discontinuity_ticks": TABLES["discontinuity"] + f".{if_index}",
-                "uptime_ticks": SYSTEM["uptime"],
-            }
-            async with asyncio.timeout(4):
-                error, status, _, values = await get_cmd(
-                    engine,
-                    auth,
-                    target,
-                    ContextData(),
-                    *[ObjectType(ObjectIdentity(oid)) for oid in keys.values()],
-                    lookupMib=False,
-                )
-            if error or status:
-                raise NetworkError("SNMP port counters unavailable")
-            counters = {key: number(values[i][1]) for i, key in enumerate(keys)}
-            if any(value is None for value in counters.values()):
-                raise NetworkError("64-bit counters/discontinuity unavailable")
-            return counters
-        finally:
-            engine.close_dispatcher()
 
     async def _collect(self, host, port, secret, identity_only=False, probe_only=False):
         snmp = SnmpEngine()
@@ -240,26 +191,6 @@ class SNMPCollector:
                         if index not in tables["if_status"]
                         else "down",
                     }
-                    if (
-                        index in tables["in_octets"]
-                        and index in tables["out_octets"]
-                        and index in tables["discontinuity"]
-                    ):
-                        item["counters"] = {
-                            key: number(tables[key].get(index), 0)
-                            for key in (
-                                "in_octets",
-                                "out_octets",
-                                "in_errors",
-                                "out_errors",
-                                "in_discards",
-                                "out_discards",
-                            )
-                        }
-                        item["counters"].update(
-                            uptime_ticks=system["uptime"],
-                            discontinuity_ticks=number(tables["discontinuity"][index], 0),
-                        )
                     interfaces.append(item)
                 neighbors = parse_neighbors(tables)
                 raw = {

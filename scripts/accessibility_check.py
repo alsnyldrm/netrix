@@ -21,7 +21,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Çalışma alanına gir").click()
     expect(page.locator("main h1")).to_be_visible()
     results = {}
-    for key in ("overview", "devices", "discovery", "monitoring", "settings"):
+    for key in ("overview", "devices", "discovery", "settings"):
         page.goto(base + "/#" + key)
         page.wait_for_load_state("networkidle")
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))

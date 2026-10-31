@@ -4,7 +4,7 @@
 
 Akıllı Ağ Keşif ve Yönetim Platformu
 
-NETRIX, ortak cihaz envanteri üzerinde çalışan IPAM/ağ keşfi, konfigürasyon sürümleme ve ağ izleme platformudur. Python/FastAPI backend, MariaDB, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
+NETRIX, ortak cihaz envanteri üzerinde çalışan IPAM/ağ keşfi, konfigürasyon sürümleme platformudur. Python/FastAPI backend, MariaDB, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
 
 ## Dağıtım
 
@@ -28,7 +28,7 @@ docker compose ps
 
 Şifreleme anahtarı üretimi: `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`. Kurulum token'ı üretimi: `python -c 'import secrets; print(secrets.token_urlsafe(32))'`. Bu komutları yalnızca kendi güvenli terminalinizde çalıştırın; çıktıları Git'e yazmayın. DB URL parolasında URL encoding kullanın.
 
-İlk ziyarette dağıtımda oluşturulan güvenli kurulum dosyasındaki anahtarla yönetici hesabınızı oluşturun. Sabit varsayılan kullanıcı/parola yoktur. Ardından **Erişim kasası → Lokasyon/VRF → Cihaz veya Ağ keşfi kapsamı → Manuel keşif → Görev merkezi** akışını izleyin. Gerçek ağ sorguları kendiliğinden başlamaz; zamanlama/izleme açıkça etkinleştirilmelidir.
+İlk ziyarette dağıtımda oluşturulan güvenli kurulum dosyasındaki anahtarla yönetici hesabınızı oluşturun. Sabit varsayılan kullanıcı/parola yoktur. Ardından **Erişim kasası → Lokasyon/VRF → Cihaz veya Ağ keşfi kapsamı → Manuel keşif → Görev merkezi** akışını izleyin. Gerçek ağ sorguları kendiliğinden başlamaz; zamanlama açıkça etkinleştirilmelidir.
 
 ## Geliştirme ve doğrulama
 

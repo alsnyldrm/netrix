@@ -57,25 +57,6 @@ with sf() as db:
         raise AssertionError("Foreign key constraint missing")
     except (IntegrityError, OperationalError):
         db.rollback()
-    # DECIMAL(20,0) must retain unsigned 64-bit counters exactly.
-    port = m.Interface(name="Gi1", device_id=device_id, if_index=1)
-    db.add(port)
-    job = m.Job(kind="monitor", target_id=device_id)
-    db.add(job)
-    db.flush()
-    db.add(
-        m.Sample(
-            interface_id=port.id,
-            job_id=job.id,
-            in_octets=18446744073709551615,
-            out_octets=18446744073709551614,
-            uptime_ticks=1,
-        )
-    )
-    db.commit()
-    db.expire_all()
-    sample = db.scalar(select(m.Sample))
-    assert int(sample.in_octets) == 18446744073709551615
 barrier = Barrier(2)
 
 
@@ -97,7 +78,7 @@ with ThreadPoolExecutor(max_workers=2) as pool:
 assert sorted(results) == ["created", "existing"], results
 with sf() as db:
     for index in range(2):
-        db.add(m.Job(kind="monitor", target_id=device_id))
+        db.add(m.Job(kind="discovery", target_id=device_id))
     db.commit()
 with sf() as first, sf() as second:
     a = first.scalar(select(m.Job).where(m.Job.status == "queued").with_for_update(skip_locked=True).limit(1))

@@ -117,54 +117,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     page.get_by_role("button", name="192.0.2.10", exact=True).click()
     expect(page.get_by_text("Ubuntu Linux 24.04", exact=True).first).to_be_visible()
-    page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).select_option(index=1)
     check("detail")
-    # Verify five-second polling uses fresh provider timestamps, no physical network calls.
-    calls = {"live": 0, "traffic": 0, "cancel": 0}
-
-    def live(route):
-        calls["live"] += 1
-        route.fulfill(json={"id": "live-fixture", "status": "running"})
-
-    source_id = page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).input_value()[2:]
-
-    def traffic(route):
-        calls["traffic"] += 1
-        route.fulfill(
-            json={
-                "items": [
-                    {
-                        "id": str(i),
-                        "source_key": "vcenter:" + source_id + ":vm-1:4000",
-                        "sampled_at": f"2026-10-31T10:00:{i * 20:02d}+00:00",
-                        "interval_seconds": 20,
-                        "in_bps": 1000000 * i,
-                        "out_bps": 500000 * i,
-                    }
-                    for i in range(1, 3)
-                ]
-            }
-        )
-
-    page.route("**/api/v1/ipam/addresses/*/live", live)
-    page.route(
-        "**/api/v1/jobs/live-fixture", lambda r: r.fulfill(json={"id": "live-fixture", "status": "running"})
-    )
-    page.route("**/api/v1/ipam/addresses/*/traffic", traffic)
-
-    def cancel(route):
-        calls["cancel"] += 1
-        route.fulfill(json={"id": "live-fixture", "status": "cancelled"})
-
-    page.route("**/api/v1/jobs/live-fixture/cancel", cancel)
-    page.get_by_role("button", name="Networkü izle", exact=True).last.click()
-    expect(page.get_by_role("img", name="Giriş ve çıkış trafik grafiği")).to_be_visible()
-    page.wait_for_timeout(5400)
-    assert calls["traffic"] >= 2 and calls["live"] == 1, calls
-    check("live")
-    page.get_by_role("button", name="İzlemeyi durdur", exact=True).click()
-    page.wait_for_timeout(200)
-    assert calls["cancel"] == 1
     page.keyboard.press("Escape")
     page.goto("http://127.0.0.1:8211/#integrations")
     page.get_by_role("button", name="Entegrasyon ekle", exact=True).click()
@@ -186,5 +139,5 @@ with sync_playwright() as p:
     expect(page.get_by_role("button", name="Windows DHCP düzenle", exact=True)).to_be_visible()
     assert not errors, errors
     assert not any(reports.values()), reports
-    print(json.dumps({"workflows": "PASS", "calls": calls, "axe": reports, "console_errors": errors}))
+    print(json.dumps({"workflows": "PASS", "axe": reports, "console_errors": errors}))
     browser.close()

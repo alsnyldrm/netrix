@@ -30,12 +30,9 @@ LABELS = {
     "ssh_trust_host_key": "Anahtara güven",
     "config_path": "Konfigürasyon yolu",
     "identity_path": "Cihaz bilgisi yolu",
-    "monitoring_enabled": "İzleme etkin",
-    "monitor_interval": "İzleme aralığı",
     "backup_interval": "Yedekleme aralığı",
     "backup_retention": "Saklanacak yedek sayısı",
     "last_seen_at": "Son gözlem",
-    "last_monitor_at": "Son izleme",
     "last_backup_at": "Son yedek",
     "created_at": "Oluşturulma",
     "updated_at": "Güncelleme",
@@ -111,8 +108,6 @@ BULK_FIELDS = {
     "snmp_credential_id",
     "config_credential_id",
     "ssh_trust_host_key",
-    "monitoring_enabled",
-    "monitor_interval",
     "backup_interval",
 }
 
@@ -290,7 +285,7 @@ def query(
             clauses.append(contains(m.DeviceType.name, value))
         if key in ("lifecycle_status", "reachability", "oper_status"):
             clauses.append(contains(case(TRANSLATIONS, value=col, else_=col), value))
-        if key in ("monitoring_enabled", "ssh_trust_host_key", "is_managed", "auto_add_excluded"):
+        if key in ("ssh_trust_host_key", "is_managed", "auto_add_excluded"):
             clauses.append(contains(case((col.is_(True), "Etkin Evet"), else_="Kapalı Hayır"), value))
         if resource == "links" and key == "source":
             clauses.append(contains(case(LINK_SOURCES, value=col, else_=col), value))
@@ -328,7 +323,6 @@ def query(
             if f.field in ("lifecycle_status", "reachability", "oper_status"):
                 value = next((k for k, v in TRANSLATIONS.items() if v.casefold() == value.casefold()), value)
             if f.field in (
-                "monitoring_enabled",
                 "ssh_trust_host_key",
                 "changed",
                 "is_managed",
@@ -453,7 +447,7 @@ def bulk(db, resource, payload, user):
                 # Retain identity, relationships and history. Maintenance also prevents
                 # a retained backup group's schedule from restarting automatically.
                 row.archived, row.lifecycle_status = False, "maintenance"
-                row.monitoring_enabled, row.backup_interval = False, 0
+                row.backup_interval = 0
         elif payload.action == "update":
             if not payload.changes or set(payload.changes) - BULK_FIELDS:
                 raise HTTPException(422, "Toplu düzenlemede yalnızca izin verilen alanlar değiştirilebilir")
@@ -467,20 +461,13 @@ def bulk(db, resource, payload, user):
                 )
         else:
             for row in rows:
-                row.archived, row.lifecycle_status, row.monitoring_enabled, row.backup_interval = (
-                    True,
-                    "retired",
-                    False,
-                    0,
-                )
+                row.archived, row.lifecycle_status, row.backup_interval = True, "retired", 0
     else:
-        if payload.action not in ("delete", "disable", "enable") or payload.changes:
+        if payload.action != "delete" or payload.changes:
             raise HTTPException(422, "Geçersiz arayüz işlemi")
         for row in rows:
             if payload.action == "delete":
                 row.is_deleted, row.is_managed, row.auto_add_excluded = True, False, True
-            else:
-                row.monitoring_enabled = payload.action == "enable"
     for row in rows:
         audit(db, user, "bulk_" + payload.action, resource, row.id, "Toplu envanter işlemi")
     db.commit()

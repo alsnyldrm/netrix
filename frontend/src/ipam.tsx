@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Info,
   ArrowLeft,
   Broadcast,
   GearSix,
@@ -7,7 +8,6 @@ import {
   Funnel,
   Trash,
   Play,
-  Stop,
   Plus,
   Waveform,
   PencilSimple,
@@ -18,7 +18,6 @@ import {
   Badge,
   Dialog,
   date,
-  speed,
   PAGES,
   resourceChoices,
   dependentChange,
@@ -267,86 +266,15 @@ function PrefixSettings({
   );
 }
 
-function TrafficChart({ items }: { items: Row[] }) {
-  const values = items
-    .flatMap((r) => [r.in_bps, r.out_bps])
-    .filter((v) => v != null);
-  const maximum = Math.max(1, ...values);
-  return (
-    <div className="ipam-chart">
-      <svg
-        viewBox="0 0 600 160"
-        role="img"
-        aria-label="Giriş ve çıkış trafik grafiği"
-      >
-        <line x1="0" y1="145" x2="600" y2="145" stroke="var(--border-strong)" />
-        {(["in_bps", "out_bps"] as const).map((key, k) => (
-          <g
-            key={key}
-            stroke={k ? "var(--chart-out)" : "var(--chart-in)"}
-            fill="none"
-            strokeWidth="2"
-          >
-            {items.map(
-              (r, i) =>
-                r[key] != null && (
-                  <React.Fragment key={r.id}>
-                    <circle
-                      cx={10 + (i * 580) / Math.max(1, items.length - 1)}
-                      cy={145 - (r[key] / maximum) * 130}
-                      r="2"
-                    />
-                    {i > 0 && items[i - 1][key] != null && (
-                      <line
-                        x1={
-                          10 + ((i - 1) * 580) / Math.max(1, items.length - 1)
-                        }
-                        y1={145 - (items[i - 1][key] / maximum) * 130}
-                        x2={10 + (i * 580) / Math.max(1, items.length - 1)}
-                        y2={145 - (r[key] / maximum) * 130}
-                      />
-                    )}
-                  </React.Fragment>
-                ),
-            )}
-          </g>
-        ))}
-      </svg>
-      <div className="ipam-chart-legend">
-        <span>Giriş: {speed(items.at(-1)?.in_bps)}</span>
-        <span>Çıkış: {speed(items.at(-1)?.out_bps)}</span>
-        <span>Ölçek: {speed(maximum)}</span>
-      </div>
-    </div>
-  );
-}
-
-function AddressDetail({
-  row,
-  close,
-  canWrite,
-}: {
-  row: Row;
-  close: () => void;
-  canWrite: boolean;
-}) {
+function AddressDetail({ row, close }: { row: Row; close: () => void }) {
   const [detail, setDetail] = useState<Row | null>(null);
   const [error, setError] = useState("");
-  const [selection, setSelection] = useState("");
-  const [watching, setWatching] = useState(false);
-  const [items, setItems] = useState<Row[]>([]);
-  const [job, setJob] = useState<Row | null>(null);
-  const liveJob = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
     api("/ipam/addresses/" + row.id)
       .then((d) => {
         if (active) {
           setDetail(d);
-          if (d.integrations.length === 1 && !d.interfaces.length)
-            setSelection("v:" + d.integrations[0].integration_id);
-          else if (d.interfaces.length === 1 && !d.integrations.length)
-            setSelection("i:" + d.interfaces[0].interface_id);
         }
       })
       .catch((e) => {
@@ -356,70 +284,6 @@ function AddressDetail({
       active = false;
     };
   }, [row.id]);
-  useEffect(() => {
-    if (!watching || !selection) return;
-    let active = true,
-      timer: ReturnType<typeof setTimeout>;
-    const payload = selection.startsWith("i:")
-      ? { interface_id: selection.slice(2) }
-      : { integration_id: selection.slice(2) };
-    const run = async () => {
-      try {
-        if (document.hidden) {
-          timer = setTimeout(run, 5000);
-          return;
-        }
-        let status = liveJob.current
-          ? await api("/jobs/" + liveJob.current)
-          : null;
-        if (
-          status &&
-          ["failed", "cancelled", "partial"].includes(status.status)
-        ) {
-          throw new Error(status.error || "Canlı izleme durdu.");
-        }
-        if (!status || status.status === "succeeded") {
-          status = await api(
-            "/ipam/addresses/" + row.id + "/live",
-            "POST",
-            payload,
-          );
-          if (!active) {
-            await api("/jobs/" + status.id + "/cancel", "POST");
-            return;
-          }
-          liveJob.current = status.id;
-        }
-        const data = await api("/ipam/addresses/" + row.id + "/traffic");
-        if (active) {
-          setJob(status);
-          setItems(
-            data.items.filter((r: Row) =>
-              selection.startsWith("i:")
-                ? r.source_key === "interface:" + selection.slice(2)
-                : r.source_key.startsWith(
-                    "vcenter:" + selection.slice(2) + ":",
-                  ),
-            ),
-          );
-          timer = setTimeout(run, 5000);
-        }
-      } catch (e: any) {
-        if (active) {
-          setError(e.message);
-          setWatching(false);
-        }
-      }
-    };
-    run();
-    return () => {
-      active = false;
-      clearTimeout(timer);
-      const id = liveJob.current;
-      liveJob.current = null;
-      if (id) api("/jobs/" + id + "/cancel", "POST").catch(() => {});
-    };
-  }, [watching, selection, row.id]);
   return (
     <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} wide>
       <div className="ipam-form">
@@ -449,119 +313,6 @@ function AddressDetail({
                 </div>
               ))}
             </dl>
-            <section className="ipam-section">
-              <h3>Bağlantı ve canlı trafik</h3>
-              <p className="ipam-hint">
-                {detail.connection_type === "routed"
-                  ? "Firewall ARP/NDP kaydındaki ağ arayüzü gösteriliyor. Bu arayüzün trafiği ağın toplamıdır; cihazın fiziksel switch portu henüz belirlenmemiştir."
-                  : "VMware bağlantısında sanal ağ kartının trafiği izlenir. Fiziksel switch bağlantısında ölçüm, doğrulanan portun toplam trafiğidir."}
-              </p>
-              <Field label="İzlenecek bağlantı">
-                <select
-                  value={selection}
-                  disabled={watching}
-                  onChange={(e) => {
-                    setSelection(e.target.value);
-                    setItems([]);
-                  }}
-                >
-                  <option value="">Bağlantı seçin</option>
-                  {detail.interfaces.map((v: Row) => (
-                    <option key={v.interface_id} value={"i:" + v.interface_id}>
-                      {v.device_name} / {v.interface_name} ·{" "}
-                      {v.ambiguous ? "Belirsiz aday" : "Port eşleşmesi"} · %
-                      {Math.round(v.confidence * 100)}
-                    </option>
-                  ))}
-                  {detail.integrations.map((v: Row) => (
-                    <option
-                      key={v.integration_id}
-                      value={"v:" + v.integration_id}
-                    >
-                      {v.switch_name || v.name} / {v.network || v.vm_id}
-                      {v.dvport ? " / Port " + v.dvport : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {!detail.interfaces.length && !detail.integrations.length && (
-                <p className="ipam-hint">
-                  Güncel port / vCenter eşleşmesi yok. Envanter ölçümlerini veya
-                  entegrasyon eşitlemesini çalıştırın.
-                </p>
-              )}
-              <div className="ipam-actions">
-                {watching ? (
-                  <button
-                    className="secondary"
-                    onClick={() => setWatching(false)}
-                  >
-                    <Stop size={16} aria-hidden="true" />
-                    İzlemeyi durdur
-                  </button>
-                ) : (
-                  <button
-                    className="primary"
-                    disabled={!selection || !canWrite}
-                    onClick={() => {
-                      setError("");
-                      setWatching(true);
-                    }}
-                  >
-                    <Waveform size={18} aria-hidden="true" />
-                    Networkü izle
-                  </button>
-                )}
-                <span role="status">
-                  {watching
-                    ? `5 sn yenileme · ${job?.status === "running" ? "Ölçüm alınıyor" : "Görev bekleniyor"}`
-                    : "İzleme durduruldu"}
-                </span>
-              </div>
-              <p className="ipam-hint">
-                {selection.startsWith("v:")
-                  ? `VMware ölçüm aralığı: ${items.at(-1)?.interval_seconds || "kaynak bekleniyor"}${items.length ? " sn" : ""}. Ekran 5 sn’de yenilenir; aynı kaynak ölçümü tekrar çizilmez.`
-                  : "SNMP sayaçları 5 saniyede bir okunur; ilk örnek hız hesabının başlangıcıdır."}{" "}
-                Son ölçüm: {date(items.at(-1)?.sampled_at)}.
-              </p>
-              {items.length ? (
-                <>
-                  <TrafficChart items={items} />
-                  <details>
-                    <summary>Ölçümleri tablo olarak göster</summary>
-                    <div
-                      className="table-scroll"
-                      tabIndex={0}
-                      role="region"
-                      aria-label="IPAM kayıt tablosu"
-                    >
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>Zaman</th>
-                            <th>Giriş</th>
-                            <th>Çıkış</th>
-                            <th>Aralık</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {items.slice(-12).map((r) => (
-                            <tr key={r.id}>
-                              <td>{date(r.sampled_at)}</td>
-                              <td>{speed(r.in_bps)}</td>
-                              <td>{speed(r.out_bps)}</td>
-                              <td>{r.interval_seconds} sn</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </details>
-                </>
-              ) : (
-                <p className="ipam-hint">Henüz trafik ölçümü yok.</p>
-              )}
-            </section>
             <section className="ipam-section">
               <h3>Kaynak gözlemleri</h3>
               <div
@@ -1183,11 +934,11 @@ export function IPAMWorkspace({
                         {r.id && (
                           <button
                             className="icon-button"
-                            aria-label={`${r.address} networkü izle`}
-                            title="Networkü izle"
+                            aria-label={`${r.address} IP ayrıntıları`}
+                            title="IP ayrıntıları"
                             onClick={() => setDetail(r)}
                           >
-                            <Waveform size={18} aria-hidden="true" />
+                            <Info size={18} aria-hidden="true" />
                           </button>
                         )}
                         {canWrite && r.status !== "network" && (
@@ -1311,13 +1062,7 @@ export function IPAMWorkspace({
           }}
         />
       )}
-      {detail && (
-        <AddressDetail
-          row={detail}
-          close={() => setDetail(null)}
-          canWrite={canWrite}
-        />
-      )}
+      {detail && <AddressDetail row={detail} close={() => setDetail(null)} />}
     </div>
   );
 }
@@ -1972,8 +1717,8 @@ function PrefixDeleteDialog({
               ))}
             </ul>
             <p>
-              İlgili işler otomatik durdurulur. IP gözlemleri ve trafik geçmişi
-              de silinir. Envanter, kabinet ve VLAN kayıtları korunur.
+              İlgili işler otomatik durdurulur. IP gözlemleri de silinir.
+              Envanter, kabinet ve VLAN kayıtları korunur.
             </p>
             {!!preview.integrations.length && (
               <details>

@@ -61,11 +61,6 @@ class IntegrationInput(Input):
         return self
 
 
-class LiveInput(Input):
-    interface_id: str | None = None
-    integration_id: str | None = None
-
-
 class AddressBulkInput(Input):
     ids: list[str] = Field(min_length=1, max_length=1000)
     action: Literal["update", "delete"]

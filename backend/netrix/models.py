@@ -6,7 +6,6 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     String,
@@ -203,11 +202,8 @@ class Device(Entity, Base):
     identity_path: Mapped[str] = mapped_column(
         String(200), default="/api/system", server_default="/api/system"
     )
-    monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    monitor_interval: Mapped[int] = mapped_column(Integer, default=300)
     backup_interval: Mapped[int] = mapped_column(Integer, default=0)
     last_seen_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    last_monitor_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     backup_group_id: Mapped[str | None] = mapped_column(
         ForeignKey("backup_groups.id"), nullable=True, index=True
@@ -219,7 +215,7 @@ class Device(Entity, Base):
         CheckConstraint(
             "lifecycle_status in ('planned','active','maintenance','retired')", name="ck_device_status"
         ),
-        CheckConstraint("monitor_interval >= 60 AND backup_interval >= 0", name="ck_device_interval"),
+        CheckConstraint("backup_interval >= 0", name="ck_device_interval"),
     )
 
 
@@ -233,7 +229,6 @@ class Interface(Entity, Base):
     oper_status: Mapped[str] = mapped_column(String(20), default="unknown")
     description: Mapped[str] = mapped_column(String(400), default="")
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     auto_add_excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     __table_args__ = (UniqueConstraint("device_id", "name"), UniqueConstraint("device_id", "if_index"))
@@ -320,17 +315,6 @@ class IPObservation(Entity, Base):
     data: Mapped[dict] = mapped_column(JSON, default=dict)
     observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
     __table_args__ = (UniqueConstraint("address_id", "source", "source_key"),)
-
-
-class IPTraffic(Entity, Base):
-    __tablename__ = "ip_traffic"
-    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), index=True)
-    source_key: Mapped[str] = mapped_column(String(120))
-    sampled_at: Mapped[object] = mapped_column(UTCDateTime())
-    interval_seconds: Mapped[int] = mapped_column(Integer)
-    in_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
-    out_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
-    __table_args__ = (UniqueConstraint("address_id", "source_key", "sampled_at"),)
 
 
 class Scope(Entity, Base):
@@ -435,29 +419,6 @@ class Snapshot(Entity, Base):
     __table_args__ = (UniqueConstraint("job_id", "device_id"),)
 
 
-class Sample(Entity, Base):
-    __tablename__ = "interface_samples"
-    interface_id: Mapped[str] = mapped_column(ForeignKey("interfaces.id"), index=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
-    in_octets: Mapped[int] = mapped_column(Numeric(20, 0))
-    out_octets: Mapped[int] = mapped_column(Numeric(20, 0))
-    in_errors: Mapped[int] = mapped_column(Numeric(20, 0), default=0)
-    out_errors: Mapped[int] = mapped_column(Numeric(20, 0), default=0)
-    in_discards: Mapped[int] = mapped_column(Numeric(20, 0), default=0)
-    out_discards: Mapped[int] = mapped_column(Numeric(20, 0), default=0)
-    uptime_ticks: Mapped[int] = mapped_column(Numeric(20, 0))
-    discontinuity_ticks: Mapped[int] = mapped_column(Numeric(20, 0), default=0)
-    speed_bps: Mapped[int | None] = mapped_column(Numeric(20, 0), nullable=True)
-    in_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
-    out_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
-    quality: Mapped[str] = mapped_column(String(30), default="baseline")
-    __table_args__ = (
-        Index("ix_samples_interface_time", "interface_id", "created_at"),
-        Index("ix_samples_retention_time", "created_at"),
-        UniqueConstraint("job_id", "interface_id"),
-    )
-
-
 class AlertRule(Entity, Base):
     __tablename__ = "alert_rules"
     name: Mapped[str] = mapped_column(String(120))
@@ -468,9 +429,7 @@ class AlertRule(Entity, Base):
     severity: Mapped[str] = mapped_column(String(20), default="warning")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (
-        CheckConstraint(
-            "metric in ('availability','utilization','config_change','no_data')", name="ck_alert_metric"
-        ),
+        CheckConstraint("metric = 'config_change'", name="ck_alert_metric"),
         CheckConstraint("severity in ('info','warning','critical')", name="ck_alert_severity"),
     )
 

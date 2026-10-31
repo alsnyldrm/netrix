@@ -9,20 +9,8 @@ def evaluate(db, device, metric, value):
     for rule in rules:
         key = f"{rule.id}:{device.id}"
         existing = db.scalar(select(Alert).where(Alert.active_key == key))
-        triggered = (
-            (value == 0)
-            if metric == "availability"
-            else value >= rule.threshold
-            if metric in ("utilization", "no_data")
-            else bool(value)
-        )
-        recovered = (
-            (value == 1)
-            if metric == "availability"
-            else value <= rule.recovery_threshold
-            if metric == "utilization"
-            else not triggered
-        )
+        triggered = bool(value)
+        recovered = not triggered
         if triggered:
             if not existing:
                 existing = Alert(

@@ -209,28 +209,6 @@
   margin: 0;
   font-size: 16px;
 }
-.ipam-chart {
-  background: var(--surface-2);
-  padding: 16px;
-  border-radius: var(--radius);
-}
-.ipam-chart svg {
-  display: block;
-  width: 100%;
-}
-.ipam-chart-legend {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--text-2);
-}
-.ipam-chart-legend span:first-child {
-  color: var(--chart-in);
-}
-.ipam-chart-legend span:nth-child(2) {
-  color: var(--chart-out);
-}
 .ipam-prefix-picker {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);

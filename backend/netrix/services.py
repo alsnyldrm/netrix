@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, inspect, or_, select
 from . import models as m
 from . import schemas as s
 from .configuration.validation import BackupError, require_ssh_backup
-from .core import now, redis_client, settings
+from .core import now, redis_client
 from .discovery.neighbor_labels import neighbor_label
 from .identity.security import audit, encrypt
 from .ipam.schemas import DNSInput
@@ -148,8 +148,6 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
         ]:
             if data.get(key) and get(db, m.Credential, data[key]).protocol not in protocols:
                 raise HTTPException(422, "Erişim profilinin protokolü adaptörle uyumlu değil")
-        if data["monitoring_enabled"] and not data.get("snmp_credential_id"):
-            raise HTTPException(422, "İzleme için SNMPv3 veya SNMPv2c profili gerekli")
         if data["backup_interval"] and not data.get("config_credential_id"):
             raise HTTPException(422, "Yedekleme için erişim profili gerekli")
         if data["backup_interval"] and data["adapter"] == "rest":
@@ -481,7 +479,7 @@ def delete_resource(db, name, id, user):
     if name == "devices":
         row.archived = True
         row.lifecycle_status = "retired"
-        row.monitoring_enabled, row.backup_interval = False, 0
+        row.backup_interval = 0
     else:
         db.delete(row)
     audit(
@@ -573,12 +571,8 @@ def backup_profile(db, device):
 def enqueue(db, kind, target_id, user=None, *, commit=True):
     from .ipam.jobs import KINDS, validate_target
 
-    if kind not in (*KINDS, "discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
+    if kind not in (*KINDS, "discovery", "backup", "compare", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
-    if kind == "monitor" and not settings().monitor_jobs_enabled:
-        from .monitoring.control import PAUSED_MESSAGE
-
-        raise HTTPException(409, PAUSED_MESSAGE)
     if kind in KINDS:
         target = validate_target(db, kind, target_id)
     elif kind == "discovery":

@@ -33,7 +33,7 @@ with session_factory()() as db:
     device = db.get(m.Device, device_id)
     port = db.get(m.Interface, port_id)
     assert device.vendor == "Retained" and device.ssh_trust_host_key and not device.archived
-    assert port.is_managed and port.monitoring_enabled and not port.is_deleted
+    assert port.is_managed and not port.is_deleted
     for resource, term in (
         ("devices", "Kuzey"),
         ("devices", "Aktif"),

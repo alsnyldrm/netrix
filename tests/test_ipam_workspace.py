@@ -234,7 +234,7 @@ def test_cross_device_mac_correlation_marks_multiple_ports(admin_client, invento
             db.flush()
             port = m.Interface(device_id=device.id, name="Gi1", if_index=7)
             db.add(port)
-            job = m.Job(kind="monitor", target_id=device.id)
+            job = m.Job(kind="discovery", target_id=device.id)
             db.add(job)
             db.flush()
             db.add(
@@ -380,101 +380,6 @@ async def test_dhcp_reservation_matches_vcenter_mac_without_guest_ip(
     assert result[0]["observations"][0]["data"]["matched_by"] == "dhcp_mac"
 
 
-@pytest.mark.asyncio
-async def test_live_vcenter_deduplicates_source_timestamp(admin_client, inventory, env, monkeypatch):
-    from netrix.ipam import jobs
-
-    c = admin_client
-    p = prefix(c, inventory)
-    vc = integration(c, p)
-    with env() as db:
-        row = service.observe(
-            db,
-            db.get(m.Prefix, p["id"]),
-            "192.0.2.1",
-            "vcenter",
-            vc["id"],
-            {"integration_id": vc["id"], "vm_id": "vm-1", "nic_key": "4000"},
-        )
-        db.commit()
-        row_id = row.id
-    task = c.post(f"/api/v1/ipam/addresses/{row_id}/live", json={"integration_id": vc["id"]})
-    assert task.status_code == 202, task.text
-    assert (
-        c.post(f"/api/v1/ipam/addresses/{row_id}/live", json={"integration_id": vc["id"]}).json()["id"]
-        == task.json()["id"]
-    )
-    stamp = now()
-    monkeypatch.setattr(
-        adapters,
-        "vcenter_traffic",
-        lambda *_: {"sampled_at": stamp, "interval_seconds": 20, "in_bps": 8000, "out_bps": 4000},
-    )
-
-    async def no_wait(*_):
-        pass
-
-    monkeypatch.setattr(jobs.asyncio, "sleep", no_wait)
-    result = await jobs.live(task.json()["id"], None)
-    assert result["samples"] == 1
-    samples = c.get(f"/api/v1/ipam/addresses/{row_id}/traffic").json()["items"]
-    assert len(samples) == 1 and samples[0]["interval_seconds"] == 20 and samples[0]["in_bps"] == 8000
-
-
-@pytest.mark.asyncio
-async def test_snmp_live_baseline_reset_and_measured_interval(admin_client, inventory, env, monkeypatch):
-    from netrix.ipam import jobs
-
-    c = admin_client
-    p = prefix(c, inventory)
-    with env() as db:
-        device = m.Device(
-            name="Edge",
-            management_ip="192.0.2.2",
-            vrf_id=p["vrf_id"],
-            snmp_credential_id=inventory["credential"]["id"],
-        )
-        db.add(device)
-        db.flush()
-        port = m.Interface(name="Gi1", device_id=device.id, if_index=7, speed_bps=1000000000)
-        db.add(port)
-        db.flush()
-        row = m.IPAddress(address="192.0.2.1", vrf_id=p["vrf_id"], prefix_id=p["id"], interface_id=port.id)
-        db.add(row)
-        db.commit()
-        row_id, port_id = row.id, port.id
-    task = c.post(f"/api/v1/ipam/addresses/{row_id}/live", json={"interface_id": port_id})
-    assert task.status_code == 202, task.text
-    stamp = now()
-    n = 0
-
-    class Collector:
-        async def interface_counters(self, host, port, secret, index):
-            nonlocal n
-            assert host == "192.0.2.2" and index == 7
-            n += 1
-            return dict(
-                in_octets=n * 1000,
-                out_octets=n * 500,
-                uptime_ticks=n * 500,
-                discontinuity_ticks=1 if n >= 3 else 0,
-            )
-
-    monkeypatch.setattr(jobs, "now", lambda: stamp + timedelta(seconds=n * 5))
-
-    async def no_wait(*_):
-        pass
-
-    monkeypatch.setattr(jobs.asyncio, "sleep", no_wait)
-    await jobs.live(task.json()["id"], Collector())
-    samples = c.get(f"/api/v1/ipam/addresses/{row_id}/traffic").json()["items"]
-    assert len(samples) == 12
-    assert samples[0]["in_bps"] is None
-    assert samples[1]["in_bps"] == 1600
-    assert samples[2]["in_bps"] is None
-    assert samples[3]["out_bps"] == 800
-
-
 def test_windows_reader_tls_and_cleanup(monkeypatch):
     import base64
 
@@ -517,53 +422,6 @@ def test_windows_reader_tls_and_cleanup(monkeypatch):
         {"username": "fixture", "password": "fixture-secret"},
     )
     assert result[0]["mac_address"] == "00:11:22:33:44:55" and calls == ["cleanup", "close"]
-
-
-def test_vcenter_performance_uses_provider_interval_and_bytes_to_bits(monkeypatch):
-    from pyVim import connect
-    from pyVmomi import vim
-
-    stamp = now()
-
-    class Perf:
-        perfCounter = [
-            SimpleNamespace(
-                nameInfo=SimpleNamespace(key=name),
-                groupInfo=SimpleNamespace(key="net"),
-                rollupType="average",
-                unitInfo=SimpleNamespace(key="kiloBytesPerSecond"),
-                key=key,
-            )
-            for name, key in [("received", 10), ("transmitted", 11)]
-        ]
-
-        def QueryPerfProviderSummary(self, entity):
-            return SimpleNamespace(refreshRate=20)
-
-        def QueryPerf(self, querySpec):
-            spec = querySpec[0]
-            assert spec.intervalId == 20 and spec.maxSample == 1
-            assert all(v.instance == "4000" for v in spec.metricId)
-            return [
-                SimpleNamespace(
-                    sampleInfo=[SimpleNamespace(timestamp=stamp)],
-                    value=[
-                        SimpleNamespace(id=SimpleNamespace(counterId=10), value=[10]),
-                        SimpleNamespace(id=SimpleNamespace(counterId=11), value=[-1]),
-                    ],
-                )
-            ]
-
-    monkeypatch.setattr(
-        adapters,
-        "connect_vcenter",
-        lambda *_: SimpleNamespace(_stub=None, RetrieveContent=lambda: SimpleNamespace(perfManager=Perf())),
-    )
-    monkeypatch.setattr(connect, "Disconnect", lambda *_: None)
-    # vim.VirtualMachine accepts a null stub for a property-free query fixture.
-    assert vim.VirtualMachine("vm-1", None)._moId == "vm-1"
-    result = adapters.vcenter_traffic(None, None, "vm-1", "4000")
-    assert result["in_bps"] == 81920 and result["out_bps"] is None and result["sampled_at"] == stamp
 
 
 @pytest.mark.parametrize("kind,port", [("vcenter", 443), ("windows_dhcp", 5986)])

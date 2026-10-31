@@ -194,7 +194,7 @@ def bulk(db, payload, user):
             if db.scalar(
                 select(m.Job.id).where(m.Job.target_id == row.id, m.Job.active_key.is_not(None)).limit(1)
             ):
-                raise HTTPException(409, "Önce seçilen IP için çalışan izlemeyi durdurun")
+                raise HTTPException(409, "Önce seçilen IP için çalışan görevi durdurun")
         for row in rows:
             audit(db, user, "delete", "addresses", row.id, f"IP kaydı silindi: {row.address}")
             db.delete(row)

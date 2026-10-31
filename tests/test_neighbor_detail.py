@@ -164,7 +164,7 @@ def test_corrected_link_reuses_id_and_detail_ip_matches_manually_named_device(en
         assert len(list(db.scalars(select(m.Link)))) == 2
 
 
-@pytest.mark.parametrize("kind", ["identify", "monitor"])
+@pytest.mark.parametrize("kind", ["identify"])
 async def test_worker_collects_detail_even_when_snmp_has_complete_identity(
     admin_client, inventory, env, monkeypatch, kind
 ):

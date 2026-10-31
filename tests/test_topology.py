@@ -67,7 +67,7 @@ def test_collection_reuses_legacy_binary_link(env):
         device = m.Device(name="core", management_ip="192.0.2.2", vrf_id=vrf.id)
         db.add(device)
         db.flush()
-        job = m.Job(kind="monitor", target_id=device.id)
+        job = m.Job(kind="discovery", target_id=device.id)
         link = m.Link(
             device_id=device.id,
             remote_name=bytes.fromhex("187a3b4f1440").decode("latin1"),

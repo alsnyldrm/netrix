@@ -48,12 +48,7 @@ def add_choice_lists(book, sheet, choices):
         book.defined_names.add(
             DefinedName(name, attr_text=f"'Seçenekler'!${letter}$2:${letter}${max(2, len(values) + 1)}")
         )
-        strict = (
-            key in REFERENCES
-            or key in ENUMS
-            or key in SECRETS
-            or key in ("ssh_trust_host_key", "monitoring_enabled")
-        )
+        strict = key in REFERENCES or key in ENUMS or key in SECRETS or key in ("ssh_trust_host_key",)
         validation = DataValidation(
             type="list",
             formula1="=" + name,

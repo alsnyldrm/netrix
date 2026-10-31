@@ -38,17 +38,16 @@ vSphere Web Services API (varsayılan 443) ve envanter/performans okuma yetkiler
 
 Güncel DHCP veya envanter IP/MAC gözlemi tek bir VM/NIC ile eşleşiyorsa konuk IP bilgisi eksik olduğunda da bağlantı ilişkilendirilir (`matched_by=dhcp_mac` / `inventory_mac`). Çakışan MAC gözlemleri otomatik ilişkilendirilmez. Tam ve başarılı vCenter/DHCP okumasında artık görülmeyen kaynak ilişkileri `present=false` ile geçmişe alınır; başarısız veya eksik okumada mevcut bağlantılar korunur.
 
-## Networkü izle
+## IP ayrıntıları
 
-IP ayrıntısında güncel vCenter bağlantısı önceliklidir: örneğin `FBU-DS / VLAN-020 / Port 89`. Bu IP için FDB geçiş switch’leri izleme seçeneği olarak sunulmaz. VMware bağlantısı yoksa doğrulanan fiziksel port sunulur. Tek bağlantı otomatik seçilir; izlemeyi kullanıcı başlatır. Çakışan VM/NIC veya fiziksel uç port adayları izleme kaynağı olarak seçilemez. Envanter portu seçimi SNMP HC sayaçlarını doğrudan 5 saniyede bir okur; cihazın tamamında SNMP walk başlatmaz. Port trafiği portun toplamıdır, yalnızca o IP’nin trafiği olarak sunulmaz. İlk örnek başlangıçtır; sayaç sıfırlanması, discontinuity ve geçersiz kapasite örnekleri hız üretmez.
+IP ayrıntısında güncel sanal/fiziksel bağlantı ve kaynak gözlemleri gösterilir. Trafik toplama özelliği bulunmaz.
 
-DSwitch için vCenter sanal NIC seçeneği API üzerinden `net.received.average` / `net.transmitted.average` ölçümlerini okur. VMware’in `QueryPerfProviderSummary.refreshRate` aralığı (genellikle 20 saniye) ve kaynak zaman damgası korunur. Ekranın 5 saniyede yenilenmesi, VMware’in 5 saniyelik yeni ölçüm ürettiği anlamına gelmez. Aynı kaynak zaman damgası yeniden saklanmaz; veri yokluğu sıfır trafik olarak çizilmez.
 
 Canlı işler mevcut dört eşzamanlı interaktif worker kapasitesini kullanır. Her iş 12 sorgu sürer; açık görünüm tamamlanan işi yeniler. Duraklatma, pencere kapatma ve iptal yeni sorguları durdurur. Gizli tarayıcı sekmesi işi yenilemez. Yetki/kapsam/bağlantı seçimi her sorguda tekrar doğrulanır. Canlı örnekler yedi gün saklanır; görünüm son 15 dakikayı gösterir.
 
 ## Doğrulama ve kaynaklar
 
-`tests/test_ipam_workspace.py`: kapsam/VRF/IPv6, şifreler, rol sınırları, DNS/ICMP, gözlem güncelliği, MAC korelasyonu, DHCP→VMware ve canlı trafik sayaçları. Gerçek ağa çıkılmaz. `scripts/ipam_migration_check.py` yalnızca atılabilir `netrix_test` MariaDB’de çalışır. `scripts/ipam_browser_check.py` yerel sahte veriyle 1440, 375 ve 812 px / açık-koyu tema kontrollerini yapar. Üretim vCenter/Windows DHCP erişim testi, ilgili sunucu ve erişim bilgileri tanımlanınca yapılmalıdır.
+`tests/test_ipam_workspace.py`: kapsam/VRF/IPv6, şifreler, rol sınırları, DNS/ICMP, gözlem güncelliği, MAC korelasyonu, DHCP→VMware. Gerçek ağa çıkılmaz. `scripts/ipam_migration_check.py` yalnızca atılabilir `netrix_test` MariaDB’de çalışır. `scripts/ipam_browser_check.py` yerel sahte veriyle 1440, 375 ve 812 px / açık-koyu tema kontrollerini yapar. Üretim vCenter/Windows DHCP erişim testi, ilgili sunucu ve erişim bilgileri tanımlanınca yapılmalıdır.
 
 Resmi protokol kaynakları: [Microsoft DHCP rezervasyonları](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4reservation?view=windowsserver2025-ps), [DHCP kapsamları](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4scope?view=windowsserver2025-ps), [vSphere konuk NIC bilgisi](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.vm.GuestInfo.NicInfo.html), [vSphere PerformanceManager](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.PerformanceManager.html), [pyVmomi](https://github.com/vmware/pyvmomi), [pywinrm](https://github.com/diyan/pywinrm).
 

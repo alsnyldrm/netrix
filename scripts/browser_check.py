@@ -174,7 +174,6 @@ with sync_playwright() as p:
         "jobs",
         "events",
         "configuration",
-        "monitoring",
         "alerts",
         "rules",
         "credentials",
@@ -199,7 +198,7 @@ with sync_playwright() as p:
     # No page-wide horizontal overflow at supported widths.
     for width, height in [(375, 812), (812, 375), (768, 1024), (1440, 900)]:
         page.set_viewport_size({"width": width, "height": height})
-        for key in ("overview", "devices", "discovery", "monitoring", "settings"):
+        for key in ("overview", "devices", "discovery", "settings"):
             page.goto(BASE + "/#" + key)
             page.wait_for_load_state("networkidle")
             assert page.locator("body").evaluate("(e)=>e.scrollWidth<=window.innerWidth"), (width, key)
@@ -226,10 +225,10 @@ with sync_playwright() as p:
     assert page.evaluate("document.documentElement.dataset.theme") == start
     # Daraltılmış sidebar ikonlarla gezinmeye devam eder.
     page.get_by_role("button", name="Operasyon", exact=True).click()
-    expect(page.get_by_role("button", name="Trafik gözlemevi", exact=True)).not_to_be_visible()
+    expect(page.get_by_role("button", name="Alarm akışı", exact=True)).not_to_be_visible()
     page.get_by_role("button", name="Menüyü daralt").click()
-    page.get_by_role("button", name="Trafik gözlemevi", exact=True).click()
-    expect(page.get_by_role("heading", name="Trafik gözlemevi", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Alarm akışı", exact=True).click()
+    expect(page.get_by_role("heading", name="Alarm akışı", exact=True)).to_be_visible()
     page.get_by_role("button", name="Menüyü genişlet").click()
     page.get_by_role("button", name="Güvenli çıkış").click()
     expect(page.get_by_role("heading", name="Tekrar hoş geldiniz.")).to_be_visible()

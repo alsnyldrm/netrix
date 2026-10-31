@@ -1,5 +1,7 @@
 # NETRIX kapsamlı veri modeli
 
+> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Aşağıdaki eski hedef tasarımın monitoring/zaman serisi bölümleri uygulanacak iş değildir; geçerli şema migration dosyalarıdır.
+
 > **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk aşamada kimlik, envanter, IPAM, erişim profilleri ve keşif tabloları oluşturulur. Diğer tablolar ilgili modülle birlikte migration'a eklenir. Başlangıç tek kuruluş içindir; VRF ve site ayrımları kiracı izolasyonu yerine geçmez.
 
@@ -102,22 +104,6 @@ Topoloji güncel ilişkileri ve olay geçmişini ayırır. Çift yönlü LLDP/CD
 
 Ham çıktıyı sakla; karşılaştırma için üreticiye özgü zaman damgası gibi değişken satırları ayrı normalizasyon adımında ele al. Satır bazında diff üret; ilk snapshot değişiklik alarmı değildir. API diff görünümünde sırları maskele; ham indirmeyi ayrı yetkiye bağla. Retention, diff referanslarını ve olay geçmişini korumalıdır.
 
-## 7. Monitoring ve TimescaleDB
-
-| Tablo | Ana alanlar | İlişkiler ve kısıtlar |
-| --- | --- | --- |
-| `monitoring_policies` | name, poll_interval_seconds, retention_days, enabled, parameters JSONB | Cihaz eşlemesi `device_monitoring_policies(device_id, policy_id)` üzerinden |
-| `interface_samples` | time, interface_id, in_octets, out_octets, in_errors, out_errors, in_discards, out_discards, counter_bits, uptime_ticks, discontinuity_ticks, oper_status, speed_bps | Hypertable; PK (interface_id, time); unsigned 64 bit sayaçlar NUMERIC(20,0) |
-| `interface_rates` | time, interface_id, interval_seconds, in_bps, out_bps, in_utilization_pct, out_utilization_pct, quality | Hypertable; PK (interface_id, time); geçersiz hız nullable |
-| `device_samples` | time, device_id, availability, response_ms, cpu_pct, memory_used_bytes, memory_total_bytes, uptime_seconds | Hypertable; PK (device_id, time); desteklenmeyen metrik nullable |
-| `monitoring_events` | occurred_at, device_id, interface_id, event_kind, previous_value, current_value | Durum geçişleri, sayaç sıfırlanması, erişim hataları |
-
-- `bps = (yeni_octets - eski_octets) * 8 / geçen_saniye`; Mbps için 10^6, Gbps için 10^9 kullan. Trafik bit/s, sayaçlar byte cinsindedir.
-- SNMP 64 bit high-capacity sayaçlarını tercih et. Reboot, discontinuity ve sayaç genişliğini kontrol et; doğrulanamayan wrap/reset ve örnek aralıklarında hız üretme. Eksik veri sıfır trafik değildir.
-- Utilization hesabında örnek anındaki port hızını kullan; hız bilinmiyorsa yüzdeyi boş bırak. Full duplex giriş/çıkışı ayrı hesapla.
-- Her hypertable unique anahtarı zaman bölümleme kolonunu içermelidir. Zaman aralığı/varlık sorgularına uygun indeks ve cihaz başına veri hacmine uygun chunk aralığı belirle.
-- Ham veri ve saatlik/günlük özetler için ayrı retention politikaları tanımla. Sıkıştırma ve continuous aggregate ayarlarını seçilen TimescaleDB sürümüne göre migration/kurulumda doğrula.
-
 ## 8. Alarm ve bildirim
 
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |
@@ -129,17 +115,17 @@ Ham çıktıyı sakla; karşılaştırma için üreticiye özgü zaman damgası 
 | `alert_routes` | rule_id, channel_id | Tekil (rule_id, channel_id) |
 | `notification_deliveries` | alert_event_id, channel_id, status, attempts, next_attempt_at, delivered_at, redacted_error | Tekil (alert_event_id, channel_id); tekrar güvenli gönderim |
 
-No-data, erişilememe ve eşik aşımını ayrı değerlendir. Yetkilendirilmiş WebSocket abonelerine commit sonrası olay gönder; yeniden bağlantıda kaçırılan durumu REST API ile sorgulat.
+Konfigürasyon değişikliklerini değerlendir. Yetkilendirilmiş WebSocket abonelerine commit sonrası olay gönder; yeniden bağlantıda kaçırılan durumu REST API ile sorgulat.
 
 ## 9. İlişki özeti ve doğrulama
 
 - Site → konumlar/cihazlar; üretici → modeller → cihazlar → arayüzler.
 - VRF → prefix'ler/IP'ler; VLAN domain → VLAN'lar; arayüz ↔ IP/VLAN atamaları.
 - Cihaz ↔ credential profilleri; kapsam → keşif çalışmaları → gözlemler → envanter/topoloji olayları.
-- Cihaz → konfigürasyon snapshot'ları → diff'ler; arayüz → trafik örnekleri/hızları.
+- Cihaz → konfigürasyon snapshot'ları → diff'ler.
 - Kural → alarm örnekleri → geçiş olayları → bildirim teslimleri.
 
-Migration testlerinde FK/unique/check kısıtlarını ve sorgu indekslerini doğrula. Özellikle farklı VRF'de aynı IP, aynı VLAN numarasının farklı domain'de kullanımı, IPv6, LAG, değişen ifIndex, yinelenen görev teslimi, kayıp worker ve sıfırlanan sayaç senaryolarını kapsa. Satırlar arası/döngü gibi basit CHECK ile ifade edilemeyen kuralları transaction içindeki servis doğrulaması ve gerektiğinde kilit/trigger ile uygula; eşzamanlılık testini ekle.
+Migration testlerinde FK/unique/check kısıtlarını ve sorgu indekslerini doğrula. Özellikle farklı VRF'de aynı IP, aynı VLAN numarasının farklı domain'de kullanımı, IPv6, LAG, değişen ifIndex, yinelenen görev teslimi, kayıp worker senaryolarını kapsa. Satırlar arası/döngü gibi basit CHECK ile ifade edilemeyen kuralları transaction içindeki servis doğrulaması ve gerektiğinde kilit/trigger ile uygula; eşzamanlılık testini ekle.
 
 ## Uygulanan IPAM genişletmesi (31 Ekim 2026)
 

@@ -20,7 +20,7 @@ def switch(db, vrf_id, name, uplink=False):
     db.add(device)
     db.flush()
     port = m.Interface(device_id=device.id, name="Gi1/0/24" if uplink else "Gi1/0/7", if_index=7)
-    job = m.Job(kind="monitor", target_id=device.id)
+    job = m.Job(kind="discovery", target_id=device.id)
     db.add_all([port, job])
     db.flush()
     db.add(
@@ -76,7 +76,7 @@ def test_vm_connection_wins_over_physical_fdb_and_manual_port(admin_client, inve
         assert result["connected_device"] == "FBU-DS"
         assert result["connected_port"] == "89" and result["network"] == "VLAN-020"
         assert result["connection_type"] == "vcenter" and not result["connection_ambiguous"]
-        options = jobs.live_options(db, row)
+        options = jobs.connection_options(db, row)
         assert options["interfaces"] == []
         assert options["integrations"][0]["switch_name"] == "FBU-DS"
 
@@ -90,7 +90,7 @@ def test_physical_leaf_wins_over_transit_and_ambiguity_is_not_a_device_list(admi
         result = service.enrich(db, [row])[0]
         assert result["connected_device"] == "Access" and result["connected_port"] == "Gi1/0/7"
         assert not result["connection_ambiguous"]
-        assert len(jobs.live_options(db, row)["interfaces"]) == 1
+        assert len(jobs.connection_options(db, row)["interfaces"]) == 1
         # A second access location is unresolved, not two connected switches.
         second = m.Device(name="Other", management_ip="192.0.2.22", vrf_id=prefix.vrf_id)
         db.add(second)
@@ -192,7 +192,7 @@ async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_reti
     with env() as db:
         row = db.get(m.IPAddress, row_id)
         assert service.enrich(db, [row])[0]["connection_type"] != "vcenter"
-        assert jobs.live_options(db, row)["integrations"] == []
+        assert jobs.connection_options(db, row)["integrations"] == []
 
 
 def test_aggregate_uplink_is_not_an_endpoint_port(admin_client, inventory, env):
@@ -242,7 +242,7 @@ def test_conflicting_vm_attachments_never_fall_back_to_a_physical_hop(admin_clie
         result = service.enrich(db, [row])[0]
         assert result["connection_ambiguous"]
         assert result["connected_device"] == result["connected_port"] == ""
-        assert jobs.live_options(db, row) == {"interfaces": [], "integrations": [], "vm_conflict": True}
+        assert jobs.connection_options(db, row) == {"interfaces": [], "integrations": [], "vm_conflict": True}
         for observation in service.observations(db, [row])[row.id]:
             if observation.source == "vcenter":
                 observation.observed_at = now() - timedelta(hours=25)

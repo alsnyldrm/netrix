@@ -32,7 +32,7 @@ async def check():
             url = urlparse(route.request.url)
             query = parse_qs(url.query)
             name = url.path.removeprefix("/api/v1/")
-            foreground = (name == "inventory/devices" and query.get("limit") == ["25"]) or name == "traffic"
+            foreground = name == "inventory/devices" and query.get("limit") == ["25"]
             if delayed and foreground:
                 await pending.put(name)
                 await release.wait()
@@ -43,21 +43,6 @@ async def check():
                 data = {"id": "user-1", "display_name": "Refresh tester", "role": "admin"}
             elif name == "dashboard":
                 data = {"counts": {}}
-            elif name == "traffic":
-                data = {
-                    "items": []
-                    if query.get("hours") == ["1"]
-                    else [
-                        {
-                            "created_at": f"2026-10-29T12:0{i}:00Z",
-                            "quality": "valid",
-                            "in_bps": version * 1000000,
-                            "out_bps": 2000000,
-                        }
-                        for i in (0, 1)
-                    ],
-                    "limited": False,
-                }
             else:
                 rows = {"devices": [dict(device, name=f"Fixture switch {version}")], "interfaces": ports}
                 items = [] if query.get("q") else rows.get(name.removeprefix("inventory/"), [])
@@ -86,9 +71,7 @@ async def check():
 
         async def finish_refresh():
             nonlocal delayed
-            async with page.expect_response(
-                lambda response: "/traffic?" in response.url or "/inventory/devices?" in response.url
-            ):
+            async with page.expect_response(lambda response: "/inventory/devices?" in response.url):
                 release.set()
             await expect(page.locator("main .loading")).to_have_count(0)
             await page.wait_for_load_state("networkidle")
@@ -129,28 +112,6 @@ async def check():
         await expect(page.get_by_text("Kayıtlar yükleniyor…", exact=True)).to_have_count(0)
         await finish_refresh()
 
-        await page.get_by_role("button", name="Trafik gözlemevi", exact=True).click()
-        await expect(page.locator(".traffic-chart")).to_be_visible()
-        chart = await page.locator(".traffic-chart").element_handle()
-        version += 1
-        await start_refresh()
-        await expect(page.locator(".traffic-chart")).to_be_visible()
-        assert await chart.evaluate("node => node.isConnected")
-        await finish_refresh()
-        await expect(page.locator(".traffic-stats")).to_contain_text(f"{version}.0 Mbps")
-
-        delayed = True
-        release.clear()
-        await page.locator(".traffic-toolbar select").nth(1).select_option("port-2")
-        await asyncio.wait_for(pending.get(), timeout=5)
-        await expect(page.get_by_text("Örnekler yükleniyor…", exact=True)).to_be_visible()
-        await finish_refresh()
-        await page.locator(".traffic-toolbar select").nth(2).select_option("1")
-        await expect(page.get_by_text("Henüz trafik gözlemi yok.", exact=True)).to_be_visible()
-        await start_refresh()
-        await expect(page.get_by_text("Henüz trafik gözlemi yok.", exact=True)).to_be_visible()
-        await expect(page.get_by_text("Örnekler yükleniyor…", exact=True)).to_have_count(0)
-        await finish_refresh()
         assert not errors, errors
         print(
             json.dumps(
@@ -162,7 +123,6 @@ async def check():
                     "filters": True,
                     "empty_states": True,
                     "error_recovery": True,
-                    "traffic": True,
                     "console_errors": errors,
                 }
             )

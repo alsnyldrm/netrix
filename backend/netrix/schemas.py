@@ -9,9 +9,7 @@ class Input(BaseModel):
 
 
 class JobInput(Input):
-    kind: Literal[
-        "discovery", "backup", "monitor", "identify", "test_snmp", "test_snmpv2c", "test_ssh", "test_api"
-    ]
+    kind: Literal["discovery", "backup", "identify", "test_snmp", "test_snmpv2c", "test_ssh", "test_api"]
     target_id: str = Field(min_length=1, max_length=36)
 
 
@@ -101,8 +99,6 @@ class DeviceInput(Input):
     ssh_trust_host_key: bool = False
     config_path: str = Field(default="/api/config", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
     identity_path: str = Field(default="/api/system", max_length=200, pattern=r"^/[A-Za-z0-9/_?=.&%-]*$")
-    monitoring_enabled: bool = False
-    monitor_interval: int = Field(default=300, ge=60, le=86400)
     backup_interval: int = Field(default=0, ge=0, le=2592000)
     backup_group_id: str | None = None
     backup_retention: int = Field(default=0, ge=0, le=10000)
@@ -250,22 +246,12 @@ class CredentialInput(Input):
 
 class RuleInput(Input):
     name: str = Field(min_length=1, max_length=120)
-    metric: Literal["availability", "utilization", "config_change", "no_data"]
+    metric: Literal["config_change"]
     threshold: float = Field(default=80, ge=0, le=10000000)
     recovery_threshold: float = Field(default=70, ge=0)
     duration_seconds: int = Field(default=0, ge=0, le=86400)
     severity: Literal["info", "warning", "critical"] = "warning"
     enabled: bool = True
-
-    @model_validator(mode="after")
-    def rule(self):
-        if self.metric == "utilization" and (
-            self.threshold > 100 or self.recovery_threshold > self.threshold
-        ):
-            raise ValueError("Kullanım eşiği 0–100, iyileşme eşiği alarm eşiğinden küçük/eşit olmalı")
-        if self.metric == "no_data" and self.threshold < 60:
-            raise ValueError("Veri yok eşiği en az 60 saniye olmalı")
-        return self
 
 
 class UserInput(Input):
@@ -329,7 +315,7 @@ class InterfaceSelectionInput(Input):
 
 class BulkInput(Input):
     ids: list[str] = Field(min_length=1, max_length=100)
-    action: Literal["update", "delete", "disable", "enable", "restore"]
+    action: Literal["update", "delete", "restore"]
     changes: dict = Field(default_factory=dict)
 
 

@@ -114,7 +114,7 @@ class IdentityCollector:
 
 
 @pytest.mark.parametrize("assignment", ["create", "edit", "bulk"])
-async def test_custom_type_survives_identification_and_monitoring(admin_client, inventory, env, assignment):
+async def test_custom_type_survives_identification(admin_client, inventory, env, assignment):
     c = admin_client
     custom = c.post("/api/v1/device-types", json={"name": "Backbone"}).json()
     device, payload = create_device(c, inventory, kind=custom["code"] if assignment == "create" else "switch")
@@ -129,7 +129,7 @@ async def test_custom_type_survives_identification_and_monitoring(admin_client, 
             ).status_code
             == 200
         )
-    for kind in ("identify", "monitor"):
+    for kind in ("identify",):
         job = c.post("/api/v1/jobs", json={"kind": kind, "target_id": device["id"]}).json()
         assert claim() == job["id"]
         await execute(job["id"], IdentityCollector({"vendor": "HP", "model": "J9851A", "kind": "switch"}))
@@ -288,7 +288,7 @@ async def test_changed_endpoint_during_read_cannot_apply_stale_metadata(admin_cl
     assert admin_client.get("/api/v1/observations").json()["total"] == 0
 
 
-async def test_monitoring_applies_identity_without_clearing_ports_on_identify(admin_client, inventory, env):
+async def test_identification_refresh_preserves_ports(admin_client, inventory, env):
     device, _ = create_device(admin_client, inventory)
     with env() as db:
         db.add(m.Interface(device_id=device["id"], name="Retained port", oper_status="up", is_managed=True))
@@ -299,7 +299,7 @@ async def test_monitoring_applies_identity_without_clearing_ports_on_identify(ad
         IdentityCollector({"vendor": "Cisco", "model": "C9300", "kind": "switch"}),
     )
     assert admin_client.get("/api/v1/interfaces").json()["items"][0]["oper_status"] == "up"
-    job = admin_client.post("/api/v1/jobs", json={"kind": "monitor", "target_id": device["id"]}).json()
+    job = admin_client.post("/api/v1/jobs", json={"kind": "identify", "target_id": device["id"]}).json()
     claim()
     await execute(job["id"], IdentityCollector({"vendor": "Juniper", "model": "mx480", "kind": "router"}))
     assert admin_client.get("/api/v1/devices/" + device["id"]).json()["model"] == "mx480"

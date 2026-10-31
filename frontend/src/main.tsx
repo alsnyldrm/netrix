@@ -15,7 +15,6 @@ import {
   Stack,
   GlobeHemisphereWest,
   GitBranch,
-  ChartLineUp,
   ShieldCheck,
   GearSix,
   ArrowUpRight,
@@ -50,8 +49,6 @@ import {
   Link as LinkIcon,
   Circle,
   Info,
-  ArrowDown,
-  ArrowUp,
   LockKey,
   HardDrives,
   DesktopTower,
@@ -201,14 +198,6 @@ export const PAGES: Page[] = [
       f("identity_path", "REST cihaz bilgisi yolu", {
         default: "/api/system",
         hint: "Üretici, model ve cihaz türünü döndüren JSON endpoint'i. Cihazınızın API yoluna göre düzenleyin.",
-      }),
-      f("monitoring_enabled", "Zamanlanmış izleme", {
-        type: "checkbox",
-        default: false,
-      }),
-      f("monitor_interval", "İzleme aralığı (saniye)", {
-        type: "number",
-        default: 300,
       }),
       ref("backup_group_id", "Yedek grubu", "backup-groups"),
       f("backup_retention", "En fazla yedek sayısı", {
@@ -612,13 +601,6 @@ export const PAGES: Page[] = [
     ],
   },
   {
-    key: "monitoring",
-    title: "Trafik gözlemevi",
-    desc: "SNMPv3 sayaçlarından doğrulanmış giriş ve çıkış hızları.",
-    group: "Operasyon",
-    icon: ChartLineUp,
-  },
-  {
     key: "alerts",
     title: "Alarm akışı",
     desc: "Eşik aşımlarını ve iyileşmeleri bağlamıyla takip edin.",
@@ -651,16 +633,11 @@ export const PAGES: Page[] = [
     ],
     fields: [
       f("name", "Kural adı", { required: true }),
-      options("metric", "Metrik", [
-        "availability",
-        "utilization",
-        "config_change",
-        "no_data",
-      ]),
+      options("metric", "Metrik", ["config_change"]),
       f("threshold", "Alarm eşiği", {
         type: "number",
         default: 80,
-        hint: "Kullanım: yüzde; veri yok: saniye. Erişim/değişiklik için otomatik.",
+        hint: "Konfigürasyon değişikliği için otomatik.",
       }),
       f("recovery_threshold", "İyileşme eşiği", {
         type: "number",
@@ -860,12 +837,11 @@ const LABELS: Record<string, string> = {
   discovery: "Keşif",
   backup: "Yedekleme",
   compare: "Aktif config karşılaştırması",
-  monitor: "İzleme",
   integration: "Entegrasyon eşitleme",
-  ipam_live: "IP canlı trafik",
   ipam_ping: "IP durum kontrolü",
   ipam_inventory: "Envanterden IP eşleştirme",
   ipam_discover: "Yeni IP keşfi",
+  inventory_import: "Envanter gözlem aktarımı",
   identify: "Cihaz bilgisi sorgusu",
   snmpv3: "SNMPv3",
   snmpv2c: "SNMPv2c",
@@ -874,9 +850,7 @@ const LABELS: Record<string, string> = {
   test_ssh: "SSH bağlantı testi",
   test_api: "API bağlantı testi",
   availability: "Erişilebilirlik",
-  utilization: "Port kullanımı (%)",
   config_change: "Konfigürasyon değişimi",
-  no_data: "Veri yok (sn)",
   viewer: "İzleyici",
   operator: "Operatör",
   admin: "Yönetici",
@@ -1194,7 +1168,6 @@ function Auth({
               "Konfigürasyon",
               "Şifreli sürüm arşivi ve satır farkları",
             ],
-            [ChartLineUp, "İzleme", "SNMPv3 trafik, port durumu ve alarmlar"],
           ].map(([Icon, title, desc]: any) => (
             <div key={title}>
               <Icon size={20} />
@@ -1710,9 +1683,7 @@ function Overview({
           {
             label: "Aktif alarm",
             value: c.firing_alerts || 0,
-            note: c.monitored
-              ? c.monitored + " cihaz izleniyor"
-              : "Henüz izlenen cihaz yok",
+            note: "Konfigürasyon değişikliği uyarıları",
             icon: Bell,
             key: "alerts",
           },
@@ -1777,7 +1748,7 @@ function Overview({
           </h2>
           <p>
             {c.devices
-              ? "Ağınızı keşif, yedekleme ve izleme araçlarıyla yönetin."
+              ? "Ağınızı keşif ve yedekleme araçlarıyla yönetin."
               : "Üç küçük adımla ağınızı görünür hale getirin."}
           </p>
           <div className="setup-steps">
@@ -2090,270 +2061,6 @@ function ConnectionTestDialog({
     </Dialog>
   );
 }
-function Traffic({
-  refs,
-  refresh,
-}: {
-  refs: Record<string, Row[]>;
-  refresh: number;
-}) {
-  const [device, setDevice] = useState("");
-  const [iface, setIface] = useState("");
-  const [hours, setHours] = useState("24");
-  const [items, setItems] = useState<Row[]>([]);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [limited, setLimited] = useState(false);
-  const loadedQuery = useRef("");
-  const ports = (refs.interfaces || []).filter(
-    (p) => !device || p.device_id === device,
-  );
-  const selected = iface || ports[0]?.id;
-  useEffect(() => {
-    if (!selected) {
-      loadedQuery.current = "";
-      setItems([]);
-      setLoading(false);
-      return;
-    }
-    let active = true;
-    const queryKey = JSON.stringify([selected, hours]);
-    // Keep the current chart visible while refreshing the same selection.
-    setLoading(loadedQuery.current !== queryKey);
-    api(`/traffic?interface_id=${selected}&hours=${hours}`)
-      .then((d) => {
-        if (!active) return;
-        loadedQuery.current = queryKey;
-        setItems(d.items);
-        setLimited(d.limited);
-        setError("");
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [selected, hours, refresh]);
-  const valid = items.filter((i) => i.quality === "valid");
-  const last = items[items.length - 1];
-  const max = Math.max(
-    ...valid.flatMap((i) => [i.in_bps || 0, i.out_bps || 0]),
-    1,
-  );
-  const points = (key: string) => {
-    if (!items.length) return "";
-    const start = new Date(items[0].created_at).getTime();
-    const end = new Date(items[items.length - 1].created_at).getTime();
-    let drawing = false;
-    return items
-      .map((i) => {
-        if (i.quality !== "valid" || i[key] == null) {
-          drawing = false;
-          return "";
-        }
-        const command = drawing ? "L" : "M";
-        drawing = true;
-        return `${command}${55 + ((new Date(i.created_at).getTime() - start) / Math.max(end - start, 1)) * 825},${240 - (i[key] / max) * 190}`;
-      })
-      .join(" ");
-  };
-  return (
-    <>
-      <div className="toolbar traffic-toolbar">
-        <label>
-          Cihaz
-          <select
-            value={device}
-            onChange={(e) => {
-              setDevice(e.target.value);
-              setIface("");
-            }}
-          >
-            <option value="">Tüm cihazlar</option>
-            {refs.devices?.map((d) => (
-              <option value={d.id} key={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Arayüz
-          <select
-            value={selected || ""}
-            onChange={(e) => setIface(e.target.value)}
-          >
-            {ports.length ? (
-              ports.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))
-            ) : (
-              <option value="">Henüz arayüz yok</option>
-            )}
-          </select>
-        </label>
-        <label>
-          Zaman aralığı
-          <select value={hours} onChange={(e) => setHours(e.target.value)}>
-            <option value="1">Son 1 saat</option>
-            <option value="24">Son 24 saat</option>
-            <option value="168">Son 7 gün</option>
-          </select>
-        </label>
-      </div>
-      <div className="traffic-stats">
-        {[
-          { label: "Giriş", value: speed(last?.in_bps), icon: ArrowDown },
-          { label: "Çıkış", value: speed(last?.out_bps), icon: ArrowUp },
-          {
-            label: "Örnek kalitesi",
-            value: last
-              ? last.quality === "valid"
-                ? "Doğrulandı"
-                : tag(last.quality)
-              : "Veri yok",
-            icon: CheckCircle,
-          },
-          { label: "Son gözlem", value: date(last?.created_at), icon: Clock },
-        ].map((s) => (
-          <div className="panel" key={s.label}>
-            <s.icon size={20} />
-            <span className="eyebrow">{s.label}</span>
-            <strong>{s.value}</strong>
-          </div>
-        ))}
-      </div>
-      <section className="panel chart-panel">
-        <header className="panel-header">
-          <div>
-            <span className="eyebrow">Trafik · bit/saniye</span>
-            <h2>Bağlantınızın ritmi</h2>
-          </div>
-          <div className="chart-legend">
-            <span>
-              <i className="legend-dot mint-bg" />
-              Giriş
-            </span>
-            <span>
-              <i className="legend-dot blue-bg" />
-              Çıkış
-            </span>
-          </div>
-        </header>
-        {error && (
-          <div className="error" role="alert">
-            {error}
-          </div>
-        )}
-        {loading ? (
-          <div className="loading">Örnekler yükleniyor…</div>
-        ) : valid.length > 1 ? (
-          <svg
-            viewBox="0 0 920 290"
-            className="traffic-chart"
-            role="img"
-            aria-label="Arayüz giriş ve çıkış trafik hızları"
-          >
-            <title>{valid.length} doğrulanmış trafik örneği</title>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <g key={i}>
-                <line
-                  x1="55"
-                  y1={50 + i * 47.5}
-                  x2="880"
-                  y2={50 + i * 47.5}
-                  className="chart-grid"
-                  strokeDasharray="3 5"
-                />
-                <text x="5" y={55 + i * 47.5}>
-                  {speed(max * (1 - i / 4))}
-                </text>
-              </g>
-            ))}
-            <path d={points("in_bps")} className="chart-in" strokeWidth="2.5" />
-            <path d={points("out_bps")} className="chart-out" strokeWidth="2" />
-            <text x="55" y="275">
-              {date(items[0].created_at)}
-            </text>
-            <text x="880" y="275" textAnchor="end">
-              {date(items[items.length - 1].created_at)}
-            </text>
-          </svg>
-        ) : (
-          <Empty
-            icon={ChartLineUp}
-            title={
-              items.length
-                ? "İlk ölçüm alındı. Bir örnek daha gerekli."
-                : "Henüz trafik gözlemi yok."
-            }
-            desc="Bir cihaza SNMPv3 profili atayın ve izlemeyi etkinleştirin. Geçerli iki sayaç örneğinden sonra trafik hızları hesaplanır."
-          />
-        )}
-        {limited && (
-          <div className="info-note">
-            <Info size={16} />
-            <p>
-              Seçilen aralıktaki en son 2000 örnek gösteriliyor. Daha fazla
-              ayrıntı için zaman aralığını daraltın.
-            </p>
-          </div>
-        )}
-        <footer className="chart-note">
-          <Info size={15} /> Eksik veri sıfır trafik olarak gösterilmez. Sayaç
-          sıfırlanmaları ve geçersiz aralıklar hesaplamadan çıkarılır.
-        </footer>
-      </section>
-      {items.length > 0 && (
-        <section className="panel table-panel">
-          <div className="panel-header">
-            <h2>Son örnekler</h2>
-            <span className="muted">
-              Son {Math.min(10, items.length)} kayıt
-            </span>
-          </div>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Zaman</th>
-                  <th>Giriş</th>
-                  <th>Çıkış</th>
-                  <th>Giriş hatası</th>
-                  <th>Çıkış hatası</th>
-                  <th>Düşen (giriş)</th>
-                  <th>Düşen (çıkış)</th>
-                  <th>Kalite</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items
-                  .slice(-10)
-                  .reverse()
-                  .map((i) => (
-                    <tr key={i.id}>
-                      <td>{date(i.created_at)}</td>
-                      <td>{speed(i.in_bps)}</td>
-                      <td>{speed(i.out_bps)}</td>
-                      <td>{i.in_errors}</td>
-                      <td>{i.out_errors}</td>
-                      <td>{i.quality}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-    </>
-  );
-}
 function Settings({ onLogout }: { onLogout: () => void }) {
   const [system, setSystem] = useState<Row>({});
   const [error, setError] = useState("");
@@ -2380,7 +2087,6 @@ function Settings({ onLogout }: { onLogout: () => void }) {
               "Zamanlayıcı",
               system.scheduler ? "Bağlı" : "Heartbeat bekleniyor",
             ],
-            ["Trafik saklama", (system.retention_days || "—") + " gün"],
             ["Dış adres", system.public_url],
           ].map(([k, v]) => (
             <div key={k}>
@@ -3035,19 +2741,17 @@ function App() {
                           Yeni kayıt
                         </button>
                       )}
-                    {["configuration", "monitoring"].includes(page.key) && (
+                    {page.key === "configuration" && (
                       <button
                         className="primary"
                         onClick={() => {
-                          setJobKind(
-                            page.key === "monitoring" ? "monitor" : "backup",
-                          );
+                          setJobKind("backup");
                           setJobTarget("");
                           setJobModal(true);
                         }}
                       >
                         <Play size={16} />
-                        {page.key === "configuration" ? "Yedek al" : "Ölçüm al"}
+                        Yedek al
                       </button>
                     )}
                   </div>
@@ -3188,8 +2892,6 @@ function App() {
                   }
                 />
               </>
-            ) : page.key === "monitoring" ? (
-              <Traffic refs={refs} refresh={refresh} />
             ) : page.key === "settings" ? (
               <Settings onLogout={() => setUser(null)} />
             ) : (
@@ -3521,7 +3223,7 @@ function App() {
                         query
                           ? "Başka bir sözcük veya adres ile yeniden deneyin."
                           : page.key === "jobs"
-                            ? "Başlattığınız keşif, yedekleme ve izleme görevleri burada listelenir."
+                            ? "Başlattığınız keşif ve yedekleme görevleri burada listelenir."
                             : page.key === "alerts"
                               ? "Alarm kuralları oluşturun. Koşullar gerçekleştiğinde alarmlar burada görünür."
                               : "İlk kaydı ekleyin veya keşif ve toplama görevlerinden veri gelmesini bekleyin."
@@ -3704,13 +3406,6 @@ function App() {
                   </button>
                   <button
                     className="secondary"
-                    onClick={() => runJob("monitor", detail.id)}
-                  >
-                    <Waveform size={18} />
-                    Ölçüm al
-                  </button>
-                  <button
-                    className="secondary"
                     onClick={() => runJob("backup", detail.id)}
                   >
                     <DownloadSimple size={18} />
@@ -3739,7 +3434,6 @@ function App() {
                 ["VRF", label("vrfs", detail.vrf_id)],
                 ["Son başarılı gözlem", date(detail.last_seen_at)],
                 ["Son yedek", date(detail.last_backup_at)],
-                ["Son izleme denemesi", date(detail.last_monitor_at)],
                 ["Yaşam döngüsü", tag(detail.lifecycle_status)],
               ].map(([k, v]) => (
                 <div key={k}>
@@ -3841,7 +3535,7 @@ function App() {
           title={
             jobKind === "backup"
               ? "Konfigürasyon yedeği alın"
-              : "SNMPv3 ölçümü başlatın"
+              : "Görev başlatın"
           }
           onClose={() => setJobModal(false)}
         >

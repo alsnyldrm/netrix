@@ -67,7 +67,7 @@ def test_community_encryption_rotation_and_redaction(admin_client, env):
     )
 
 
-async def test_v2c_discovery_monitor_identity_and_probe(admin_client, inventory):
+async def test_v2c_discovery_identity_and_probe(admin_client, inventory):
     response = create_profile(admin_client)
     assert response.status_code == 201
     profile_id = response.json()["id"]
@@ -103,7 +103,6 @@ async def test_v2c_discovery_monitor_identity_and_probe(admin_client, inventory)
     await run("discovery", inventory["scope"]["id"])
     device = admin_client.get("/api/v1/devices").json()["items"][0]
     assert device["snmp_credential_id"] == profile_id
-    await run("monitor", device["id"])
     assert all(row["source"] == "snmpv2c" for row in admin_client.get("/api/v1/observations").json()["items"])
     identity = await run("identify", device["id"])
     assert set(identity["result"]["field_sources"].values()) == {"snmpv2c"}

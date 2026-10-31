@@ -48,8 +48,6 @@ const BULK = [
   "snmp_credential_id",
   "config_credential_id",
   "ssh_trust_host_key",
-  "monitoring_enabled",
-  "monitor_interval",
   "backup_interval",
 ];
 const DEFAULTS: Record<string, string[]> = {
@@ -91,7 +89,6 @@ const DEFAULTS: Record<string, string[]> = {
     "if_index",
     "capacity",
     "oper_status",
-    "monitoring_enabled",
   ],
   snapshots: [
     "device_name",
@@ -797,23 +794,6 @@ export function InventoryTable({
                 ? "Ayarları uygula"
                 : "Toplu değiştir"}
             </button>
-          ) : resource === "interfaces" ? (
-            <>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => apply("disable")}
-              >
-                Devre dışı bırak
-              </button>
-              <button
-                className="secondary"
-                disabled={busy}
-                onClick={() => apply("enable")}
-              >
-                Etkinleştir
-              </button>
-            </>
           ) : null}
           {user.role === "admin" && !restorable && (
             <button className="secondary" onClick={() => setDialog("delete")}>
@@ -1278,9 +1258,9 @@ export function InventoryTable({
                 "Düzenlediğiniz komşu ve uzak port değerleri korunur. Son görülme tarihi değişmez."
               ) : (
                 <>
-                  Cihazlar Bakımda durumuyla geri yüklenir; otomatik izleme ve
-                  yedekleme başlamaz. Cihaz ayarlarından yaşam döngüsünü Aktif
-                  yapabilir, zamanlamaları düzenleyebilirsiniz.
+                  Cihazlar Bakımda durumuyla geri yüklenir; otomatik yedekleme
+                  başlamaz. Cihaz ayarlarından yaşam döngüsünü Aktif yapabilir,
+                  zamanlamaları düzenleyebilirsiniz.
                 </>
               )}
             </p>

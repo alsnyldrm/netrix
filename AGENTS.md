@@ -8,7 +8,7 @@
 
 ## Amaç ve kapsam
 
-NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi bir ağ keşif, IP adres yönetimi, konfigürasyon yönetimi ve trafik izleme platformudur. Mimari modüler monolittir; üç modül ortak cihaz envanterini ve merkezi kimlik doğrulamayı kullanır.
+NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi bir ağ keşif, IP adres yönetimi, konfigürasyon yönetimi platformudur. Mimari modüler monolittir; iki modül ortak cihaz envanterini ve merkezi kimlik doğrulamayı kullanır.
 
 ### 1. IPAM & Network Discovery
 
@@ -23,19 +23,12 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 - Cihaz yeteneklerine göre SSH/API ile otomatik ve zamanlanmış konfigürasyon yedekleme; SNMP ile desteklenen envanter ve durum bilgilerini toplama.
 - Konfigürasyon sürüm geçmişi, satır bazında karşılaştırma, değişiklik tespiti ve otomatik uyarılar.
 
-### 3. Network Monitoring
-
-- SNMPv3 ve API üzerinden cihaz izleme.
-- Portların giriş/çıkış trafik hızları, Mbps/Gbps hesapları, port durumları, hata ve paket düşme istatistikleri.
-- Geçmiş trafik kayıtları, canlı grafiklere veri sağlayan API ve WebSocket bildirimleri.
-- Özelleştirilebilir alarm eşikleri.
-
 ## Teknik kararlar
 
 | Katman | Tercih |
 | --- | --- |
 | Backend | Python / FastAPI |
-| Kalıcı veri | MariaDB (harici sunucu); zaman serileri indeksli örnek ve özet tabloları |
+| Kalıcı veri | MariaDB (harici sunucu) |
 | Görev altyapısı | Redis destekli kuyruk ve zamanlayıcı |
 | Veri toplama | NETRIX için Python ile geliştirilen worker servisleri |
 | Protokoller | SNMPv3, SSH, REST API; komşuluk verisi için LLDP/CDP |
@@ -45,13 +38,13 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 
 ## Geliştirme kuralları
 
-1. NetBox, Oxidized, LibreNMS, Zabbix gibi hazır network yönetim ürünlerini uygulamanın temeli veya modül motoru olarak kullanma. IPAM, keşif, konfigürasyon karşılaştırma, monitoring ve alarm motorlarını NETRIX için geliştir.
+1. NetBox, Oxidized, LibreNMS, Zabbix gibi hazır network yönetim ürünlerini uygulamanın temeli veya modül motoru olarak kullanma. IPAM, keşif, konfigürasyon karşılaştırma ve değişiklik uyarılarını NETRIX için geliştir.
 2. Açık kaynak geliştirme kütüphaneleri ve altyapı bileşenleri kullanılabilir. Lisanslarını değerlendir ve bağımlılıkları proje dosyalarında kaydet.
 3. Proje kimliği, servis adlandırmaları ve API dokümantasyonunda NETRIX kullan; teknik tanımlayıcılarda `netrix`, Compose servislerinde `netrix-*`, API başlığında `NETRIX API` kullan. API başlangıç yolu `/api/v1` olsun.
 4. Modüller cihaz, arayüz, adres ve kullanıcı verilerini merkezi model üzerinden paylaşsın. Aynı cihaz için modül başına ayrı envanter oluşturma.
 5. Cihaz erişim bilgilerini uygulama katmanında şifrele; anahtarları veritabanından ayrı, ortam veya secret dosyalarından al. Parola, anahtar, token ve SNMP sırlarını loglara, API yanıtlarına veya Git'e yazma. Kullanıcı parolalarını geri döndürülebilir şifreleme yerine güçlü parola özetiyle sakla.
 6. Üretici ayrıntılarını yetenek tabanlı adaptörlerde tut. İş kurallarını FastAPI route'larından ve protokol istemcilerinden ayır; modüller arasında açık servis arayüzleri kullan.
-7. Öncelik backend, API, veritabanı ve cihaz bağlantı motorlarıdır. Arayüzü proje sahibinin yönlendirmeleriyle, aşağıdaki Codex dışı tasarım becerilerini kullanarak tasarla. Tasarım yetkisi verilmiştir; son kullanıcı talebi tüm uygulamayı kapsar: IPAM/keşif, konfigürasyon ve monitoring/alarm motorları ile üretim arayüzünü birlikte geliştir.
+7. Öncelik backend, API, veritabanı ve cihaz bağlantı motorlarıdır. Arayüzü proje sahibinin yönlendirmeleriyle, aşağıdaki Codex dışı tasarım becerilerini kullanarak tasarla. Tasarım yetkisi verilmiştir; son kullanıcı talebi tüm uygulamayı kapsar: IPAM/keşif, konfigürasyon motorları ile üretim arayüzünü birlikte geliştir.
 8. Ağ işlemlerini worker'da yürüt; API isteklerini uzun taramalarla bloke etme. Timeout, sınırlı eşzamanlılık, kontrollü yeniden deneme, iptal ve yinelenen görevleri güvenli işleme davranışını tanımla.
 9. Keşif yalnızca yapılandırılmış ve yetkilendirilmiş ağ kapsamlarında çalışsın. Aktif taramayı kullanıcı veya zamanlama tetiklesin; testler varsayılan olarak gerçek ağa erişmesin.
 10. Envanterdeki yönetilen değerleri keşif gözlemlerinden ayır. Belirsiz cihaz/port eşleşmelerini kanıt ve güven düzeyiyle sakla; bunları kesin ilişki gibi sunma.
@@ -60,7 +53,7 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 
 ## Göreve göre okunacak belgeler
 
-- Veri modeli, migration, envanter, keşif, konfigürasyon veya monitoring işi yaparken [kapsamlı veri modelini](docs/data-model.md) oku. Bu belge hedef tasarımdır; tabloların uygulanmış olduğunu varsayma.
+- Veri modeli, migration, envanter, keşif, konfigürasyon işi yaparken [kapsamlı veri modelini](docs/data-model.md) oku. Bu belge hedef tasarımdır; tabloların uygulanmış olduğunu varsayma.
 - Altyapı kurulumu ve ilk sürüm geliştirmesinde [sıralı geliştirme planını](docs/development-plan.md) izle. Her adımı kabul ölçütleriyle doğrula; yalnızca mevcut isteğin kapsadığı adımları uygula.
 
 ## Beceriler ve MCP araçları
@@ -119,3 +112,7 @@ GitHub bağlantısının desteklemediği depo oluşturma ve Git aktarımı işle
 - Dış erişim HTTPS/443 üzerinden olur; domain `netrix.fbu.edu.tr` (proje sahibi doğruladı). İç proxy portu sunucuda boş olduğu doğrulanan `127.0.0.1:8101`; mevcut wildcard sertifika yolları `/etc/nginx/certs/fbu.edu.tr.crt` ve `/etc/nginx/certs/fbu.edu.tr.key`.
 - Tasarımda yukarıdaki zorunlu tasarım ve hizalama kurallarını uygula. Sidebar, sayfa ve menüler alışılmış düzenlerden ayrılan fakat klavye, erişilebilirlik ve mobil kullanımını koruyan özgün bir görsel sisteme sahip olsun. Uygulama ikonu ve favicon aynı kimliği kullansın.
 - Aktif keşif ve gerçek cihaz sorguları ancak kullanıcı tarafından tanımlanan yetkili kapsama ve açık tetiklemeye dayanır. Boş kurulumda uydurma cihaz, metrik veya başarılı yedek gösterme.
+
+## Trafik izleme kaldırma kararı (1 Kasım 2026)
+
+Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme ekranları, butonlar, API uçları, sayaç toplama işleri ve trafik geçmişi yeniden eklenmez. Port/VLAN envanteri, IPAM, keşif/topoloji ve konfigürasyon yönetimi devam eder. Bu kaldırma işleminde yedek alınmaz.

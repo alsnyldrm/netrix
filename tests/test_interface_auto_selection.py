@@ -16,7 +16,7 @@ def device(env, inventory):
 def observe(env, device_id, statuses, *, offset=0):
     with env() as db:
         device = db.scalar(select(m.Device).where(m.Device.id == device_id).with_for_update())
-        job = m.Job(kind="monitor", target_id=device_id)
+        job = m.Job(kind="discovery", target_id=device_id)
         db.add(job)
         db.flush()
         sync_interfaces(
@@ -50,7 +50,6 @@ def observe(env, device_id, statuses, *, offset=0):
                 "selected": p.is_managed,
                 "excluded": p.auto_add_excluded,
                 "deleted": p.is_deleted,
-                "enabled": p.monitoring_enabled,
             }
             for p in db.scalars(select(m.Interface).where(m.Interface.device_id == device_id))
         }
@@ -60,8 +59,6 @@ def test_up_ports_adopted_and_down_unknown_wait_until_up(env, device):
     rows = observe(env, device, {"up": "up", "down": "down", "unknown": "unknown"})
     assert rows["up"]["selected"]
     assert not rows["down"]["selected"] and not rows["unknown"]["selected"]
-    with env() as db:
-        assert [s.interface_id for s in db.scalars(select(m.Sample))] == [rows["up"]["id"]]
     later = observe(env, device, {"up": "down", "down": "up", "unknown": "unknown"})
     assert later["up"]["selected"] and later["down"]["selected"]
     assert not later["unknown"]["selected"]
@@ -98,7 +95,7 @@ def test_delta_save_does_not_remove_new_auto_selected_ports(admin_client, env, d
         assert db.scalar(select(m.Interface).where(m.Interface.name == "new-port")).is_managed
 
 
-def test_delete_excludes_but_disable_only_stops_monitoring(admin_client, env, device):
+def test_delete_excludes_and_removed_actions_are_rejected(admin_client, env, device):
     rows = observe(env, device, {"deleted": "up", "disabled": "up"})
     deleted, disabled = rows["deleted"]["id"], rows["disabled"]["id"]
     assert (
@@ -111,11 +108,11 @@ def test_delete_excludes_but_disable_only_stops_monitoring(admin_client, env, de
         admin_client.post(
             "/api/v1/inventory/interfaces/bulk", json={"ids": [disabled], "action": "disable"}
         ).status_code
-        == 200
+        == 422
     )
     rows = observe(env, device, {"deleted": "up", "disabled": "up"})
     assert rows["deleted"]["excluded"] and rows["deleted"]["deleted"] and not rows["deleted"]["selected"]
-    assert rows["disabled"]["selected"] and not rows["disabled"]["enabled"]
+    assert rows["disabled"]["selected"]
     assert (
         admin_client.put(f"/api/v1/devices/{device}/interfaces", json={"include_ids": [deleted]}).status_code
         == 200

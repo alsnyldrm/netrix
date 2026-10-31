@@ -105,7 +105,7 @@ def remove(db, ids, user, confirmation=None):
             config.id,
             f"Silinen ağ blokları entegrasyondan çıkarıldı: {config.name}",
         )
-    # IP observations and traffic cascade via existing database foreign keys.
+    # IP observations cascade via existing database foreign keys.
     db.execute(delete(m.IPAddress).where(m.IPAddress.prefix_id.in_(selected)))
     for row in rows:
         audit(db, user, "delete", "prefixes", row.id, f"Ağ bloğu ve bağlı IPAM kayıtları silindi: {row.cidr}")

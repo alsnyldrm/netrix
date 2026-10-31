@@ -1,4 +1,4 @@
-"""Verify paired connection rows, responsive alignment, and real monitor targets."""
+"""Verify paired connection rows, responsive alignment, and real connection details."""
 
 import json
 from pathlib import Path
@@ -46,16 +46,7 @@ with sync_playwright() as p:
             )
             page.screenshot(path=f"artifacts/multi-{width}-{theme}.png")
     page.set_viewport_size({"width": 1440, "height": 1000})
-    same.get_by_role("button", name="192.0.2.55 networkü izle", exact=True).click()
-    expect(
-        page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).locator("option")
-    ).to_have_count(3)
-    options = (
-        page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True)
-        .locator("option")
-        .all_text_contents()
-    )
-    assert len(options) == 3 and any("A7" in v for v in options) and any("B7" in v for v in options), options
+    same.get_by_role("button", name="192.0.2.55 IP ayrıntıları", exact=True).click()
     assert not errors and not any(reports.values()), (errors, reports)
-    print(json.dumps({"paired_rows": "PASS", "monitor_targets": options, "axe": reports, "errors": errors}))
+    print(json.dumps({"paired_rows": "PASS", "axe": reports, "errors": errors}))
     browser.close()

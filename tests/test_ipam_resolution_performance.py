@@ -92,7 +92,7 @@ def test_corner_then_backbone_then_firewall_arp(admin_client, inventory, env):
         db.add(firewall)
         db.flush()
         fwport = m.Interface(device_id=firewall.id, name="VLAN-020", if_index=20)
-        job = m.Job(kind="monitor", target_id=firewall.id)
+        job = m.Job(kind="discovery", target_id=firewall.id)
         db.add_all([fwport, job])
         db.flush()
         db.add(
@@ -342,9 +342,9 @@ def test_managed_endpoints_on_two_switches_keep_port_pairs(admin_client, invento
             ("Corner", first.name),
             ("Backbone", second.name),
         }
-        from netrix.ipam.jobs import live_options
+        from netrix.ipam.jobs import connection_options
 
-        assert {c["interface_id"] for c in live_options(db, row)["interfaces"]} == {first.id, second.id}
+        assert {c["interface_id"] for c in connection_options(db, row)["interfaces"]} == {first.id, second.id}
 
 
 def test_two_nics_on_same_switch_are_grouped_without_fake_aggregate(admin_client, inventory, env):
@@ -371,9 +371,9 @@ def test_two_nics_on_same_switch_are_grouped_without_fake_aggregate(admin_client
         assert value["connected_device"] == "Backbone"
         assert value["connected_port"] == "A7-B7"
         assert not value["connection_ambiguous"]
-        from netrix.ipam.jobs import live_options
+        from netrix.ipam.jobs import connection_options
 
-        assert {p["interface_id"] for p in live_options(db, row)["interfaces"]} == {first.id, second.id}
+        assert {p["interface_id"] for p in connection_options(db, row)["interfaces"]} == {first.id, second.id}
 
 
 def test_corrected_and_protocol_nics_share_connection_layer(admin_client, inventory, env):

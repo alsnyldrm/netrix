@@ -40,7 +40,7 @@ def template_choices(db):
             continue
         if key in ENUMS:
             choices[key] = list(ENUMS[key].values())
-        elif key in ("ssh_trust_host_key", "monitoring_enabled"):
+        elif key in ("ssh_trust_host_key",):
             choices[key] = ["Hayır", "Evet"]
         else:
             column = getattr(m.Device, key)

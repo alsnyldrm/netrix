@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 from netrix import models as m
-from netrix.core import engine, now, session_factory
+from netrix.core import engine, session_factory
 from netrix.inventory.device_types import seed_defaults
 from netrix.ipam.prefix_deletion import preview, remove
 from netrix.ipam.service import observe
@@ -33,7 +33,6 @@ with session_factory()() as db:
     db.add_all([ip, device, config])
     db.flush()
     db.add(m.IPObservation(address_id=ip.id, source="icmp", source_key=p.id, data={}))
-    db.add(m.IPTraffic(address_id=ip.id, source_key="fixture", sampled_at=now(), interval_seconds=5))
     queued = m.Job(kind="ipam_ping", target_id=p.id, active_key="ipam_ping:" + p.id, status="queued")
     running = m.Job(
         kind="integration", target_id=config.id, active_key="integration:" + config.id, status="running"
@@ -58,7 +57,6 @@ with session_factory()() as db:
     assert db.get(m.Job, job_ids[1]).active_key  # Held until the worker acknowledges.
     assert not list(db.scalars(select(m.IPAddress)))
     assert not list(db.scalars(select(m.IPObservation)))
-    assert not list(db.scalars(select(m.IPTraffic)))
 
 try:
     assert observe(stale, old_prefix, "192.0.2.9", "inventory", "fixture", {}) is None

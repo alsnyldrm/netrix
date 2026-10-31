@@ -1,4 +1,4 @@
-"""VM endpoint display and monitor choices; isolated fixture, no device queries."""
+"""VM endpoint display and connection details; isolated fixture, no device queries."""
 
 import json
 from pathlib import Path
@@ -53,11 +53,7 @@ with sync_playwright() as p:
             cell.scroll_into_view_if_needed()
             check(f"table-{width}-{theme}")
     page.set_viewport_size({"width": 1440, "height": 1000})
-    page.get_by_role("button", name="192.0.2.10 networkü izle", exact=True).click()
-    select = page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True)
-    expect(select.locator("option")).to_have_count(2)
-    assert select.locator("option").all_text_contents()[1] == "FBU-DS / VLAN-020 / Port 89"
-    assert select.input_value().startswith("v:")
+    page.get_by_role("button", name="192.0.2.10 IP ayrıntıları", exact=True).click()
     for width, height in ((1440, 1000), (375, 812)):
         page.set_viewport_size({"width": width, "height": height})
         for theme in ("light", "dark"):
@@ -70,7 +66,7 @@ with sync_playwright() as p:
         json.dumps(
             {
                 "endpoint": "PASS",
-                "monitor_choices": "only exact VM NIC",
+                "details": "source observations",
                 "axe": reports,
                 "console_errors": errors,
             }

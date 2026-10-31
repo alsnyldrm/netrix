@@ -28,8 +28,6 @@
   --danger: #b91c1c;
   --danger-soft: #fef2f2;
   --neutral-soft: #f1f5f9;
-  --chart-in: #1d4ed8;
-  --chart-out: #0f766e;
   --grid-dot: #cbd5e1;
   --focus: #2563eb;
   --scrim: rgba(15, 23, 42, 0.45);
@@ -78,8 +76,6 @@
   --danger: #f87171;
   --danger-soft: rgba(248, 113, 113, 0.13);
   --neutral-soft: rgba(148, 163, 184, 0.14);
-  --chart-in: #60a5fa;
-  --chart-out: #2dd4bf;
   --grid-dot: #2a3a57;
   --focus: #93c5fd;
   --scrim: rgba(2, 6, 23, 0.6);
@@ -177,10 +173,7 @@ kbd {
   color: var(--warning);
 }
 .mint-bg {
-  background: var(--chart-in);
-}
-.blue-bg {
-  background: var(--chart-out);
+  background: var(--accent);
 }
 .eyebrow {
   display: block;
@@ -1717,91 +1710,6 @@ tbody tr:last-child td {
   color: var(--text-2);
 }
 
-/* ---------- Trafik ---------- */
-.traffic-toolbar {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: end;
-  padding: 16px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-.traffic-stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-}
-.traffic-stats .panel {
-  display: grid;
-  gap: 4px;
-  padding: 16px 18px;
-}
-.traffic-stats .panel > svg {
-  color: var(--accent);
-  margin-bottom: 4px;
-}
-.traffic-stats strong {
-  font-size: 20px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.chart-panel {
-  overflow: hidden;
-}
-.chart-panel > .error {
-  margin: 16px 20px 0;
-}
-.chart-panel > .info-note {
-  margin: 0 20px 16px;
-}
-.chart-legend {
-  display: flex;
-  gap: 16px;
-  font-size: 13px;
-  color: var(--text-2);
-}
-.chart-legend span {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.traffic-chart {
-  display: block;
-  width: 100%;
-  height: auto;
-  padding: 12px 12px 0;
-}
-.traffic-chart text {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  fill: var(--text-3);
-}
-.chart-grid {
-  stroke: var(--border);
-}
-.chart-in,
-.chart-out {
-  fill: none;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-.chart-in {
-  stroke: var(--chart-in);
-}
-.chart-out {
-  stroke: var(--chart-out);
-}
-.chart-note {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  color: var(--text-3);
-}
-
 /* ---------- Ayarlar ---------- */
 .settings-grid {
   display: grid;
@@ -2248,8 +2156,7 @@ pre,
 
 /* ---------- Duyarlı düzen ---------- */
 @media (max-width: 1280px) {
-  .metrics,
-  .traffic-stats {
+  .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .dashboard-main,
@@ -2340,8 +2247,6 @@ pre,
 }
 @media (max-width: 640px) {
   .metrics,
-  .traffic-stats,
-  .traffic-toolbar,
   .form-grid,
   .detail-grid {
     grid-template-columns: minmax(0, 1fr);

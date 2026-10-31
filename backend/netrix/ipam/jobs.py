@@ -7,9 +7,8 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..identity.security import decrypt, secret_data
-from ..monitoring.rates import calculate_rate
-from ..services import authorized_device, enqueue, get, in_scope, publish
+from ..identity.security import decrypt
+from ..services import enqueue, get, in_scope, publish
 from . import adapters
 from .service import (
     connection_candidates,
@@ -23,7 +22,7 @@ from .service import (
     virtual_connections,
 )
 
-KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_live", "ipam_inventory")
+KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_inventory")
 
 
 def validate_target(db, kind, id):
@@ -33,15 +32,13 @@ def validate_target(db, kind, id):
             raise HTTPException(422, "Entegrasyonu etkinleştirin ve yetkili ağ bloklarını seçin")
     elif kind == "ipam_inventory":
         row = get(db, m.Prefix, id)
-    elif kind == "ipam_live":
-        row = get(db, m.IPAddress, id)
     else:
         row = get(db, m.Prefix, id)
         targets(db, row, discover=kind == "ipam_discover")
     return row
 
 
-def live_options(db, row):
+def connection_options(db, row):
     virtual = virtual_connections(observations(db, [row])[row.id])
     integrations = []
     for candidate in virtual:
@@ -54,28 +51,6 @@ def live_options(db, row):
         "integrations": integrations if len(virtual) == 1 else [],
         "vm_conflict": len(virtual) > 1,
     }
-
-
-def live_target(db, row, selection):
-    options = live_options(db, row)
-    if selection.get("interface_id"):
-        candidate = next(
-            (v for v in options["interfaces"] if v["interface_id"] == selection["interface_id"]), None
-        )
-        if not candidate:
-            raise HTTPException(422, "Seçilen port bu IP için güncel bağlantı adayları arasında değil")
-        interface = get(db, m.Interface, candidate["interface_id"])
-        device = get(db, m.Device, interface.device_id)
-        authorized_device(db, device)
-        if interface.is_deleted or interface.if_index is None or not device.snmp_credential_id:
-            raise HTTPException(422, "Port için SNMP erişimi ve güncel ifIndex gerekli")
-        return "snmp", device, interface
-    candidate = next(
-        (v for v in options["integrations"] if v["integration_id"] == selection.get("integration_id")), None
-    )
-    if not candidate:
-        raise HTTPException(422, "İzlenecek switch portunu veya vCenter bağlantısını seçin")
-    return "vcenter", get(db, m.Integration, candidate["integration_id"]), candidate
 
 
 async def scan(job_id):
@@ -141,17 +116,6 @@ async def scan(job_id):
                 raise Cancelled()
             current = get(db, m.Prefix, prefix.id)
             require_scope(db, current)
-            for device in db.scalars(
-                select(m.Device).where(
-                    m.Device.vrf_id == current.vrf_id,
-                    m.Device.archived.is_(False),
-                    m.Device.snmp_credential_id.is_not(None),
-                )
-            ):
-                try:
-                    source_jobs.append(enqueue(db, "monitor", device.id, commit=False).id)
-                except HTTPException:
-                    continue
             for config in db.scalars(select(m.Integration).where(m.Integration.enabled.is_(True))):
                 if current.id in config.prefix_ids:
                     source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
@@ -291,101 +255,6 @@ async def integration(job_id):
     }
 
 
-def live_signature(db, kind, target, detail):
-    if kind == "snmp":
-        profile = get(db, m.Credential, target.snmp_credential_id)
-        return (
-            target.management_ip,
-            target.snmp_port,
-            profile.id,
-            profile.updated_at,
-            detail.id,
-            detail.if_index,
-            detail.is_deleted,
-        )
-    return (
-        target.host,
-        target.port,
-        target.encrypted_secret,
-        target.verify_tls,
-        target.enabled,
-        tuple(target.prefix_ids),
-        detail["vm_id"],
-        detail["nic_key"],
-    )
-
-
-async def live(job_id, collector):
-    from ..worker import Cancelled
-
-    previous, previous_time = None, None
-    with session_factory()() as db:
-        selection = dict(get(db, m.Job, job_id).result)
-    count = 0
-    for _ in range(12):
-        started = asyncio.get_running_loop().time()
-        with session_factory()() as db:
-            job = get(db, m.Job, job_id)
-            if job.cancel_requested:
-                raise Cancelled()
-            row = get(db, m.IPAddress, job.target_id)
-            kind, target, detail = live_target(db, row, selection)
-            credential = get(db, m.Credential, target.snmp_credential_id) if kind == "snmp" else target
-            secret = (
-                secret_data(credential)
-                if kind == "snmp"
-                else json.loads(decrypt(credential.encrypted_secret))
-            )
-            signature = live_signature(db, kind, target, detail)
-        if kind == "snmp":
-            counters = await collector.interface_counters(
-                target.management_ip, target.snmp_port, secret, detail.if_index
-            )
-            stamp = now()
-            incoming, outgoing, _ = calculate_rate(
-                previous,
-                counters,
-                (stamp - previous_time).total_seconds() if previous_time else 0,
-                int(detail.speed_bps) if detail.speed_bps is not None else None,
-            )
-            sample = {
-                "sampled_at": stamp,
-                "interval_seconds": round((stamp - previous_time).total_seconds()) if previous_time else 5,
-                "in_bps": incoming,
-                "out_bps": outgoing,
-            }
-            previous, previous_time = counters, stamp
-            source_key = "interface:" + detail.id
-        else:
-            sample = await asyncio.to_thread(
-                adapters.vcenter_traffic, target, secret, detail["vm_id"], detail["nic_key"]
-            )
-            source_key = "vcenter:" + target.id + ":" + detail["vm_id"] + ":" + detail["nic_key"]
-        with session_factory()() as db:
-            job = get(db, m.Job, job_id)
-            if job.cancel_requested:
-                raise Cancelled()
-            row = get(db, m.IPAddress, job.target_id)
-            current_kind, current, current_detail = live_target(db, row, selection)
-            if live_signature(db, current_kind, current, current_detail) != signature:
-                raise Cancelled()
-            if sample and not db.scalar(
-                select(m.IPTraffic.id).where(
-                    m.IPTraffic.address_id == row.id,
-                    m.IPTraffic.source_key == source_key,
-                    m.IPTraffic.sampled_at == sample["sampled_at"],
-                )
-            ):
-                db.add(m.IPTraffic(address_id=row.id, source_key=source_key, **sample))
-                count += 1
-            job.progress += 1
-            job.total = 12
-            db.commit()
-        publish()
-        await asyncio.sleep(max(0, 5 - (asyncio.get_running_loop().time() - started)))
-    return {**selection, "samples": count}
-
-
 async def execute(job_id, kind, collector):
     if kind == "ipam_inventory":
         from .inventory_sync import run
@@ -393,6 +262,4 @@ async def execute(job_id, kind, collector):
         return await run(job_id)
     if kind == "integration":
         return await integration(job_id)
-    if kind == "ipam_live":
-        return await live(job_id, collector)
     return await scan(job_id)

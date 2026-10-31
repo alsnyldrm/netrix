@@ -173,7 +173,7 @@ with session_factory()() as db:
     db.add(backbone)
     db.flush()
     db.add(m.Interface(device_id=backbone.id, name="Trk2", if_index=200, is_managed=True))
-    observation_job = m.Job(kind="monitor", target_id=backbone.id)
+    observation_job = m.Job(kind="discovery", target_id=backbone.id)
     db.add(observation_job)
     db.flush()
     db.add(

@@ -69,7 +69,7 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
         assert db.scalar(select(func.count()).select_from(m.Device)) == 2
         assert db.scalar(select(func.count()).select_from(m.Job)) == 0
         assert db.get(m.IPAddress, address_id).device_id == upstream_id
-        assert not device.monitoring_enabled and device.snmp_credential_id is None
+        assert device.snmp_credential_id is None
     # Existing placement must survive a rejected move onto the management switch.
     assert c.post(base + "/placements/from-ip", json={**payload, "start_unit": 41}).status_code == 409
     placements = c.get(base).json()["placements"]

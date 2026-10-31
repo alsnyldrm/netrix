@@ -2,7 +2,6 @@ import asyncio
 import secrets
 import time
 from contextlib import asynccontextmanager
-from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -264,15 +263,10 @@ def dashboard(user=Depends(current_user), db=Depends(db_session)):
         .select_from(m.Job)
         .where(m.Job.kind == "discovery", m.Job.status.in_(["succeeded", "partial"]))
     )
-    counts["monitored"] = db.scalar(
-        select(func.count()).select_from(m.Device).where(m.Device.monitoring_enabled.is_(True))
-    )
     groups = db.execute(select(m.Device.kind, func.count()).group_by(m.Device.kind)).all()
-    last = db.scalar(select(func.max(m.Sample.created_at)))
     return {
         "counts": counts,
         "device_kinds": [{"kind": kind, "count": count} for kind, count in groups],
-        "last_sample_at": last.isoformat() if last else None,
         "server_time": now().isoformat(),
     }
 
@@ -284,7 +278,6 @@ def system(user=Depends(current_user), db=Depends(db_session)):
         "version": "1.0.0",
         "database": engine().dialect.name,
         "public_url": settings().public_url,
-        "retention_days": settings().sample_retention_days,
         "time": now().isoformat(),
     }
     try:
@@ -295,27 +288,6 @@ def system(user=Depends(current_user), db=Depends(db_session)):
     except Exception:
         data.update(redis="unavailable", worker=None, scheduler=None)
     return data
-
-
-@app.get(P + "/traffic")
-def traffic(
-    interface_id: str | None = None,
-    device_id: str | None = None,
-    hours: int = Query(24, ge=1, le=168),
-    user=Depends(current_user),
-    db=Depends(db_session),
-):
-    stmt = (
-        select(m.Sample)
-        .join(m.Interface, m.Sample.interface_id == m.Interface.id)
-        .where(m.Sample.created_at >= now() - timedelta(hours=hours))
-    )
-    if interface_id:
-        stmt = stmt.where(m.Sample.interface_id == interface_id)
-    if device_id:
-        stmt = stmt.where(m.Interface.device_id == device_id)
-    rows = list(db.scalars(stmt.order_by(m.Sample.created_at.desc()).limit(2000)))
-    return {"items": [svc.serialize(row) for row in reversed(rows)], "limited": len(rows) == 2000}
 
 
 @app.get(P + "/snapshots/{id}/content")

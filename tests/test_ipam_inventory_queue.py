@@ -10,7 +10,7 @@ def evidence(db, vrf):
     device = m.Device(name="Gateway", management_ip="192.0.2.254", vrf_id=vrf)
     db.add(device)
     db.flush()
-    job = m.Job(kind="monitor", target_id=device.id, status="succeeded")
+    job = m.Job(kind="discovery", target_id=device.id, status="succeeded")
     db.add(job)
     db.flush()
     db.add(

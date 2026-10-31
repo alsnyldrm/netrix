@@ -16,7 +16,7 @@ from .configuration.failures import backup_failure
 from .configuration.formatting import config_text
 from .configuration.history import previous_valid_snapshot
 from .configuration.validation import BackupError, validate_cli_output
-from .core import now, redis_client, session_factory, settings
+from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
 from .discovery.correlation import correlate
@@ -33,8 +33,6 @@ from .discovery.protocols import (
 )
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
-from .monitoring.control import cancel_paused_jobs
-from .monitoring.rates import calculate_rate
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -90,7 +88,6 @@ def sync_interfaces(db, device, collected, job_id):
         row.if_index = None
     db.flush()
     names = set()
-    utilizations = []
     for port in collected.get("interfaces", []):
         name = port["name"]
         if name in names:
@@ -100,55 +97,14 @@ def sync_interfaces(db, device, collected, job_id):
         if not row:
             row = m.Interface(device_id=device.id, name=name)
             db.add(row)
-        elif row.oper_status != port["oper_status"]:
-            db.add(
-                m.Event(
-                    device_id=device.id,
-                    kind="port_change",
-                    message=f"{device.name} / {name}: {port['oper_status']}",
-                    details={"previous": row.oper_status, "current": port["oper_status"]},
-                )
-            )
         for key in ("if_index", "mac_address", "description", "speed_bps", "oper_status"):
             setattr(row, key, port.get(key))
         if row.oper_status == "up" and not row.auto_add_excluded and not row.is_deleted:
             row.is_managed = True
         db.flush()
-        counters = port.get("counters")
-        if counters and row.is_managed and row.monitoring_enabled and not row.is_deleted:
-            existing = db.scalar(
-                select(m.Sample.id).where(m.Sample.interface_id == row.id, m.Sample.job_id == job_id)
-            )
-            if existing:
-                continue
-            previous = db.scalar(
-                select(m.Sample)
-                .where(m.Sample.interface_id == row.id)
-                .order_by(m.Sample.created_at.desc())
-                .limit(1)
-            )
-            old = {key: int(getattr(previous, key)) for key in counters} if previous else None
-            elapsed = (now() - previous.created_at).total_seconds() if previous else 0
-            incoming, outgoing, quality = calculate_rate(old, counters, elapsed, row.speed_bps)
-            db.add(
-                m.Sample(
-                    interface_id=row.id,
-                    job_id=job_id,
-                    **counters,
-                    speed_bps=row.speed_bps,
-                    in_bps=incoming,
-                    out_bps=outgoing,
-                    quality=quality,
-                )
-            )
-            if incoming is not None and row.speed_bps:
-                utilizations.append(max(incoming, outgoing) * 100 / int(row.speed_bps))
-
     for row in interfaces.values():
         if row.name not in names:
             row.oper_status = "unknown"
-    if utilizations:
-        evaluate(db, device, "utilization", max(utilizations))
 
 
 def persist_collection(db, device, collected, job, protocol="snmpv3"):
@@ -188,8 +144,6 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
     from .ipam.service import inventory_observations
 
     inventory_observations(db, device, collected)
-    evaluate(db, device, "availability", 1)
-    evaluate(db, device, "no_data", 0)
 
 
 async def identify_device(job_id, collector):
@@ -455,112 +409,60 @@ async def discover(job_id, collector):
     return {"reachable": succeeded, "unresponsive": len(results) - succeeded, "total": len(results)}
 
 
-async def collect_device(job_id, collector):
+async def collect_backup(job_id):
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
-        if job.kind == "monitor" and not settings().monitor_jobs_enabled:
-            raise Cancelled()
         device = get(db, m.Device, job.target_id)
         authorized_device(db, device)
-        credential = (
-            backup_profile(db, device)
-            if job.kind == "backup"
-            else get(db, m.Credential, device.snmp_credential_id)
-        )
+        credential = backup_profile(db, device)
         signature = tuple(getattr(device, key) for key in IDENTITY_CONNECTION_FIELDS) + (
             credential.updated_at,
         )
         secret = secret_data(credential)
-        detail_profile = (
-            db.get(m.Credential, device.config_credential_id)
-            if job.kind != "backup" and device.adapter in AOS_SWITCH and device.config_credential_id
-            else None
-        )
-        detail_secret = (
-            secret_data(detail_profile) if detail_profile and detail_profile.protocol == "ssh" else None
-        )
-        detail_version = detail_profile.updated_at if detail_secret else None
-        existing = (
-            db.scalar(select(m.Snapshot.id).where(m.Snapshot.job_id == job_id))
-            if job.kind == "backup"
-            else db.scalar(select(m.Observation.id).where(m.Observation.job_id == job_id))
-        )
+        existing = db.scalar(select(m.Snapshot.id).where(m.Snapshot.job_id == job_id))
         if existing:
             return {"recovered": True}
-    try:
-        data = (
-            await fetch_config(device, secret)
-            if job.kind == "backup"
-            else await collector.collect(device.management_ip, device.snmp_port, secret)
-        )
-        if job.kind != "backup" and detail_secret:
-            try:
-                detail = await fetch_neighbor_detail(
-                    device, detail_secret, [n["interface_name"] for n in data.get("neighbors", [])]
-                )
-                enrich_neighbors(data, detail)
-            except Exception as exc:
-                data["neighbor_detail"] = {"status": "failed", "error_class": type(exc).__name__}
-    except Exception:
-        if job.kind == "monitor":
-            with session_factory()() as db:
-                current = get(db, m.Device, device.id)
-                current.reachability, current.last_monitor_at = "unreachable", now()
-                evaluate(db, current, "availability", 0)
-                db.commit()
-                publish()
-        raise
+    data = await fetch_config(device, secret)
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
         current = db.scalar(select(m.Device).where(m.Device.id == device.id).with_for_update())
         authorized_device(db, current)
         if job.cancel_requested:
             raise Cancelled()
-        if job.kind == "backup":
-            current_profile = backup_profile(db, current)
-            if signature != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) + (
-                current_profile.updated_at,
-            ):
-                raise BackupError("connection_changed")
-            validate_cli_output(data)
-            data = config_text(data)
-            previous, previous_content = previous_valid_snapshot(db, current.id)
-            fingerprint = hashlib.sha256(data.encode()).hexdigest()
-            changed = previous is not None and previous_content != data
+        current_profile = backup_profile(db, current)
+        if signature != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) + (
+            current_profile.updated_at,
+        ):
+            raise BackupError("connection_changed")
+        validate_cli_output(data)
+        data = config_text(data)
+        previous, previous_content = previous_valid_snapshot(db, current.id)
+        fingerprint = hashlib.sha256(data.encode()).hexdigest()
+        changed = previous is not None and previous_content != data
+        db.add(
+            m.Snapshot(
+                device_id=current.id,
+                job_id=job.id,
+                fingerprint=fingerprint,
+                encrypted_content=encrypt(data),
+                size_bytes=len(data.encode()),
+                changed=changed,
+            )
+        )
+        current.last_backup_at = now()
+        db.flush()
+        from .configuration.management import prune
+
+        prune(db, current)
+        if changed:
             db.add(
-                m.Snapshot(
+                m.Event(
                     device_id=current.id,
-                    job_id=job.id,
-                    fingerprint=fingerprint,
-                    encrypted_content=encrypt(data),
-                    size_bytes=len(data.encode()),
-                    changed=changed,
+                    kind="config_change",
+                    message=f"{current.name}: konfigürasyon değişikliği tespit edildi",
                 )
             )
-            current.last_backup_at = now()
-            db.flush()
-            from .configuration.management import prune
-
-            prune(db, current)
-            if changed:
-                db.add(
-                    m.Event(
-                        device_id=current.id,
-                        kind="config_change",
-                        message=f"{current.name}: konfigürasyon değişikliği tespit edildi",
-                    )
-                )
-            evaluate(db, current, "config_change", int(changed))
-        else:
-            if signature != tuple(getattr(current, key) for key in IDENTITY_CONNECTION_FIELDS) + (
-                get(db, m.Credential, current.snmp_credential_id).updated_at,
-            ) or (
-                detail_version
-                and get(db, m.Credential, current.config_credential_id).updated_at != detail_version
-            ):
-                raise NetworkError("Bağlantı bilgileri değişti; gözlem yeniden alınmalı")
-            persist_collection(db, current, data, job, secret["protocol"])
-            current.last_monitor_at = now()
+        evaluate(db, current, "config_change", int(changed))
         job.progress, job.total = 1, 1
         db.commit()
         publish()
@@ -572,7 +474,6 @@ def claim(interactive=None):
         [] if interactive is None else [interactive_condition() if interactive else ~interactive_condition()]
     )
     with session_factory()() as db:
-        cancel_paused_jobs(db)
         stale = list(
             db.scalars(
                 select(m.Job)
@@ -622,6 +523,14 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     from .ipam.jobs import KINDS
     from .ipam.jobs import execute as execute_ipam
 
+    if kind not in (*KINDS, "compare", "discovery", "identify", "backup", *CONNECTION_TESTS):
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            job.status, job.active_key, job.finished_at = "cancelled", None, now()
+            job.error = "Desteklenmeyen görev türü"
+            db.commit()
+        return
+
     task = asyncio.create_task(
         execute_ipam(job_id, kind, collector)
         if kind in KINDS
@@ -632,11 +541,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         else (
             test_device_connection(job_id, collector)
             if kind in CONNECTION_TESTS
-            else (
-                identify_device(job_id, collector)
-                if kind == "identify"
-                else collect_device(job_id, collector)
-            )
+            else (identify_device(job_id, collector) if kind == "identify" else collect_backup(job_id))
         )
     )
     try:

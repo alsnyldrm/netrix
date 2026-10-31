@@ -44,7 +44,7 @@ async def test_worker_preserves_retry_policy_and_records_safe_backup_timeout(env
     async def fail(*args):
         raise TimeoutError("PRIVATE-RESPONSE")
 
-    monkeypatch.setattr(worker, "collect_device", fail)
+    monkeypatch.setattr(worker, "collect_backup", fail)
     await worker.execute(job_id)
     with env() as db:
         job = db.get(m.Job, job_id)

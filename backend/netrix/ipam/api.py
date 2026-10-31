@@ -1,4 +1,3 @@
-from datetime import datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,14 +5,13 @@ from sqlalchemy import select
 
 from .. import models as m
 from .. import services as svc
-from ..core import db_session, now
+from ..core import db_session
 from ..identity.security import admin, audit, current_user, operator
 from . import jobs, read_cache, service, table
 from .schemas import (
     AddressBulkInput,
     IntegrationInput,
     IPPlacementInput,
-    LiveInput,
     ModelImageInput,
     PlacementInput,
     PrefixDeleteInput,
@@ -107,59 +105,7 @@ def sync(id: str, user=Depends(admin), db=Depends(db_session)):
 @router.get("/ipam/addresses/{id}")
 def detail(id: str, user=Depends(current_user), db=Depends(db_session)):
     row = svc.get(db, m.IPAddress, id)
-    return {**service.enrich(db, [row])[0], **jobs.live_options(db, row)}
-
-
-@router.get("/ipam/addresses/{id}/traffic")
-def traffic(id: str, user=Depends(current_user), db=Depends(db_session)):
-    svc.get(db, m.IPAddress, id)
-    samples = db.scalars(
-        select(m.IPTraffic)
-        .where(m.IPTraffic.address_id == id, m.IPTraffic.sampled_at >= now() - timedelta(minutes=15))
-        .order_by(m.IPTraffic.sampled_at.desc())
-        .limit(180)
-    ).all()
-    return {"items": [svc.serialize(row) for row in reversed(samples)]}
-
-
-@router.post("/ipam/addresses/{id}/live", status_code=202)
-def live(id: str, payload: LiveInput, user=Depends(operator), db=Depends(db_session)):
-    from ..discovery.interactive_tests import CAPACITY, interactive_condition
-
-    row = svc.get(db, m.IPAddress, id)
-    selection = payload.model_dump()
-    if bool(payload.interface_id) == bool(payload.integration_id):
-        raise HTTPException(422, "Tek bir trafik kaynağı seçin")
-    try:
-        jobs.live_target(db, row, selection)
-    except ValueError as exc:
-        raise HTTPException(422, str(exc)) from None
-    # Same admission lock/capacity as interactive connection probes; never block scheduled work.
-    from redis.exceptions import RedisError
-
-    from ..discovery.interactive_tests import redis_client
-
-    try:
-        stamp = redis_client().get("netrix:tests:heartbeat")
-        if not stamp or not -5 <= (now() - datetime.fromisoformat(stamp)).total_seconds() < 15:
-            raise HTTPException(503, "Canlı izleme worker hizmeti hazır değil; yeniden deneyin")
-        with redis_client().lock("netrix:tests:admission", timeout=30, blocking_timeout=0.5):
-            job = svc.enqueue(db, "ipam_live", id, user, commit=False)
-            if job.result:
-                if any(job.result.get(k) != v for k, v in selection.items()):
-                    raise HTTPException(409, "Bu IP için başka bir canlı izleme çalışıyor")
-                return svc.serialize(job)
-            active = db.scalars(
-                select(m.Job).where(m.Job.active_key.is_not(None), interactive_condition()).with_for_update()
-            ).all()
-            if len(active) >= CAPACITY:
-                raise HTTPException(429, "Canlı işlem kapasitesi dolu; kısa süre sonra tekrar deneyin")
-            job.result = {**selection, "interactive": True}
-            db.commit()
-            svc.publish()
-            return svc.serialize(job)
-    except RedisError:
-        raise HTTPException(503, "Canlı izleme hizmetine ulaşılamadı") from None
+    return {**service.enrich(db, [row])[0], **jobs.connection_options(db, row)}
 
 
 @router.get("/ipam/addresses")

@@ -13,7 +13,7 @@ from scripts.inventory_fixture import app
 def observe(statuses):
     with session_factory()() as db:
         device = db.scalar(select(m.Device).where(m.Device.name == "Fixture 00").with_for_update())
-        job = m.Job(kind="monitor", target_id=device.id)
+        job = m.Job(kind="discovery", target_id=device.id)
         db.add(job)
         db.flush()
         sync_interfaces(

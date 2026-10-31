@@ -278,56 +278,6 @@ def vcenter_records(config, secret):
             Disconnect(si)
 
 
-def vcenter_traffic(config, secret, vm_id, nic_key):
-    from pyVim.connect import Disconnect
-    from pyVmomi import vim
-
-    si = connect_vcenter(config, secret)
-    try:
-        pm = si.RetrieveContent().perfManager
-        vm = vim.VirtualMachine(vm_id, si._stub)
-        interval = pm.QueryPerfProviderSummary(entity=vm).refreshRate
-        if not interval or interval <= 0:
-            raise NetworkError("VM realtime counters unavailable")
-        counters = {
-            c.nameInfo.key: c.key
-            for c in pm.perfCounter
-            if c.groupInfo.key == "net"
-            and c.rollupType == "average"
-            and c.unitInfo.key == "kiloBytesPerSecond"
-            and c.nameInfo.key in ("received", "transmitted")
-        }
-        if len(counters) != 2:
-            raise NetworkError("VM network counters unavailable")
-        values = pm.QueryPerf(
-            querySpec=[
-                vim.PerformanceManager.QuerySpec(
-                    entity=vm,
-                    intervalId=interval,
-                    maxSample=1,
-                    metricId=[
-                        vim.PerformanceManager.MetricId(counterId=c, instance=nic_key)
-                        for c in counters.values()
-                    ],
-                )
-            ]
-        )
-        if not values or not values[0].sampleInfo:
-            return None
-        item = values[0]
-        metrics = {v.id.counterId: v.value[-1] for v in item.value if v.value and v.value[-1] >= 0}
-        return {
-            "sampled_at": item.sampleInfo[-1].timestamp,
-            "interval_seconds": interval,
-            "in_bps": metrics[counters["received"]] * 1024 * 8 if counters["received"] in metrics else None,
-            "out_bps": metrics[counters["transmitted"]] * 1024 * 8
-            if counters["transmitted"] in metrics
-            else None,
-        }
-    finally:
-        Disconnect(si)
-
-
 async def ping(address):
     """Unprivileged Linux ICMP datagram ping, bounded and cancellation-safe."""
     address = str(ipaddress.ip_address(address))

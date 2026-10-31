@@ -44,7 +44,6 @@ def test_preview_has_no_writes_then_import_queues_only_on_commit(admin_client, i
                 "management_ip": "192.0.2.1",
                 "vrf_id": "Global",
                 "kind": "Switch",
-                "monitoring_enabled": "evet",
                 "snmp_credential_id": "Test SNMP",
             }
         ]
@@ -61,7 +60,7 @@ def test_preview_has_no_writes_then_import_queues_only_on_commit(admin_client, i
     assert result.status_code == 200 and result.json()["imported"] == 1
     with env() as db:
         device = db.scalar(select(m.Device))
-        assert device.name == "İstanbul, omurga" and device.monitoring_enabled
+        assert device.name == "İstanbul, omurga"
         assert device.snmp_credential_id == inventory["credential"]["id"]
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind == "identify")) == 1
     result = admin_client.post(BASE + "/import", json={"content": content, "apply": True}).json()
@@ -144,8 +143,8 @@ def test_export_is_selected_only_masks_every_secret_and_round_trips(
     [
         {"management_ip": "not-an-ip"},
         {"vrf_id": "missing"},
-        {"monitor_interval": "3"},
-        {"snmp_credential_id": ""},
+        {"backup_interval": "-1"},
+        {"snmp_credential_id": "missing-profile"},
         {"adapter": "rest", "config_credential_id": "Test SNMP"},
         {"ssh_password": "PLAINTEXT-SECRET"},
     ],
@@ -282,7 +281,6 @@ def test_snmpv2c_csv_masks_community_and_uses_existing_profile(admin_client, inv
                 "vrf_id": "Global",
                 "snmp_credential_id": profile["id"],
                 "snmp_community": "********",
-                "monitoring_enabled": "true",
             }
         ]
     )

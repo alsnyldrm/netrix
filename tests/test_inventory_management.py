@@ -5,7 +5,7 @@ import pytest
 from netrix import models as m
 from netrix.core import now
 from netrix.identity.security import encrypt
-from netrix.worker import execute, sync_interfaces
+from netrix.worker import execute
 from sqlalchemy import func, select
 
 
@@ -93,9 +93,9 @@ def test_interface_selection_is_device_scoped_and_preserved(admin_client, record
         assert c.get("/api/v1/inventory/interfaces", params={"q": q}).json()["total"] == 1
     assert (
         c.post("/api/v1/inventory/interfaces/bulk", json={"ids": [port], "action": "disable"}).status_code
-        == 200
+        == 422
     )
-    assert c.get("/api/v1/interfaces/" + port).json()["monitoring_enabled"] is False
+    assert "monitoring_enabled" not in c.get("/api/v1/interfaces/" + port).json()
     assert (
         c.post("/api/v1/inventory/interfaces/bulk", json={"ids": [port], "action": "delete"}).status_code
         == 200
@@ -104,7 +104,7 @@ def test_interface_selection_is_device_scoped_and_preserved(admin_client, record
     with env() as db:
         assert db.get(m.Interface, port) is not None
     c.put(f"/api/v1/devices/{device}/interfaces", json={"ids": [port]})
-    assert c.get("/api/v1/interfaces/" + port).json()["monitoring_enabled"] is False
+    assert "monitoring_enabled" not in c.get("/api/v1/interfaces/" + port).json()
 
 
 def test_bulk_update_allowlist_and_atomic_rollback(admin_client, records, env):
@@ -145,35 +145,6 @@ def test_bulk_update_allowlist_and_atomic_rollback(admin_client, records, env):
     assert c.get("/api/v1/inventory/devices").json()["total"] == 0
     with env() as db:
         assert db.get(m.Device, ids[0]).lifecycle_status == "retired"
-
-
-def test_only_selected_enabled_interfaces_receive_samples(env, records):
-    with env() as db:
-        device = db.get(m.Device, records["devices"][0])
-        port = db.get(m.Interface, records["ports"][0])
-        collected = {
-            "interfaces": [
-                {
-                    "name": "port1",
-                    "if_index": 7,
-                    "oper_status": "up",
-                    "description": "",
-                    "mac_address": "",
-                    "speed_bps": 1000,
-                    "counters": {"in_octets": 100, "out_octets": 100, "uptime_ticks": 100},
-                }
-            ]
-        }
-        for selected, enabled in ((False, True), (True, False), (True, True)):
-            port.is_managed = selected
-            port.auto_add_excluded = not selected
-            port.monitoring_enabled = enabled
-            job = m.Job(kind="monitor", target_id=device.id)
-            db.add(job)
-            db.flush()
-            sync_interfaces(db, device, collected, job.id)
-            db.commit()
-        assert db.scalar(select(func.count()).select_from(m.Sample)) == 1
 
 
 def test_group_policy_retention_and_protected_comparison(admin_client, records, env):
@@ -365,7 +336,6 @@ def test_group_schedule_overrides_device_interval_without_duplicates(admin_clien
         device.config_credential_id = profile["id"]
         device.backup_group_id = group["id"]
         device.backup_interval = 0
-        device.monitoring_enabled = False
         db.commit()
     tick()
     tick()
@@ -443,7 +413,6 @@ def test_archive_restore_preserves_identity_history_and_stops_schedules(
         db.flush()
         device.backup_group_id = group.id
         device.snmp_credential_id = inventory["credential"]["id"]
-        device.monitoring_enabled = True
         device.backup_interval = 300
         job = m.Job(kind="backup", target_id=device_id, status="succeeded")
         db.add(job)
@@ -472,7 +441,7 @@ def test_archive_restore_preserves_identity_history_and_stops_schedules(
     with env() as db:
         device = db.get(m.Device, device_id)
         assert not device.archived and device.lifecycle_status == "maintenance"
-        assert not device.monitoring_enabled and device.backup_interval == 0
+        assert device.backup_interval == 0
         assert device.backup_group_id == group_id
         assert device.snmp_credential_id == inventory["credential"]["id"]
         assert db.get(m.Snapshot, snapshot_id).device_id == device_id

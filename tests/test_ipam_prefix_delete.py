@@ -1,6 +1,5 @@
 import pytest
 from netrix import models as m
-from netrix.core import now
 from sqlalchemy import select
 from test_ipam_workspace import integration, prefix
 
@@ -26,7 +25,6 @@ def test_atomic_delete_cleans_ipam_keeps_devices_and_other_scopes(admin_client, 
                 address_id=ip.id, source="icmp", source_key=p["id"], data={"reachability": "reachable"}
             )
         )
-        db.add(m.IPTraffic(address_id=ip.id, source_key="fixture", sampled_at=now(), interval_seconds=5))
         db.commit()
         address_id, device_id = ip.id, device.id
     payload, preview = confirmation(c, [p["id"]])
@@ -40,7 +38,6 @@ def test_atomic_delete_cleans_ipam_keeps_devices_and_other_scopes(admin_client, 
         assert db.get(m.Prefix, q["id"])
         assert db.get(m.IPAddress, address_id) is None
         assert not list(db.scalars(select(m.IPObservation)))
-        assert not list(db.scalars(select(m.IPTraffic)))
         assert db.get(m.Device, device_id)
         assert db.get(m.Integration, config["id"]).prefix_ids == [q["id"]]
         assert db.get(m.Integration, config["id"]).enabled
