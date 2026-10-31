@@ -163,3 +163,7 @@ Alembic `20261031_17`, `ip_addresses.institution_id/site_id/sub_site_id` için n
 ## Pasif kabinet organizerleri (31 Ekim 2026)
 
 Alembic `20261031_18`, `rack_accessories` tablosunu ekler: indeksli `cabinet_id` FK, `kind=brush_organizer`, `start_unit`, `units`, UUID ve UTC zamanlar. Tür ve 1–60 U sınırları CHECK ile korunur. Cihaz/organizer U çakışmaları ve kabinet kapasitesi, aynı kabinet satır kilidi altında servis tarafından doğrulanır. Organizer cihaz/IP envanteri oluşturmaz. Kayıt varken veri kaybettiren downgrade engellenir.
+
+## IPAM'dan ortak kabinet envanteri (31 Ekim 2026)
+
+`20261031_19` mevcut `device_types` kataloğuna yalnızca eksikse `storage` / Storage ve `san_switch` / SAN Switch değerlerini ekler; aynı kod veya adı olan kullanıcı kayıtlarını değiştirmez. Downgrade katalog verisini korur. Yeni tablo yoktur. IP'den kabinet yerleştirme, aynı `(vrf_id, management_ip)` tekilliğini ve mevcut `rack_placements` tablosunu kullanır. VRF/kabinet kilitleri, güncel kilitli okumalar ve geçici MariaDB eşzamanlılık hatasında bir işlem tekrarı yinelenen cihazları önler. Kabinet yerleşimi başarısızsa yeni cihaz oluşturma da geri alınır; IP'nin üst switch/port ilişkisi korunur.

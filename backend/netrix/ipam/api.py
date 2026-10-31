@@ -12,6 +12,7 @@ from . import jobs, read_cache, service, table
 from .schemas import (
     AddressBulkInput,
     IntegrationInput,
+    IPPlacementInput,
     LiveInput,
     ModelImageInput,
     PlacementInput,
@@ -184,6 +185,13 @@ def cabinet_unplace(id: str, device_id: str, user=Depends(operator), db=Depends(
     from .racks import unplace
 
     unplace(db, id, device_id, user)
+
+
+@router.post("/ipam/cabinets/{id}/placements/from-ip")
+def cabinet_place_from_ip(id: str, payload: IPPlacementInput, user=Depends(operator), db=Depends(db_session)):
+    from .racks import place_from_ip
+
+    return place_from_ip(db, id, payload, user)
 
 
 @router.get("/ipam/devices/{id}/model-image")

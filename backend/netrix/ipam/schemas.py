@@ -78,6 +78,16 @@ class PlacementInput(Input):
     units: int = Field(ge=1, le=60)
 
 
+class IPPlacementInput(Input):
+    address_id: str = Field(min_length=1, max_length=36)
+    name: str = Field(min_length=1, max_length=120)
+    kind: str = Field(min_length=1, max_length=20)
+    vendor: str = Field(default="", max_length=80)
+    model: str = Field(default="", max_length=100)
+    start_unit: int = Field(ge=1, le=60)
+    units: int = Field(ge=1, le=60)
+
+
 class RackAccessoryInput(Input):
     kind: Literal["brush_organizer"] = "brush_organizer"
     start_unit: int = Field(ge=1, le=60)

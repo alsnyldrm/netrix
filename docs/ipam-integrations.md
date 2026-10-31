@@ -98,3 +98,9 @@ IP konum geçişi (`20261031_17`) yalnızca tek bir kurumlu lokasyonla tam ad e�
 ### Fırçalı organizer
 
 Kabinet penceresindeki **Yatay Kablo Düzenleyici / Fırçalı Organizer** alanında başlangıç U ve yükseklik (varsayılan 1 U) seçilir. Organizer şematik olarak gösterilir; yanındaki düzenleme/kaldırma düğmeleri kayıt üzerinde çalışır. Organizerler merkezi cihaz envanterinden ayrıdır ve IP kaydı oluşturmaz. Cihazlarla ve diğer organizerlerle çakışma, kapasite küçültme ve kabinet silme kontrolleri uygulanır. API: `POST /api/v1/ipam/cabinets/{id}/accessories`, `PUT/DELETE /api/v1/ipam/cabinets/{id}/accessories/{accessory_id}`; kabinet detayında `accessories` listesi döner. Yazma işlemleri operatör/yönetici, okuma oturum açmış kullanıcı yetkisi gerektirir.
+
+### VLAN/IP üzerinden fiziksel cihaz yerleşimi
+
+Kabinet penceresinde **Yerleşim kaynağı → VLAN / IP adreslerinden seç** ile ağ bloğu seçilir; IP/hostname aranır ve kayıt sayfalı listeden seçilir. Cihaz türü, isteğe bağlı üretici/model, başlangıç U ve yükseklik girilir. `POST /api/v1/ipam/cabinets/{id}/placements/from-ip`, aynı VRF/yönetim IP'sinde mevcut merkezi cihazı kullanır; yoksa IPAM kaydı ile ortak bir cihaz oluşturup aynı işlemde kabinete yerleştirir. Mevcut cihazın kimlik bilgileri değişmez; IP kaydındaki bağlı switch (`device_id`) sunucunun kendisi sayılmaz. Çakışmada yeni cihaz da kaydedilmez. Yeni kayıt için ağ taraması veya yedek görevi başlatılmaz. Güncel VMware sanal makine kaydı olan adresler fiziksel kabinet yerleşimine alınmaz; fiziksel host IP'si seçilir. Arşivli cihazlar ve başka kabinetteki cihazlar mevcut yerleşim kurallarına tabidir.
+
+Sunucu, Storage ve SAN Switch türleri dahil tüm merkezi cihaz türleri aynı kabinette kullanılabilir. Manuel envanter seçimi, organizerler ve üretici model görselleri aynı pencerede devam eder.

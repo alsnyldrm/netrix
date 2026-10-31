@@ -298,3 +298,38 @@
     grid-template-columns: 1fr;
   }
 }
+
+.rack-source {
+  padding: 0 22px;
+  display: grid;
+  gap: 10px;
+}
+.rack-source p {
+  margin: 0;
+}
+.dialog .rack-ip-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+.rack-ip-form > * {
+  min-width: 0;
+}
+.rack-ip-wide {
+  grid-column: 1 / -1;
+}
+.rack-ip-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.rack-ip-pagination small {
+  flex: 1;
+  color: var(--text-2);
+}
+@media (max-width: 700px) {
+  .dialog .rack-ip-form {
+    grid-template-columns: 1fr;
+  }
+}

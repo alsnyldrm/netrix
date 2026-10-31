@@ -9,6 +9,8 @@ DEFAULT_TYPES = {
     "router": "Router",
     "firewall": "Firewall",
     "server": "Sunucu",
+    "storage": "Storage",
+    "san_switch": "SAN Switch",
     "other": "Diğer",
 }
 

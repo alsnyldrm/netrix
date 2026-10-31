@@ -497,6 +497,7 @@ function Rack({
   close: () => void;
 }) {
   const [data, setData] = useState<Row | null>(null);
+  const [placementSource, setPlacementSource] = useState("inventory");
   const [imageValues, setImageValues] = useState({ url: "", source: "" });
   const [accessory, setAccessory] = useState<Row>({ start_unit: 1, units: 1 });
   const [accessoryError, setAccessoryError] = useState("");
@@ -547,6 +548,14 @@ function Rack({
       active = false;
     };
   }, [row.id, revision]);
+  const rackDevices: Row[] = [
+    ...new Map<string, Row>([
+      ...(refs.devices || []).map((d) => [d.id, d] as const),
+      ...(data?.placements || []).map(
+        (p: Row) => [p.device.id, p.device] as const,
+      ),
+    ]).values(),
+  ];
   const placements: Row[] = [
     ...(data?.placements || []),
     ...(data?.accessories || []).map((a: Row) => ({ ...a, accessory: true })),
@@ -671,12 +680,14 @@ function Rack({
                                 document
                                   .getElementById("organizer-start")
                                   ?.focus();
-                              } else
+                              } else {
+                                setPlacementSource("inventory");
                                 setChoice({
                                   device_id: placement.device_id,
                                   start_unit: placement.start_unit,
                                   units: placement.units,
                                 });
+                              }
                             }}
                           >
                             <PencilSimple size={16} />
@@ -722,6 +733,42 @@ function Rack({
           )}
         </div>
         {user.role !== "viewer" && (
+          <div className="rack-source">
+            <Label name="Yerleşim kaynağı">
+              <select
+                disabled={busy}
+                value={placementSource}
+                onChange={(e) => setPlacementSource(e.target.value)}
+              >
+                <option value="inventory">Envanterden cihaz seç</option>
+                <option value="ipam">VLAN / IP adreslerinden seç</option>
+              </select>
+            </Label>
+            <p className="ipam-hint">
+              Sunucu, storage, SAN switch ve ağ cihazlarını aynı kabinete
+              yerleştirebilirsiniz.
+            </p>
+          </div>
+        )}
+        {user.role !== "viewer" && placementSource === "ipam" && (
+          <RackIPPlacement
+            cabinet={row}
+            refs={refs}
+            devices={rackDevices}
+            busy={busy}
+            setBusy={setBusy}
+            saved={(result) => {
+              setData(result);
+              setChoice({
+                device_id: result.selected_device_id,
+                start_unit: 1,
+                units: 1,
+              });
+              setRevision((v) => v + 1);
+            }}
+          />
+        )}
+        {user.role !== "viewer" && placementSource === "inventory" && (
           <form
             className="rack-placement-form"
             onSubmit={async (e) => {
@@ -748,7 +795,7 @@ function Rack({
                 }
               >
                 <option value="">Envanterden seçin</option>
-                {(refs.devices || []).map((d) => (
+                {rackDevices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name} · {d.model || "Model belirtilmedi"}
                   </option>
@@ -981,5 +1028,297 @@ function Rack({
         )}
       </div>
     </Dialog>
+  );
+}
+
+function RackIPPlacement({
+  cabinet,
+  refs,
+  devices,
+  busy,
+  setBusy,
+  saved,
+}: {
+  cabinet: Row;
+  refs: Record<string, Row[]>;
+  devices: Row[];
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  saved: (result: Row) => void;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [query, setQuery] = useState("");
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<Row>({ items: [], total: 0 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [values, setValues] = useState<Row>({
+    address_id: "",
+    name: "",
+    kind: "server",
+    vendor: "",
+    model: "",
+    start_unit: 1,
+    units: 1,
+  });
+  useEffect(() => {
+    let active = true;
+    setPage({ items: [], total: 0 });
+    setLoading(!!prefix);
+    setError("");
+    if (!prefix) return;
+    const timer = window.setTimeout(() => {
+      api(
+        `/ipam/prefixes/${prefix}/addresses?allocated=true&limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
+      )
+        .then((result) => {
+          if (active) setPage(result);
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [prefix, query, offset]);
+  const selected = (page.items || []).find(
+    (r: Row) => r.id === values.address_id,
+  );
+  // IPAM's device_id can be the upstream switch. Match the physical endpoint itself.
+  const existing =
+    selected &&
+    devices.find(
+      (d) =>
+        d.vrf_id === selected.vrf_id && d.management_ip === selected.address,
+    );
+  function resetSelection() {
+    setValues((v) => ({
+      ...v,
+      address_id: "",
+      name: "",
+      vendor: "",
+      model: "",
+    }));
+    setSuccess("");
+  }
+  return (
+    <form
+      className="rack-ip-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError("");
+        setSuccess("");
+        try {
+          const result = await api(
+            `/ipam/cabinets/${cabinet.id}/placements/from-ip`,
+            "POST",
+            values,
+          );
+          saved(result);
+          setSuccess(`${values.name} kabinet yerleşimi kaydedildi.`);
+        } catch (e: any) {
+          setError(e.message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Label name="VLAN / Ağ bloğu">
+        <select
+          required
+          disabled={busy}
+          value={prefix}
+          onChange={(e) => {
+            setPrefix(e.target.value);
+            setOffset(0);
+            resetSelection();
+          }}
+        >
+          <option value="">Ağ bloğu seçin</option>
+          {(refs.prefixes || []).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.display_name || p.cidr}
+            </option>
+          ))}
+        </select>
+      </Label>
+      <Label name="IP veya hostname ara">
+        <input
+          type="search"
+          maxLength={120}
+          disabled={busy || !prefix}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOffset(0);
+            resetSelection();
+          }}
+        />
+      </Label>
+      <div className="rack-ip-wide">
+        <Label name="IP adresi / Hostname">
+          <select
+            required
+            disabled={busy || loading || !prefix}
+            value={values.address_id}
+            onChange={(e) => {
+              const ip = page.items.find((r: Row) => r.id === e.target.value);
+              const device =
+                ip &&
+                devices.find(
+                  (d) =>
+                    d.vrf_id === ip.vrf_id && d.management_ip === ip.address,
+                );
+              setValues((v) => ({
+                ...v,
+                address_id: ip?.id || "",
+                name:
+                  device?.name ||
+                  (ip?.hostname || ip?.address || "").slice(0, 120),
+                kind: device?.kind || "server",
+                vendor: device?.vendor || "",
+                model: device?.model || "",
+              }));
+              setSuccess("");
+              setError("");
+            }}
+          >
+            <option value="">
+              {loading ? "IP adresleri yükleniyor…" : "IP adresi seçin"}
+            </option>
+            {(page.items || []).map((ip: Row) => (
+              <option key={ip.id} value={ip.id}>
+                {ip.address} · {ip.hostname || "Hostname belirtilmedi"}
+              </option>
+            ))}
+          </select>
+        </Label>
+        {!!prefix && (
+          <div className="rack-ip-pagination">
+            <small role="status">
+              {loading
+                ? "Yükleniyor…"
+                : `${page.total} kayıt · ${offset + (page.items.length ? 1 : 0)}–${offset + page.items.length}`}
+            </small>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy || loading || offset === 0}
+              onClick={() => {
+                setOffset((o) => Math.max(0, o - 100));
+                resetSelection();
+              }}
+            >
+              Önceki IP’ler
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy || loading || offset + 100 >= Number(page.total)}
+              onClick={() => {
+                setOffset((o) => o + 100);
+                resetSelection();
+              }}
+            >
+              Sonraki IP’ler
+            </button>
+          </div>
+        )}
+      </div>
+      <Label name="Cihaz adı">
+        <input
+          required
+          maxLength={120}
+          disabled={busy || !!existing}
+          value={values.name}
+          onChange={(e) => setValues({ ...values, name: e.target.value })}
+        />
+      </Label>
+      <Label name="Cihaz türü">
+        <select
+          required
+          disabled={busy || !!existing}
+          value={values.kind}
+          onChange={(e) => setValues({ ...values, kind: e.target.value })}
+        >
+          <option value="">Cihaz türü seçin</option>
+          {(refs["device-types"] || []).map((t) => (
+            <option key={t.code} value={t.code}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </Label>
+      <Label name="Üretici (isteğe bağlı)">
+        <input
+          maxLength={80}
+          disabled={busy || !!existing}
+          value={values.vendor}
+          onChange={(e) => setValues({ ...values, vendor: e.target.value })}
+        />
+      </Label>
+      <Label name="Model (isteğe bağlı)">
+        <input
+          maxLength={100}
+          disabled={busy || !!existing}
+          value={values.model}
+          onChange={(e) => setValues({ ...values, model: e.target.value })}
+        />
+      </Label>
+      <Label name="Başlangıç U">
+        <input
+          type="number"
+          required
+          min={1}
+          max={cabinet.units}
+          disabled={busy}
+          value={values.start_unit}
+          onChange={(e) =>
+            setValues({ ...values, start_unit: Number(e.target.value) })
+          }
+        />
+      </Label>
+      <Label name="Cihaz yüksekliği (U)">
+        <input
+          type="number"
+          required
+          min={1}
+          max={cabinet.units}
+          disabled={busy}
+          value={values.units}
+          onChange={(e) =>
+            setValues({ ...values, units: Number(e.target.value) })
+          }
+        />
+      </Label>
+      <p className="ipam-hint rack-ip-wide">
+        {existing
+          ? "Mevcut envanter kaydı kullanılacak."
+          : "Seçilen fiziksel cihaz merkezi envantere kaydedilir. Cihazın kendi yönetim IP adresini seçin."}
+      </p>
+      {error && (
+        <div className="error rack-ip-wide" role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <p className="ipam-hint rack-ip-wide" role="status">
+          {success}
+        </p>
+      )}
+      <button
+        className="primary rack-ip-wide"
+        disabled={busy || loading || !values.address_id}
+      >
+        {busy ? "Kaydediliyor…" : "IP adresinden yerleştir"}
+      </button>
+    </form>
   );
 }
