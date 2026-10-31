@@ -23,6 +23,7 @@ from .service import (
 )
 
 KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_inventory")
+SCAN_BATCH_SIZE = 32
 
 
 def validate_target(db, kind, id):
@@ -69,8 +70,8 @@ async def scan(job_id):
         db.commit()
     reached = 0
     # Batches bound tasks, subprocesses and cancellation latency.
-    for start in range(0, len(addresses), 8):
-        batch = addresses[start : start + 8]
+    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
+        batch = addresses[start : start + SCAN_BATCH_SIZE]
 
         async def probe(address):
             up = await adapters.ping(address)
@@ -106,7 +107,7 @@ async def scan(job_id):
                 )
                 if hostname:
                     observe(db, prefix, address, "dns", dns.id, {"hostname": hostname}, create=False)
-            job.progress = min(start + 8, len(addresses))
+            job.progress = min(start + SCAN_BATCH_SIZE, len(addresses))
             db.commit()
         publish()
     source_jobs = []
