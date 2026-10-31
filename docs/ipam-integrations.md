@@ -15,7 +15,16 @@ Yönetici VMware vCenter veya Microsoft Windows DHCP tanımlar. Sunucu adı/IP, 
 
 Entegrasyon okuması 240 saniyelik toplam döngü sınırı ve sınırlı soket beklemeleriyle çalışır. İptal sonrası sonuçlar kaydedilmez; başlamış senkron API/WinRM çağrısı kendi zaman aşımına kadar tamamlanabilir.
 
-TLS doğrulaması varsayılan açıktır. Kurumsal CA’yı container trust store’a ekleyin (vCenter için `SSL_CERT_FILE`, WinRM/Requests için `REQUESTS_CA_BUNDLE` uygun secret/CA mount’una yönlendirilebilir). Formdaki TLS tercihi açıkça kaydedilir. Hiçbir cihaz, VM veya DHCP konfigürasyonu değiştirilmez.
+TLS doğrulaması varsayılan açıktır. Kurumsal CA sertifikaları `secrets/ca-certificates/` dizininde, Git ve imaj dışında tutulur. Compose bu dizini `/run/secrets/ca-certificates` yoluna salt okunur bağlar. Kurumsal CA kullanmayan kurulumlarda dizin boş kalabilir; aşağıdaki değişkenler tanımlanmaz.
+
+Kurumsal CA kurulumu:
+
+1. Root ve varsa intermediate sertifikaların CA yeteneğini, geçerliliklerini ve zincirini doğrulayın. Yalnızca PEM açık sertifikaları kullanın; özel anahtarları eklemeyin.
+2. Çalışan imajdaki `certifi.where()` dosyasının içeriğiyle kurum CA sertifikalarını birleştirerek `secrets/ca-certificates/ca-bundle.pem` oluşturun. Mevcut genel CA'ları koruyun. Bundle container kullanıcısı UID 10001 tarafından okunabilmeli; dosya izni 0644 olabilir, özel anahtar içermez. İmajın certifi paketi güncellendiğinde bundle'ı yeni genel CA dosyasıyla yeniden oluşturun.
+3. Sunucudaki `.env` dosyasına `SSL_CERT_FILE=/run/secrets/ca-certificates/ca-bundle.pem` ve `REQUESTS_CA_BUNDLE=/run/secrets/ca-certificates/ca-bundle.pem` ekleyin. İlki vCenter/Python TLS, ikincisi Windows WinRM/Requests içindir.
+4. `docker compose config --quiet` ve `docker compose up -d --no-build netrix-app` çalıştırın. API, worker ve zamanlayıcı yeni ortamı aynı container'dan alır. HTTPS sağlık kontrolünden sonra hedeflerin sertifika zinciri ve hostname doğrulamasıyla bağlantılarını test edin.
+
+Formdaki TLS tercihi açıkça kaydedilir. Kurumsal CA yüklemek için doğrulamayı kapatmayın. Hiçbir cihaz, VM veya DHCP konfigürasyonu değiştirilmez.
 
 ### Microsoft Windows DHCP
 

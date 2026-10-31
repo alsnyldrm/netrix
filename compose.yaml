@@ -20,6 +20,7 @@ services:
     volumes:
       - netrix-redis:/data
       - ./secrets/known_hosts:/run/secrets/known_hosts:ro
+      - ./secrets/ca-certificates:/run/secrets/ca-certificates:ro
     healthcheck:
       test: [CMD, python, -m, netrix.runtime, health]
       interval: 15s
