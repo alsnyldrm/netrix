@@ -1215,19 +1215,25 @@ export function resourceChoices(
   page: string,
 ) {
   return (refs[field.ref || ""] || []).filter((r) => {
+    // Every primary location selector excludes child locations, including
+    // device creation, bulk editing and the dedicated discovery form.
+    if (field.ref === "sites" && field.key === "site_id" && r.parent_id)
+      return false;
     if (page === "addresses" && field.key === "interface_id")
       return !!values.device_id && r.device_id === values.device_id;
     if (page === "addresses" && field.key === "device_id")
       return !values.vrf_id || r.vrf_id === values.vrf_id;
     if (page === "addresses" && field.key === "prefix_id")
       return !values.vrf_id || r.vrf_id === values.vrf_id;
-    if (["prefixes", "addresses"].includes(page) && field.key === "site_id")
+    if (
+      ["prefixes", "addresses", "discovery"].includes(page) &&
+      field.key === "site_id"
+    )
       return (
         !!values.institution_id &&
         r.institution_id === values.institution_id &&
         !r.parent_id
       );
-    if (page === "cabinets" && field.key === "site_id") return !r.parent_id;
     if (page === "addresses" && field.key === "sub_site_id")
       return (
         !!values.site_id &&

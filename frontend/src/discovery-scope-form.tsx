@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type FormEvent } from "react";
-import { api, Dialog } from "./main";
+import { api, Dialog, resourceChoices } from "./main";
 import "./discovery-scope-form.css";
 
 type Row = Record<string, any>;
@@ -40,9 +40,11 @@ export function DiscoveryScopeForm({
   const profiles = (refs.credentials || []).filter((profile) =>
     ["snmpv3", "snmpv2c"].includes(profile.protocol),
   );
-  const sites = (refs.sites || []).filter(
-    (site) =>
-      values.institution_id && site.institution_id === values.institution_id,
+  const sites = resourceChoices(
+    { key: "site_id", label: "Lokasyon", ref: "sites" },
+    refs,
+    values,
+    "discovery",
   );
   const set = (key: string, value: unknown) => {
     if (key === "credential_ids") setError("");
@@ -162,11 +164,6 @@ export function DiscoveryScopeForm({
               </option>
               {sites.map((site) => (
                 <option key={site.id} value={site.id}>
-                  {site.parent_id
-                    ? (refs.sites?.find(
-                        (parent) => parent.id === site.parent_id,
-                      )?.name || "") + " / "
-                    : ""}
                   {site.name}
                 </option>
               ))}

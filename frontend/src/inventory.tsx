@@ -15,7 +15,16 @@ import {
   ArrowDown,
   ArrowsDownUp,
 } from "@phosphor-icons/react";
-import { api, Badge, Dialog, PAGES, tag, date, speed } from "./main";
+import {
+  api,
+  Badge,
+  Dialog,
+  PAGES,
+  tag,
+  date,
+  speed,
+  resourceChoices,
+} from "./main";
 import "./inventory.css";
 import { LinkLabelEditor } from "./link-label-editor";
 import { LinkDeleteDialog } from "./link-delete-dialog";
@@ -446,7 +455,7 @@ export function BulkEditor({
                   >
                     <option value="">Seçiniz / atamayı kaldır</option>
                     {(f.ref
-                      ? (refs[f.ref] || [])
+                      ? resourceChoices(f, refs, changes, "devices")
                           .filter(
                             (r) =>
                               f.key !== "snmp_credential_id" ||

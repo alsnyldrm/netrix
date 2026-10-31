@@ -11,6 +11,13 @@ from .. import models as m
 def validate_location_relations(db, name, data, row_id=None):
     from ..services import get
 
+    if data.get("site_id"):
+        site = get(db, m.Site, data["site_id"])
+        if site.parent_id:
+            raise HTTPException(
+                422, "Lokasyon alanında ana lokasyon seçin; alt lokasyon bu alanda kullanılamaz"
+            )
+
     if name == "sites":
         institution = db.scalar(
             select(m.Institution).where(m.Institution.id == data["institution_id"]).with_for_update()
@@ -29,6 +36,10 @@ def validate_location_relations(db, name, data, row_id=None):
             )
         if row_id:
             existing = get(db, m.Site, row_id)
+            if parent and not existing.parent_id:
+                for model in (m.Device, m.Scope, m.Prefix):
+                    if db.scalar(select(model.id).where(model.site_id == row_id).limit(1)):
+                        raise HTTPException(409, "Kullanılan ana lokasyon alt lokasyona dönüştürülemez")
             if (parent.id if parent else None, institution.id) != (
                 existing.parent_id,
                 existing.institution_id,

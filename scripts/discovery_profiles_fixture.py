@@ -17,7 +17,18 @@ with session_factory()() as db:
     db.flush()
     north = db.scalar(select(m.Site))
     north.institution_id = institutions[0].id
-    db.add(m.Site(name="Güney Kampüs", code="G", institution_id=institutions[1].id))
+    south = m.Site(name="Güney Kampüs", code="G", institution_id=institutions[1].id)
+    db.add(south)
+    db.flush()
+    for campus in (north, south):
+        db.add(
+            m.Site(
+                name=campus.name + " Sunucu Odası",
+                code=campus.code + "-ROOM",
+                institution_id=campus.institution_id,
+                parent_id=campus.id,
+            )
+        )
     for name, protocol, secret in (
         (
             "Merkez SNMP",

@@ -29,6 +29,7 @@ with sync_playwright() as p:
     expect(site).to_be_disabled()
     assert dialog.get_by_role("checkbox").count() == 3  # Two SNMP profiles, one enabled flag; no SSH.
     institution.select_option(label="Kuzey Üniversitesi")
+    assert site.locator("option").all_text_contents() == ["Lokasyon seçin (isteğe bağlı)", "Kuzey Kampüs"]
     site.select_option(label="Kuzey Kampüs")
     institution.select_option(label="Güney Üniversitesi")
     expect(site).to_have_value("")
