@@ -194,6 +194,8 @@ async def integration(job_id):
         known = {}
         seen = set()
         for address, evidence in address_evidence:
+            if not evidence.data.get("present", True):
+                continue
             mac = normalized_mac(evidence.data.get("mac_address"))
             if mac:
                 item = known.setdefault(address.id, {"row": address, "macs": set(), "dhcp": False})
@@ -237,21 +239,27 @@ async def integration(job_id):
                         if observed:
                             seen.add((observed.id, key))
                             matched += 1
-        if current.kind == "vcenter":
+        if current.kind in ("vcenter", "windows_dhcp"):
             # Retire disappeared IP/NIC associations only after a complete, successful snapshot.
             # Keep their evidence/history, but never use it as a current attachment.
             for old in db.scalars(
                 select(m.IPObservation).where(
-                    m.IPObservation.source == "vcenter",
-                    m.IPObservation.source_key.startswith(current.id + ":"),
+                    m.IPObservation.source == current.kind,
+                    m.IPObservation.source_key.startswith(current.id + ":")
+                    if current.kind == "vcenter"
+                    else m.IPObservation.source_key == current.id,
                 )
             ):
                 if (old.address_id, old.source_key) not in seen and old.data.get("present", True):
                     db.add(
                         m.Event(
                             kind="ip_observation_change",
-                            message="vCenter bağlantısı artık gözlemlenmiyor",
-                            details={"address_id": old.address_id, "source": "vcenter", "previous": old.data},
+                            message=f"{current.name}: adres bağlantısı artık gözlemlenmiyor",
+                            details={
+                                "address_id": old.address_id,
+                                "source": current.kind,
+                                "previous": old.data,
+                            },
                         )
                     )
                     old.data = {**old.data, "present": False}

@@ -22,12 +22,20 @@ from netrix.core import Base, engine, now, session_factory  # noqa: E402
 from netrix.discovery import interactive_tests  # noqa: E402
 from netrix.identity.security import encrypt, hasher  # noqa: E402
 from netrix.inventory.device_types import seed_defaults  # noqa: E402
+from netrix.ipam import read_cache  # noqa: E402
 from netrix.ipam.service import observe  # noqa: E402
 
 
 class Redis:
-    def incr(self, *args):
-        return 1
+    def __init__(self):
+        self.data = {}
+
+    def incr(self, key):
+        self.data[key] = self.data.get(key, 0) + 1
+        return self.data[key]
+
+    def set(self, key, value, **kwargs):
+        self.data[key] = value
 
     def expire(self, *args):
         pass
@@ -38,14 +46,15 @@ class Redis:
     def ping(self):
         return True
 
-    def get(self, *args):
-        return now().isoformat()
+    def get(self, key):
+        return now().isoformat() if key.endswith(":heartbeat") else self.data.get(key)
 
     def lock(self, *args, **kwargs):
         return nullcontext()
 
 
 memory = Redis()
+read_cache.client = lambda _: memory
 main.redis_client = services.redis_client = interactive_tests.redis_client = lambda: memory
 Base.metadata.create_all(engine())
 with session_factory()() as db:
@@ -152,6 +161,43 @@ with session_factory()() as db:
     ip.cabinet = "K-04"
     ip.location = "Veri merkezi / Kat 1"
     ip.interface_id = port.id
+    db.add(m.DeviceType(code="fixture-backbone", name="Backbone Switch"))
+    db.flush()
+    backbone = m.Device(
+        name="Fixture Backbone",
+        management_ip="192.0.2.253",
+        vrf_id=vrf.id,
+        kind="fixture-backbone",
+        snmp_credential_id=credential.id,
+    )
+    db.add(backbone)
+    db.flush()
+    db.add(m.Interface(device_id=backbone.id, name="Trk2", if_index=200, is_managed=True))
+    observation_job = m.Job(kind="monitor", target_id=backbone.id)
+    db.add(observation_job)
+    db.flush()
+    db.add(
+        m.Observation(
+            job_id=observation_job.id,
+            device_id=backbone.id,
+            address=backbone.management_ip,
+            evidence={
+                "tables": {"fdb_port": {"138.117.192.182.38.217": "2"}, "bridge_ifindex": {"2": "200"}},
+                "neighbors": [
+                    {
+                        "interface_name": f"C{i}",
+                        "remote_name": "bond-server",
+                        "evidence": {
+                            "cdp": {"management_address": "192.0.2.65"},
+                            "local_aggregate": {"name": "Trk2"},
+                        },
+                    }
+                    for i in range(17, 21)
+                ],
+            },
+        )
+    )
+    observe(db, p, "192.0.2.65", "inventory", backbone.id, {"mac_address": "8a:75:c0:b6:26:d9"})
     db.commit()
 if __name__ == "__main__":
     import uvicorn

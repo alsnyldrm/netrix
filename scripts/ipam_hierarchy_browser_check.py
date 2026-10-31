@@ -134,7 +134,7 @@ with sync_playwright() as p:
     expect(
         page.get_by_role("row")
         .filter(has=page.get_by_role("checkbox", name="192.0.2.10 seç", exact=True))
-        .get_by_role("cell", name="FBU-DS VLAN-020 · Port 89", exact=True)
+        .get_by_role("cell", name="FBU-DS", exact=True)
     ).to_be_visible()
     expect(
         page.get_by_role("row")

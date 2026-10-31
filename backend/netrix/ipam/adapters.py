@@ -17,7 +17,10 @@ $ErrorActionPreference = 'Stop'
 Import-Module DhcpServer -ErrorAction Stop
 $rows = @(Get-DhcpServerv4Scope -ErrorAction Stop | ForEach-Object {
     Get-DhcpServerv4Reservation -ScopeId $_.ScopeId -ErrorAction Stop | ForEach-Object {
-        [PSCustomObject]@{address=$_.IPAddress.IPAddressToString; mac_address=[string]$_.ClientId; hostname=[string]$_.Name}
+        [PSCustomObject]@{address=$_.IPAddress.IPAddressToString; mac_address=[string]$_.ClientId; hostname=[string]$_.Name; reserved=$true}
+    }
+    Get-DhcpServerv4Lease -ScopeId $_.ScopeId -ErrorAction Stop | ForEach-Object {
+        [PSCustomObject]@{address=$_.IPAddress.IPAddressToString; mac_address=[string]$_.ClientId; hostname=[string]$_.HostName; reserved=$false; lease_state=[string]$_.AddressState}
     }
 })
 ConvertTo-Json -InputObject $rows -Compress -Depth 4
@@ -28,17 +31,19 @@ def dhcp_records(content):
     rows = json.loads(content.decode("utf-8-sig"))
     if not isinstance(rows, list) or len(rows) > 100000:
         raise NetworkError("Invalid DHCP response")
-    result = []
+    result = {}
     for row in rows:
-        result.append(
-            {
-                "address": str(ipaddress.ip_address(row["address"])),
-                "mac_address": normalized_mac(row.get("mac_address")),
-                "hostname": str(row.get("hostname") or "")[:190],
-                "reserved": True,
-            }
-        )
-    return result
+        address = str(ipaddress.ip_address(row["address"]))
+        if address in result and result[address]["reserved"]:
+            continue
+        result[address] = {
+            "address": str(ipaddress.ip_address(row["address"])),
+            "mac_address": normalized_mac(row.get("mac_address")),
+            "hostname": str(row.get("hostname") or "")[:190],
+            "reserved": row.get("reserved", True) is not False,
+            "lease_state": str(row.get("lease_state") or "")[:40],
+        }
+    return list(result.values())
 
 
 def windows_dhcp(config, secret):

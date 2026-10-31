@@ -7,7 +7,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select, tuple_
 
 from .. import models as m
 from ..core import now
@@ -84,37 +84,51 @@ def require_scope(db, prefix, scope_id=None):
     )
 
 
-def prefix_summary(db, prefix):
-    network = ipaddress.ip_network(prefix.cidr)
-    capacity = network.num_addresses - (2 if network.version == 4 and network.prefixlen < 31 else 0)
-    assignments = db.execute(
-        select(m.IPAddress.address, m.IPAddress.status).where(
-            m.IPAddress.vrf_id == prefix.vrf_id, m.IPAddress.status != "deprecated"
+def prefix_summaries(db, prefixes):
+    if not prefixes:
+        return []
+    assignments = {}
+    for vrf_id, address, status in db.execute(
+        select(m.IPAddress.vrf_id, m.IPAddress.address, m.IPAddress.status).where(
+            m.IPAddress.vrf_id.in_({p.vrf_id for p in prefixes}), m.IPAddress.status != "deprecated"
         )
-    ).all()
-    counts = {"active": 0, "reserved": 0}
-    for address, status in assignments:
-        ip = ipaddress.ip_address(address)
-        if ip in network and not (
-            network.version == 4
-            and network.prefixlen < 31
-            and ip in (network.network_address, network.broadcast_address)
-        ):
-            counts[status] += 1
-    used = sum(counts.values())
-    vlan = db.get(m.VLAN, prefix.vlan_id) if prefix.vlan_id else None
-    item = serialize(prefix)
-    item.update(
-        capacity=str(capacity),
-        used=used,
-        assigned_active=counts["active"],
-        reserved=counts["reserved"],
-        utilization=round(used * 100 / capacity, 2),
-        threshold_exceeded=used * 100 >= capacity * prefix.warning_threshold,
-        vlan=f"VLAN-{vlan.vid} / {vlan.name}" if vlan else "VLAN belirtilmedi",
-    )
-    item["display_name"] = f"{item['vlan']} | {prefix.cidr}"
-    return item
+    ):
+        assignments.setdefault(vrf_id, []).append((ipaddress.ip_address(address), status))
+    vlans = {
+        v.id: v
+        for v in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({p.vlan_id for p in prefixes if p.vlan_id})))
+    }
+    result = []
+    for prefix in prefixes:
+        network = ipaddress.ip_network(prefix.cidr)
+        capacity = network.num_addresses - (2 if network.version == 4 and network.prefixlen < 31 else 0)
+        counts = {"active": 0, "reserved": 0}
+        for ip, status in assignments.get(prefix.vrf_id, ()):
+            if ip in network and not (
+                network.version == 4
+                and network.prefixlen < 31
+                and ip in (network.network_address, network.broadcast_address)
+            ):
+                counts[status] += 1
+        used = sum(counts.values())
+        vlan = vlans.get(prefix.vlan_id)
+        item = serialize(prefix)
+        item.update(
+            capacity=str(capacity),
+            used=used,
+            assigned_active=counts["active"],
+            reserved=counts["reserved"],
+            utilization=round(used * 100 / capacity, 2),
+            threshold_exceeded=used * 100 >= capacity * prefix.warning_threshold,
+            vlan=f"VLAN-{vlan.vid} / {vlan.name}" if vlan else "VLAN belirtilmedi",
+        )
+        item["display_name"] = f"{item['vlan']} | {prefix.cidr}"
+        result.append(item)
+    return result
+
+
+def prefix_summary(db, prefix):
+    return prefix_summaries(db, [prefix])[0]
 
 
 def targets(db, prefix, discover=False):
@@ -203,7 +217,7 @@ def observe(db, prefix, address, source, source_key, data, *, create=True):
             address=str(ip),
             vrf_id=prefix.vrf_id,
             prefix_id=prefix.id,
-            status="reserved" if source == "windows_dhcp" else "active",
+            status="reserved" if source == "windows_dhcp" and data.get("reserved", True) else "active",
         )
         db.add(row)
         db.flush()
@@ -238,20 +252,25 @@ def observations(db, rows):
     return result
 
 
-def enrich(db, rows):
+def enrich(db, rows, *, details=True):
     grouped = observations(db, rows)
     sites = {s.id: s.name for s in db.scalars(select(m.Site))}
     prefixes = {p.id: p for p in db.scalars(select(m.Prefix))}
     result = []
-    context = connection_context(db)
+    from .connections import identity_rank
+
+    context = connection_context(db, [r for r in rows if not virtual_connections(grouped[r.id])], grouped)
+    vlans = {v.id: v for v in db.scalars(select(m.VLAN))}
     for row in rows:
         item = serialize(row)
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
-        item["observations"] = [serialize(o) for o in obs]
+        if details:
+            item["observations"] = [serialize(o) for o in obs]
         recent = [
             o for o in obs if o.observed_at >= now() - timedelta(hours=24) and o.data.get("present", True)
         ]
+        ordered = sorted(recent, key=lambda o: identity_rank(o, context["devices"]))
         for field in (
             "hostname",
             "operating_system",
@@ -264,18 +283,27 @@ def enrich(db, rows):
             "dvswitch",
         ):
             if not item.get(field):
-                item[field] = next((o.data[field] for o in recent if o.data.get(field)), "")
-        macs = {normalized_mac(o.data.get("mac_address")) for o in recent} - {""}
-        item["mac_conflict"] = len(macs) > 1
-        if item["mac_conflict"]:
+                item[field] = next(
+                    (
+                        o.data[field]
+                        for o in (recent if field == "reachability" else ordered)
+                        if o.data.get(field)
+                    ),
+                    "",
+                )
+        macs = identity_macs(recent, context["devices"])
+        all_macs = {normalized_mac(o.data.get("mac_address")) for o in recent} - {""}
+        item["mac_conflict"] = len(all_macs) > 1
+        if len(macs) > 1:
             item["mac_address"] = " / ".join(sorted(macs))
         item["location"] = item["location"] or sites.get(prefixes[row.prefix_id].site_id, "")
         item["last_observed_at"] = obs[0].observed_at.isoformat() if obs else None
         item["stale"] = bool(obs and not recent)
         item["sources"] = sorted({o.source for o in obs})
-        connections = connection_candidates(db, row, context=context, obs=obs)
-        item["connections"] = connections
         virtual = virtual_connections(obs)
+        connections = [] if virtual else connection_candidates(db, row, context=context, obs=obs)
+        if details:
+            item["connections"] = connections
         physical = physical_connections(connections)
         item.update(connected_device="", connected_port="", connection_type="", connection_ambiguous=False)
         if virtual:
@@ -294,14 +322,22 @@ def enrich(db, rows):
             item.update(
                 connected_device=port["device_name"],
                 connected_port=port["interface_name"],
-                connection_type="physical",
+                connection_type="routed" if port.get("routed") else "physical",
+                connection_members=port.get("members", []),
             )
+            if not row.hostname and port.get("endpoint_name"):
+                host_rank = min(
+                    (identity_rank(o, context["devices"]) for o in ordered if o.data.get("hostname")),
+                    default=99,
+                )
+                if port["priority"] <= host_rank:
+                    item["hostname"] = port["endpoint_name"]
             if not item.get("device_id"):
                 item["device_id"] = port["device_id"]
         else:
             item["connection_ambiguous"] = bool(connections)
         item["address_locked"] = bool(obs)
-        vlan = db.get(m.VLAN, prefixes[row.prefix_id].vlan_id) if prefixes[row.prefix_id].vlan_id else None
+        vlan = vlans.get(prefixes[row.prefix_id].vlan_id)
         item["vlan"] = f"VLAN-{vlan.vid} / {vlan.name}" if vlan else ""
         item["cidr"] = prefixes[row.prefix_id].cidr
         item["availability"] = "unknown"
@@ -354,7 +390,7 @@ def prefix_metadata(db, prefix):
     }
 
 
-def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False):
+def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False, *, details=True):
     network = ipaddress.ip_network(prefix.cidr)
     if allocated:
         rows = sorted(
@@ -366,7 +402,7 @@ def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False):
             key=lambda r: int(ipaddress.ip_address(r.address)),
         )
         return {
-            "items": enrich(db, rows[offset : offset + limit]),
+            "items": enrich(db, rows[offset : offset + limit], details=details),
             "total": str(len(rows)),
             "offset": str(offset),
         }
@@ -375,7 +411,7 @@ def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False):
     rows = db.scalars(
         select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id, m.IPAddress.address.in_(addresses))
     ).all()
-    mapped = {r["address"]: r for r in enrich(db, rows)}
+    mapped = {r["address"]: r for r in enrich(db, rows, details=details)}
     metadata = prefix_metadata(db, prefix)
     items = []
     for address in addresses:
@@ -400,94 +436,179 @@ def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False):
     return {"items": items, "total": str(network.num_addresses), "offset": str(offset)}
 
 
-def connection_context(db):
-    devices = {d.id: d for d in db.scalars(select(m.Device).where(m.Device.archived.is_(False)))}
-    ports = {p.id: p for p in db.scalars(select(m.Interface).where(m.Interface.is_deleted.is_(False)))}
-    indexed = {}
+def identity_macs(obs, devices):
+    from .connections import identity_rank
+
+    ranked = sorted(
+        (
+            o
+            for o in obs
+            if o.observed_at >= now() - timedelta(hours=24)
+            and o.data.get("present", True)
+            and normalized_mac(o.data.get("mac_address"))
+        ),
+        key=lambda o: identity_rank(o, devices),
+    )
+    if not ranked:
+        return set()
+    rank = identity_rank(ranked[0], devices)
+    return {normalized_mac(o.data.get("mac_address")) for o in ranked if identity_rank(o, devices) == rank}
+
+
+def connection_context(db, rows=None, grouped=None):
+    from .connections import device_rank, latest_snapshots
+
+    if rows is not None and not rows:
+        return {"devices": {}, "ports": {}, "indexed": {}}
+    stmt = select(m.Device).where(m.Device.archived.is_(False))
+    if rows is not None:
+        stmt = stmt.where(m.Device.vrf_id.in_({r.vrf_id for r in rows}))
+    devices = {d.id: d for d in db.scalars(stmt)}
+    wanted, addresses, manual = {}, set(), set()
+    if rows is not None:
+        grouped = grouped if grouped is not None else observations(db, rows)
+        for row in rows:
+            wanted.setdefault(row.vrf_id, set()).update(identity_macs(grouped[row.id], devices))
+            addresses.add(row.address)
+            if row.interface_id:
+                manual.add(row.interface_id)
+        if not any(wanted.values()) and not manual:
+            return {"devices": devices, "ports": {}, "indexed": {}}
+    snapshots = latest_snapshots(db, list(devices))
+    facts, pairs = {}, set()
+    for device_id, (snapshot, stamp) in snapshots.items():
+        device = devices[device_id]
+        macs = wanted.get(device.vrf_id, ()) if rows is not None else snapshot["macs"]
+        for mac in macs:
+            for index in snapshot["macs"].get(mac, ()):
+                facts[(device_id, index, mac)] = {"source": "arp/ndp+fdb", "observed_at": stamp.isoformat()}
+                pairs.add((device_id, index))
+        if device_rank(device) == 4:
+            for address, entries in snapshot["arp"].items():
+                if rows is not None and address not in addresses:
+                    continue
+                for mac, index in entries:
+                    if rows is not None and mac not in wanted.get(device.vrf_id, ()):
+                        continue
+                    item = facts.setdefault(
+                        (device_id, index, mac),
+                        {
+                            "source": "firewall_arp",
+                            "routed": True,
+                            "observed_at": stamp.isoformat(),
+                            "addresses": [],
+                        },
+                    )
+                    if item.get("routed"):
+                        item["addresses"].append(address)
+                    pairs.add((device_id, index))
+    clauses = []
+    if pairs:
+        clauses.append(tuple_(m.Interface.device_id, m.Interface.if_index).in_(pairs))
+    if manual:
+        clauses.append(m.Interface.id.in_(manual))
+    # Legacy evidence/debug callers may need manually assigned ports absent from FDB.
+    if rows is None:
+        clauses = [m.Interface.device_id.in_(devices)]
+    ports = (
+        {
+            p.id: p
+            for p in db.scalars(select(m.Interface).where(m.Interface.is_deleted.is_(False), or_(*clauses)))
+        }
+        if clauses
+        else {}
+    )
+    by_index = {(p.device_id, p.if_index): p for p in ports.values()}
     links = {}
-    for link in db.scalars(select(m.Link).where(m.Link.is_current.is_(True))):
-        peer = devices.get(link.manual_remote_device_id or link.remote_device_id)
-        if (
-            peer
-            and peer.kind in ("switch", "router", "firewall")
-            and (
-                link.source == "manual"
-                or (link.last_seen_at and link.last_seen_at >= now() - timedelta(hours=24))
+    if ports:
+        for link in db.scalars(
+            select(m.Link).where(
+                m.Link.is_current.is_(True), m.Link.device_id.in_({p.device_id for p in ports.values()})
             )
         ):
-            links.setdefault(link.device_id, set()).add(link.interface_name)
-    seen = set()
-    for o in db.scalars(
-        select(m.Observation)
-        .where(m.Observation.created_at >= now() - timedelta(hours=24))
-        .order_by(m.Observation.created_at.desc())
-    ):
-        device = devices.get(o.device_id)
-        if not device or o.device_id in seen or "tables" not in o.evidence:
+            peer = devices.get(link.manual_remote_device_id or link.remote_device_id)
+            if (
+                peer
+                and (
+                    peer.kind in ("switch", "router", "firewall")
+                    or "switch" in peer.device_type.name.casefold()
+                )
+                and (
+                    link.source == "manual"
+                    or link.last_seen_at
+                    and link.last_seen_at >= now() - timedelta(hours=24)
+                )
+            ):
+                links.setdefault(link.device_id, set()).add(link.interface_name)
+    indexed = {}
+    for (device_id, index, mac), fact in facts.items():
+        port = by_index.get((device_id, index))
+        if not port:
             continue
-        seen.add(o.device_id)
-        by_index = {str(p.if_index): p for p in ports.values() if p.device_id == device.id}
-        tables = o.evidence.get("tables", {})
-        uplinks = {n.get("interface_name") for n in o.evidence.get("neighbors", [])} | links.get(
-            device.id, set()
-        )
-        detail = o.evidence.get("neighbor_detail", {})
-        for neighbor in o.evidence.get("neighbors", []):
-            aggregate = neighbor.get("evidence", {}).get("local_aggregate") or {}
-            if aggregate.get("name"):
-                uplinks.add(aggregate["name"])
-        for member, aggregate in detail.get("trunks", {}).items():
-            if member in uplinks and aggregate.get("name"):
-                uplinks.add(aggregate["name"])
-        root_port = (detail.get("spanning_tree") or {}).get("port")
-        if root_port:
-            uplinks.add(root_port)
-        for key in ("fdb_port", "vlan_fdb_port"):
-            for index, bridge in tables.get(key, {}).items():
-                try:
-                    mac = ":".join(f"{int(v):02x}" for v in index.split(".")[-6:])
-                except ValueError:
-                    continue
-                port = by_index.get(str(tables.get("bridge_ifindex", {}).get(str(bridge))))
-                if port:
-                    indexed.setdefault((device.vrf_id, mac), {})[port.id] = dict(
-                        interface_id=port.id,
-                        source="arp/ndp+fdb",
-                        confidence=0.4 if port.name in uplinks else 0.8,
-                        ambiguous=port.name in uplinks,
-                        uplink=port.name in uplinks,
-                        observed_at=o.created_at.isoformat(),
-                    )
+        device = devices[device_id]
+        snapshot = snapshots[device_id][0]
+        uplink = port.name in snapshot["uplinks"] or port.name in links.get(device_id, ())
+        indexed.setdefault((device.vrf_id, mac), {})[port.id] = {
+            **fact,
+            "interface_id": port.id,
+            "confidence": 0.4 if uplink else 0.8,
+            "ambiguous": uplink,
+            "uplink": uplink,
+            "direct_hosts": {
+                address: info for (address, name), info in snapshot["hosts"].items() if name == port.name
+            },
+        }
     return {"devices": devices, "ports": ports, "indexed": indexed}
 
 
 def connection_candidates(db, row, *, context=None, obs=None):
-    context = context or connection_context(db)
+    from .connections import device_rank
+
     obs = obs if obs is not None else observations(db, [row])[row.id]
-    macs = {
-        normalized_mac(o.data.get("mac_address"))
-        for o in obs
-        if o.observed_at > now() - timedelta(hours=24) and o.data.get("present", True)
-    } - {""}
+    context = context or connection_context(db, [row], {row.id: obs})
+    macs = identity_macs(obs, context["devices"])
     candidates = {}
     for mac in macs:
         for id, candidate in context["indexed"].get((row.vrf_id, mac), {}).items():
-            candidates[id] = dict(candidate)
+            if candidate.get("routed") and row.address not in candidate.get("addresses", ()):
+                continue
+            item = dict(candidate)
+            host = item.pop("direct_hosts", {}).get(row.address)
+            if host:
+                item.update(
+                    uplink=False,
+                    ambiguous=False,
+                    confidence=0.95,
+                    source="lldp/cdp+arp/fdb",
+                    endpoint_name=host["name"],
+                    members=host["members"],
+                )
+            candidates[id] = item
     if row.interface_id and row.interface_id in context["ports"]:
         candidates[row.interface_id] = dict(
             interface_id=row.interface_id, source="manual", confidence=1.0, ambiguous=False
         )
     found = []
-    access_count = sum(not c.get("uplink") for c in candidates.values())
     for item in candidates.values():
         port = context["ports"].get(item["interface_id"])
         device = context["devices"].get(port.device_id) if port else None
         if not device:
             continue
-        item.update(interface_name=port.name, device_id=device.id, device_name=device.name)
-        if item["source"] != "manual" and (item.get("uplink") or access_count > 1 or len(macs) > 1):
-            item.update(ambiguous=True, confidence=0.4)
+        item.update(
+            interface_name=port.name,
+            device_id=device.id,
+            device_name=device.name,
+            priority=device_rank(device),
+        )
         found.append(item)
+    eligible = [c for c in found if not c.get("uplink") and c["source"] != "manual"]
+    priority = min((c["priority"] for c in eligible), default=99)
+    access_count = sum(c["priority"] == priority for c in eligible)
+    for item in found:
+        if item["source"] != "manual" and (
+            item.get("uplink") or item["priority"] != priority or access_count > 1 or len(macs) > 1
+        ):
+            item.update(ambiguous=True, confidence=0.4)
     return found
 
 

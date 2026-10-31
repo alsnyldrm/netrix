@@ -429,9 +429,9 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
     if name == "prefixes":
-        from .ipam.service import prefix_summary
+        from .ipam.service import prefix_summaries
 
-        items = [prefix_summary(db, row) for row in rows]
+        items = prefix_summaries(db, rows)
     if name == "addresses":
         from .ipam.service import enrich
 
@@ -608,6 +608,8 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
 def publish():
     # DB is the durable outbox/queue; Redis is a wake-up hint, never the source of truth.
     try:
-        redis_client().publish("netrix:events", "refresh")
+        client = redis_client()
+        client.incr("netrix:ipam:revision")
+        client.publish("netrix:events", "refresh")
     except Exception:
         pass

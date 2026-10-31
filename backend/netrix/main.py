@@ -586,6 +586,13 @@ def list_items(
 ):
     if resource in ("users", "audit") and user.role != "admin":
         raise HTTPException(403, "Yönetici yetkisi gerekli")
+    if resource == "prefixes":
+        from .ipam.read_cache import json_response
+
+        return json_response(
+            ["prefixes", limit, offset, q, device_id],
+            lambda: svc.list_resource(db, resource, limit, offset, q, device_id),
+        )
     return svc.list_resource(db, resource, limit, offset, q, device_id)
 
 

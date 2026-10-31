@@ -416,8 +416,9 @@ function AddressDetail({
             <section className="ipam-section">
               <h3>Bağlantı ve canlı trafik</h3>
               <p className="ipam-hint">
-                VMware bağlantısında sanal ağ kartının trafiği izlenir. Fiziksel
-                switch bağlantısında ölçüm, doğrulanan portun toplam trafiğidir.
+                {detail.connection_type === "routed"
+                  ? "Firewall ARP/NDP kaydındaki ağ arayüzü gösteriliyor. Bu arayüzün trafiği ağın toplamıdır; cihazın fiziksel switch portu henüz belirlenmemiştir."
+                  : "VMware bağlantısında sanal ağ kartının trafiği izlenir. Fiziksel switch bağlantısında ölçüm, doğrulanan portun toplam trafiğidir."}
               </p>
               <Field label="İzlenecek bağlantı">
                 <select
@@ -633,9 +634,22 @@ export function IPAMWorkspace({
   const canWrite = user.role !== "viewer";
   const isBlocks = page === "prefixes" && !prefix;
   const visible = columns.filter((c) => shown.includes(c.key));
+  const previousQuery = useRef(query);
+  const previousScope = useRef("");
   useEffect(() => {
     let active = true;
-    setLoaded(false);
+    const scope = JSON.stringify([
+      page,
+      prefix?.id,
+      offset,
+      query,
+      allocated,
+      rules,
+    ]);
+    if (previousScope.current !== scope) setLoaded(false);
+    previousScope.current = scope;
+    const delay = previousQuery.current !== query ? 200 : 0;
+    previousQuery.current = query;
     const timer = setTimeout(async () => {
       try {
         const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
@@ -663,7 +677,7 @@ export function IPAMWorkspace({
           setLoaded(true);
         }
       }
-    }, 200);
+    }, delay);
     return () => {
       active = false;
       clearTimeout(timer);
@@ -747,15 +761,6 @@ export function IPAMWorkspace({
       return (
         <>
           {r[key] || "—"}
-          {key === "connected_device" &&
-            r.connection_type === "vcenter" &&
-            !r.connection_ambiguous && (
-              <small className="ipam-sub">
-                {[r.network, r.connected_port ? `Port ${r.connected_port}` : ""]
-                  .filter(Boolean)
-                  .join(" · ") || "VMware"}
-              </small>
-            )}
           {key === "connected_device" && r.connection_ambiguous && (
             <small className="ipam-sub">Bağlantı doğrulanamadı</small>
           )}
@@ -1438,8 +1443,8 @@ export function Integrations({
         </div>
         <p>
           VMware vCenter’dan IP, MAC, işletim sistemi, güç durumu ve sanal port;
-          Windows DHCP’den sabit IPv4 rezervasyonları alınır. Yalnızca
-          seçtiğiniz ağ bloklarına kayıt eklenir.
+          Windows DHCP’den sabit IPv4 rezervasyonları ve aktif kiralamalar
+          alınır. Yalnızca seçtiğiniz ağ bloklarına kayıt eklenir.
         </p>
       </section>
       {job && (
@@ -1698,7 +1703,7 @@ export function Integrations({
             </fieldset>
             <p className="ipam-hint">
               {values.kind === "windows_dhcp"
-                ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü ve rezervasyon okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
+                ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
                 : "vCenter API için envanter ve performans okuma yetkisi gerekir. Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}
               {editing.id
                 ? " Kayıtlı kullanıcı/parolayı korumak için iki alanı da boş bırakın."

@@ -8,7 +8,7 @@ from .. import models as m
 from .. import services as svc
 from ..core import db_session, now
 from ..identity.security import admin, audit, current_user, operator
-from . import jobs, service, table
+from . import jobs, read_cache, service, table
 from .schemas import (
     AddressBulkInput,
     IntegrationInput,
@@ -34,14 +34,17 @@ def addresses(
 ):
     if not offset.isdigit() or len(offset) > 40:
         raise HTTPException(422, "Geçersiz adres başlangıcı")
-    return table.addresses(
-        db,
-        svc.get(db, m.Prefix, id),
-        offset=int(offset),
-        limit=limit,
-        allocated=allocated,
-        q=q,
-        filters=filters,
+    return read_cache.json_response(
+        ["prefix-addresses", id, offset, limit, allocated, q, filters],
+        lambda: table.addresses(
+            db,
+            svc.get(db, m.Prefix, id),
+            offset=int(offset),
+            limit=limit,
+            allocated=allocated,
+            q=q,
+            filters=filters,
+        ),
     )
 
 
@@ -148,7 +151,10 @@ def address_table(
     user=Depends(current_user),
     db=Depends(db_session),
 ):
-    return table.addresses(db, offset=offset, limit=limit, q=q, filters=filters)
+    return read_cache.json_response(
+        ["addresses", offset, limit, q, filters],
+        lambda: table.addresses(db, offset=offset, limit=limit, q=q, filters=filters),
+    )
 
 
 @router.post("/ipam/addresses/bulk")
