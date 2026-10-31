@@ -370,7 +370,9 @@ def enrich(db, rows, *, details=True):
             port = physical[0]
             item.update(
                 connected_device=port["device_name"],
-                connected_port=port["interface_name"],
+                connected_port=" / ".join(port["members"])
+                if port["source"] == "topology_override" and port.get("members")
+                else port["interface_name"],
                 connection_type="routed" if port.get("routed") else "physical",
                 connection_members=port.get("members", []),
             )
@@ -418,7 +420,9 @@ def virtual_connections(obs):
 
 def physical_connections(candidates):
     manual = [c for c in candidates if c["source"] == "manual"]
-    return manual or [c for c in candidates if not c.get("uplink") and not c["ambiguous"]]
+    return manual or [
+        c for c in candidates if not c.get("routed") and not c.get("uplink") and not c["ambiguous"]
+    ]
 
 
 def prefix_metadata(db, prefix):
@@ -498,7 +502,7 @@ def identity_macs(obs, devices):
 
 
 def connection_context(db, rows=None, grouped=None):
-    from .connections import device_rank, latest_snapshots
+    from .connections import device_rank, latest_snapshots, managed_endpoints
 
     if rows is not None and not rows:
         return {"devices": {}, "ports": {}, "indexed": {}}
@@ -514,9 +518,24 @@ def connection_context(db, rows=None, grouped=None):
             addresses.add(row.address)
             if row.interface_id:
                 manual.add(row.interface_id)
-        if not any(wanted.values()) and not manual:
-            return {"devices": devices, "ports": {}, "indexed": {}}
+
+    current_links = list(
+        db.scalars(
+            select(m.Link).where(
+                m.Link.is_current.is_(True),
+                m.Link.auto_add_excluded.is_(False),
+                m.Link.device_id.in_(devices),
+                or_(m.Link.source == "manual", m.Link.last_seen_at >= now() - timedelta(hours=24)),
+            )
+        )
+    )
     snapshots = latest_snapshots(db, list(devices))
+    overrides = managed_endpoints(current_links, rows, grouped or {}, devices, snapshots)
+    override_ports = {
+        (l.device_id, (l.evidence.get("local_aggregate") or {}).get("name") or l.interface_name)
+        for links in overrides.values()
+        for l in links
+    }
     facts, pairs = {}, set()
     for device_id, (snapshot, stamp) in snapshots.items():
         device = devices[device_id]
@@ -549,6 +568,8 @@ def connection_context(db, rows=None, grouped=None):
         clauses.append(tuple_(m.Interface.device_id, m.Interface.if_index).in_(pairs))
     if manual:
         clauses.append(m.Interface.id.in_(manual))
+    if override_ports:
+        clauses.append(tuple_(m.Interface.device_id, m.Interface.name).in_(override_ports))
     # Legacy evidence/debug callers may need manually assigned ports absent from FDB.
     if rows is None:
         clauses = [m.Interface.device_id.in_(devices)]
@@ -563,11 +584,7 @@ def connection_context(db, rows=None, grouped=None):
     by_index = {(p.device_id, p.if_index): p for p in ports.values()}
     links = {}
     if ports:
-        for link in db.scalars(
-            select(m.Link).where(
-                m.Link.is_current.is_(True), m.Link.device_id.in_({p.device_id for p in ports.values()})
-            )
-        ):
+        for link in current_links:
             peer = devices.get(link.manual_remote_device_id or link.remote_device_id)
             if (
                 peer
@@ -596,11 +613,14 @@ def connection_context(db, rows=None, grouped=None):
             "confidence": 0.4 if uplink else 0.8,
             "ambiguous": uplink,
             "uplink": uplink,
+            "neighbor_identity": snapshot["neighbor_macs"].get((mac, port.name))
+            if port.name not in links.get(device_id, ())
+            else None,
             "direct_hosts": {
                 address: info for (address, name), info in snapshot["hosts"].items() if name == port.name
             },
         }
-    return {"devices": devices, "ports": ports, "indexed": indexed}
+    return {"devices": devices, "ports": ports, "indexed": indexed, "overrides": overrides}
 
 
 def connection_candidates(db, row, *, context=None, obs=None):
@@ -615,7 +635,8 @@ def connection_candidates(db, row, *, context=None, obs=None):
             if candidate.get("routed") and row.address not in candidate.get("addresses", ()):
                 continue
             item = dict(candidate)
-            host = item.pop("direct_hosts", {}).get(row.address)
+            host = item.pop("neighbor_identity", None) or item.pop("direct_hosts", {}).get(row.address)
+            item.pop("direct_hosts", None)
             if host:
                 item.update(
                     uplink=False,
@@ -626,6 +647,27 @@ def connection_candidates(db, row, *, context=None, obs=None):
                     members=host["members"],
                 )
             candidates[id] = item
+    by_name = {(p.device_id, p.name): p for p in context["ports"].values()}
+    for link in context.get("overrides", {}).get(row.id, []):
+        aggregate = (link.evidence.get("local_aggregate") or {}).get("name")
+        port = by_name.get((link.device_id, aggregate or link.interface_name))
+        if not port:
+            continue
+        item = candidates.get(port.id)
+        if not item or item["source"] != "topology_override":
+            item = dict(
+                interface_id=port.id,
+                source="topology_override",
+                confidence=0.65,
+                ambiguous=False,
+                uplink=False,
+                members=[],
+                endpoint_name=link.manual_remote_name,
+            )
+            candidates[port.id] = item
+        if aggregate and link.interface_name not in item["members"]:
+            item["members"].append(link.interface_name)
+            item["members"].sort()
     if row.interface_id and row.interface_id in context["ports"]:
         candidates[row.interface_id] = dict(
             interface_id=row.interface_id, source="manual", confidence=1.0, ambiguous=False
@@ -640,15 +682,22 @@ def connection_candidates(db, row, *, context=None, obs=None):
             interface_name=port.name,
             device_id=device.id,
             device_name=device.name,
-            priority=device_rank(device),
+            priority=-1 if item["source"] == "topology_override" else device_rank(device),
         )
         found.append(item)
-    eligible = [c for c in found if not c.get("uplink") and c["source"] != "manual"]
+    eligible = [c for c in found if not c.get("routed") and not c.get("uplink") and c["source"] != "manual"]
+    managed = [c for c in eligible if c["source"] == "topology_override"]
+    if managed:
+        eligible = managed
     priority = min((c["priority"] for c in eligible), default=99)
     access_count = sum(c["priority"] == priority for c in eligible)
     for item in found:
         if item["source"] != "manual" and (
-            item.get("uplink") or item["priority"] != priority or access_count > 1 or len(macs) > 1
+            item not in eligible
+            or item.get("uplink")
+            or item["priority"] != priority
+            or access_count > 1
+            or (len(macs) > 1 and item["source"] != "topology_override")
         ):
             item.update(ambiguous=True, confidence=0.4)
     return found

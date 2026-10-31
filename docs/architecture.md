@@ -41,6 +41,10 @@ Kapsamlar varsayılan manuel çalışır; zamanlama açıkça etkinleştirilir. 
 
 Yönetilen cihaz adı, gözlemlenen hostname tarafından değiştirilmez. ARP/NDP/FDB/VLAN port adayları kanıt ve güven düzeyiyle saklanır; LLDP/CDP isim eşleşmesi kesin fiziksel bağlantı sayılmaz. Birden fazla port adayı ve uplink kanıtı eşleşmeyi belirsiz bırakır. Topoloji bağlantıları son gözlem zamanını korur; kayıp komşu tek başarısız sorguda silinmez.
 
+IPAM fiziksel bağlantı çözümlemesinde firewall ARP/NDP kaydı yalnızca IP–MAC kimlik kanıtıdır; yönlendirilmiş VLAN arayüzü cihazın bağlı portu olarak gösterilmez ve canlı port izlemeye sunulmaz. Komşunun kendi MAC'i aynı portun FDB kaydıyla örtüşüyorsa AP/sunucu komşuluğu transit uplink sayılmaz; o komşunun arkasındaki farklı MAC'ler bu istisnadan yararlanmaz.
+
+Güncel topoloji kaydında kullanıcının düzelttiği uç cihaz adı, aynı VRF içindeki yönetilen/gözlemlenen hostname veya tekil LLDP/CDP yönetim adresi kimliğiyle eşleştirilir. Bu seçim `topology_override` kaynağı ve 0.65 güven düzeyiyle protokol kanıtından ayrı tutulur; otomatik yönetim NIC'i eşleşmesinden önce kullanılır. VMware NIC bağlantısı ve IP üzerindeki açık arayüz ataması önceliğini korur. Birden fazla kullanıcı eşleşmesi belirsiz kalır; silinmiş, hariç tutulmuş veya 24 saatten eski otomatik komşuluk kullanılmaz. LAG üye portları tabloda ayrı gösterilir, izleme gerçek aggregate arayüzü üzerinden yapılır.
+
 ### Otomatik cihaz bilgileri
 
 Cihaz oluşturulunca veya bağlantı/üretici/model/tür bilgileri değişince, aktif cihaz yetkili kapsam içindeyse ve erişim profili varsa aynı transaction içinde `identify` işi kuyruğa eklenir. Kaydetme işlemi ağ yanıtını beklemez. Kapsam/profil yoksa manuel kayıt saklanır ve sorgunun neden başlatılmadığı yanıtta bildirilir. Dağıtım mevcut cihazlar için kendiliğinden sorgu başlatmaz. Ayrıntılardaki **Bilgileri cihazdan al**, `POST /api/v1/jobs` üzerinden `kind: identify` ile yeniden sorgu başlatır.

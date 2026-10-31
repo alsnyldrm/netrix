@@ -42,7 +42,7 @@ def project_snapshot(evidence):
     from .service import normalized_mac
 
     tables = evidence.get("tables") or {}
-    macs, arp, hosts, uplinks = {}, {}, {}, set()
+    macs, arp, hosts, uplinks, neighbor_macs = {}, {}, {}, set(), {}
     bridges = tables.get("bridge_ifindex") or {}
     for table in ("fdb_port", "vlan_fdb_port"):
         for key, bridge in (tables.get(table) or {}).items():
@@ -89,6 +89,15 @@ def project_snapshot(evidence):
         aggregate = data.get("local_aggregate") or {}
         port = aggregate.get("name") or local
         uplinks.update(v for v in (local, port) if v)
+        lldp = data.get("lldp") or {}
+        # An AP/server advertising its own MAC is the endpoint, not a transit switch.
+        for value in (
+            lldp.get("chassis_id") if lldp.get("chassis_subtype") == 4 else None,
+            lldp.get("port_id") if lldp.get("port_subtype") == 3 else None,
+        ):
+            mac = normalized_mac(value)
+            if mac and port:
+                neighbor_macs[(mac, port)] = {"name": neighbor.get("remote_name") or "", "members": []}
         # A neighbor's management IP proves the endpoint of a port/aggregate.
         # Chassis MACs are NOT substituted for the IP's MAC (bonds can differ).
         for protocol in ("lldp", "cdp"):
@@ -112,6 +121,7 @@ def project_snapshot(evidence):
     return {
         "macs": {mac: tuple(sorted(indices)) for mac, indices in macs.items()},
         "arp": arp,
+        "neighbor_macs": neighbor_macs,
         "hosts": {key: {**value, "members": sorted(value["members"])} for key, value in hosts.items()},
         "uplinks": uplinks,
     }
@@ -164,3 +174,57 @@ def latest_snapshots(db, device_ids):
                 ):
                     _cache.popitem(last=False)
     return {row.device_id: (found[row.id], row.created_at) for row in versions if row.id in found}
+
+
+def managed_endpoints(links, rows, grouped, devices, snapshots):
+    """Operator-corrected endpoint names, kept distinct from protocol evidence.
+
+    A short hostname may match one qualified name, never multiple domains. Deleted,
+    stale, excluded links and cross-VRF names cannot override current evidence.
+    """
+    names = {}
+    for link in links:
+        if not link.manual_remote_name:
+            continue
+        name = link.manual_remote_name.rstrip(".").casefold()
+        device = devices[link.device_id]
+        names.setdefault((device.vrf_id, name), []).append(link)
+    advertised = {}
+    for device_id, (snapshot, _) in snapshots.items():
+        for (address, _), host in snapshot["hosts"].items():
+            if host["name"]:
+                advertised.setdefault((devices[device_id].vrf_id, address), set()).add(
+                    host["name"].rstrip(".").casefold()
+                )
+    result = {}
+    for row in rows or []:
+        ordered = sorted(
+            (
+                o
+                for o in grouped[row.id]
+                if o.observed_at >= now() - timedelta(hours=24) and o.data.get("present", True)
+            ),
+            key=lambda o: (identity_rank(o, devices), -o.observed_at.timestamp()),
+        )
+        name = (
+            (row.hostname or next((o.data.get("hostname") for o in ordered if o.data.get("hostname")), ""))
+            .rstrip(".")
+            .casefold()
+        )
+        if not name:
+            candidates = advertised.get((row.vrf_id, row.address), set())
+            if len(candidates) != 1:
+                continue
+            name = next(iter(candidates))
+        matches = names.get((row.vrf_id, name), [])
+        if not matches:
+            aliases = [
+                value
+                for (vrf, label), value in names.items()
+                if vrf == row.vrf_id
+                and label.split(".")[0] == name.split(".")[0]
+                and ("." not in label or "." not in name)
+            ]
+            matches = aliases[0] if len(aliases) == 1 else []
+        result[row.id] = matches
+    return result
