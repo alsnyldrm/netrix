@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
-  Check,
   Broadcast,
   GearSix,
   Columns,
@@ -946,7 +945,6 @@ export function IPAMWorkspace({
                         setOffset("0");
                       }}
                     >
-                      <Check size={17} aria-hidden="true" />
                       Aktif IP’ler
                     </button>
                   )}

@@ -75,7 +75,11 @@
   min-height: 44px;
 }
 .ipam-table-tools .ipam-active-toggle {
-  padding-inline: 10px;
+  align-self: center;
+  flex: 0 0 auto;
+  min-height: 30px;
+  height: 30px;
+  padding: 0 8px;
   font-size: 13px;
   color: var(--text-2);
 }
@@ -84,9 +88,6 @@
   color: var(--success);
   background: var(--success-soft);
   border-color: var(--success);
-}
-.ipam-active-toggle[aria-pressed="false"] svg {
-  visibility: hidden;
 }
 .ipam-block-header h2 {
   margin: 0;

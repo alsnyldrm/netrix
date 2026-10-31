@@ -53,8 +53,9 @@ with sync_playwright() as p:
                 if width in (1440, 375):
                     columns = page.get_by_role("button", name="Sütunlar", exact=True).bounding_box()
                     button = toggle.bounding_box()
-                    assert abs(columns["y"] - button["y"]) < 1
-                    assert abs(columns["height"] - button["height"]) < 1
+                    assert abs(columns["y"] + columns["height"] / 2 - button["y"] - button["height"] / 2) < 1
+                    assert button["height"] == 30
+                    assert button["width"] < 100
                 if width == 1440:
                     summary = header.locator(".ipam-block-usage").bounding_box()
                     title = header.locator(".ipam-block-title").bounding_box()
