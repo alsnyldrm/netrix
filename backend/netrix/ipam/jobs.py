@@ -23,7 +23,7 @@ from .service import (
     virtual_connections,
 )
 
-KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_live")
+KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_live", "ipam_inventory")
 
 
 def validate_target(db, kind, id):
@@ -31,6 +31,8 @@ def validate_target(db, kind, id):
         row = get(db, m.Integration, id)
         if not row.enabled or not row.prefix_ids:
             raise HTTPException(422, "Entegrasyonu etkinleştirin ve yetkili ağ bloklarını seçin")
+    elif kind == "ipam_inventory":
+        row = get(db, m.Prefix, id)
     elif kind == "ipam_live":
         row = get(db, m.IPAddress, id)
     else:
@@ -385,6 +387,10 @@ async def live(job_id, collector):
 
 
 async def execute(job_id, kind, collector):
+    if kind == "ipam_inventory":
+        from .inventory_sync import run
+
+        return await run(job_id)
     if kind == "integration":
         return await integration(job_id)
     if kind == "ipam_live":

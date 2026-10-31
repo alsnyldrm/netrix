@@ -864,6 +864,7 @@ const LABELS: Record<string, string> = {
   integration: "Entegrasyon eşitleme",
   ipam_live: "IP canlı trafik",
   ipam_ping: "IP durum kontrolü",
+  ipam_inventory: "Envanterden IP eşleştirme",
   ipam_discover: "Yeni IP keşfi",
   identify: "Cihaz bilgisi sorgusu",
   snmpv3: "SNMPv3",

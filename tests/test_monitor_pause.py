@@ -135,6 +135,10 @@ async def test_ipam_discovery_does_not_spawn_monitor_jobs_during_pause(
     response = admin_client.post(f"/api/v1/ipam/prefixes/{p['id']}/discover")
     assert response.status_code == 202, response.text
     job_id = response.json()["id"]
+    cached_job = claim()
+    with env() as db:
+        assert db.get(m.Job, cached_job).kind == "ipam_inventory"
+    await execute(cached_job)  # Cached data replay remains allowed while monitoring is paused.
     assert claim() == job_id
     await execute(job_id)
     result = admin_client.get("/api/v1/jobs/" + job_id).json()

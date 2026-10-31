@@ -261,6 +261,9 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             for key in (*IDENTITY_CONNECTION_FIELDS, "vendor", "model", "kind", "lifecycle_status")
         )
     )
+    replay_prefix = name == "prefixes" and (
+        not row_id or row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]
+    )
     if name == "prefixes" and row_id and (row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]):
         row.scan_authorized = row.ping_enabled = row.discovery_enabled = False
     if name == "addresses" and row_id:
@@ -341,25 +344,21 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
-    if name in ("devices", "prefixes"):
+    if name == "devices":
         from .ipam.service import inventory_observations
 
-        devices = (
-            [row]
-            if name == "devices"
-            else db.scalars(
-                select(m.Device).where(m.Device.vrf_id == row.vrf_id, m.Device.archived.is_(False))
-            ).all()
+        latest = db.scalar(
+            select(m.Observation)
+            .where(m.Observation.device_id == row.id, m.Observation.source.in_(SNMP_PROTOCOLS))
+            .order_by(m.Observation.created_at.desc())
+            .limit(1)
         )
-        for device in devices:
-            latest = db.scalar(
-                select(m.Observation)
-                .where(m.Observation.device_id == device.id, m.Observation.source.in_(SNMP_PROTOCOLS))
-                .order_by(m.Observation.created_at.desc())
-                .limit(1)
-            )
-            collected = latest.evidence if latest and latest.created_at >= now() - timedelta(hours=24) else {}
-            inventory_observations(db, device, {**collected, "hostname": device.name})
+        collected = latest.evidence if latest and latest.created_at >= now() - timedelta(hours=24) else {}
+        inventory_observations(db, row, {**collected, "hostname": row.name})
+    if replay_prefix:
+        # Durable work is committed atomically with the block. API latency must
+        # not grow with the number of devices or cached ARP/FDB observations.
+        enqueue(db, "ipam_inventory", row.id, user, commit=False)
     identification = None
     if identify_changed:
         try:
