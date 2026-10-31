@@ -78,7 +78,8 @@ export function BackupWorkspace({
           a.download = `netrix-${row.id}-masked.txt`;
           a.click();
           URL.revokeObjectURL(url);
-        } else setView({ row, kind, content });
+        } else
+          setView({ row, kind, content, previousAt: d.previous_created_at });
       }
     } catch (e: any) {
       setError(e.message);
@@ -278,6 +279,19 @@ export function BackupWorkspace({
               </>
             ) : (
               <>
+                {view.kind === "diff" && (
+                  <>
+                    {view.previousAt && (
+                      <p className="muted">
+                        Önceki yedek: {date(view.previousAt)}
+                      </p>
+                    )}
+                    <p className="muted">
+                      Bu fark iki kayıtlı yedek arasındadır. Canlı config için
+                      “Karşılaştır” ekranını kullanın.
+                    </p>
+                  </>
+                )}
                 <p className="muted">Hassas değerler maskelenir.</p>
                 <pre>{view.content || "Görünür fark yok."}</pre>
               </>

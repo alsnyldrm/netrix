@@ -321,6 +321,7 @@ def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator
     return {
         "diff": config_diff(previous_content, current_content) if previous else "",
         "previous_id": previous.id if previous else None,
+        "previous_created_at": previous.created_at if previous else None,
         "current_id": row.id,
     }
 
