@@ -102,9 +102,10 @@ def connect_vcenter(config, secret):
     )
 
 
-def vm_records(vm_id, values):
+def vm_records(vm_id, values, networks=None):
     from pyVmomi import vim
 
+    networks = networks or {"switches": {}, "portgroups": {}, "hosts": {}}
     guest, devices = values.get("guest"), values.get("config.hardware.device") or []
     nics = {d.key: d for d in devices if isinstance(d, vim.vm.device.VirtualEthernetCard)}
     result = []
@@ -113,6 +114,16 @@ def vm_records(vm_id, values):
         hardware, nic = nics.get(key), guest_nics.get(key)
         backing = getattr(hardware, "backing", None)
         dvport = getattr(backing, "port", None)
+        switch_uuid = getattr(dvport, "switchUuid", "") or ""
+        group_key = getattr(dvport, "portgroupKey", "") or ""
+        host_id = getattr(values.get("runtime.host"), "_moId", "")
+        host = networks["hosts"].get(host_id, {})
+        network = (
+            networks["portgroups"].get((switch_uuid, group_key))
+            or getattr(backing, "deviceName", "")
+            or getattr(nic, "network", "")
+            or ""
+        )
         ips = [v.ipAddress for v in (getattr(getattr(nic, "ipConfig", None), "ipAddress", None) or [])]
         ips = ips or getattr(nic, "ipAddress", None) or [""]
         for address in ips:
@@ -132,14 +143,16 @@ def vm_records(vm_id, values):
                         getattr(guest, "guestFullName", "") or values.get("config.guestFullName") or ""
                     )[:190],
                     "power_state": str(values.get("runtime.powerState") or "unknown"),
-                    "network": (getattr(nic, "network", "") or getattr(backing, "deviceName", "") or "")[
-                        :190
-                    ],
+                    "network": network[:190],
+                    "portgroup_key": group_key,
+                    "dvswitch_name": networks["switches"].get(switch_uuid, ""),
+                    "vswitch_name": host.get("portgroups", {}).get(network, "") if not switch_uuid else "",
+                    "vm_host_name": host.get("name", ""),
                     "vm_id": vm_id,
                     "nic_key": str(key),
                     "dvport": getattr(dvport, "portKey", "") or "",
-                    "dvswitch": getattr(dvport, "switchUuid", "") or "",
-                    "vm_host": getattr(values.get("runtime.host"), "_moId", ""),
+                    "dvswitch": switch_uuid,
+                    "vm_host": host_id,
                 }
             )
     return result
@@ -153,7 +166,16 @@ def vcenter_records(config, secret):
     view = None
     try:
         content = si.RetrieveContent()
-        view = content.viewManager.CreateContainerView(content.rootFolder, [vim.VirtualMachine], True)
+        view = content.viewManager.CreateContainerView(
+            content.rootFolder,
+            [
+                vim.VirtualMachine,
+                vim.DistributedVirtualSwitch,
+                vim.dvs.DistributedVirtualPortgroup,
+                vim.HostSystem,
+            ],
+            True,
+        )
         spec = vmodl.query.PropertyCollector.FilterSpec(
             objectSet=[
                 vmodl.query.PropertyCollector.ObjectSpec(
@@ -178,30 +200,77 @@ def vcenter_records(config, secret):
                         "runtime.powerState",
                         "runtime.host",
                     ],
-                )
+                ),
+                vmodl.query.PropertyCollector.PropertySpec(
+                    type=vim.DistributedVirtualSwitch, all=False, pathSet=["name", "uuid"]
+                ),
+                vmodl.query.PropertyCollector.PropertySpec(
+                    type=vim.dvs.DistributedVirtualPortgroup,
+                    all=False,
+                    pathSet=["name", "config.key", "config.distributedVirtualSwitch"],
+                ),
+                vmodl.query.PropertyCollector.PropertySpec(
+                    type=vim.HostSystem, all=False, pathSet=["name", "config.network.portgroup"]
+                ),
             ],
         )
         collector = content.propertyCollector
         page = collector.RetrievePropertiesEx(
             specSet=[spec], options=vmodl.query.PropertyCollector.RetrieveOptions(maxObjects=200)
         )
-        rows, deadline = [], time.monotonic() + 240
+        objects, deadline = [], time.monotonic() + 240
         while page:
             for obj in page.objects:
                 if obj.missingSet:
                     raise NetworkError("vCenter property permission missing")
-                rows.extend(vm_records(obj.obj._moId, {p.name: p.val for p in obj.propSet}))
+                objects.append((obj.obj, {p.name: p.val for p in obj.propSet}))
+                if len(objects) > 100000:
+                    if page.token:
+                        collector.CancelRetrievePropertiesEx(token=page.token)
+                    raise NetworkError("vCenter inventory limit exceeded")
             if not page.token:
                 break
-            if time.monotonic() > deadline or len(rows) > 100000:
+            if time.monotonic() > deadline or len(objects) > 100000:
                 collector.CancelRetrievePropertiesEx(token=page.token)
                 raise NetworkError("vCenter inventory limit exceeded")
             page = collector.ContinueRetrievePropertiesEx(token=page.token)
+        # Names may arrive on later pages; resolve backing IDs only after collecting all pages.
+        switches = {
+            obj._moId: values for obj, values in objects if isinstance(obj, vim.DistributedVirtualSwitch)
+        }
+        networks = {
+            "switches": {v["uuid"]: v["name"] for v in switches.values()},
+            "portgroups": {},
+            "hosts": {},
+        }
+        for obj, values in objects:
+            if isinstance(obj, vim.dvs.DistributedVirtualPortgroup):
+                ds = switches.get(getattr(values.get("config.distributedVirtualSwitch"), "_moId", ""))
+                if ds:
+                    networks["portgroups"][(ds["uuid"], values.get("config.key") or obj._moId)] = values[
+                        "name"
+                    ]
+            elif isinstance(obj, vim.HostSystem):
+                networks["hosts"][obj._moId] = {
+                    "name": values.get("name", ""),
+                    "portgroups": {
+                        pg.spec.name: pg.spec.vswitchName
+                        for pg in values.get("config.network.portgroup") or []
+                    },
+                }
+        rows = []
+        for obj, values in objects:
+            if isinstance(obj, vim.VirtualMachine):
+                rows.extend(vm_records(obj._moId, values, networks))
+                if len(rows) > 100000:
+                    raise NetworkError("vCenter inventory limit exceeded")
         return rows
     finally:
-        if view:
-            view.Destroy()
-        Disconnect(si)
+        try:
+            if view:
+                view.Destroy()
+        finally:
+            Disconnect(si)
 
 
 def vcenter_traffic(config, secret, vm_id, nic_key):

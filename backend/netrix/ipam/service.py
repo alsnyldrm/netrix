@@ -249,7 +249,9 @@ def enrich(db, rows):
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         item["observations"] = [serialize(o) for o in obs]
-        recent = [o for o in obs if o.observed_at >= now() - timedelta(hours=24)]
+        recent = [
+            o for o in obs if o.observed_at >= now() - timedelta(hours=24) and o.data.get("present", True)
+        ]
         for field in (
             "hostname",
             "operating_system",
@@ -273,16 +275,31 @@ def enrich(db, rows):
         item["sources"] = sorted({o.source for o in obs})
         connections = connection_candidates(db, row, context=context, obs=obs)
         item["connections"] = connections
-        item["connected_device"] = " / ".join(dict.fromkeys(c["device_name"] for c in connections))
-        item["connected_port"] = " / ".join(dict.fromkeys(c["interface_name"] for c in connections))
-        if not connections and item.get("dvport"):
-            item["connected_port"] = f"DVPort {item['dvport']}"
-            item["connected_device"] = f"VMware DSwitch {item.get('dvswitch') or '—'}"
-        item["connection_ambiguous"] = any(c["ambiguous"] for c in connections)
-        if not item.get("device_id") and len({c["device_id"] for c in connections}) == 1:
-            item["device_id"] = connections[0]["device_id"]
-        if not connections and row.device_id in context["devices"]:
-            item["connected_device"] = context["devices"][row.device_id].name
+        virtual = virtual_connections(obs)
+        physical = physical_connections(connections)
+        item.update(connected_device="", connected_port="", connection_type="", connection_ambiguous=False)
+        if virtual:
+            item["connection_type"] = "vcenter"
+            item["connection_ambiguous"] = len(virtual) != 1
+            item["network"] = ""
+            if len(virtual) == 1:
+                vm = virtual[0]
+                item.update(
+                    connected_device=vm["switch_name"] or "VMware",
+                    connected_port=vm["dvport"],
+                    network=vm["network"],
+                )
+        elif len(physical) == 1:
+            port = physical[0]
+            item.update(
+                connected_device=port["device_name"],
+                connected_port=port["interface_name"],
+                connection_type="physical",
+            )
+            if not item.get("device_id"):
+                item["device_id"] = port["device_id"]
+        else:
+            item["connection_ambiguous"] = bool(connections)
         item["address_locked"] = bool(obs)
         vlan = db.get(m.VLAN, prefixes[row.prefix_id].vlan_id) if prefixes[row.prefix_id].vlan_id else None
         item["vlan"] = f"VLAN-{vlan.vid} / {vlan.name}" if vlan else ""
@@ -298,6 +315,33 @@ def enrich(db, rows):
             item["availability"] = "passive"
         result.append(item)
     return result
+
+
+def virtual_connections(obs):
+    """Keep each VM/NIC backing together; never mix fields from unrelated guests."""
+    found = {}
+    for o in sorted(obs, key=lambda o: o.observed_at, reverse=True):
+        d = o.data
+        if o.source != "vcenter" or o.observed_at < now() - timedelta(hours=24) or not d.get("present", True):
+            continue
+        if not (d.get("vm_id") or d.get("dvport") or d.get("dvswitch")):
+            continue
+        key = (d.get("integration_id", o.source_key), d.get("vm_id"), d.get("nic_key"))
+        if key not in found:
+            found[key] = {
+                "integration_id": d.get("integration_id"),
+                "vm_id": d.get("vm_id", ""),
+                "nic_key": d.get("nic_key", ""),
+                "switch_name": d.get("dvswitch_name") or d.get("vswitch_name") or "",
+                "network": d.get("network", ""),
+                "dvport": d.get("dvport", ""),
+            }
+    return list(found.values())
+
+
+def physical_connections(candidates):
+    manual = [c for c in candidates if c["source"] == "manual"]
+    return manual or [c for c in candidates if not c.get("uplink") and not c["ambiguous"]]
 
 
 def prefix_metadata(db, prefix):
@@ -360,6 +404,18 @@ def connection_context(db):
     devices = {d.id: d for d in db.scalars(select(m.Device).where(m.Device.archived.is_(False)))}
     ports = {p.id: p for p in db.scalars(select(m.Interface).where(m.Interface.is_deleted.is_(False)))}
     indexed = {}
+    links = {}
+    for link in db.scalars(select(m.Link).where(m.Link.is_current.is_(True))):
+        peer = devices.get(link.manual_remote_device_id or link.remote_device_id)
+        if (
+            peer
+            and peer.kind in ("switch", "router", "firewall")
+            and (
+                link.source == "manual"
+                or (link.last_seen_at and link.last_seen_at >= now() - timedelta(hours=24))
+            )
+        ):
+            links.setdefault(link.device_id, set()).add(link.interface_name)
     seen = set()
     for o in db.scalars(
         select(m.Observation)
@@ -372,7 +428,20 @@ def connection_context(db):
         seen.add(o.device_id)
         by_index = {str(p.if_index): p for p in ports.values() if p.device_id == device.id}
         tables = o.evidence.get("tables", {})
-        uplinks = {n.get("interface_name") for n in o.evidence.get("neighbors", [])}
+        uplinks = {n.get("interface_name") for n in o.evidence.get("neighbors", [])} | links.get(
+            device.id, set()
+        )
+        detail = o.evidence.get("neighbor_detail", {})
+        for neighbor in o.evidence.get("neighbors", []):
+            aggregate = neighbor.get("evidence", {}).get("local_aggregate") or {}
+            if aggregate.get("name"):
+                uplinks.add(aggregate["name"])
+        for member, aggregate in detail.get("trunks", {}).items():
+            if member in uplinks and aggregate.get("name"):
+                uplinks.add(aggregate["name"])
+        root_port = (detail.get("spanning_tree") or {}).get("port")
+        if root_port:
+            uplinks.add(root_port)
         for key in ("fdb_port", "vlan_fdb_port"):
             for index, bridge in tables.get(key, {}).items():
                 try:
@@ -396,7 +465,9 @@ def connection_candidates(db, row, *, context=None, obs=None):
     context = context or connection_context(db)
     obs = obs if obs is not None else observations(db, [row])[row.id]
     macs = {
-        normalized_mac(o.data.get("mac_address")) for o in obs if o.observed_at > now() - timedelta(hours=24)
+        normalized_mac(o.data.get("mac_address"))
+        for o in obs
+        if o.observed_at > now() - timedelta(hours=24) and o.data.get("present", True)
     } - {""}
     candidates = {}
     for mac in macs:
@@ -407,13 +478,14 @@ def connection_candidates(db, row, *, context=None, obs=None):
             interface_id=row.interface_id, source="manual", confidence=1.0, ambiguous=False
         )
     found = []
+    access_count = sum(not c.get("uplink") for c in candidates.values())
     for item in candidates.values():
         port = context["ports"].get(item["interface_id"])
         device = context["devices"].get(port.device_id) if port else None
         if not device:
             continue
         item.update(interface_name=port.name, device_id=device.id, device_name=device.name)
-        if item["source"] != "manual" and (len(candidates) > 1 or len(macs) > 1):
+        if item["source"] != "manual" and (item.get("uplink") or access_count > 1 or len(macs) > 1):
             item.update(ambiguous=True, confidence=0.4)
         found.append(item)
     return found

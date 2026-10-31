@@ -297,5 +297,5 @@ def test_virtual_port_visible_without_claiming_physical_connection(admin_client,
         )
         db.commit()
     row = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses?allocated=true").json()["items"][0]
-    assert row["connected_port"] == "DVPort 42" and row["connected_device"] == "VMware DSwitch ds-1"
+    assert row["connected_port"] == "42" and row["connected_device"] == "VMware"
     assert row["connections"] == [] and row["availability"] == "active"

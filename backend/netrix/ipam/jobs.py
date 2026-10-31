@@ -16,9 +16,11 @@ from .service import (
     normalized_mac,
     observations,
     observe,
+    physical_connections,
     prefix_for,
     require_scope,
     targets,
+    virtual_connections,
 )
 
 KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_live")
@@ -38,36 +40,17 @@ def validate_target(db, kind, id):
 
 
 def live_options(db, row):
+    virtual = virtual_connections(observations(db, [row])[row.id])
     integrations = []
-    for obs in observations(db, [row])[row.id]:
-        if obs.source != "vcenter" or obs.observed_at < now() - timedelta(hours=24):
-            continue
-        config = db.get(m.Integration, obs.data.get("integration_id"))
+    for candidate in virtual:
+        config = db.get(m.Integration, candidate["integration_id"]) if candidate["integration_id"] else None
         if config and config.enabled and row.prefix_id in config.prefix_ids:
-            integrations.append(
-                {
-                    "integration_id": config.id,
-                    "name": config.name,
-                    "vm_id": obs.data["vm_id"],
-                    "nic_key": obs.data["nic_key"],
-                    "network": obs.data.get("network"),
-                    "dvport": obs.data.get("dvport"),
-                }
-            )
-    unique = {}
-    conflicts = set()
-    for candidate in integrations:
-        previous = unique.get(candidate["integration_id"])
-        if previous and (previous["vm_id"], previous["nic_key"]) != (
-            candidate["vm_id"],
-            candidate["nic_key"],
-        ):
-            conflicts.add(candidate["integration_id"])
-        unique[candidate["integration_id"]] = candidate
+            integrations.append({**candidate, "name": config.name})
+    # A VM's access port is its virtual NIC backing, not every physical FDB hop.
     return {
-        "interfaces": connection_candidates(db, row),
-        "integrations": [v for k, v in unique.items() if k not in conflicts],
-        "vm_conflict": bool(conflicts),
+        "interfaces": [] if virtual else physical_connections(connection_candidates(db, row)),
+        "integrations": integrations if len(virtual) == 1 else [],
+        "vm_conflict": len(virtual) > 1,
     }
 
 
@@ -197,17 +180,25 @@ async def integration(job_id):
             raise Cancelled()
         prefixes = db.scalars(select(m.Prefix).where(m.Prefix.id.in_(current.prefix_ids))).all()
         count, matched = 0, 0
-        reservations = list(
+        address_evidence = list(
             db.execute(
                 select(m.IPAddress, m.IPObservation)
                 .join(m.IPObservation, m.IPObservation.address_id == m.IPAddress.id)
                 .where(
                     m.IPAddress.prefix_id.in_(current.prefix_ids),
-                    m.IPObservation.source == "windows_dhcp",
+                    m.IPObservation.source.in_(("windows_dhcp", "inventory")),
                     m.IPObservation.observed_at >= now() - timedelta(hours=24),
                 )
             )
         )
+        known = {}
+        seen = set()
+        for address, evidence in address_evidence:
+            mac = normalized_mac(evidence.data.get("mac_address"))
+            if mac:
+                item = known.setdefault(address.id, {"row": address, "macs": set(), "dhcp": False})
+                item["macs"].add(mac)
+                item["dhcp"] |= evidence.source == "windows_dhcp"
         mac_owners = {}
         if current.kind == "vcenter":
             for entry in records:
@@ -220,26 +211,51 @@ async def integration(job_id):
             )
             data = {k: v for k, v in entry.items() if k != "address"}
             data["integration_id"] = current.id
-            if prefix and observe(db, prefix, entry["address"], current.kind, key, data):
+            observed = observe(db, prefix, entry["address"], current.kind, key, data) if prefix else None
+            if observed:
+                seen.add((observed.id, key))
                 count += 1
             mac = normalized_mac(entry.get("mac_address"))
             if current.kind == "vcenter" and mac and len(mac_owners.get(mac, ())) == 1:
-                for reserved, evidence in reservations:
-                    if (
-                        reserved.address != entry.get("address")
-                        and normalized_mac(evidence.data.get("mac_address")) == mac
-                    ):
-                        scope = next(p for p in prefixes if p.id == reserved.prefix_id)
-                        observe(
+                for item in known.values():
+                    address = item["row"]
+                    if address.address != entry.get("address") and item["macs"] == {mac}:
+                        scope = next(p for p in prefixes if p.id == address.prefix_id)
+                        observed = observe(
                             db,
                             scope,
-                            reserved.address,
+                            address.address,
                             "vcenter",
                             key,
-                            {**data, "matched_by": "dhcp_mac", "guest_address": entry.get("address", "")},
+                            {
+                                **data,
+                                "matched_by": "dhcp_mac" if item["dhcp"] else "inventory_mac",
+                                "guest_address": entry.get("address", ""),
+                            },
                             create=False,
                         )
-                        matched += 1
+                        if observed:
+                            seen.add((observed.id, key))
+                            matched += 1
+        if current.kind == "vcenter":
+            # Retire disappeared IP/NIC associations only after a complete, successful snapshot.
+            # Keep their evidence/history, but never use it as a current attachment.
+            for old in db.scalars(
+                select(m.IPObservation).where(
+                    m.IPObservation.source == "vcenter",
+                    m.IPObservation.source_key.startswith(current.id + ":"),
+                )
+            ):
+                if (old.address_id, old.source_key) not in seen and old.data.get("present", True):
+                    db.add(
+                        m.Event(
+                            kind="ip_observation_change",
+                            message="vCenter bağlantısı artık gözlemlenmiyor",
+                            details={"address_id": old.address_id, "source": "vcenter", "previous": old.data},
+                        )
+                    )
+                    old.data = {**old.data, "present": False}
+                    old.observed_at = now()
         if current.kind == "windows_dhcp":
             # Refresh VM information after reservations exist, using already enabled integrations only.
             for config in db.scalars(

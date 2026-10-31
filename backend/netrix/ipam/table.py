@@ -28,7 +28,7 @@ COLUMNS = {
     "cidr": "Ağ bloğu",
     "power_state": "Güç durumu",
     "vm_host": "VMware host",
-    "network": "Sanal ağ",
+    "network": "Port grubu / Sanal ağ",
 }
 LABELS = {
     "active": "Aktif",

@@ -115,7 +115,7 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.get_by_role("button", name="192.0.2.10", exact=True).click()
     expect(page.get_by_text("Ubuntu Linux 24.04", exact=True).first).to_be_visible()
-    page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).select_option(index=2)
+    page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).select_option(index=1)
     check("detail")
     # Verify five-second polling uses fresh provider timestamps, no physical network calls.
     calls = {"live": 0, "traffic": 0, "cancel": 0}

@@ -305,7 +305,13 @@ function AddressDetail({
     let active = true;
     api("/ipam/addresses/" + row.id)
       .then((d) => {
-        if (active) setDetail(d);
+        if (active) {
+          setDetail(d);
+          if (d.integrations.length === 1 && !d.interfaces.length)
+            setSelection("v:" + d.integrations[0].integration_id);
+          else if (d.interfaces.length === 1 && !d.integrations.length)
+            setSelection("i:" + d.interfaces[0].interface_id);
+        }
       })
       .catch((e) => {
         if (active) setError(e.message);
@@ -388,6 +394,12 @@ function AddressDetail({
               {[
                 ["Hostname", detail.hostname],
                 ["MAC adresi", detail.mac_address],
+                ["Bağlı switch", detail.connected_device],
+                [
+                  "Port grubu / Sanal ağ",
+                  detail.connection_type === "vcenter" ? detail.network : "",
+                ],
+                ["Bağlı port", detail.connected_port],
                 ["İşletim sistemi", detail.operating_system],
                 ["Kabinet no", detail.cabinet],
                 ["Lokasyon", detail.location],
@@ -404,9 +416,8 @@ function AddressDetail({
             <section className="ipam-section">
               <h3>Bağlantı ve canlı trafik</h3>
               <p className="ipam-hint">
-                Switch ölçümü portun toplam trafiğidir. Birden fazla aday varsa
-                bağlantı belirsizdir. VMware seçeneği sanal NIC trafiğini
-                DSwitch üzerinde de API’den okur.
+                VMware bağlantısında sanal ağ kartının trafiği izlenir. Fiziksel
+                switch bağlantısında ölçüm, doğrulanan portun toplam trafiğidir.
               </p>
               <Field label="İzlenecek bağlantı">
                 <select
@@ -430,8 +441,8 @@ function AddressDetail({
                       key={v.integration_id}
                       value={"v:" + v.integration_id}
                     >
-                      {v.name} / {v.network || v.vm_id}
-                      {v.dvport ? " / dvPort " + v.dvport : ""}
+                      {v.switch_name || v.name} / {v.network || v.vm_id}
+                      {v.dvport ? " / Port " + v.dvport : ""}
                     </option>
                   ))}
                 </select>
@@ -603,6 +614,7 @@ export function IPAMWorkspace({
     "mac_address",
     "connected_device",
     "connected_port",
+    "network",
     "vlan",
     "operating_system",
     "cabinet",
@@ -735,8 +747,17 @@ export function IPAMWorkspace({
       return (
         <>
           {r[key] || "—"}
-          {r.connection_ambiguous && (
-            <small className="ipam-sub">Belirsiz eşleşme</small>
+          {key === "connected_device" &&
+            r.connection_type === "vcenter" &&
+            !r.connection_ambiguous && (
+              <small className="ipam-sub">
+                {[r.network, r.connected_port ? `Port ${r.connected_port}` : ""]
+                  .filter(Boolean)
+                  .join(" · ") || "VMware"}
+              </small>
+            )}
+          {key === "connected_device" && r.connection_ambiguous && (
+            <small className="ipam-sub">Bağlantı doğrulanamadı</small>
           )}
         </>
       );

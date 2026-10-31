@@ -134,12 +134,12 @@ with sync_playwright() as p:
     expect(
         page.get_by_role("row")
         .filter(has=page.get_by_role("checkbox", name="192.0.2.10 seç", exact=True))
-        .get_by_role("cell", name="Core Switch", exact=True)
+        .get_by_role("cell", name="FBU-DS VLAN-020 · Port 89", exact=True)
     ).to_be_visible()
     expect(
         page.get_by_role("row")
         .filter(has=page.get_by_role("checkbox", name="192.0.2.10 seç", exact=True))
-        .get_by_role("cell", name="GigabitEthernet1/0/12", exact=True)
+        .get_by_role("cell", name="89", exact=True)
     ).to_be_visible()
     page.get_by_label("IPAM kayıtlarında ara", exact=True).fill("Windows Kat")
     expect(page.get_by_role("cell", name="Windows Server", exact=True)).to_be_visible()
