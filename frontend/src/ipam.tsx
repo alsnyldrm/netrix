@@ -50,6 +50,7 @@ const stateName = (v: string) =>
   v ||
   "Bilinmiyor";
 const settingsKeys = [
+  "scope_id",
   "dns_server_id",
   "vlan_device_id",
   "scan_authorized",
@@ -138,6 +139,31 @@ function PrefixSettings({
         }}
       >
         <ErrorNote error={error} />
+        <Field label="Keşif kapsamı">
+          <select
+            name="scope_id"
+            value={values.scope_id || ""}
+            onChange={(e) => set("scope_id", e.target.value || null)}
+            aria-describedby="prefix-scope-help"
+          >
+            <option value="">Bağlantı yok</option>
+            {values.scope_id &&
+              !(refs.scopes || []).some((scope) => scope.id === values.scope_id) && (
+                <option value={values.scope_id}>Kayıtlı kapsam ({values.scope_id})</option>
+              )}
+            {(refs.scopes || [])
+              .filter((scope) => scope.vrf_id === prefix.vrf_id || scope.id === values.scope_id)
+              .map((scope) => (
+                <option key={scope.id} value={scope.id}>
+                  {scope.name} · {scope.cidr}
+                </option>
+              ))}
+          </select>
+        </Field>
+        <p className="ipam-hint" id="prefix-scope-help">
+          Kapsam bu ağ bloğunu içermelidir. İlişkiyi kaldırmak için “Bağlantı yok”
+          seçip ayarları kaydedin. Bu işlem keşif kapsamını silmez ve tarama yetkisini değiştirmez.
+        </p>
         <div className="ipam-fields">
           {choices("dns_server_id", "DNS sunucusu", refs["dns-servers"] || [])}
           {choices(
