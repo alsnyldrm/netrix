@@ -223,15 +223,27 @@ export function BackupWorkspace({
               <>
                 <p role="status">
                   {busy
-                    ? "Sıraya alınıyor…"
-                    : pending
-                      ? "Cihazın aktif konfigürasyonu okunuyor…"
-                      : job?.status === "succeeded"
-                        ? job.result.changed
-                          ? "Değişiklik bulundu."
-                          : "Konfigürasyon aynı."
-                        : job?.error || "Karşılaştırma tamamlanmadı."}
+                    ? "Karşılaştırma başlatılıyor…"
+                    : pending && job.cancel_requested
+                      ? "Karşılaştırma iptal ediliyor…"
+                      : job?.status === "queued"
+                        ? "Karşılaştırma başlıyor; henüz cihaza bağlanılmadı…"
+                        : job?.status === "running"
+                          ? "Cihazın aktif konfigürasyonu SSH üzerinden okunuyor…"
+                          : job?.status === "cancelled"
+                            ? "Karşılaştırma iptal edildi."
+                            : job?.status === "succeeded"
+                              ? job.result.changed
+                                ? "Değişiklik bulundu."
+                                : "Konfigürasyon aynı."
+                              : job?.error || "Karşılaştırma tamamlanmadı."}
                 </p>
+                {pending && !job.cancel_requested && (
+                  <p className="muted">
+                    SSH okuması en fazla 90 saniye sürer. Bağlantı başarısızsa
+                    otomatik tekrar yapılmaz.
+                  </p>
+                )}
                 {job?.status === "succeeded" && (
                   <>
                     <p className="muted">
@@ -252,14 +264,15 @@ export function BackupWorkspace({
                     disabled={job.cancel_requested}
                     onClick={async () => {
                       try {
-                        await api(`/jobs/${job.id}/cancel`, "POST");
-                        setJob({ ...job, cancel_requested: true });
+                        setJob(await api(`/jobs/${job.id}/cancel`, "POST"));
                       } catch (e: any) {
                         setError(e.message);
                       }
                     }}
                   >
-                    Karşılaştırmayı iptal et
+                    {job.cancel_requested
+                      ? "İptal ediliyor…"
+                      : "Karşılaştırmayı iptal et"}
                   </button>
                 )}
               </>

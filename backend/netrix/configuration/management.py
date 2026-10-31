@@ -58,25 +58,27 @@ def prune(db, device):
 
 
 def start_comparison(db, snapshot_id, user):
+    from ..discovery.interactive_tests import start
+
     snapshot = svc.get(db, m.Snapshot, snapshot_id)
-    # enqueue holds the device lock, also used by retention/deletion.
-    job = svc.enqueue(db, "compare", snapshot.device_id, user, commit=False)
-    device = svc.get(db, m.Device, snapshot.device_id)
-    if device.adapter == "fortios":
-        try:
-            validate_fortios_backup(decrypt(snapshot.encrypted_content))
-        except BackupError:
-            raise HTTPException(422, BackupError.MESSAGES["invalid_baseline"]) from None
-    snapshot_text(snapshot)
-    if job.result and job.result.get("base_snapshot_id") != snapshot_id:
-        raise HTTPException(409, "Bu cihaz için başka bir karşılaştırma sürüyor")
-    if not db.scalar(select(m.Snapshot.id).where(m.Snapshot.id == snapshot_id)):
-        raise HTTPException(404, "Yedek artık mevcut değil")
-    if not job.result:
-        job.result = {"base_snapshot_id": snapshot_id}
-    db.commit()
-    svc.publish()
-    return svc.serialize(job)
+
+    def prepare(job):
+        # Admission holds the device lock shared with retention/deletion. Keep
+        # baseline validation and assignment in the same transaction as dispatch.
+        device = svc.get(db, m.Device, snapshot.device_id)
+        if device.adapter == "fortios":
+            try:
+                validate_fortios_backup(decrypt(snapshot.encrypted_content))
+            except BackupError:
+                raise HTTPException(422, BackupError.MESSAGES["invalid_baseline"]) from None
+        snapshot_text(snapshot)
+        if job.result.get("base_snapshot_id") not in (None, snapshot_id):
+            raise HTTPException(409, "Bu cihaz için başka bir karşılaştırma sürüyor")
+        if not db.scalar(select(m.Snapshot.id).where(m.Snapshot.id == snapshot_id)):
+            raise HTTPException(404, "Yedek artık mevcut değil")
+        job.result = {**job.result, "base_snapshot_id": snapshot_id}
+
+    return start(db, "compare", snapshot.device_id, user, prepare=prepare)
 
 
 async def compare_live(job_id):
