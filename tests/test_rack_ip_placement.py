@@ -31,6 +31,7 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
         db.add(address)
         db.commit()
         address_id, upstream_id = address.id, upstream.id
+        existing_job_ids = set(db.scalars(select(m.Job.id)))
     base = f"/api/v1/ipam/cabinets/{cabinet['id']}"
     assert (
         c.put(base + "/placements", json={"device_id": upstream_id, "start_unit": 42, "units": 1}).status_code
@@ -67,7 +68,7 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
             "Example",
         )
         assert db.scalar(select(func.count()).select_from(m.Device)) == 2
-        assert db.scalar(select(func.count()).select_from(m.Job)) == 0
+        assert set(db.scalars(select(m.Job.id))) == existing_job_ids
         assert db.get(m.IPAddress, address_id).device_id == upstream_id
         assert device.snmp_credential_id is None
     # Existing placement must survive a rejected move onto the management switch.

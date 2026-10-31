@@ -253,9 +253,7 @@ def test_cross_device_mac_correlation_marks_multiple_ports(admin_client, invento
         assert len(candidates) == 2 and all(r["ambiguous"] for r in candidates)
         assert {r["device_name"] for r in candidates} == {"switch1", "switch2"}
         row_id = row.id
-    assert (
-        c.post(f"/api/v1/ipam/addresses/{row_id}/live", json={"interface_id": "unrelated"}).status_code == 422
-    )
+    assert c.get(f"/api/v1/ipam/addresses/{row_id}").json()["address"] == "192.0.2.1"
 
 
 def test_windows_dhcp_parser_mac_and_readonly_commands():

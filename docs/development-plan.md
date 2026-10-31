@@ -1,6 +1,6 @@
 # NETRIX ilk geliştirme adımları
 
-> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Aşağıdaki eski hedef tasarımın monitoring/zaman serisi bölümleri uygulanacak iş değildir; geçerli şema migration dosyalarıdır.
+> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Geçerli şema migration dosyalarıdır.
 
 > **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Son dağıtım kararı tek servisli `netrix` Compose stack ve tek container içinde API, Redis, worker ve zamanlayıcıdır. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu plan sıralıdır. Her adımın çıktısı ve kabul ölçütü tamamlanmadan ona bağlı adıma geçilmez. Belge hedef planıdır; tamamlanmış iş listesi değildir. Veri ayrıntıları için [veri modelini](data-model.md) kullan.
@@ -29,4 +29,4 @@ Bu plan sıralıdır. Her adımın çıktısı ve kabul ölçütü tamamlanmadan
 
 12. **İlk aşama teslim doğrulaması.** Migration, API, IPAM, credential, kuyruk ve keşif testlerini çalıştır. Temiz Compose kurulumu, yedekleme/geri yükleme, örnek veri ve yetkili laboratuvar keşfi için çalıştırma rehberi yaz. **Kabul:** Compose → yönetici → cihaz/credential → prefix/kapsam → keşif → sonuç sorgulama akışı tekrarlanabiliyor; kullanılan komutlar ve sonuçları teslimde raporlanıyor. Gerçek cihaz testi yapılmadıysa bunu açıkça belirt.
 
-İlk aşamadan sonra sırasıyla konfigürasyon yedekleme/sürüm/diff motoru, SNMPv3 trafik örnekleme ve TimescaleDB saklama politikaları, alarm/bildirim motoru geliştirilir. Arayüz, proje sahibinin tasarımı ve ayrı kapsam doğrultusunda bu API'lere bağlanır.
+İlk aşamadan sonra sırasıyla konfigürasyon yedekleme/sürüm/diff motoru, konfigürasyon değişikliği bildirim motoru geliştirilir. Arayüz, proje sahibinin tasarımı ve ayrı kapsam doğrultusunda bu API'lere bağlanır.

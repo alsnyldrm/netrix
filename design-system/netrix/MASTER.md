@@ -244,7 +244,7 @@ Bu bir pazarlama sayfası değildir: hero/CTA önerileri yerine operasyon panora
 | `--warning` | `#92400e` | `#facc15` |
 | `--danger` | `#b91c1c` | `#f87171` |
 
-Bütün metin token'ları `--bg`, `--surface` ve `--surface-2` üzerinde en az 4.5:1 kontrast verir. Bileşenler sabit renk kullanmaz; SVG topoloji ve trafik grafikleri de sınıflar üzerinden token'ları kullanır.
+Bütün metin token'ları `--bg`, `--surface` ve `--surface-2` üzerinde en az 4.5:1 kontrast verir. Bileşenler sabit renk kullanmaz; SVG topoloji grafikleri de sınıflar üzerinden token'ları kullanır.
 
 ### Tema
 
@@ -260,6 +260,6 @@ Bütün metin token'ları `--bg`, `--surface` ve `--surface-2` üzerinde en az 4
 
 - Radius: 6 px (kontrol), 10 px (not/kart içi), 14 px (panel). Gölgeler yalnızca hafif ayrım için.
 - Kontroller en az 40 px yükseklikte; satır işlemleri 34 px. Odak halkası `--focus` ile her zaman görünür.
-- Yükleme, boş, hata ve kısmi sonuç durumları ayrı görünür. Başlangıç şeması “başlangıç şeması” olarak etiketlenir; örnek cihaz veya trafik canlı veri gibi sunulmaz.
+- Yükleme, boş, hata ve kısmi sonuç durumları ayrı görünür. Başlangıç şeması “başlangıç şeması” olarak etiketlenir; örnek cihaz canlı veri gibi sunulmaz.
 - Native HTML dialog, Escape ile kapanma, odak iadesi, etiketli kontroller, skip link korunur. Tablolar kendi kaydırma alanında taşabilir; sayfa yatay taşmaz.
 - Marka: bağlantı uçlarıyla oluşturulan N monogramı, kobalt zemin. SVG favicon ve aynı vektörden üretilen `app-icon.png` kullanılır.

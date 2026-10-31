@@ -72,9 +72,6 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
             p.TABLES["if_mac"]: {"1": MAC()},
             p.TABLES["if_speed"]: {"1": 1000},
             p.TABLES["if_status"]: {"1": 1},
-            p.TABLES["in_octets"]: {"1": 1000},
-            p.TABLES["out_octets"]: {"1": 2000},
-            p.TABLES["discontinuity"]: {"1": 0},
             p.TABLES["cdp_name"]: {"1.1": OctetString(bytes.fromhex("187a3b4f1440")), "1.2": "device-id"},
             p.TABLES["cdp_sysname"]: {"1.2": "edge-sysname"},
             p.TABLES["cdp_port"]: {"1.1": OctetString(bytes.fromhex("ec0273652940"))},
@@ -91,7 +88,8 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
     assert data["hostname"] == "edge-observed"
     assert data["identity"] == {"vendor": "Cisco", "model": "C9300-48P", "kind": "switch"}
     port = data["interfaces"][0]
-    assert port["speed_bps"] == 1000000000 and port["counters"]["in_octets"] == 1000
+    assert port["speed_bps"] == 1000000000 and "counters" not in port
+    assert not {"1.3.6.1.2.1.31.1.1.1.6", "1.3.6.1.2.1.31.1.1.1.10"} & set(walked)
     assert port["mac_address"] == "aa:bb:cc:dd:ee:ff"
     assert data["neighbors"][0]["remote_name"] == "peer"
     assert data["neighbors"][1]["remote_name"] == "18:7a:3b:4f:14:40"

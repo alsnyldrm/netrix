@@ -1,6 +1,6 @@
 # NETRIX kapsamlı veri modeli
 
-> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Aşağıdaki eski hedef tasarımın monitoring/zaman serisi bölümleri uygulanacak iş değildir; geçerli şema migration dosyalarıdır.
+> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Geçerli şema migration dosyalarıdır.
 
 > **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk aşamada kimlik, envanter, IPAM, erişim profilleri ve keşif tabloları oluşturulur. Diğer tablolar ilgili modülle birlikte migration'a eklenir. Başlangıç tek kuruluş içindir; VRF ve site ayrımları kiracı izolasyonu yerine geçmez.
@@ -129,7 +129,7 @@ Migration testlerinde FK/unique/check kısıtlarını ve sorgu indekslerini doğ
 
 ## Uygulanan IPAM genişletmesi (31 Ekim 2026)
 
-Alembic `20261031_13`: `dns_servers`, şifreli `integrations`, kaynak/kimlik başına tekil `ip_observations`, kaynak/zaman başına tekil `ip_traffic`; prefix DNS/VLAN cihazı/kapsam FK’leri, kullanım eşiği ve ping/keşif zamanlamaları; IP manuel işletim sistemi/kabinet/lokasyon alanları. Tarihler MariaDB `DATETIME(6)` ve API’de UTC’dir. Otomatik gözlemler manuel alanları değiştirmez; mevcut ortak cihaz/arayüz/IP envanteri kullanılır. Entegrasyon yetkili blokları servis tarafından doğrulanan JSON kimlik listesidir; kullanılan prefix silinmesi servis katmanında engellenir. Ayrıntı: [IPAM işleyişi](ipam-integrations.md).
+Alembic `20261031_13`: `dns_servers`, şifreli `integrations`, kaynak/kimlik başına tekil `ip_observations`; prefix DNS/VLAN cihazı/kapsam FK’leri, kullanım eşiği ve ping/keşif zamanlamaları; IP manuel işletim sistemi/kabinet/lokasyon alanları. Tarihler MariaDB `DATETIME(6)` ve API’de UTC’dir. Otomatik gözlemler manuel alanları değiştirmez; mevcut ortak cihaz/arayüz/IP envanteri kullanılır. Entegrasyon yetkili blokları servis tarafından doğrulanan JSON kimlik listesidir; kullanılan prefix silinmesi servis katmanında engellenir. Ayrıntı: [IPAM işleyişi](ipam-integrations.md).
 
 ## IPAM tanım menüleri (31 Ekim 2026)
 

@@ -49,8 +49,8 @@ Envantere yeni bir aktif cihaz kaydedildiğinde (form, API veya CSV/XLSX uygulam
 4. Manuel keşif başlatın; Görev merkezi üzerinden ilerleme, hata, kısmi sonuç ve iptali takip edin.
 5. Cihaz ayrıntılarında yönetilen envanteri ve gözlem kanıtını ayrı inceleyin. Arayüzleri, komşuluk güvenini ve ARP/NDP/FDB port adaylarını kontrol edin.
 6. Cihaza SSH profili atayın, host anahtarını doğrulayın, manuel yedek alın. FortiGate için admin-scp ve hesabın SCP yedek yetkisi gereklidir; [SSH/SCP yönergesini](fortigate-ssh-backup.md) izleyin. Arşivde maskelenmiş sürüm/diff'i inceleyin.
-7. SNMP profilini atayıp izlemeyi etkinleştirin. İlk örnek baseline'dır; ikinci geçerli örnekten sonra hız çıkar. Zamanlama aralığı en az 60 saniye.
-8. Alarm kuralları oluşturun. Erişilebilirlik ve config-change kurallarında eşik alanı kullanılmaz; kullanımda yüzde, no-data'da saniyedir. Kalıcı alarm akışı, görüldü ve iyileşme durumlarını takip edin.
+7. SNMP profilini atayıp yetkili kapsamda keşif başlatın; cihaz ve bağlantı gözlemlerini envanterden inceleyin.
+8. Konfigürasyon değişikliği alarm kuralları oluşturun. Kalıcı alarm akışı, görüldü ve iyileşme durumlarını takip edin.
 
 ## Cihaz türleri
 
@@ -60,7 +60,7 @@ Operatör/yönetici ekleyip düzenleyebilir, yalnızca yönetici silebilir. Arş
 
 `20261030_07` migration'ı eski tür kodlarını ve bağlı cihazları koruyarak `device_types` tablosunu ve FK kısıtını ekler. Özelleştirilmiş tür verisi varken downgrade veri kaybetmek yerine durur.
 
-Backbone, Controller gibi sonradan eklenen katalog türleri kullanıcı sınıflandırmasıdır. Cihaz ekleme/düzenleme, toplu düzenleme veya içeri aktarmayla seçilen bu türler SNMP/SSH/API kimlik sorgusu, keşif ve izleme sırasında genel Switch/Router tespitiyle değiştirilmez. Gözlemlenen donanım türü keşif kanıtında saklanır; üretici/model güncellenmeye devam eder. Standart türlerde (Switch, Router, Firewall, Sunucu, Diğer) mevcut otomatik tür tespiti sürer. İsim değil, katalog kodu esas alınır.
+Backbone, Controller gibi sonradan eklenen katalog türleri kullanıcı sınıflandırmasıdır. Cihaz ekleme/düzenleme, toplu düzenleme veya içeri aktarmayla seçilen bu türler SNMP/SSH/API kimlik sorgusu, keşif sırasında genel Switch/Router tespitiyle değiştirilmez. Gözlemlenen donanım türü keşif kanıtında saklanır; üretici/model güncellenmeye devam eder. Standart türlerde (Switch, Router, Firewall, Sunucu, Diğer) mevcut otomatik tür tespiti sürer. İsim değil, katalog kodu esas alınır.
 
 ## Arşivlenmiş cihazlar
 
