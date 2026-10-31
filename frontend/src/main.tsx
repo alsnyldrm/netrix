@@ -1329,6 +1329,11 @@ function GenericResourceForm({
           ["username", "password", "cli_password"].includes(field.key)) ||
         (values.protocol === "rest" && field.key === "token"),
     );
+  const virtualConnection =
+    page.key === "addresses" &&
+    row?.connection_type === "vcenter" &&
+    values.vrf_id === row.vrf_id &&
+    values.address === row.address;
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -1401,7 +1406,26 @@ function GenericResourceForm({
                 {field.label}
                 {field.required && <span className="required"> *</span>}
               </span>
-              {field.type === "checkbox" ? (
+              {virtualConnection &&
+              ["device_id", "interface_id"].includes(field.key) ? (
+                <>
+                  <input
+                    readOnly
+                    aria-label={field.label}
+                    aria-describedby={`vmware-${field.key}`}
+                    value={
+                      row?.connection_ambiguous
+                        ? "Birden fazla VMware bağlantısı"
+                        : (field.key === "device_id"
+                            ? row?.connected_device
+                            : row?.connected_port) || "Bilgi alınamadı"
+                    }
+                  />
+                  <small id={`vmware-${field.key}`}>
+                    VMware vCenter’dan otomatik alınır.
+                  </small>
+                </>
+              ) : field.type === "checkbox" ? (
                 <span className="checkbox-control">
                   <input
                     type="checkbox"
