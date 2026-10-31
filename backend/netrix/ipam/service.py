@@ -248,6 +248,10 @@ def observe(db, prefix, address, source, source_key, data, *, create=True):
     ):
         return None
     lock_vrf(db, prefix.vrf_id)
+    # A collector may have read the prefix before the operator deleted it.
+    # A locking read observes the current row even under MariaDB REPEATABLE READ.
+    if not db.scalar(select(m.Prefix.id).where(m.Prefix.id == prefix.id).with_for_update()):
+        return None
     row = db.scalar(
         select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id, m.IPAddress.address == str(ip))
     )
@@ -354,7 +358,13 @@ def enrich(db, rows, *, details=True):
         if details:
             item["connections"] = connections
         physical = physical_connections(connections)
-        item.update(connected_device="", connected_port="", connection_type="", connection_ambiguous=False)
+        item.update(
+            connected_device="",
+            connected_port="",
+            connection_groups=[],
+            connection_type="",
+            connection_ambiguous=False,
+        )
         if virtual:
             item["connection_type"] = "vcenter"
             item["connection_ambiguous"] = len(virtual) != 1
@@ -366,15 +376,15 @@ def enrich(db, rows, *, details=True):
                     connected_port=vm["dvport"],
                     network=vm["network"],
                 )
-        elif len(physical) == 1:
+        elif physical:
+            groups = connection_groups(physical)
             port = physical[0]
             item.update(
-                connected_device=port["device_name"],
-                connected_port=" / ".join(port["members"])
-                if port["source"] == "topology_override" and port.get("members")
-                else port["interface_name"],
+                connected_device=" / ".join(g["device_name"] for g in groups),
+                connected_port=" / ".join(g["port_label"] for g in groups),
+                connection_groups=groups,
                 connection_type="routed" if port.get("routed") else "physical",
-                connection_members=port.get("members", []),
+                connection_members=sorted({m for p in physical for m in p.get("members", [])}),
             )
             if not row.hostname and port.get("endpoint_name"):
                 host_rank = min(
@@ -383,7 +393,7 @@ def enrich(db, rows, *, details=True):
                 )
                 if port["priority"] <= host_rank:
                     item["hostname"] = port["endpoint_name"]
-            if not item.get("device_id"):
+            if not item.get("device_id") and len(groups) == 1:
                 item["device_id"] = port["device_id"]
         else:
             item["connection_ambiguous"] = bool(connections)
@@ -416,6 +426,36 @@ def virtual_connections(obs):
                 "dvport": d.get("dvport", ""),
             }
     return list(found.values())
+
+
+def connection_groups(candidates):
+    """Preserve switch/port pairs for display without inventing aggregate interfaces."""
+    import re
+
+    def natural(value):
+        return [int(v) if v.isdigit() else v.casefold() for v in re.split(r"(\d+)", value)]
+
+    groups = {}
+    for port in candidates:
+        group = groups.setdefault(
+            port["device_id"],
+            {
+                "device_id": port["device_id"],
+                "device_name": port["device_name"],
+                "ports": [],
+                "interface_ids": [],
+            },
+        )
+        members = (
+            port.get("members") if port["source"] in ("topology_override", "topology_neighbor") else None
+        )
+        group["ports"].extend(members or [port["interface_name"]])
+        group["interface_ids"].append(port["interface_id"])
+    for group in groups.values():
+        group["ports"] = sorted(set(group["ports"]), key=natural)
+        group["port_label"] = "-".join(group["ports"])
+        group["interface_ids"] = sorted(set(group["interface_ids"]))
+    return sorted(groups.values(), key=lambda group: (natural(group["device_name"]), group["device_id"]))
 
 
 def physical_connections(candidates):
@@ -654,15 +694,15 @@ def connection_candidates(db, row, *, context=None, obs=None):
         if not port:
             continue
         item = candidates.get(port.id)
-        if not item or item["source"] != "topology_override":
+        if not item or item["source"] not in ("topology_override", "topology_neighbor"):
             item = dict(
                 interface_id=port.id,
-                source="topology_override",
+                source="topology_override" if link.manual_remote_name else "topology_neighbor",
                 confidence=0.65,
                 ambiguous=False,
                 uplink=False,
                 members=[],
-                endpoint_name=link.manual_remote_name,
+                endpoint_name=link.manual_remote_name or link.remote_name,
             )
             candidates[port.id] = item
         if aggregate and link.interface_name not in item["members"]:
@@ -682,11 +722,13 @@ def connection_candidates(db, row, *, context=None, obs=None):
             interface_name=port.name,
             device_id=device.id,
             device_name=device.name,
-            priority=-1 if item["source"] == "topology_override" else device_rank(device),
+            priority=-1
+            if item["source"] in ("topology_override", "topology_neighbor")
+            else device_rank(device),
         )
         found.append(item)
     eligible = [c for c in found if not c.get("routed") and not c.get("uplink") and c["source"] != "manual"]
-    managed = [c for c in eligible if c["source"] == "topology_override"]
+    managed = [c for c in eligible if c["source"] in ("topology_override", "topology_neighbor")]
     if managed:
         eligible = managed
     priority = min((c["priority"] for c in eligible), default=99)
@@ -696,8 +738,8 @@ def connection_candidates(db, row, *, context=None, obs=None):
             item not in eligible
             or item.get("uplink")
             or item["priority"] != priority
-            or access_count > 1
-            or (len(macs) > 1 and item["source"] != "topology_override")
+            or (access_count > 1 and item not in managed)
+            or (len(macs) > 1 and item not in managed)
         ):
             item.update(ambiguous=True, confidence=0.4)
     return found

@@ -177,16 +177,26 @@ def latest_snapshots(db, device_ids):
 
 
 def managed_endpoints(links, rows, grouped, devices, snapshots):
-    """Operator-corrected endpoint names, kept distinct from protocol evidence.
+    """Endpoint names from operator corrections or direct LLDP/CDP advertisements.
 
     A short hostname may match one qualified name, never multiple domains. Deleted,
     stale, excluded links and cross-VRF names cannot override current evidence.
     """
     names = {}
     for link in links:
-        if not link.manual_remote_name:
+        name = link.manual_remote_name
+        if not name:
+            # A protocol-advertised hostname is direct endpoint evidence. Do not
+            # promote arbitrary FDB hops, descriptions or inferred inventory names.
+            evidence = link.evidence or {}
+            advertised_names = [
+                (evidence.get("lldp") or {}).get("system_name"),
+                (evidence.get("cdp") or {}).get("device_id"),
+            ]
+            name = next((n for n in advertised_names if n and n == link.remote_name), "")
+        if not name:
             continue
-        name = link.manual_remote_name.rstrip(".").casefold()
+        name = name.rstrip(".").casefold()
         device = devices[link.device_id]
         names.setdefault((device.vrf_id, name), []).append(link)
     advertised = {}
@@ -226,5 +236,15 @@ def managed_endpoints(links, rows, grouped, devices, snapshots):
                 and ("." not in label or "." not in name)
             ]
             matches = aliases[0] if len(aliases) == 1 else []
+        corrected = [link for link in matches if link.manual_remote_name]
+        if corrected:
+            # Corrections choose the endpoint's connection layer (e.g. backbone
+            # data NICs rather than management NICs). Include redundant peers at
+            # that layer even when their hostname came directly from LLDP/CDP.
+            ranks = {device_rank(devices[link.device_id]) for link in corrected}
+            matches = [link for link in matches if device_rank(devices[link.device_id]) in ranks]
+        elif matches:
+            rank = min(device_rank(devices[link.device_id]) for link in matches)
+            matches = [link for link in matches if device_rank(devices[link.device_id]) == rank]
         result[row.id] = matches
     return result

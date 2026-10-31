@@ -680,7 +680,8 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     except Exception as exc:
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
-            if isinstance(exc, Cancelled):
+            cancelled = job.cancel_requested or isinstance(exc, Cancelled)
+            if cancelled:
                 job.status = "cancelled"
             elif (
                 not interactive
@@ -693,18 +694,18 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.status = "failed"
             job.error = (
                 "Görev iptal edildi"
-                if isinstance(exc, Cancelled)
+                if cancelled
                 else str(exc)
                 if isinstance(exc, BackupError)
                 else "Cihaz işlemi başarısız. Kapsam, erişim profili, protokol ve host anahtarını kontrol edin."
             )
-            if kind in KINDS and not isinstance(exc, Cancelled):
+            if kind in KINDS and not cancelled:
                 job.error = (
                     "Entegrasyon okunamadı. Sunucu, TLS güveni, kullanıcı/parola ve salt okunur API/WinRM yetkilerini kontrol edin."
                     if kind == "integration"
                     else "IPAM işlemi başarısız. Yetkili kapsamı, güncel port eşleşmesini ve DNS/SNMP/ICMP erişimini kontrol edin."
                 )
-            if kind in ("backup", "compare") and not isinstance(exc, Cancelled):
+            if kind in ("backup", "compare") and not cancelled:
                 code, job.error = backup_failure(exc)
                 job.result = {**job.result, "error_code": code}
             if job.status != "queued":

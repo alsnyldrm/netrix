@@ -263,7 +263,7 @@ def test_operator_topology_endpoint_precedes_other_nic_fdb(admin_client, invento
         db.commit()
         result = service.enrich(db, [row])[0]
         assert result["connected_device"] == "Data"
-        assert result["connected_port"] == "A2 / B2"
+        assert result["connected_port"] == "A2-B2"
         assert result["connection_members"] == ["A2", "B2"]
         # Editing/removing managed topology must immediately change the projection.
         for link in db.scalars(select(m.Link).where(m.Link.device_id == port.device_id)):
@@ -315,7 +315,7 @@ def test_neighbor_identity_can_find_managed_backbone_without_dns(admin_client, i
         assert service.enrich(db, [row])[0]["connected_device"] == "Management"
 
 
-def test_conflicting_managed_endpoints_stay_ambiguous(admin_client, inventory, env):
+def test_managed_endpoints_on_two_switches_keep_port_pairs(admin_client, inventory, env):
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         row.hostname = "server.example.test"
@@ -337,5 +337,85 @@ def test_conflicting_managed_endpoints_stay_ambiguous(admin_client, inventory, e
             )
         db.commit()
         result = service.enrich(db, [row])[0]
-        assert result["connected_device"] == ""
-        assert result["connection_ambiguous"]
+        assert not result["connection_ambiguous"]
+        assert {(g["device_name"], g["port_label"]) for g in result["connection_groups"]} == {
+            ("Corner", first.name),
+            ("Backbone", second.name),
+        }
+        from netrix.ipam.jobs import live_options
+
+        assert {c["interface_id"] for c in live_options(db, row)["interfaces"]} == {first.id, second.id}
+
+
+def test_two_nics_on_same_switch_are_grouped_without_fake_aggregate(admin_client, inventory, env):
+    with env() as db:
+        prefix, row = endpoint(db, inventory["vrf"]["id"])
+        row.hostname = "sv-vw-05.example.test"
+        first = switch(db, prefix.vrf_id, "Backbone")
+        first.name = "B7"
+        second = m.Interface(device_id=first.device_id, name="A7", if_index=8)
+        db.add(second)
+        for port in [first, second]:
+            db.add(
+                m.Link(
+                    device_id=port.device_id,
+                    interface_name=port.name,
+                    remote_name="NIC",
+                    remote_port="NIC",
+                    manual_remote_name=row.hostname,
+                    last_seen_at=now(),
+                )
+            )
+        db.commit()
+        value = service.enrich(db, [row])[0]
+        assert value["connected_device"] == "Backbone"
+        assert value["connected_port"] == "A7-B7"
+        assert not value["connection_ambiguous"]
+        from netrix.ipam.jobs import live_options
+
+        assert {p["interface_id"] for p in live_options(db, row)["interfaces"]} == {first.id, second.id}
+
+
+def test_corrected_and_protocol_nics_share_connection_layer(admin_client, inventory, env):
+    with env() as db:
+        prefix, row = endpoint(db, inventory["vrf"]["id"])
+        row.hostname = "sv-vw-06.example.test"
+        db.add(m.DeviceType(code="bb", name="Backbone Switch"))
+        db.flush()
+        ports = []
+        for i, name in enumerate(["BB1", "BB2", "Management"]):
+            port = switch(db, prefix.vrf_id, name)
+            db.get(m.Device, port.device_id).management_ip = f"192.0.2.{31 + i}"
+            db.flush()
+            ports.append(port)
+        for i, port in enumerate(ports):
+            if i < 2:
+                db.get(m.Device, port.device_id).kind = "bb"
+            port.name = ["I5", "A6", "31"][i]
+            # Duplicate protocol observations of one port must collapse.
+            for duplicate in range(2 if i == 1 else 1):
+                db.add(
+                    m.Link(
+                        device_id=port.device_id,
+                        interface_name=port.name,
+                        remote_name=row.hostname,
+                        remote_port=str(duplicate),
+                        manual_remote_name=row.hostname if i == 0 else None,
+                        last_seen_at=now(),
+                        evidence={"lldp": {"system_name": row.hostname}},
+                    )
+                )
+        db.commit()
+        value = service.enrich(db, [row])[0]
+        assert [(g["device_name"], g["port_label"]) for g in value["connection_groups"]] == [
+            ("BB1", "I5"),
+            ("BB2", "A6"),
+        ]
+        assert not value["connection_ambiguous"]
+        assert value.get("device_id") is None  # Never pick one arbitrary parent.
+        # Stale, excluded and different-domain protocol names do not join the group.
+        links = list(db.scalars(select(m.Link).where(m.Link.device_id == ports[1].device_id)))
+        for link in links:
+            link.last_seen_at = now() - timedelta(hours=25)
+        db.commit()
+        assert service.enrich(db, [row])[0]["connected_device"] == "BB1"

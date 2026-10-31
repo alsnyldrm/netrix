@@ -81,6 +81,8 @@ async def scan(job_id):
 
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
+        if job.cancel_requested:
+            raise Cancelled()
         prefix = get(db, m.Prefix, job.target_id)
         discover = job.kind == "ipam_discover"
         addresses = targets(db, prefix, discover)
@@ -100,18 +102,18 @@ async def scan(job_id):
 
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
-            prefix = get(db, m.Prefix, job.target_id)
-            scope = require_scope(db, prefix)
             if job.cancel_requested:
                 raise Cancelled()
+            prefix = get(db, m.Prefix, job.target_id)
+            scope = require_scope(db, prefix)
             batch = [address for address in batch if in_scope(address, scope)]
         values = await asyncio.gather(*(probe(address) for address in batch))
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
-            prefix = get(db, m.Prefix, job.target_id)
-            scope = require_scope(db, prefix)
             if job.cancel_requested:
                 raise Cancelled()
+            prefix = get(db, m.Prefix, job.target_id)
+            scope = require_scope(db, prefix)
             for address, up, hostname in values:
                 if not in_scope(address, scope):
                     continue
@@ -133,10 +135,10 @@ async def scan(job_id):
     source_jobs = []
     if discover:
         with session_factory()() as db:
-            current = get(db, m.Prefix, prefix.id)
-            require_scope(db, current)
             if get(db, m.Job, job_id).cancel_requested:
                 raise Cancelled()
+            current = get(db, m.Prefix, prefix.id)
+            require_scope(db, current)
             for device in db.scalars(
                 select(m.Device).where(
                     m.Device.vrf_id == current.vrf_id,
@@ -165,6 +167,8 @@ async def integration(job_id):
 
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
+        if job.cancel_requested:
+            raise Cancelled()
         config = validate_target(db, "integration", job.target_id)
         secret = json.loads(decrypt(config.encrypted_secret))
         config.last_run_at = now()
@@ -175,8 +179,10 @@ async def integration(job_id):
     records = await asyncio.to_thread(reader, config, secret)
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
+        if job.cancel_requested:
+            raise Cancelled()
         current = validate_target(db, "integration", job.target_id)
-        if job.cancel_requested or current.updated_at != version:
+        if current.updated_at != version:
             raise Cancelled()
         prefixes = db.scalars(select(m.Prefix).where(m.Prefix.id.in_(current.prefix_ids))).all()
         count, matched = 0, 0
@@ -355,9 +361,11 @@ async def live(job_id, collector):
             source_key = "vcenter:" + target.id + ":" + detail["vm_id"] + ":" + detail["nic_key"]
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
+            if job.cancel_requested:
+                raise Cancelled()
             row = get(db, m.IPAddress, job.target_id)
             current_kind, current, current_detail = live_target(db, row, selection)
-            if job.cancel_requested or live_signature(db, current_kind, current, current_detail) != signature:
+            if live_signature(db, current_kind, current, current_detail) != signature:
                 raise Cancelled()
             if sample and not db.scalar(
                 select(m.IPTraffic.id).where(

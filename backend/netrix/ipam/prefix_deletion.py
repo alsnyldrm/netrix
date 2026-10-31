@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, or_, select
 
 from .. import models as m
+from ..core import now
 from ..identity.security import audit
 from ..services import lock_vrf, publish
 
@@ -40,7 +41,6 @@ def selection(db, ids, *, lock=False):
     ]
     state = {
         "prefixes": [{"id": r.id, "cidr": r.cidr} for r in rows],
-        "address_ids": address_ids,
         "integrations": [
             {"id": c.id, "name": c.name, "prefix_ids": c.prefix_ids, "enabled": c.enabled}
             for c in integrations
@@ -72,20 +72,27 @@ def remove(db, ids, user, confirmation=None):
             409, "Silinecek kayıtlar değişti; pencereyi kapatıp silme önizlemesini yeniden açın"
         )
     selected = {r.id for r in rows}
-    if db.scalar(
-        select(m.Job.id)
-        .where(
-            m.Job.active_key.is_not(None),
-            or_(
-                m.Job.target_id.in_(selected | {c.id for c in configs}),
-                m.Job.target_id.in_(select(m.IPAddress.id).where(m.IPAddress.prefix_id.in_(selected))),
-            ),
+    active_jobs = list(
+        db.scalars(
+            select(m.Job)
+            .where(
+                m.Job.active_key.is_not(None),
+                or_(
+                    m.Job.target_id.in_(selected | {c.id for c in configs}),
+                    m.Job.target_id.in_(select(m.IPAddress.id).where(m.IPAddress.prefix_id.in_(selected))),
+                ),
+            )
+            .order_by(m.Job.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        .limit(1)
-    ):
-        raise HTTPException(
-            409, "Önce seçilen bloklar, IP adresleri veya bağlı entegrasyonlar için çalışan işleri durdurun"
-        )
+    )
+    for job in active_jobs:
+        job.cancel_requested = True
+        if job.status == "queued":
+            job.status, job.active_key, job.finished_at = "cancelled", None, now()
+            job.error = "Ağ bloğu silindiği için iptal edildi"
+        audit(db, user, "cancel", "jobs", job.id, "Ağ bloğu silme işlemi nedeniyle otomatik iptal istendi")
     for config in configs:
         config.prefix_ids = [id for id in config.prefix_ids if id not in selected]
         if not config.prefix_ids:

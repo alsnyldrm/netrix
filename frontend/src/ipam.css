@@ -300,3 +300,14 @@
   border-color: var(--danger);
   background: var(--danger-soft);
 }
+
+/* Both columns use the same group order and line height to preserve pairing. */
+.ipam-connection-lines {
+  display: grid;
+  gap: 4px;
+}
+.ipam-connection-lines > span {
+  display: block;
+  line-height: 24px;
+  white-space: nowrap;
+}

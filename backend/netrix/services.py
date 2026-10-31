@@ -610,7 +610,16 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
                 raise HTTPException(422, "Görev için erişim profili atanmalı")
     key = f"{kind}:{target_id}"
     # Serialize submitters on the target, including scheduled and API requests.
-    db.scalar(select(type(target)).where(type(target).id == target_id).with_for_update())
+    current = db.scalar(
+        select(type(target))
+        .where(type(target).id == target_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if current is None:
+        raise HTTPException(404, "Görev hedefi artık yok")
+    if kind in KINDS:
+        validate_target(db, kind, target_id)
     existing = db.scalar(select(m.Job).where(m.Job.active_key == key))
     if existing:
         return existing

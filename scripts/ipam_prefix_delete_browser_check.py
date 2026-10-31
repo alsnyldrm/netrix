@@ -34,7 +34,7 @@ with sync_playwright() as p:
     dialog.get_by_role("button", name="Vazgeç", exact=True).click()
     expect(page.get_by_role("button", name="198.51.100.0/24", exact=True)).to_be_visible()
     page.get_by_role("button", name="198.51.100.0/24 sil", exact=True).click()
-    page.get_by_role("button", name="Silmeyi onayla", exact=True).click()
+    dialog.get_by_role("button", name="Sil", exact=True).click()
     expect(page.get_by_role("button", name="198.51.100.0/24", exact=True)).not_to_be_visible()
     page.get_by_role("checkbox", name="Sayfadaki ağ bloklarını seç", exact=True).check()
     expect(page.get_by_text("2 ağ bloğu seçildi", exact=True)).to_be_visible()
@@ -58,14 +58,14 @@ with sync_playwright() as p:
     ).click()
     expect(dialog.get_by_role("list", name="Silinecek ağ blokları")).to_contain_text("192.0.2.0/24")
     expect(dialog.get_by_role("list", name="Silinecek ağ blokları")).to_contain_text("203.0.113.0/24")
-    expect(dialog.get_by_text("Kapsamı boş kalacağı için devre dışı bırakılır.", exact=False)).to_be_visible()
+    expect(dialog.get_by_text("Kapsamı boşalan entegrasyonlar devre dışı bırakılır.", exact=False)).to_be_visible()
     for width, height in [(1440, 1000), (375, 812)]:
         page.set_viewport_size({"width": width, "height": height})
         for theme in ["light", "dark"]:
             page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
             assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth")
             check(f"confirm-{width}-{theme}")
-    page.get_by_role("button", name="Silmeyi onayla", exact=True).click()
+    dialog.get_by_role("button", name="Sil", exact=True).click()
     expect(dialog).not_to_be_visible()
     expect(page.get_by_text("0 ağ bloğu", exact=True)).to_be_visible()
     assert page.request.get("http://127.0.0.1:8211/api/v1/prefixes").json()["total"] == 0

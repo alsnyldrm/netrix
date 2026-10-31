@@ -797,7 +797,19 @@ export function IPAMWorkspace({
     if (["connected_device", "connected_port"].includes(key))
       return (
         <>
-          {r[key] || "—"}
+          {r.connection_groups?.length ? (
+            <span className="ipam-connection-lines">
+              {r.connection_groups.map((group: Row) => (
+                <span key={group.device_id}>
+                  {key === "connected_device"
+                    ? group.device_name
+                    : group.port_label}
+                </span>
+              ))}
+            </span>
+          ) : (
+            r[key] || "—"
+          )}
           {key === "connected_device" && r.connection_ambiguous && (
             <small className="ipam-sub">Bağlantı doğrulanamadı</small>
           )}
@@ -1960,16 +1972,15 @@ function PrefixDeleteDialog({
               ))}
             </ul>
             <p>
-              Bu IP kayıtlarının gözlemleri ve IP trafik geçmişi de silinir.
-              Envanter cihazları, kabinet yerleşimleri ve VLAN kayıtları
-              korunur.
+              İlgili işler otomatik durdurulur. IP gözlemleri ve trafik geçmişi
+              de silinir. Envanter, kabinet ve VLAN kayıtları korunur.
             </p>
             {!!preview.integrations.length && (
-              <>
-                <p>
-                  Seçilen bloklar aşağıdaki entegrasyonların kapsamından
-                  çıkarılır:
-                </p>
+              <details>
+                <summary>
+                  Entegrasyon kapsamları güncellenir (
+                  {preview.integrations.length})
+                </summary>
                 <ul>
                   {preview.integrations.map((c: Row, i: number) => (
                     <li key={i}>
@@ -1980,7 +1991,10 @@ function PrefixDeleteDialog({
                     </li>
                   ))}
                 </ul>
-              </>
+              </details>
+            )}
+            {preview.integrations.some((c: Row) => c.will_disable) && (
+              <p>Kapsamı boşalan entegrasyonlar devre dışı bırakılır.</p>
             )}
             <p>Bu işlem geri alınamaz.</p>
           </div>
@@ -2000,7 +2014,7 @@ function PrefixDeleteDialog({
             disabled={!preview || busy}
           >
             <Trash size={18} aria-hidden="true" />
-            {busy ? "Siliniyor…" : "Silmeyi onayla"}
+            {busy ? "Siliniyor…" : "Sil"}
           </button>
         </div>
       </form>
