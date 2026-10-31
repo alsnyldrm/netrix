@@ -191,3 +191,13 @@ Doğrulama: `tests/test_interactive_dispatch.py` normal iş sürerken bir saniye
 ## IPAM ve entegrasyonlar
 
 [Ağ bloğu politikaları, Windows DHCP/vCenter gereksinimleri ve canlı IP trafiği](ipam-integrations.md). Yeni entegrasyonlar varsayılan kapalıdır; gerçek sistem bağlantıları sunucu/erişim bilgileri ve yetkili ağ blokları kaydedilip açıkça tetiklendiğinde çalışır.
+
+### Aktif config karşılaştırması — 1 Kasım 2026
+
+`compare-live`, keşif/entegrasyon/yedekleme kuyruğu yerine mevcut `netrix-tests` sürecindeki dört kapasiteli etkileşimli çalıştırıcıya kabul edilir. Kapasite bağlantı testleriyle paylaşılır. Hizmet heartbeat'i eskiyse 503, dört işlem zaten varsa 429 döner; yeni görev bırakılmaz. Baseline doğrulaması, aynı cihaz için yineleme engeli ve snapshot ataması kabul transaction'ında yapılır. Karşılaştırma için SSH okumasının 90 saniye sınırı korunur; arka plan görevlerindeki üç deneme/backoff politikası bu kullanıcı işlemine uygulanmaz.
+
+Ekran, cihaza henüz bağlanılmadığını, SSH okumasını, iptali ve nihai sonucu ayrı gösterir. İptal yanıtındaki terminal durum doğrudan uygulanır. Normal worker ve zamanlayıcı davranışı korunur; yeni servis/container veya migration yoktur.
+
+Doğrulama: `tests/test_interactive_comparison.py` uzun keşif sürerken bir saniye içinde başlayan sahte okuma, aynı isteğin tekrar güvenliği, farklı yedeği mevcut işin üzerine yazmama, dolu/kapalı hizmette kuyruk bırakmama, zaman aşımında tekrar etmeme ve iki saniye içinde çalışan okumanın iptalini sınar. Altı test geçti; mevcut etkileşimli dispatch, FortiOS, yedek biçim ve envanter testleri de geçti. `scripts/backup_comparison_browser_check.py` 1440/açık ve 375/koyu ekranlarda bekliyor/çalışıyor/iptal/hata/başarı durumlarını, hizalamayı ve Axe A/AA kontrollerini geçti.
+
+Canlı teşhiste kullanıcı karşılaştırması 129 saniyedir `queued`, deneme sayısı sıfırdı; normal worker 13 dakikayı aşan keşifteydi. Kullanıcının zaten başlattığı iş mevcut etkileşimli çalıştırıcıya taşınınca tek SSH denemesinde başarıyla sonuçlandı. Konfigürasyon ve sırlar teşhis çıktısına yazılmadı.

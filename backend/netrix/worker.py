@@ -482,7 +482,7 @@ def claim(interactive=None):
                 else "queued"
             )
             job.error = (
-                "Test çalıştırıcısı kesildi. Yeniden test edin."
+                "Etkileşimli işlem kesildi. Yeniden deneyin."
                 if job.result.get("interactive")
                 else "Worker bağlantısı kesildi; görev yeniden ele alındı"
             )
