@@ -72,13 +72,11 @@
   max-width: 100%;
 }
 .ipam-table-tools .secondary {
-  min-height: 44px;
+  min-height: 40px;
+  height: 40px;
 }
 .ipam-table-tools .ipam-active-toggle {
-  align-self: center;
   flex: 0 0 auto;
-  min-height: 30px;
-  height: 30px;
   padding: 0 8px;
   font-size: 13px;
   color: var(--text-2);
