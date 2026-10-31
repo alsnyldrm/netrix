@@ -10,6 +10,7 @@ from . import models as m
 from .alerting.engine import evaluate
 from .configuration.management import policy, prune
 from .core import now, session_factory, settings
+from .monitoring.control import cancel_paused_jobs
 from .services import enqueue, publish
 from .worker import heartbeat
 
@@ -19,6 +20,7 @@ log = logging.getLogger("netrix.scheduler")
 
 def tick():
     with session_factory()() as db:
+        cancel_paused_jobs(db)
         for config in db.scalars(
             select(m.Integration).where(m.Integration.enabled.is_(True), m.Integration.interval_seconds > 0)
         ):
@@ -52,9 +54,13 @@ def tick():
             if not scope.last_run_at or (now() - scope.last_run_at).total_seconds() >= scope.interval_seconds:
                 enqueue(db, "discovery", scope.id)
         for device in db.scalars(select(m.Device).where(m.Device.lifecycle_status == "active")):
-            if device.monitoring_enabled and (
-                not device.last_monitor_at
-                or (now() - device.last_monitor_at).total_seconds() >= device.monitor_interval
+            if (
+                settings().monitor_jobs_enabled
+                and device.monitoring_enabled
+                and (
+                    not device.last_monitor_at
+                    or (now() - device.last_monitor_at).total_seconds() >= device.monitor_interval
+                )
             ):
                 try:
                     enqueue(db, "monitor", device.id)
@@ -77,7 +83,7 @@ def tick():
                     db.rollback()
             db.scalar(select(m.Device).where(m.Device.id == device.id).with_for_update())
             prune(db, device)
-            if device.monitoring_enabled:
+            if settings().monitor_jobs_enabled and device.monitoring_enabled:
                 last = device.last_seen_at or device.created_at
                 evaluate(db, device, "no_data", (now() - last).total_seconds())
         db.execute(

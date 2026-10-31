@@ -15,7 +15,7 @@ from .alerting.engine import evaluate
 from .configuration.failures import backup_failure
 from .configuration.history import previous_valid_snapshot
 from .configuration.validation import BackupError, validate_cli_output
-from .core import now, redis_client, session_factory
+from .core import now, redis_client, session_factory, settings
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
 from .discovery.correlation import correlate
@@ -32,6 +32,7 @@ from .discovery.protocols import (
 )
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
+from .monitoring.control import cancel_paused_jobs
 from .monitoring.rates import calculate_rate
 from .services import (
     CONNECTION_TESTS,
@@ -456,6 +457,8 @@ async def discover(job_id, collector):
 async def collect_device(job_id, collector):
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
+        if job.kind == "monitor" and not settings().monitor_jobs_enabled:
+            raise Cancelled()
         device = get(db, m.Device, job.target_id)
         authorized_device(db, device)
         credential = (
@@ -567,6 +570,7 @@ def claim(interactive=None):
         [] if interactive is None else [interactive_condition() if interactive else ~interactive_condition()]
     )
     with session_factory()() as db:
+        cancel_paused_jobs(db)
         stale = list(
             db.scalars(
                 select(m.Job)

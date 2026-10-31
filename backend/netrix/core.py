@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     known_hosts: str = "/run/secrets/known_hosts"
     setup_token: str = ""
     sample_retention_days: int = 30
+    monitor_jobs_enabled: bool = True
 
 
 @lru_cache

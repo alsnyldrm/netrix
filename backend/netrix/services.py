@@ -10,7 +10,7 @@ from sqlalchemy import delete, func, inspect, or_, select
 from . import models as m
 from . import schemas as s
 from .configuration.validation import BackupError, require_ssh_backup
-from .core import now, redis_client
+from .core import now, redis_client, settings
 from .discovery.neighbor_labels import neighbor_label
 from .identity.security import audit, encrypt
 from .ipam.schemas import DNSInput
@@ -567,6 +567,10 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
 
     if kind not in (*KINDS, "discovery", "backup", "compare", "monitor", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
+    if kind == "monitor" and not settings().monitor_jobs_enabled:
+        from .monitoring.control import PAUSED_MESSAGE
+
+        raise HTTPException(409, PAUSED_MESSAGE)
     if kind in KINDS:
         target = validate_target(db, kind, target_id)
     elif kind == "discovery":
