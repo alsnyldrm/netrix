@@ -431,7 +431,16 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     if device_id and hasattr(model, "device_id"):
         stmt = stmt.where(model.device_id == device_id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
+    if name == "prefixes":
+        # CIDRs are stored as text. Sort numerically before pagination so that
+        # 10.2 precedes 10.10 and compressed IPv6 notation orders correctly.
+        def network_key(row):
+            network = ipaddress.ip_network(row.cidr)
+            return network.version, int(network.network_address), network.prefixlen, row.vrf_id, row.id
+
+        rows = sorted(db.scalars(stmt).all(), key=network_key)[offset : offset + limit]
+    else:
+        rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
     if name == "prefixes":
         from .ipam.service import prefix_summaries
