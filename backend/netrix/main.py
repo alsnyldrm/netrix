@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -88,6 +89,13 @@ async def integrity_error(request, exc):
 @app.exception_handler(OperationalError)
 async def database_error(request, exc):
     code = exc.orig.args[0] if getattr(exc, "orig", None) and exc.orig.args else None
+    # Record actionable diagnostics without SQL, parameters or credential values.
+    logging.getLogger("netrix.api").warning(
+        "Database operation failed: method=%s path=%s code=%s",
+        request.method,
+        request.url.path,
+        code if isinstance(code, int) else "unknown",
+    )
     if code in (4025, 3819):
         return JSONResponse({"detail": "Veritabanı kısıtı bu kaydı reddetti"}, status_code=409)
     return JSONResponse({"detail": "Veri hizmeti geçici olarak kullanılamıyor"}, status_code=503)
