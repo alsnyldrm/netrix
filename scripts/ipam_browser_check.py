@@ -180,7 +180,7 @@ with sync_playwright() as p:
     expect(page.get_by_role("cell", name="dhcp.example.test:5986", exact=True)).to_be_visible()
     check("integrations")
     page.get_by_role("button", name="Kampüs DHCP düzenle", exact=True).click()
-    expect(page.get_by_label("Parola", exact=True)).to_have_value("")
+    expect(page.get_by_label("Parola", exact=True)).to_have_count(0)
     page.get_by_label("Entegrasyon adı", exact=True).fill("Windows DHCP")
     page.get_by_role("button", name="Entegrasyonu kaydet", exact=True).click()
     expect(page.get_by_role("button", name="Windows DHCP düzenle", exact=True)).to_be_visible()

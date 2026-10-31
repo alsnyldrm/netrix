@@ -11,7 +11,7 @@ Ağ bloğu ayarlarında DNS sunucusu (IP adres yönetimi → DNS sunucuları), V
 
 ## Yönetim → Entegrasyonlar
 
-Yönetici VMware vCenter veya Microsoft Windows DHCP tanımlar. Sunucu adı/IP, HTTPS portu, kullanıcı/parola, yetkili ağ blokları ve isteğe bağlı eşitleme aralığı girilir. Varsayılan kapalıdır; aralık 0 manuel çalışmadır. Kaydetmek kendi başına bağlantı açmaz. Etkinleştirip **Şimdi eşitle** seçin veya en az 60 saniyelik zamanlama ayarlayın. Sırlar mevcut uygulama şifreleme anahtarıyla şifrelenir; GET/API/audit yanıtlarına kullanıcı/parola veya şifreli içerik dönmez. Düzenlemede iki sır alanı boşsa saklanan erişim bilgileri korunur; sunucu değişiminde yeniden girilmelidir.
+Yönetici VMware vCenter veya Microsoft Windows DHCP tanımlar. Sunucu adı/IP, HTTPS portu, kullanıcı/parola, yetkili ağ blokları ve isteğe bağlı eşitleme aralığı girilir. Varsayılan kapalıdır; aralık 0 manuel çalışmadır. Kaydetmek kendi başına bağlantı açmaz. Etkinleştirip **Şimdi eşitle** seçin veya en az 60 saniyelik zamanlama ayarlayın. Sırlar mevcut uygulama şifreleme anahtarıyla şifrelenir; GET/API/audit yanıtlarına kullanıcı/parola veya şifreli içerik dönmez. Düzenlemede kayıtlı erişim bilgileri varsayılan olarak korunur; kullanıcı/parola alanları açılmaz. Yalnızca “Kullanıcı/parolayı değiştir” seçildiğinde yeni bilgiler birlikte girilir. Sunucu, port veya entegrasyon türü değiştiğinde yeni hedef için erişim bilgileri yeniden istenir. Kayıtlı sırlar tarayıcıya gönderilmez.
 
 Entegrasyon okuması 240 saniyelik toplam döngü sınırı ve sınırlı soket beklemeleriyle çalışır. İptal sonrası sonuçlar kaydedilmez; başlamış senkron API/WinRM çağrısı kendi zaman aşımına kadar tamamlanabilir.
 

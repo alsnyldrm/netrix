@@ -91,7 +91,9 @@ def test_block_settings_scope_exclusions_and_dedup(admin_client, inventory, env)
 
 
 @pytest.mark.asyncio
-async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(admin_client, inventory, env, monkeypatch):
+async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(
+    admin_client, inventory, env, monkeypatch
+):
     c = admin_client
     p = prefix(c, inventory)
     dns = c.post("/api/v1/dns-servers", json={"name": "Internal", "address": "192.0.2.53"}).json()
@@ -562,3 +564,41 @@ def test_vcenter_performance_uses_provider_interval_and_bytes_to_bits(monkeypatc
     assert vim.VirtualMachine("vm-1", None)._moId == "vm-1"
     result = adapters.vcenter_traffic(None, None, "vm-1", "4000")
     assert result["in_bps"] == 81920 and result["out_bps"] is None and result["sampled_at"] == stamp
+
+
+@pytest.mark.parametrize("kind,port", [("vcenter", 443), ("windows_dhcp", 5986)])
+def test_integration_settings_keep_encrypted_credentials(admin_client, inventory, env, kind, port):
+    p = prefix(admin_client, inventory)
+    config = integration(admin_client, p, kind=kind, port=port)
+    with env() as db:
+        original = db.get(m.Integration, config["id"]).encrypted_secret
+    payload = {
+        key: config[key]
+        for key in ("name", "kind", "host", "port", "enabled", "verify_tls", "prefix_ids", "interval_seconds")
+    }
+    payload.update(name="Updated integration", interval_seconds=120, username="", password="")
+    url = "/api/v1/integrations/" + config["id"]
+    response = admin_client.put(url, json=payload)
+    assert response.status_code == 200, response.text
+    with env() as db:
+        stored = db.get(m.Integration, config["id"])
+        assert stored.encrypted_secret == original
+        assert stored.interval_seconds == 120
+    # A partial credential replacement must not erase either saved value.
+    assert admin_client.put(url, json={**payload, "username": "replacement"}).status_code == 422
+    with env() as db:
+        assert db.get(m.Integration, config["id"]).encrypted_secret == original
+    response = admin_client.put(
+        url, json={**payload, "username": "replacement", "password": "rotated-secret"}
+    )
+    assert response.status_code == 200, response.text
+    with env() as db:
+        changed = db.get(m.Integration, config["id"]).encrypted_secret
+        assert changed != original
+        assert json.loads(decrypt(changed)) == {"username": "replacement", "password": "rotated-secret"}
+    for path in (url, "/api/v1/integrations", "/api/v1/audit"):
+        response = admin_client.get(path)
+        assert response.status_code == 200
+        assert all(
+            value not in response.text for value in ("rotated-secret", "fixture-secret", "encrypted_secret")
+        )

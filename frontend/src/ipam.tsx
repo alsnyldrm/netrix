@@ -1485,6 +1485,7 @@ export function Integrations({
   const [rows, setRows] = useState<Row[]>([]);
   const [editing, setEditing] = useState<Row | null>(null);
   const [values, setValues] = useState<Row>(integrationDefaults);
+  const [changeCredentials, setChangeCredentials] = useState(false);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1523,6 +1524,7 @@ export function Integrations({
   }, [job]);
   const edit = (r: Row) => {
     setEditing(r);
+    setChangeCredentials(false);
     setValues(
       Object.fromEntries(
         Object.keys(integrationDefaults).map((k) => [
@@ -1537,6 +1539,14 @@ export function Integrations({
   };
   const set = (key: string, value: any) =>
     setValues((v) => ({ ...v, [key]: value }));
+  const targetChanged = Boolean(
+    editing?.id &&
+    (values.host.trim().toLowerCase() !== editing.host.toLowerCase() ||
+      Number(values.port) !== Number(editing.port) ||
+      values.kind !== editing.kind),
+  );
+  const credentialsRequired =
+    !editing?.id || targetChanged || changeCredentials;
   return (
     <div className="ipam-workspace">
       <ErrorNote error={error} />
@@ -1689,7 +1699,11 @@ export function Integrations({
                 await api(
                   "/integrations" + (editing.id ? "/" + editing.id : ""),
                   editing.id ? "PUT" : "POST",
-                  values,
+                  {
+                    ...values,
+                    username: credentialsRequired ? values.username : "",
+                    password: credentialsRequired ? values.password : "",
+                  },
                 );
                 setEditing(null);
                 onSaved();
@@ -1701,6 +1715,40 @@ export function Integrations({
             }}
           >
             <ErrorNote error={formError} />
+            {editing.id && (
+              <>
+                <p
+                  className="ipam-hint"
+                  id="integration-credentials-hint"
+                  role="status"
+                >
+                  {targetChanged
+                    ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
+                    : changeCredentials
+                      ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
+                      : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
+                </p>
+                <label className="ipam-check">
+                  <input
+                    type="checkbox"
+                    checked={credentialsRequired}
+                    disabled={targetChanged}
+                    aria-describedby="integration-credentials-hint"
+                    onChange={(e) => {
+                      setChangeCredentials(e.target.checked);
+                      if (!e.target.checked) {
+                        setValues((v) => ({
+                          ...v,
+                          username: "",
+                          password: "",
+                        }));
+                      }
+                    }}
+                  />
+                  Kullanıcı/parolayı değiştir
+                </label>
+              </>
+            )}
             <div className="ipam-fields">
               <Field label="Entegrasyon adı">
                 <input
@@ -1739,23 +1787,30 @@ export function Integrations({
                   onChange={(e) => set("port", Number(e.target.value))}
                 />
               </Field>
-              <Field label="Kullanıcı">
-                <input
-                  autoComplete="off"
-                  required={!editing.id}
-                  value={values.username}
-                  onChange={(e) => set("username", e.target.value)}
-                />
-              </Field>
-              <Field label="Parola">
-                <input
-                  type="password"
-                  autoComplete="new-password"
-                  required={!editing.id}
-                  value={values.password}
-                  onChange={(e) => set("password", e.target.value)}
-                />
-              </Field>
+              {credentialsRequired && (
+                <>
+                  <Field label="Kullanıcı">
+                    <input
+                      name="integration_username"
+                      autoComplete="off"
+                      spellCheck={false}
+                      required
+                      value={values.username}
+                      onChange={(e) => set("username", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Parola">
+                    <input
+                      type="password"
+                      name="integration_password"
+                      autoComplete="new-password"
+                      required
+                      value={values.password}
+                      onChange={(e) => set("password", e.target.value)}
+                    />
+                  </Field>
+                </>
+              )}
               <Field label="Eşitleme aralığı (sn; 0 = manuel)">
                 <input
                   type="number"
@@ -1813,10 +1868,7 @@ export function Integrations({
             <p className="ipam-hint">
               {values.kind === "windows_dhcp"
                 ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
-                : "vCenter API için envanter ve performans okuma yetkisi gerekir. Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}
-              {editing.id
-                ? " Kayıtlı kullanıcı/parolayı korumak için iki alanı da boş bırakın."
-                : ""}{" "}
+                : "vCenter API için envanter ve performans okuma yetkisi gerekir. Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}{" "}
               Kaydetmek bağlantı testi başlatmaz; “Şimdi eşitle” veya zamanlama
               tetikler.
             </p>
