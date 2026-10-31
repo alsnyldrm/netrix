@@ -286,8 +286,8 @@ export function DiscoveryScopeForm({
               onChange={(e) => set("seeds", e.target.value)}
             />
             <small>
-              Her satıra bir IP yazın. IPv6 ve 1024 adresten büyük ağlar için
-              zorunludur.
+              IPv4 için isteğe bağlıdır; boşsa ağın tamamı taranır. IPv6 için
+              zorunludur. Her satıra bir IP yazın.
             </small>
           </label>
           <label className="form-field full">

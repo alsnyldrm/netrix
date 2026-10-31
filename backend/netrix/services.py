@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, inspect, or_, select
+from sqlalchemy import BigInteger, String, cast, delete, func, inspect, or_, select
 
 from . import models as m
 from . import schemas as s
@@ -106,13 +106,26 @@ def require_ref(db, model, id):
 
 
 def lock_vrf(db, vrf_id):
-    row = db.scalar(select(m.VRF).where(m.VRF.id == vrf_id).with_for_update())
+    # Serialize IP writers on a dedicated state row, not their shared FK parent.
+    # An exclusive lock on vrfs also blocks unrelated scope/device FK inserts.
+    # Upsert both initializes the mutex safely and performs a real version write
+    # for Galera certification. Acquire it before establishing a read snapshot.
+    if db.get_bind().dialect.name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        from sqlalchemy.dialects.mysql import insert
+
+    statement = insert(m.SystemState).values(key="vrf:" + vrf_id, value="1")
+    version = cast(cast(m.SystemState.value, BigInteger) + 1, String(100))
+    if db.get_bind().dialect.name == "sqlite":
+        statement = statement.on_conflict_do_update(index_elements=["key"], set_={"value": version})
+    else:
+        statement = statement.on_duplicate_key_update(value=version)
+    db.execute(statement)
+    # A current shared read validates the parent without blocking FK checks.
+    row = db.scalar(select(m.VRF).where(m.VRF.id == vrf_id).with_for_update(read=True))
     if not row:
         raise HTTPException(422, "VRF bulunamadı")
-    # Galera row locks are local to a node. A real version write ensures that
-    # concurrent mutations on different nodes conflict during certification.
-    row.lock_version += 1
-    db.flush()
     return row
 
 
@@ -121,7 +134,7 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
 
     validate_location_relations(db, name, data, row_id)
     if "vrf_id" in data:
-        if lock:
+        if lock and name != "scopes":
             lock_vrf(db, data["vrf_id"])
         else:
             get(db, m.VRF, data["vrf_id"])

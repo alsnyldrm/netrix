@@ -466,7 +466,7 @@ export const PAGES: Page[] = [
       }),
       f("seeds", "Açık hedef IP listesi", {
         type: "array",
-        hint: "IPv6 ve 1024 adresten büyük ağlar için zorunlu. Her satıra bir IP.",
+        hint: "IPv4 için isteğe bağlı; IPv6 için zorunlu. Her satıra bir IP.",
       }),
       f("enabled", "Kapsam etkin", { type: "checkbox", default: true }),
       f("interval_seconds", "Zamanlama (saniye)", {
@@ -2908,9 +2908,7 @@ function App() {
                         kontrollü veri toplama.
                       </p>
                     </div>
-                    <span className="scope-limit">
-                      4 eşzamanlı hedef · 1024 adres sınırı
-                    </span>
+                    <span className="scope-limit">4 eşzamanlı hedef</span>
                   </div>
                 )}
                 {page.key === "configuration" && (

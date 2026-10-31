@@ -55,7 +55,7 @@ class FixtureCollector:
 
 def test_scope_validation_exclusions_and_ipv6_seed(inventory):
     base = {"name": "scope", "vrf_id": inventory["vrf"]["id"], "credential_id": inventory["credential"]["id"]}
-    for cidr in ("0.0.0.0/0", "10.0.0.0/8", "2001:db8::/64"):
+    for cidr in ("0.0.0.0/0", "2001:db8::/64"):
         with pytest.raises(ValidationError):
             ScopeInput(**base, cidr=cidr)
     with pytest.raises(ValidationError):
