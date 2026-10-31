@@ -294,7 +294,10 @@ def observations(db, rows):
 
 
 def enrich(db, rows, *, details=True):
+    from .racks import address_cabinets
+
     grouped = observations(db, rows)
+    cabinets = address_cabinets(db, rows)
     sites = {s.id: s.name for s in db.scalars(select(m.Site))}
     prefixes = {p.id: p for p in db.scalars(select(m.Prefix))}
     result = []
@@ -305,6 +308,7 @@ def enrich(db, rows, *, details=True):
     for row in rows:
         item = serialize(row)
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
+        item["cabinet"] = item["cabinet"] or cabinets.get(row.id, "")
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         if details:
             item["observations"] = [serialize(o) for o in obs]
