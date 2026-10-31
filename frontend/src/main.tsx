@@ -1,3 +1,4 @@
+import { JobDetails } from "./job-details";
 import { DiscoveryScopeForm } from "./discovery-scope-form";
 import { DeviceConnections } from "./device-connections";
 import { Topology, TopologyConnections } from "./topology";
@@ -532,7 +533,7 @@ export const PAGES: Page[] = [
       ["status", "Durum"],
       ["progress", "İlerleme"],
       ["attempts", "Deneme"],
-      ["created_at", "Başlangıç"],
+      ["created_at", "Kuyruğa alınma"],
       ["error", "Açıklama"],
     ],
   },
@@ -2193,6 +2194,7 @@ function App() {
   } | null>(null);
   const [command, setCommand] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [jobDetail, setJobDetail] = useState<Row | null>(null);
   const [jobModal, setJobModal] = useState(false);
   const [jobKind, setJobKind] = useState("backup");
   const [jobTarget, setJobTarget] = useState("");
@@ -2908,7 +2910,9 @@ function App() {
                         kontrollü veri toplama.
                       </p>
                     </div>
-                    <span className="scope-limit">4 eşzamanlı hedef</span>
+                    <span className="scope-limit">
+                      16 erişim kontrolü · 4 cihaz okuma
+                    </span>
                   </div>
                 )}
                 {page.key === "configuration" && (
@@ -2973,7 +2977,17 @@ function App() {
                                       : ""
                                   }
                                 >
-                                  {key === "name" && page.key === "devices" ? (
+                                  {key === "kind" && page.key === "jobs" ? (
+                                    <button
+                                      className="job-name-button"
+                                      onClick={() => setJobDetail(row)}
+                                      aria-label={`${row.title} · ${row.target_label} açıklaması`}
+                                    >
+                                      <b>{row.title}</b>
+                                      <small>{row.target_label}</small>
+                                    </button>
+                                  ) : key === "name" &&
+                                    page.key === "devices" ? (
                                     <button
                                       className="device-link"
                                       onClick={() => inspectDevice(row)}
@@ -3014,6 +3028,15 @@ function App() {
                                       }
                                     >
                                       <Play size={18} />
+                                    </button>
+                                  )}
+                                  {page.key === "jobs" && (
+                                    <button
+                                      className="icon-button"
+                                      aria-label={`${row.title} ayrıntıları`}
+                                      onClick={() => setJobDetail(row)}
+                                    >
+                                      <Eye size={17} />
                                     </button>
                                   )}
                                   {page.key === "jobs" &&
@@ -3516,6 +3539,9 @@ function App() {
             )}
           </div>
         </Dialog>
+      )}
+      {jobDetail && (
+        <JobDetails job={jobDetail} onClose={() => setJobDetail(null)} />
       )}
       {config && (
         <Dialog title={config.title} onClose={() => setConfig(null)} wide>

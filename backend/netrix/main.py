@@ -346,6 +346,13 @@ def start_connection_test(
     return start(db, kind, id, user)
 
 
+@app.get(P + "/jobs/{id}/details")
+def job_details(id: str, user=Depends(current_user), db=Depends(db_session)):
+    from .job_details import details
+
+    return details(db, svc.get(db, m.Job, id))
+
+
 @app.post(P + "/jobs/{id}/cancel")
 def cancel_job(id: str, user=Depends(operator), db=Depends(db_session)):
     job = svc.get(db, m.Job, id)

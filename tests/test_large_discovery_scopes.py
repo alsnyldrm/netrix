@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from netrix import models as m
 from netrix.discovery.protocols import NetworkError
-from netrix.worker import discover, scope_targets
+from netrix.worker import DISCOVERY_TARGETS, discover, scope_targets
 from sqlalchemy import select
 
 
@@ -65,7 +65,7 @@ def test_large_scope_targets_are_lazy_and_countable():
     assert list(islice(targets, 3)) == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
 
 
-async def test_worker_reaches_last_21_address_with_four_consumers(admin_client, inventory, env):
+async def test_worker_reaches_last_21_address_with_bounded_consumers(admin_client, inventory, env):
     response = admin_client.put(
         "/api/v1/scopes/" + inventory["scope"]["id"],
         json={
@@ -100,14 +100,14 @@ async def test_worker_reaches_last_21_address_with_four_consumers(admin_client, 
     result = await discover(job_id, Collector())
     assert result == {"reachable": 0, "unresponsive": 2046, "total": 2046}
     assert len(calls) == 2046 and "10.6.7.254" in calls
-    assert len(workers) <= 4 and peak <= 4
+    assert len(workers) <= DISCOVERY_TARGETS and peak <= DISCOVERY_TARGETS
     with env() as db:
         job = db.get(m.Job, job_id)
         assert job.total == job.progress == 2046
         assert not list(db.scalars(select(m.Device)))
 
 
-async def test_large_discovery_cancellation_stops_all_four_inflight_targets(admin_client, inventory, env):
+async def test_large_discovery_cancellation_stops_all_inflight_targets(admin_client, inventory, env):
     response = admin_client.put(
         "/api/v1/scopes/" + inventory["scope"]["id"],
         json={
@@ -127,9 +127,9 @@ async def test_large_discovery_cancellation_stops_all_four_inflight_targets(admi
     ready = asyncio.Event()
 
     class Collector:
-        async def collect(self, host, port, secret):
+        async def probe(self, host, port, secret):
             started.add(host)
-            if len(started) == 4:
+            if len(started) == DISCOVERY_TARGETS:
                 ready.set()
             try:
                 await asyncio.Future()
@@ -143,7 +143,7 @@ async def test_large_discovery_cancellation_stops_all_four_inflight_targets(admi
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-    assert started == finished and len(started) == 4
+    assert started == finished and len(started) == DISCOVERY_TARGETS
     with env() as db:
         job = db.get(m.Job, job_id)
         assert job.total == 16777214 and job.progress == 0
@@ -159,3 +159,52 @@ def test_explicit_ipv4_targets_remain_a_subset_and_respect_exclusions():
     assert scope_targets(scope) == ["10.6.4.1"]
     scope.enabled = False
     assert scope_targets(scope) == []
+
+
+async def test_fast_probes_are_parallel_but_full_collection_is_bounded(
+    admin_client, inventory, env, monkeypatch
+):
+    from netrix import worker
+
+    payload = dict(
+        name="Probe pool",
+        cidr="192.0.2.0/27",
+        vrf_id=inventory["vrf"]["id"],
+        credential_ids=[inventory["credential"]["id"]],
+    )
+    assert admin_client.put("/api/v1/scopes/" + inventory["scope"]["id"], json=payload).status_code == 200
+    id = admin_client.post(
+        "/api/v1/jobs", json={"kind": "discovery", "target_id": inventory["scope"]["id"]}
+    ).json()["id"]
+    active_probes = active_collections = probe_peak = collection_peak = 0
+    collected = []
+
+    class Collector:
+        async def probe(self, host, port, secret):
+            nonlocal active_probes, probe_peak
+            active_probes += 1
+            probe_peak = max(probe_peak, active_probes)
+            try:
+                await asyncio.sleep(0.01)
+                if int(host.split(".")[-1]) % 2 == 0:
+                    raise NetworkError("silent fixture")
+            finally:
+                active_probes -= 1
+
+        async def collect(self, host, port, secret):
+            nonlocal active_collections, collection_peak
+            active_collections += 1
+            collection_peak = max(collection_peak, active_collections)
+            try:
+                collected.append(host)
+                await asyncio.sleep(0.01)
+                return {"hostname": host}
+            finally:
+                active_collections -= 1
+
+    monkeypatch.setattr(worker, "persist_collection", lambda *args: None)
+    result = await discover(id, Collector())
+    assert result == {"reachable": 15, "unresponsive": 15, "total": 30}
+    assert 4 < probe_peak <= DISCOVERY_TARGETS
+    assert collection_peak <= 4
+    assert len(collected) == 15 and all(int(ip.split(".")[-1]) % 2 for ip in collected)

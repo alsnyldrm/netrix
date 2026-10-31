@@ -103,7 +103,10 @@ class SNMPCollector:
     async def probe(self, host, port, secret):
         return await self._collect(host, port, secret, probe_only=True)
 
-    async def _collect(self, host, port, secret, identity_only=False, probe_only=False):
+    async def discovery_probe(self, host, port, secret):
+        return await self._collect(host, port, secret, probe_only=True, fast_probe=True)
+
+    async def _collect(self, host, port, secret, identity_only=False, probe_only=False, fast_probe=False):
         snmp = SnmpEngine()
         try:
             if secret.get("protocol", "snmpv3") == "snmpv2c":
@@ -121,7 +124,7 @@ class SNMPCollector:
             transport_type = (
                 Udp6TransportTarget if ipaddress.ip_address(host).version == 6 else UdpTransportTarget
             )
-            target = await transport_type.create((host, port), timeout=2, retries=1)
+            target = await transport_type.create((host, port), timeout=1 if fast_probe else 2, retries=1)
             context = ContextData()
             tables, unsupported = {}, []
             async with asyncio.timeout(180):

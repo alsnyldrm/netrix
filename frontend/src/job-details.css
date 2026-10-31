@@ -1,0 +1,80 @@
+.job-name-button {
+  display: grid;
+  gap: 4px;
+  max-width: 320px;
+  min-width: 200px;
+  min-height: 44px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.job-name-button:hover {
+  text-decoration: underline;
+}
+.job-name-button small {
+  color: var(--text-2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.job-details {
+  padding: 20px 22px;
+}
+.job-details-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.job-details-heading > div {
+  min-width: 0;
+}
+.job-details-heading h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.job-details-heading p {
+  margin: 8px 0 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.job-explanation {
+  margin-top: 24px;
+}
+.job-explanation p {
+  margin: 0 0 12px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.job-timing {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 24px 0 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.job-timing dt {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.job-timing dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .job-details-heading {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .job-timing {
+    grid-template-columns: 1fr;
+  }
+}
+.job-details + .dialog-footer {
+  padding: 0 22px 22px;
+}

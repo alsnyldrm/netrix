@@ -105,6 +105,16 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
     assert walked == []  # The connection test performs GET only, never a full table scan.
     assert instance.closed
 
+    class FastTransport:
+        @classmethod
+        async def create(cls, address, **kwargs):
+            assert kwargs == {"timeout": 1, "retries": 1}
+            return address
+
+    monkeypatch.setattr(p, "UdpTransportTarget", FastTransport)
+    assert await p.SNMPCollector().discovery_probe("192.0.2.1", 161, secret) is None
+    assert walked == [] and instance.closed
+
 
 async def test_snmp_failure_is_sanitized_and_dispatcher_closed(monkeypatch):
     instance = Engine()

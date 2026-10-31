@@ -452,6 +452,10 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     else:
         rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
+    if name == "jobs":
+        from .job_details import summaries
+
+        items = [dict(item, **summary) for item, summary in zip(items, summaries(db, rows))]
     if name == "prefixes":
         from .ipam.service import prefix_summaries
 

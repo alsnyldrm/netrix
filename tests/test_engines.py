@@ -204,6 +204,7 @@ async def test_partial_discovery_does_not_report_every_target_successful(admin_c
     await execute(job["id"], PartialCollector())
     result = admin_client.get("/api/v1/jobs/" + job["id"]).json()
     assert result["status"] == "partial"
+    assert result["result"].pop("started_at")
     assert result["result"] == {"reachable": 1, "unresponsive": 1, "total": 2}
 
 

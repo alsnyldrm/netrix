@@ -47,9 +47,16 @@ from .services import (
 
 log = logging.getLogger("netrix.worker")
 stop = False
+BACKGROUND_CAPACITY = 4
+DISCOVERY_CAPACITY = 2
+DISCOVERY_TARGETS = 16
 
 
 class Cancelled(Exception):
+    pass
+
+
+class WorkerStopping(Exception):
     pass
 
 
@@ -287,7 +294,8 @@ async def discover(job_id, collector):
         )
         scope.last_run_at = now()
         db.commit()
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(DISCOVERY_TARGETS)
+    collection_slots = asyncio.Semaphore(4)
 
     async def target(address):
         async with semaphore:
@@ -321,8 +329,14 @@ async def discover(job_id, collector):
                     profile_version = profile.updated_at
                     secret = secret_data(profile)
                 try:
-                    async with asyncio.timeout(180):
-                        collected = await collector.collect(address, port, secret)
+                    # Reject silent/wrong profiles with a bounded system-OID read.
+                    # Keep the configured profile order, and cap expensive table walks.
+                    if probe := getattr(collector, "discovery_probe", getattr(collector, "probe", None)):
+                        async with asyncio.timeout(3):
+                            await probe(address, port, secret)
+                    async with collection_slots:
+                        async with asyncio.timeout(180):
+                            collected = await collector.collect(address, port, secret)
                     break
                 except (NetworkError, TimeoutError, OSError):
                     continue
@@ -388,7 +402,7 @@ async def discover(job_id, collector):
             await asyncio.sleep(0)
         return succeeded, completed
 
-    tasks = [asyncio.create_task(consume()) for _ in range(4)]
+    tasks = [asyncio.create_task(consume()) for _ in range(DISCOVERY_TARGETS)]
     try:
         results = await asyncio.gather(*tasks)
     except BaseException:
@@ -461,7 +475,7 @@ async def collect_backup(job_id):
     return {"saved": True}
 
 
-def claim(interactive=None):
+def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
     lane = (
         [] if interactive is None else [interactive_condition() if interactive else ~interactive_condition()]
     )
@@ -489,9 +503,14 @@ def claim(interactive=None):
             if job.status in ("failed", "cancelled"):
                 job.active_key, job.finished_at = None, now()
         db.flush()
+        eligible = [m.Job.status == "queued", m.Job.available_at <= now(), *lane]
+        if exclude_kinds:
+            eligible.append(m.Job.kind.not_in(exclude_kinds))
+        if exclude_targets:
+            eligible.append(m.Job.target_id.not_in(exclude_targets))
         job = db.scalar(
             select(m.Job)
-            .where(m.Job.status == "queued", m.Job.available_at <= now(), *lane)
+            .where(*eligible)
             .order_by(m.Job.created_at)
             .with_for_update(skip_locked=True)
             .limit(1)
@@ -500,7 +519,9 @@ def claim(interactive=None):
             job.status, job.heartbeat_at = "running", now()
             job.attempts += 1
             job.error = ""
+            job.result = {**job.result, "started_at": job.result.get("started_at") or now().isoformat()}
             db.commit()
+            publish()
             return job.id
         db.commit()
         return None
@@ -538,7 +559,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     )
     try:
         while not task.done():
-            await asyncio.wait({task}, timeout=0.25 if interactive else 5)
+            await asyncio.wait({task}, timeout=0.25 if interactive else 1)
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
                 job.heartbeat_at = now()
@@ -551,6 +572,8 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                     await task
                 except (asyncio.CancelledError, Cancelled):
                     pass
+                if stop and not cancelled and not interactive:
+                    raise WorkerStopping()
                 raise Cancelled()
         result = task.result()
         with session_factory()() as db:
@@ -572,7 +595,17 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.status = "partial" if result["reachable"] else "failed"
             else:
                 job.status = "succeeded"
-            job.result, job.finished_at, job.active_key = result, now(), None
+            job.result, job.finished_at, job.active_key = {**job.result, **result}, now(), None
+            db.commit()
+    except WorkerStopping:
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            if job.cancel_requested:
+                job.status, job.finished_at, job.active_key = "cancelled", now(), None
+            else:
+                job.status, job.available_at = "queued", now()
+                job.attempts = max(0, job.attempts - 1)
+                job.error = "Hizmet yeniden başlatılıyor; görev otomatik devam edecek."
             db.commit()
     except Exception as exc:
         with session_factory()() as db:
@@ -623,17 +656,43 @@ def heartbeat(role):
 
 
 async def worker_loop():
-    while not stop:
-        heartbeat("worker")
-        try:
-            job = claim(interactive=False)
-            if job:
-                await execute(job)
-            else:
-                await asyncio.sleep(2)
-        except Exception as exc:
-            log.warning("worker_cycle_failed error_class=%s", type(exc).__name__)
-            await asyncio.sleep(5)
+    # One process with bounded async slots: long scans cannot occupy every slot.
+    # Different operations for the same target stay sequential.
+    tasks = {}
+    last_heartbeat = 0.0
+    try:
+        while not stop:
+            try:
+                if time.monotonic() - last_heartbeat >= 2:
+                    heartbeat("worker")
+                    last_heartbeat = time.monotonic()
+                for task in list(tasks):
+                    if task.done():
+                        if not task.cancelled() and task.exception():
+                            log.warning(
+                                "background_task_failed error_class=%s", type(task.exception()).__name__
+                            )
+                        del tasks[task]
+                while not stop and len(tasks) < BACKGROUND_CAPACITY:
+                    scans = sum(kind == "discovery" for kind, _ in tasks.values())
+                    job_id = claim(
+                        interactive=False,
+                        exclude_kinds=("discovery",) if scans >= DISCOVERY_CAPACITY else (),
+                        exclude_targets=tuple(target for _, target in tasks.values() if target),
+                    )
+                    if not job_id:
+                        break
+                    with session_factory()() as db:
+                        job = get(db, m.Job, job_id)
+                        metadata = job.kind, job.target_id
+                    tasks[asyncio.create_task(execute(job_id))] = metadata
+                await asyncio.sleep(0.25)
+            except Exception as exc:
+                log.warning("worker_cycle_failed error_class=%s", type(exc).__name__)
+                await asyncio.sleep(1)
+    finally:
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def interactive_test_loop():
