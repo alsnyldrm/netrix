@@ -19,77 +19,8 @@ export function Topology<T extends TopologyDevice>({
   compact?: boolean;
 }) {
   const graph = useMemo(() => layoutTopology(devices, links), [devices, links]);
-  const [selectedPair, setSelectedPair] = useState("");
-  const [connectionSearch, setConnectionSearch] = useState("");
   const pairKey = (link: TopologyLink) =>
     [link.device_id, link.remote_device_id].sort().join(":");
-  const normalize = (value: string) =>
-    value.toLocaleLowerCase("tr-TR").replaceAll("ı", "i");
-  const connectionIndex = useMemo(() => {
-    const deviceById = new Map(devices.map((device) => [device.id, device]));
-    const entries = new Map<string, string[]>();
-    for (const link of links) {
-      const key = pairKey(link);
-      const values = entries.get(key) || [];
-      for (const id of [link.device_id, link.remote_device_id]) {
-        const device = id ? deviceById.get(id) : undefined;
-        if (device) values.push(device.name, device.management_ip);
-      }
-      values.push(
-        link.interface_name || "",
-        link.remote_port || "",
-        link.local_aggregate?.name || "",
-      );
-      entries.set(key, values);
-    }
-    return new Map(
-      [...entries].map(([key, values]) => [key, normalize(values.join(" "))]),
-    );
-  }, [devices, links]);
-  const searchTerms = normalize(connectionSearch.trim())
-    .split(/\s+/)
-    .filter(Boolean);
-  const visibleConnections = graph.links.filter((link) =>
-    searchTerms.every((term) =>
-      connectionIndex.get(pairKey(link))?.includes(term),
-    ),
-  );
-  const selected = visibleConnections.find(
-    (link) => pairKey(link) === selectedPair,
-  );
-  const pairLinks = selected
-    ? links.filter((link) => pairKey(link) === selectedPair)
-    : [];
-  const portRows = new Map<
-    string,
-    {
-      local: string;
-      remote: string;
-      localGroup: string;
-      remoteGroup: string;
-      sources: Set<string>;
-    }
-  >();
-  for (const link of pairLinks) {
-    const forward = link.device_id === selected!.device_id;
-    const local =
-      (forward ? link.interface_name : link.remote_port) || "Port bilinmiyor";
-    const remote =
-      (forward ? link.remote_port : link.interface_name) || "Port bilinmiyor";
-    const key = `${local}:${remote}`;
-    const row = portRows.get(key) || {
-      local,
-      remote,
-      localGroup: "",
-      remoteGroup: "",
-      sources: new Set<string>(),
-    };
-    if (link.local_aggregate)
-      row[forward ? "localGroup" : "remoteGroup"] =
-        `${link.local_aggregate.name} · ${link.local_aggregate.type}`;
-    link.source.split("+").forEach((source) => row.sources.add(source));
-    portRows.set(key, row);
-  }
   const name = (id: string) =>
     devices.find((device) => device.id === id)?.name || "Cihaz bilinmiyor";
   const viewport = useRef<HTMLDivElement>(null);
@@ -280,8 +211,95 @@ export function Topology<T extends TopologyDevice>({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+export function TopologyConnections({
+  devices,
+  links,
+}: {
+  devices: TopologyDevice[];
+  links: TopologyLink[];
+}) {
+  const graph = useMemo(() => layoutTopology(devices, links), [devices, links]);
+  const [selectedPair, setSelectedPair] = useState("");
+  const [connectionSearch, setConnectionSearch] = useState("");
+  const pairKey = (link: TopologyLink) =>
+    [link.device_id, link.remote_device_id].sort().join(":");
+  const normalize = (value: string) =>
+    value.toLocaleLowerCase("tr-TR").replaceAll("ı", "i");
+  const connectionIndex = useMemo(() => {
+    const deviceById = new Map(devices.map((device) => [device.id, device]));
+    const entries = new Map<string, string[]>();
+    for (const link of links) {
+      const key = pairKey(link);
+      const values = entries.get(key) || [];
+      for (const id of [link.device_id, link.remote_device_id]) {
+        const device = id ? deviceById.get(id) : undefined;
+        if (device) values.push(device.name, device.management_ip);
+      }
+      values.push(
+        link.interface_name || "",
+        link.remote_port || "",
+        link.local_aggregate?.name || "",
+      );
+      entries.set(key, values);
+    }
+    return new Map(
+      [...entries].map(([key, values]) => [key, normalize(values.join(" "))]),
+    );
+  }, [devices, links]);
+  const searchTerms = normalize(connectionSearch.trim())
+    .split(/\s+/)
+    .filter(Boolean);
+  const visibleConnections = graph.links.filter((link) =>
+    searchTerms.every((term) =>
+      connectionIndex.get(pairKey(link))?.includes(term),
+    ),
+  );
+  const selected = visibleConnections.find(
+    (link) => pairKey(link) === selectedPair,
+  );
+  const pairLinks = selected
+    ? links.filter((link) => pairKey(link) === selectedPair)
+    : [];
+  const portRows = new Map<
+    string,
+    {
+      local: string;
+      remote: string;
+      localGroup: string;
+      remoteGroup: string;
+      sources: Set<string>;
+    }
+  >();
+  for (const link of pairLinks) {
+    const forward = link.device_id === selected!.device_id;
+    const local =
+      (forward ? link.interface_name : link.remote_port) || "Port bilinmiyor";
+    const remote =
+      (forward ? link.remote_port : link.interface_name) || "Port bilinmiyor";
+    const key = `${local}:${remote}`;
+    const row = portRows.get(key) || {
+      local,
+      remote,
+      localGroup: "",
+      remoteGroup: "",
+      sources: new Set<string>(),
+    };
+    if (link.local_aggregate)
+      row[forward ? "localGroup" : "remoteGroup"] =
+        `${link.local_aggregate.name} · ${link.local_aggregate.type}`;
+    link.source.split("+").forEach((source) => row.sources.add(source));
+    portRows.set(key, row);
+  }
+  const name = (id: string) =>
+    devices.find((device) => device.id === id)?.name || "Cihaz bilinmiyor";
+  return (
+    <>
       {graph.links.length ? (
-        <div className="topology-link-detail">
+        <section className="panel topology-link-detail">
           <div className="topology-link-filters">
             <label>
               Bağlantılarda ara
@@ -355,8 +373,8 @@ export function Topology<T extends TopologyDevice>({
               </ul>
             </div>
           ) : null}
-        </div>
+        </section>
       ) : null}
-    </div>
+    </>
   );
 }

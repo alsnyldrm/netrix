@@ -15,7 +15,7 @@ with sync_playwright() as p:
     page.route_web_socket("**/api/v1/ws", lambda socket: None)
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(base + "/#topology")
+    page.goto(base + "/#neighbors")
     page.get_by_label("E-posta").fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
@@ -55,7 +55,7 @@ with sync_playwright() as p:
     select.select_option(index=1)
     expect(detail.locator("ul")).to_contain_text("GE0/0/4")
     expect(detail.locator("ul")).to_contain_text("Trk7")
-    assert page.locator(".topology-edge").count() == 4
+    expect(page.locator(".topology-map")).to_have_count(0)
     for width, height in [(1440, 1000), (375, 812), (812, 375)]:
         page.set_viewport_size({"width": width, "height": height})
         for theme in ["light", "dark"]:

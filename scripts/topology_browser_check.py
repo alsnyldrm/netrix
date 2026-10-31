@@ -24,11 +24,23 @@ with sync_playwright() as p:
     page.goto(base + "/#topology")
     page.wait_for_load_state("networkidle")
     expect(page.locator(".topology-device").first).to_be_visible()
+    expect(page.get_by_role("region", name="Bağlantı cihazları")).to_have_count(0)
+    expect(page.locator(".topology-link-detail")).to_have_count(0)
+    menu = page.locator(".nav-group").filter(
+        has=page.get_by_role("button", name="Keşif & bağlantı", exact=True)
+    )
+    labels = menu.locator(".nav-item").all_text_contents()
+    assert labels.index("Komşuluklar") == labels.index("Bağlantı haritası") + 1
+    menu.get_by_role("button", name="Komşuluklar", exact=True).click()
+    expect(page.get_by_role("heading", name="Komşuluklar", exact=True)).to_be_visible()
+    expect(page.locator(".topology-map")).to_have_count(0)
     page.get_by_role("region", name="Bağlantı cihazları").get_by_role(
         "button", name="HP-SW-BB-01-A-00-01", exact=True
     ).click()
     expect(page.get_by_text("18:7a:3b:4f:14:40", exact=True)).to_be_visible()
     expect(page.get_by_text("Kullanıcı doğrulaması", exact=True)).to_be_visible()
+    menu.get_by_role("button", name="Bağlantı haritası", exact=True).click()
+    expect(page.locator(".topology-device").first).to_be_visible()
 
     def node(name):
         return page.get_by_role("button", name=name + " cihazını görüntüle")

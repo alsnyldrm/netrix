@@ -75,7 +75,7 @@ with sync_playwright() as p:
     expect(section).to_contain_text("Üst akış bağlantısı henüz belirlenemedi")
     expect(section.get_by_role("alert")).to_have_count(0)
     page.keyboard.press("Escape")
-    page.goto(BASE + "/#topology")
+    page.goto(BASE + "/#neighbors")
     page.wait_for_load_state("networkidle")
     select = page.get_by_label("Bağlantı ayrıntısı", exact=True)
     select.select_option(index=1)

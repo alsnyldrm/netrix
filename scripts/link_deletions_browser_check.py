@@ -16,7 +16,7 @@ with sync_playwright() as p:
     page.route_web_socket("**/api/v1/ws", lambda socket: None)
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(base + "/#topology")
+    page.goto(base + "/#neighbors")
     page.get_by_label("E-posta").fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()

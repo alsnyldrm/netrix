@@ -1,6 +1,6 @@
 import { DiscoveryScopeForm } from "./discovery-scope-form";
 import { DeviceConnections } from "./device-connections";
-import { Topology } from "./topology";
+import { Topology, TopologyConnections } from "./topology";
 import type { TopologyDevice, TopologyLink } from "./topology-layout";
 import React, {
   useState,
@@ -490,9 +490,16 @@ export const PAGES: Page[] = [
   {
     key: "topology",
     title: "Bağlantı haritası",
-    desc: "Cihazların bağlantı hiyerarşisi ve komşuluk kayıtları.",
+    desc: "Cihazların bağlantı hiyerarşisini haritada inceleyin.",
     group: "Keşif & bağlantı",
     icon: Graph,
+  },
+  {
+    key: "neighbors",
+    title: "Komşuluklar",
+    desc: "Cihazların portlarındaki komşulukları inceleyin ve yönetin.",
+    group: "Keşif & bağlantı",
+    icon: PlugsConnected,
     resource: "links",
     columns: [
       ["device_id", "Kaynak cihaz"],
@@ -2610,6 +2617,7 @@ function App() {
         "interfaces",
         "configuration",
         "topology",
+        "neighbors",
         "prefixes",
         "addresses",
       ].includes(page.key)
@@ -3147,16 +3155,21 @@ function App() {
                 onSaved={reload}
               />
             ) : page.key === "topology" ? (
+              <section className="panel topology-panel">
+                <Topology
+                  devices={(refs.devices || []) as TopologyDevice[]}
+                  links={(refs.links || []) as TopologyLink[]}
+                  onDevice={inspectDevice}
+                />
+              </section>
+            ) : page.key === "neighbors" ? (
               <>
-                <section className="panel topology-panel">
-                  <Topology
-                    devices={(refs.devices || []) as TopologyDevice[]}
-                    links={(refs.links || []) as TopologyLink[]}
-                    onDevice={inspectDevice}
-                  />
-                </section>
+                <TopologyConnections
+                  devices={(refs.devices || []) as TopologyDevice[]}
+                  links={(refs.links || []) as TopologyLink[]}
+                />
                 <TopologyRecords
-                  key={`topology:${user!.id}`}
+                  key={`neighbors:${user!.id}`}
                   refresh={refresh}
                   user={user!}
                   onSaved={reload}

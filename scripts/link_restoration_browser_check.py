@@ -16,7 +16,7 @@ with sync_playwright() as p:
     page.route_web_socket("**/api/v1/ws", lambda socket: None)
     errors = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.goto(base + "/#topology")
+    page.goto(base + "/#neighbors")
     page.get_by_label("E-posta").fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
@@ -112,7 +112,7 @@ with sync_playwright() as p:
     expect(table.locator(".inventory-pagination")).to_contain_text("0 kayıt")
     for _ in range(2):
         assert page.request.post(base + "/__fixture__/rescan", headers={"X-Netrix-Request": "1"}).ok
-        page.goto(base + "/#topology")
+        page.goto(base + "/#neighbors")
         directory.get_by_role("button", name="HP-SW-BB-01-A-00-01", exact=True).click()
         expect(active.locator(".inventory-pagination")).to_contain_text("4 kayıt")
         for name in ("Controller", "Edge-01"):
