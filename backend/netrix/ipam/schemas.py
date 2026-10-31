@@ -119,3 +119,11 @@ class ModelImageInput(Input):
                 else "Ürün sayfası için HPE veya Fortinet (docs.fortinet.com dahil) HTTPS adresi gerekli"
             )
         return value
+
+
+class PrefixSelection(Input):
+    ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class PrefixDeleteInput(PrefixSelection):
+    confirmation: str = Field(min_length=64, max_length=64)

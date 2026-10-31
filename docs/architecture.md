@@ -45,6 +45,10 @@ IPAM fiziksel bağlantı çözümlemesinde firewall ARP/NDP kaydı yalnızca IP�
 
 Güncel topoloji kaydında kullanıcının düzelttiği uç cihaz adı, aynı VRF içindeki yönetilen/gözlemlenen hostname veya tekil LLDP/CDP yönetim adresi kimliğiyle eşleştirilir. Bu seçim `topology_override` kaynağı ve 0.65 güven düzeyiyle protokol kanıtından ayrı tutulur; otomatik yönetim NIC'i eşleşmesinden önce kullanılır. VMware NIC bağlantısı ve IP üzerindeki açık arayüz ataması önceliğini korur. Birden fazla kullanıcı eşleşmesi belirsiz kalır; silinmiş, hariç tutulmuş veya 24 saatten eski otomatik komşuluk kullanılmaz. LAG üye portları tabloda ayrı gösterilir, izleme gerçek aggregate arayüzü üzerinden yapılır.
 
+### Ağ bloğu silme
+
+Yönetici, blok listesinden tekli veya çoklu silme yapabilir. `/api/v1/ipam/prefixes/delete-preview` seçilen blokları, doğrudan bağlı IP sayısını ve etkilenen entegrasyonları döndürür. `/api/v1/ipam/prefixes/bulk-delete` önizleme özeti değişmemişse seçimi tek transaction içinde siler; eksik kayıt, değişmiş kapsam veya çalışan blok/IP/entegrasyon işi tüm işlemi engeller. VRF kilitleri keşfin eşzamanlı IP yazmalarıyla paylaşılır. IP gözlemleri ve IP trafik örnekleri mevcut FK cascade kurallarıyla silinir. Envanter cihazları, kabinet yerleşimleri, VLAN'lar ve seçilmemiş alt bloklar korunur. Silinen bloklar entegrasyon kapsamlarından çıkarılır; kapsamı boşalan entegrasyon kapatılır. Tekli `DELETE /api/v1/prefixes/{id}` aynı servis kurallarını kullanır.
+
 ### Otomatik cihaz bilgileri
 
 Cihaz oluşturulunca veya bağlantı/üretici/model/tür bilgileri değişince, aktif cihaz yetkili kapsam içindeyse ve erişim profili varsa aynı transaction içinde `identify` işi kuyruğa eklenir. Kaydetme işlemi ağ yanıtını beklemez. Kapsam/profil yoksa manuel kayıt saklanır ve sorgunun neden başlatılmadığı yanıtta bildirilir. Dağıtım mevcut cihazlar için kendiliğinden sorgu başlatmaz. Ayrıntılardaki **Bilgileri cihazdan al**, `POST /api/v1/jobs` üzerinden `kind: identify` ile yeniden sorgu başlatır.

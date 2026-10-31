@@ -606,6 +606,7 @@ export function IPAMWorkspace({
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [deletePrefixes, setDeletePrefixes] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [columns, setColumns] = useState<{ key: string; label: string }[]>([]);
   const storageKey = `netrix.ipam.columns.${user.id}`;
@@ -927,18 +928,28 @@ export function IPAMWorkspace({
           <div
             className="ipam-bulkbar"
             role="region"
-            aria-label="Seçilen IP işlemleri"
+            aria-label={
+              isBlocks ? "Seçilen ağ bloğu işlemleri" : "Seçilen IP işlemleri"
+            }
           >
-            <strong>{selected.length} IP seçildi</strong>
-            <button className="secondary" onClick={() => setBulkOpen(true)}>
-              <PencilSimple size={17} />
-              Düzenle
-            </button>
+            <strong>
+              {selected.length} {isBlocks ? "ağ bloğu" : "IP"} seçildi
+            </strong>
+            {!isBlocks && (
+              <button className="secondary" onClick={() => setBulkOpen(true)}>
+                <PencilSimple size={17} />
+                Düzenle
+              </button>
+            )}
             {user.role === "admin" && (
               <button
                 className="secondary danger"
                 disabled={busy}
                 onClick={async () => {
+                  if (isBlocks) {
+                    setDeletePrefixes([...selected]);
+                    return;
+                  }
                   if (
                     !window.confirm(
                       `${selected.length} IP kaydı silinsin mi? Kaynaklar tekrar keşfederse yeniden eklenebilir.`,
@@ -977,11 +988,15 @@ export function IPAMWorkspace({
           <table className={!isBlocks ? "ipam-address-table" : undefined}>
             <thead>
               <tr>
-                {!isBlocks && canWrite && (
+                {canWrite && (!isBlocks || user.role === "admin") && (
                   <th className="ipam-select">
                     <input
                       type="checkbox"
-                      aria-label="Sayfadaki IP kayıtlarını seç"
+                      aria-label={
+                        isBlocks
+                          ? "Sayfadaki ağ bloklarını seç"
+                          : "Sayfadaki IP kayıtlarını seç"
+                      }
                       checked={
                         rows.some((r) => r.id) &&
                         rows
@@ -1018,6 +1033,22 @@ export function IPAMWorkspace({
               {rows.map((r) =>
                 isBlocks ? (
                   <tr key={r.id}>
+                    {user.role === "admin" && (
+                      <td className="ipam-select">
+                        <input
+                          type="checkbox"
+                          aria-label={`${r.cidr} seç`}
+                          checked={selected.includes(r.id)}
+                          onChange={(e) =>
+                            setSelected(
+                              e.target.checked
+                                ? [...selected, r.id]
+                                : selected.filter((id) => id !== r.id),
+                            )
+                          }
+                        />
+                      </td>
+                    )}
                     <td>
                       <button
                         className="text-button mono"
@@ -1057,6 +1088,16 @@ export function IPAMWorkspace({
                             >
                               <PencilSimple size={18} />
                             </button>
+                            {user.role === "admin" && (
+                              <button
+                                className="icon-button danger"
+                                aria-label={`${r.cidr} sil`}
+                                title="Ağ bloğunu sil"
+                                onClick={() => setDeletePrefixes([r.id])}
+                              >
+                                <Trash size={18} aria-hidden="true" />
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1139,7 +1180,9 @@ export function IPAMWorkspace({
           <span>
             {BigInt(total) > 0n
               ? `${BigInt(offset) + 1n}–${BigInt(offset) + BigInt(rows.length)} / ${total}`
-              : "0 adres"}
+              : isBlocks
+                ? "0 ağ bloğu"
+                : "0 adres"}
           </span>
           <div className="ipam-actions">
             <button
@@ -1158,7 +1201,7 @@ export function IPAMWorkspace({
               disabled={BigInt(offset) + 100n >= BigInt(total)}
               onClick={() => setOffset(String(BigInt(offset) + 100n))}
             >
-              Sonraki 100 adres
+              {isBlocks ? "Sonraki" : "Sonraki 100 adres"}
             </button>
           </div>
         </div>
@@ -1192,6 +1235,17 @@ export function IPAMWorkspace({
           refs={refs}
           close={() => setBulkOpen(false)}
           saved={selectionDone}
+        />
+      )}
+      {!!deletePrefixes.length && (
+        <PrefixDeleteDialog
+          ids={deletePrefixes}
+          close={() => setDeletePrefixes([])}
+          saved={() => {
+            setDeletePrefixes([]);
+            setOffset("0");
+            selectionDone();
+          }}
         />
       )}
       {settings && (
@@ -1747,5 +1801,122 @@ export function Integrations({
         </Dialog>
       )}
     </div>
+  );
+}
+
+function PrefixDeleteDialog({
+  ids,
+  close,
+  saved,
+}: {
+  ids: string[];
+  close: () => void;
+  saved: () => void;
+}) {
+  const [preview, setPreview] = useState<Row | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    api("/ipam/prefixes/delete-preview", "POST", { ids })
+      .then((result) => {
+        if (active) setPreview(result);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [ids]);
+  return (
+    <Dialog
+      title={ids.length === 1 ? "Ağ bloğunu sil" : "Seçilen ağ bloklarını sil"}
+      onClose={() => {
+        if (!busy) close();
+      }}
+    >
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!preview || busy) return;
+          setBusy(true);
+          setError("");
+          try {
+            await api("/ipam/prefixes/bulk-delete", "POST", {
+              ids,
+              confirmation: preview.confirmation,
+            });
+            saved();
+          } catch (e: any) {
+            setError(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <ErrorNote error={error} />
+        {!preview && !error && (
+          <p role="status">Silinecek kayıtlar hesaplanıyor…</p>
+        )}
+        {preview && (
+          <div className="prefix-delete-summary">
+            <p>
+              <strong>{preview.prefixes.length} ağ bloğu</strong> ve bu bloklara
+              bağlı <strong>{preview.address_count} IP kaydı</strong> silinecek.
+            </p>
+            <ul aria-label="Silinecek ağ blokları">
+              {preview.prefixes.map((p: Row) => (
+                <li key={p.id} className="mono">
+                  {p.cidr}
+                </li>
+              ))}
+            </ul>
+            <p>
+              Bu IP kayıtlarının gözlemleri ve IP trafik geçmişi de silinir.
+              Envanter cihazları, kabinet yerleşimleri ve VLAN kayıtları
+              korunur.
+            </p>
+            {!!preview.integrations.length && (
+              <>
+                <p>
+                  Seçilen bloklar aşağıdaki entegrasyonların kapsamından
+                  çıkarılır:
+                </p>
+                <ul>
+                  {preview.integrations.map((c: Row, i: number) => (
+                    <li key={i}>
+                      {c.name}
+                      {c.will_disable
+                        ? " — Kapsamı boş kalacağı için devre dışı bırakılır."
+                        : " — Diğer ağ blokları korunur."}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <p>Bu işlem geri alınamaz.</p>
+          </div>
+        )}
+        <div className="dialog-footer">
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={close}
+          >
+            Vazgeç
+          </button>
+          <button
+            type="submit"
+            className="secondary prefix-delete-confirm"
+            disabled={!preview || busy}
+          >
+            <Trash size={18} aria-hidden="true" />
+            {busy ? "Siliniyor…" : "Silmeyi onayla"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }

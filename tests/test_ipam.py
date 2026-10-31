@@ -81,7 +81,8 @@ def test_prefix_edit_preserves_existing_assignments(admin_client):
     assert (
         c.put("/api/v1/prefixes/" + p["id"], json={"cidr": "192.0.2.0/25", "vrf_id": vrf}).status_code == 409
     )
-    assert c.delete("/api/v1/prefixes/" + p["id"]).status_code == 409
+    assert c.delete("/api/v1/prefixes/" + p["id"]).status_code == 204
+    assert c.get("/api/v1/addresses").json()["total"] == 0
 
 
 def test_vlan_domain_uniqueness_and_bounds(admin_client):

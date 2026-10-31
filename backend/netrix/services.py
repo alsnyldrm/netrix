@@ -460,8 +460,9 @@ def delete_resource(db, name, id, user):
     if name in ("users", "vrfs"):
         raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
     if name == "prefixes":
-        if any(id in config.prefix_ids for config in db.scalars(select(m.Integration))):
-            raise HTTPException(409, "Önce entegrasyonlardan bu ağ bloğunu kaldırın")
+        from .ipam.prefix_deletion import remove
+
+        return remove(db, [id], user)
     if name == "device-types":
         if row.code == "other":
             raise HTTPException(409, "Varsayılan cihaz türü silinemez; adını düzenleyebilirsiniz")

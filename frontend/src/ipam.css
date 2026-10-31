@@ -185,3 +185,23 @@
     align-items: stretch;
   }
 }
+
+.prefix-delete-summary {
+  display: grid;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.prefix-delete-summary p {
+  margin: 0;
+}
+.prefix-delete-summary ul {
+  margin: 0;
+  padding-left: 24px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.secondary.prefix-delete-confirm {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}

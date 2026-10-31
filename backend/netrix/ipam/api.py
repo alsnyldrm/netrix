@@ -16,6 +16,8 @@ from .schemas import (
     LiveInput,
     ModelImageInput,
     PlacementInput,
+    PrefixDeleteInput,
+    PrefixSelection,
     PrefixSettings,
     RackAccessoryInput,
 )
@@ -50,6 +52,20 @@ def addresses(
             filters=filters,
         ),
     )
+
+
+@router.post("/ipam/prefixes/delete-preview")
+def prefix_delete_preview(payload: PrefixSelection, user=Depends(admin), db=Depends(db_session)):
+    from .prefix_deletion import preview
+
+    return preview(db, payload.ids)
+
+
+@router.post("/ipam/prefixes/bulk-delete")
+def prefix_bulk_delete(payload: PrefixDeleteInput, user=Depends(admin), db=Depends(db_session)):
+    from .prefix_deletion import remove
+
+    return remove(db, payload.ids, user, payload.confirmation)
 
 
 @router.put("/ipam/prefixes/{id}/settings")
