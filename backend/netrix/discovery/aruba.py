@@ -5,6 +5,7 @@ import re
 
 import asyncssh
 
+from ..configuration.formatting import config_text
 from ..configuration.validation import BackupError
 
 ARUBA_ADAPTERS = {
@@ -25,8 +26,20 @@ CLI_ERROR = re.compile(
 def terminal_text(text):
     # AOS-S redraws the first terminal column instead of emitting CRLF. Keep
     # that boundary before dropping cursor controls, or echo and prompt join.
-    text = re.sub(r"\x1b\[(?:\d*;)?[01]?[Hf]", "\n", text)
-    text = ANSI.sub("", text).replace("\r", "").replace("\x00", "")
+    text = text.replace("\r", "").replace("\x00", "")
+    parts, start, last = [], 0, ""
+    for match in ANSI.finditer(text):
+        plain = text[start : match.start()]
+        if plain:
+            parts.append(plain)
+            last = plain[-1]
+        # Repeated column-1 redraws are the same boundary, not empty config lines.
+        if re.fullmatch(r"\x1b\[(?:\d*;)?[01]?[Hf]", match[0]) and last not in ("", "\n"):
+            parts.append("\n")
+            last = "\n"
+        start = match.end()
+    parts.append(text[start:])
+    text = "".join(parts)
     # Backspace is used by some switch banners and terminal redraws.
     while "\b" in text:
         text = re.sub(r"[^\n\b]\x08|^\x08", "", text, flags=re.M)
@@ -80,7 +93,7 @@ async def read_aruba(connection, adapter, *, backup=False):
                 raise BackupError("aruba_command")
         if backup:
             validate_aruba_config(adapter, output)
-        return output + "\n"
+        return config_text(output + "\n") if backup else output + "\n"
 
 
 def validate_aruba_config(adapter, output):

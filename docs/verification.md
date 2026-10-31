@@ -1,5 +1,12 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Yedek terminal boşlukları — 31 Ekim 2026
+
+- Üretimdeki AOS-S yedeklerinde ekran yenileme sınırlarına denk gelen üçlü boş satırlar gözlendi. Sebep: her ilk-sütun ANSI imleç hareketinin koşulsuz satır sonuna dönüştürülmesi. İçerik/sırlar teşhis çıktısına yazılmadı.
+- İlk regresyon çalıştırması ayrıştırıcıda fazladan boşluk, eski yedeğin boşluklu gösterimi ve temizlenmiş aynı config için yanlış değişiklik olmak üzere üç hatayı yeniden üretti. Düzeltilen terminal okuyucu ve AOS-S biçim temizliğiyle eski şifreli asıllar korunur; görüntüleme/indirme ve tüm karşılaştırmalar aynı metni kullanır. Gerçek komut değişikliği, tırnaklı çok satırlı değerler, banner, PEM ve diğer cihaz biçimleri korunur.
+- Sahte istemcilerle Aruba, Comware, FortiOS, komşuluk ve yedek referanslarını kapsayan 103 test geçti. Ek regresyonda aynı/değişmiş config hem yedek worker'ı hem aktif karşılaştırma üzerinden doğrulandı. Ruff ve frontend üretim derlemesi geçti.
+- Atılabilir SQLite tarayıcı verisinde eski üçlü boşluklar oluşturuldu. Playwright ile 1440 ve 375 px pencerelerde yedek içeriğinde boş blok kalmadığı, sır maskeleme, sayfa taşması olmaması ve klavye kullanımı doğrulandı; ekran görüntüleri incelendi. Cihaz/geçmiş ve karşılaştırma listelerinde sekiz açık/koyu Axe kontrolünde ihlal, tarayıcıda JavaScript hatası yok. Yeni bağımlılık, şema veya CSS değişikliği yok.
+
 ## Geçerli konfigürasyon referansı — 30 Ekim 2026
 
 - Bildirilen HP cihazında 40 byte SSH hata çıktısının ardından gelen 13.199 byte ilk geçerli yedek `changed=true` olarak kaydedilmişti. Worker parmak izlerini doğrulanmamış son kayıtla karşılaştırıyor; Fark da aynı hatalı kaydı okuyup 422 veriyordu. İçerik veya sırlar teşhis çıktısına alınmadı.

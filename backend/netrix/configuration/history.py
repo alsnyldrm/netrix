@@ -4,6 +4,7 @@ from sqlalchemy import and_, or_, select
 
 from .. import models as m
 from ..identity.security import audit, decrypt
+from .formatting import config_text
 from .validation import BackupError, validate_cli_output
 
 
@@ -22,7 +23,7 @@ def previous_valid_snapshot(db, device_id, before=None):
         row = db.scalar(stmt.order_by(m.Snapshot.created_at.desc(), m.Snapshot.id.desc()).limit(1))
         if row is None:
             return None, None
-        content = decrypt(row.encrypted_content)
+        content = config_text(decrypt(row.encrypted_content))
         try:
             validate_cli_output(content)
         except BackupError:
@@ -41,7 +42,7 @@ def repair_change_flags(db, device_id, *, apply=False):
         .order_by(m.Snapshot.created_at, m.Snapshot.id)
     )
     for row in rows:
-        content = decrypt(row.encrypted_content)
+        content = config_text(decrypt(row.encrypted_content))
         try:
             validate_cli_output(content)
         except BackupError:

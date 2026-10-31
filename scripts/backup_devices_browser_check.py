@@ -69,6 +69,8 @@ with sync_playwright() as p:
                 page.get_by_role("button", name="Görüntüle", exact=True).first.click()
                 expect(page.locator(".backup-result pre")).to_contain_text("hostname fixture-")
                 expect(page.locator(".backup-result pre")).not_to_contain_text("FIXTURE-SECRET")
+                assert "\n\n\n" not in page.locator(".backup-result pre").inner_text()
+                assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth")
                 page.screenshot(path=f"artifacts/backup-content-{width}.png", full_page=True)
                 page.keyboard.press("Escape")
                 page.route(

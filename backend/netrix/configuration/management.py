@@ -9,6 +9,7 @@ from ..core import now, session_factory
 from ..discovery.protocols import fetch_config
 from ..identity.security import audit, decrypt
 from .diff import config_diff
+from .formatting import config_text
 from .validation import BackupError, validate_cli_output, validate_fortios_backup
 
 
@@ -18,7 +19,7 @@ def snapshot_text(snapshot):
         validate_cli_output(content)
     except BackupError:
         raise HTTPException(422, BackupError.MESSAGES["invalid_saved_config"]) from None
-    return content
+    return config_text(content)
 
 
 def policy(db, device):
@@ -101,7 +102,7 @@ async def compare_live(job_id):
             profile.updated_at,
         )
         base_id = snapshot.id
-    content = await fetch_config(device, secret)
+    content = config_text(await fetch_config(device, secret))
     validate_cli_output(content)
     with session_factory()() as db:
         current = svc.get(db, m.Device, device.id)

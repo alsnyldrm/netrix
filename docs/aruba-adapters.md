@@ -41,3 +41,7 @@ Test öncesinde cihazın arşivlenmemiş ve yaşam döngüsünün aktif olması 
 Bu davranış parçalı sahte SSH yanıtlarıyla regresyon testine alınmıştır. J9851A ve J9850A cihazlarında kayıtlı profil ve yetkili kapsam ile salt okunur SSH denemesi, yapısal doğrulamadan geçen çalışan konfigürasyon çıktısını yaklaşık 3 saniyede aldı. Konfigürasyon içeriği ve sırlar teşhis çıktısına yazılmadı. Diğer Aruba ailelerinin donanım doğrulaması bu sonuçtan çıkarılmaz.
 
 Yedekleme/karşılaştırma görevleri artık zaman aşımı, SSH kimlik doğrulama, host anahtarı, komut ve bağlantı hatalarını sabit, sır içermeyen mesaj ve `error_code` ile ayırır. Zaman aşımında mevcut en fazla üç deneme politikası korunur; eksik çıktı başarı olarak kaydedilmez.
+
+31 Ekim 2026 boşluk düzeltmesi: Ardışık ilk-sütun imleç hareketleri aynı satır sınırı olarak işlenir; her hareket için yeni boş satır eklenmez. Yerel AOS-S `Configuration Editor; Created on release` başlığı tanınan yedeklerde, komutlar dışındaki boş satırlar okuma/yeni kayıt sırasında temizlenir. Çok satırlı tırnaklı değerler ve PEM blokları korunur; tanınmayan banner ayırıcısı varsa içerik değiştirilmez. FortiOS, AOS-CX ve diğer dosya biçimleri bu AOS-S temizliğine girmez.
+
+Önceden alınmış yedeklerin şifreli asılları değiştirilmez. Görüntüleme, indirme, geçmiş farkı, aktif config karşılaştırması ve worker değişiklik tespiti aynı temizlenmiş içeriği kullanır. Böylece eski terminal boşluklarının giderilmesi kendi başına “Değişenler” kaydı oluşturmaz.

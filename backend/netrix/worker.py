@@ -13,6 +13,7 @@ from sqlalchemy.exc import OperationalError
 from . import models as m
 from .alerting.engine import evaluate
 from .configuration.failures import backup_failure
+from .configuration.formatting import config_text
 from .configuration.history import previous_valid_snapshot
 from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory, settings
@@ -522,6 +523,7 @@ async def collect_device(job_id, collector):
             ):
                 raise BackupError("connection_changed")
             validate_cli_output(data)
+            data = config_text(data)
             previous, previous_content = previous_valid_snapshot(db, current.id)
             fingerprint = hashlib.sha256(data.encode()).hexdigest()
             changed = previous is not None and previous_content != data
