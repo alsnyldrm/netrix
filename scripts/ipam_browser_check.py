@@ -101,7 +101,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Sonraki 100 adres", exact=True).click()
     expect(page.get_by_role("cell", name="192.0.2.100", exact=True)).to_be_visible()
     page.get_by_role("button", name="Önceki", exact=True).click()
-    page.get_by_role("button", name="Ağ bloğu ayarları", exact=True).click()
+    page.get_by_role("button", name="Ağ blokları", exact=True).click()
+    page.get_by_role("button", name="192.0.2.0/24 ayarları", exact=True).click()
     page.get_by_label("IP kullanım uyarı eşiği (%)", exact=True).fill("65")
     page.get_by_role("combobox", name="VLAN’ın bulunduğu cihaz", exact=True).select_option(
         label="Core Switch"
@@ -109,10 +110,11 @@ with sync_playwright() as p:
     page.get_by_label("IP durumunu düzenli kontrol et", exact=True).check()
     check("settings")
     page.get_by_role("button", name="Ayarları kaydet", exact=True).click()
-    page.get_by_role("button", name="Ağ bloğu ayarları", exact=True).click()
+    page.get_by_role("button", name="192.0.2.0/24 ayarları", exact=True).click()
     expect(page.get_by_label("IP kullanım uyarı eşiği (%)", exact=True)).to_have_value("65")
     expect(page.get_by_label("IP durumunu düzenli kontrol et", exact=True)).to_be_checked()
     page.keyboard.press("Escape")
+    page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     page.get_by_role("button", name="192.0.2.10", exact=True).click()
     expect(page.get_by_text("Ubuntu Linux 24.04", exact=True).first).to_be_visible()
     page.get_by_role("combobox", name="İzlenecek bağlantı", exact=True).select_option(index=1)

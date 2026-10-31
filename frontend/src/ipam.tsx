@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Check,
+  Broadcast,
   GearSix,
   Columns,
   Funnel,
@@ -148,11 +150,19 @@ function PrefixSettings({
           >
             <option value="">Bağlantı yok</option>
             {values.scope_id &&
-              !(refs.scopes || []).some((scope) => scope.id === values.scope_id) && (
-                <option value={values.scope_id}>Kayıtlı kapsam ({values.scope_id})</option>
+              !(refs.scopes || []).some(
+                (scope) => scope.id === values.scope_id,
+              ) && (
+                <option value={values.scope_id}>
+                  Kayıtlı kapsam ({values.scope_id})
+                </option>
               )}
             {(refs.scopes || [])
-              .filter((scope) => scope.vrf_id === prefix.vrf_id || scope.id === values.scope_id)
+              .filter(
+                (scope) =>
+                  scope.vrf_id === prefix.vrf_id ||
+                  scope.id === values.scope_id,
+              )
               .map((scope) => (
                 <option key={scope.id} value={scope.id}>
                   {scope.name} · {scope.cidr}
@@ -161,8 +171,9 @@ function PrefixSettings({
           </select>
         </Field>
         <p className="ipam-hint" id="prefix-scope-help">
-          Kapsam bu ağ bloğunu içermelidir. İlişkiyi kaldırmak için “Bağlantı yok”
-          seçip ayarları kaydedin. Bu işlem keşif kapsamını silmez ve tarama yetkisini değiştirmez.
+          Kapsam bu ağ bloğunu içermelidir. İlişkiyi kaldırmak için “Bağlantı
+          yok” seçip ayarları kaydedin. Bu işlem keşif kapsamını silmez ve
+          tarama yetkisini değiştirmez.
         </p>
         <div className="ipam-fields">
           {choices("dns_server_id", "DNS sunucusu", refs["dns-servers"] || [])}
@@ -800,62 +811,57 @@ export function IPAMWorkspace({
       <ErrorNote error={error} />
       {prefix && (
         <section className="panel ipam-block-header">
-          <div className="ipam-actions">
-            <button className="secondary" onClick={() => choosePrefix(null)}>
-              <ArrowLeft size={17} aria-hidden="true" />
-              Ağ blokları
-            </button>
-            <h2>{prefix.display_name || prefix.cidr}</h2>
+          <div className="ipam-block-overview">
+            <div className="ipam-actions ipam-block-title">
+              <button className="secondary" onClick={() => choosePrefix(null)}>
+                <ArrowLeft size={17} aria-hidden="true" />
+                Ağ blokları
+              </button>
+              <h2>{prefix.display_name || prefix.cidr}</h2>
+            </div>
+            <div
+              className={`ipam-block-usage${prefix.threshold_exceeded ? " is-warning" : ""}`}
+              aria-label="Ağ bloğu kullanımı"
+            >
+              <strong>
+                {prefix.used || 0} / {prefix.capacity} <span>aktif IP</span>
+              </strong>
+              <span className="ipam-block-percentage">
+                %{prefix.utilization || 0} kullanım
+              </span>
+            </div>
           </div>
-          <p>
-            {prefix.used || 0} / {prefix.capacity} aktif IP · %
-            {prefix.utilization || 0} kullanım · Uyarı eşiği %
-            {prefix.warning_threshold}
-          </p>
-          <p className="ipam-hint">
-            Doluluk, son ping kontrolünde yanıt veren aktif IP’lere göre
-            hesaplanır. Yanıt vermeyen IP’ler doluluğa dahil edilmez.
-          </p>
-          <div className="ipam-actions">
-            {canWrite && (
-              <>
-                <button
-                  className="secondary"
-                  onClick={() => onEdit("prefixes", prefix)}
-                >
-                  <PencilSimple size={17} />
-                  Ağ bloğunu düzenle
-                </button>
-                <button
-                  className="secondary"
-                  onClick={() => setSettings(prefix)}
-                >
-                  <GearSix size={17} />
-                  Ağ bloğu ayarları
-                </button>
+          {canWrite && (
+            <div className="ipam-scan-actions">
+              <div className="ipam-scan-action">
                 <button
                   className="secondary"
                   disabled={busy}
+                  aria-describedby="prefix-ping-help"
                   onClick={() => trigger("ping")}
                 >
-                  IP durumunu kontrol et
+                  <Waveform size={17} aria-hidden="true" />
+                  Kayıtlı IP’lere ping at
                 </button>
+                <small id="prefix-ping-help">
+                  Kayıtlı IP’lerin yanıt durumunu günceller.
+                </small>
+              </div>
+              <div className="ipam-scan-action">
                 <button
                   className="primary"
                   disabled={busy}
+                  aria-describedby="prefix-discover-help"
                   onClick={() => trigger("discover")}
                 >
-                  <Plus size={17} />
-                  Yeni sunucuları ekle
+                  <Broadcast size={17} aria-hidden="true" />
+                  Ağdaki IP’leri keşfet
                 </button>
-              </>
-            )}
-          </div>
-          {prefix.threshold_exceeded && (
-            <p className="ipam-warning" role="status">
-              IP kullanımı %{prefix.utilization}: %{prefix.warning_threshold}{" "}
-              uyarı eşiğine ulaşıldı.
-            </p>
+                <small id="prefix-discover-help">
+                  Ağı tarar; yanıt veren yeni IP’leri kaydeder.
+                </small>
+              </div>
+            </div>
           )}
         </section>
       )}
@@ -920,27 +926,30 @@ export function IPAMWorkspace({
                   <Funnel size={17} />
                   Filtreler{rules.length ? ` (${rules.length})` : ""}
                 </button>
-                <button
-                  className="secondary"
-                  onClick={() => setColumnOpen(true)}
-                >
-                  <Columns size={17} />
-                  Sütunlar
-                </button>
+                <div className="ipam-column-tools">
+                  <button
+                    className="secondary"
+                    onClick={() => setColumnOpen(true)}
+                  >
+                    <Columns size={17} />
+                    Sütunlar
+                  </button>
+                  {prefix && (
+                    <button
+                      type="button"
+                      className="secondary ipam-active-toggle"
+                      aria-pressed={activeOnly}
+                      onClick={() => {
+                        setActiveOnly((active) => !active);
+                        setOffset("0");
+                      }}
+                    >
+                      <Check size={17} aria-hidden="true" />
+                      Yalnızca aktif IP’ler
+                    </button>
+                  )}
+                </div>
               </>
-            )}
-            {prefix && (
-              <label className="ipam-check">
-                <input
-                  type="checkbox"
-                  checked={activeOnly}
-                  onChange={(e) => {
-                    setActiveOnly(e.target.checked);
-                    setOffset("0");
-                  }}
-                />
-                Yalnızca aktif IP’ler
-              </label>
             )}
           </div>
         </div>

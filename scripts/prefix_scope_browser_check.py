@@ -15,10 +15,9 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
-    page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
 
     def open_settings():
-        page.get_by_role("button", name="Ağ bloğu ayarları", exact=True).click()
+        page.get_by_role("button", name="192.0.2.0/24 ayarları", exact=True).click()
         return page.get_by_role("combobox", name="Keşif kapsamı", exact=True)
 
     def save_settings():

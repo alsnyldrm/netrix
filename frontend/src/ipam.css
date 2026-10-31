@@ -6,6 +6,85 @@
 }
 .ipam-block-header {
   padding: 24px;
+  display: grid;
+  gap: 24px;
+}
+.ipam-block-overview {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+.ipam-block-title {
+  min-width: 0;
+}
+.ipam-block-title h2 {
+  overflow-wrap: anywhere;
+}
+.ipam-block-usage {
+  display: grid;
+  gap: 4px;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--success);
+}
+.ipam-block-usage strong {
+  font-size: 28px;
+  line-height: 1.25;
+}
+.ipam-block-usage strong span {
+  font-size: 16px;
+  font-weight: 500;
+}
+.ipam-block-percentage {
+  color: var(--accent);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.ipam-block-usage.is-warning,
+.ipam-block-usage.is-warning .ipam-block-percentage {
+  color: var(--warning);
+}
+.ipam-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.ipam-scan-action {
+  display: grid;
+  gap: 8px;
+}
+.ipam-scan-action button {
+  min-height: 44px;
+}
+.ipam-scan-action small {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ipam-column-tools {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.ipam-table-tools .secondary {
+  min-height: 44px;
+}
+.ipam-table-tools .ipam-active-toggle {
+  color: var(--text-2);
+}
+.ipam-table-tools .ipam-active-toggle[aria-pressed="true"],
+.ipam-table-tools .ipam-active-toggle[aria-pressed="true"]:hover {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+.ipam-active-toggle[aria-pressed="false"] svg {
+  visibility: hidden;
 }
 .ipam-block-header h2 {
   margin: 0;
@@ -167,6 +246,21 @@
   vertical-align: middle;
 }
 @media (max-width: 640px) {
+  .ipam-column-tools button {
+    min-width: 0;
+    white-space: normal;
+  }
+  .ipam-block-overview {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .ipam-block-usage {
+    align-self: flex-end;
+  }
+  .ipam-scan-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
   .ipam-fields {
     grid-template-columns: minmax(0, 1fr);
   }

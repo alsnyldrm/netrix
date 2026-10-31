@@ -41,7 +41,7 @@ with sync_playwright() as p:
         )
     page.reload()
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
-    page.get_by_role("checkbox", name="Yalnızca aktif IP’ler", exact=True).uncheck()
+    expect(page.get_by_role("button", name="Yalnızca aktif IP’ler", exact=True)).to_have_attribute("aria-pressed", "false")
     page.get_by_placeholder("Tüm alanlarda ara…").fill("Room 02")
     cells = page.get_by_role("cell", name="Room 02", exact=True)
     expect(cells).to_have_count(3)
