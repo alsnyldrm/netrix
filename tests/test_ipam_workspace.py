@@ -87,11 +87,11 @@ def test_block_settings_scope_exclusions_and_dedup(admin_client, inventory, env)
     b = c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").json()
     assert a["id"] == b["id"]
     c.post("/api/v1/addresses", json={"address": "192.0.2.1", "prefix_id": p["id"], "vrf_id": p["vrf_id"]})
-    assert c.get("/api/v1/prefixes").json()["items"][0]["threshold_exceeded"] is True
+    assert c.get("/api/v1/prefixes").json()["items"][0]["threshold_exceeded"] is False
 
 
 @pytest.mark.asyncio
-async def test_scan_dns_no_reply_not_free_and_no_real_network(admin_client, inventory, env, monkeypatch):
+async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(admin_client, inventory, env, monkeypatch):
     c = admin_client
     p = prefix(c, inventory)
     dns = c.post("/api/v1/dns-servers", json={"name": "Internal", "address": "192.0.2.53"}).json()

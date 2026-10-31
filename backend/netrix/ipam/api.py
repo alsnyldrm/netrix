@@ -27,6 +27,7 @@ def addresses(
     offset: str = "0",
     limit: int = Query(100, ge=1, le=200),
     allocated: bool = False,
+    active_only: bool = False,
     q: str = Query("", max_length=200),
     filters: str = Query("[]", max_length=12000),
     user=Depends(current_user),
@@ -35,13 +36,14 @@ def addresses(
     if not offset.isdigit() or len(offset) > 40:
         raise HTTPException(422, "Geçersiz adres başlangıcı")
     return read_cache.json_response(
-        ["prefix-addresses", id, offset, limit, allocated, q, filters],
+        ["prefix-addresses", id, offset, limit, allocated, active_only, q, filters],
         lambda: table.addresses(
             db,
             svc.get(db, m.Prefix, id),
             offset=int(offset),
             limit=limit,
             allocated=allocated,
+            active_only=active_only,
             q=q,
             filters=filters,
         ),

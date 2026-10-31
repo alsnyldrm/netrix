@@ -113,10 +113,14 @@ def matches(row, q, rules):
     return result is not False
 
 
-def addresses(db, prefix=None, *, offset=0, limit=100, allocated=False, q="", filters="[]"):
+def addresses(
+    db, prefix=None, *, offset=0, limit=100, allocated=False, active_only=False, q="", filters="[]"
+):
     rules = rules_from(filters)
     if prefix and not q and not rules:
-        result = service.prefix_addresses(db, prefix, offset, limit, allocated, details=False)
+        result = service.prefix_addresses(
+            db, prefix, offset, limit, allocated, active_only=active_only, details=False
+        )
     else:
         stmt = select(m.IPAddress)
         if prefix:
@@ -127,7 +131,9 @@ def addresses(db, prefix=None, *, offset=0, limit=100, allocated=False, q="", fi
             rows = [r for r in rows if ipaddress.ip_address(r.address) in network]
         enriched = service.enrich(db, rows, details=False)
         registered_only = False
-        if prefix and not allocated:
+        if active_only:
+            enriched = [r for r in enriched if r["availability"] == "active"]
+        if prefix and not allocated and not active_only:
             if network.num_addresses <= 65536:
                 by_ip = {r["address"]: r for r in enriched}
                 metadata = service.prefix_metadata(db, prefix)

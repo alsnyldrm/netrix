@@ -198,6 +198,9 @@ with session_factory()() as db:
         )
     )
     observe(db, p, "192.0.2.65", "inventory", backbone.id, {"mac_address": "8a:75:c0:b6:26:d9"})
+    observe(db, p, "192.0.2.10", "icmp", p.id, {"reachability": "reachable"})
+    observe(db, p, "192.0.2.65", "icmp", p.id, {"reachability": "reachable"})
+    observe(db, p, "192.0.2.2", "icmp", p.id, {"reachability": "no_reply"})
     db.commit()
 if __name__ == "__main__":
     import uvicorn

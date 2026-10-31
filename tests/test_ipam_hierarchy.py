@@ -1,7 +1,6 @@
 import json
 
 from netrix import models as m
-from netrix.core import now
 from netrix.ipam.service import observe
 from sqlalchemy import select
 
@@ -117,6 +116,7 @@ def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, 
             {"mac_address": "aa:bb:cc:dd:ee:ff", "reachability": "no_reply"},
         )
         observed_id = observed.id
+        observe(db, prefix, "192.0.2.111", "icmp", prefix.id, {"reachability": "no_reply"})
         db.commit()
     base = f"/api/v1/ipam/prefixes/{p['id']}/addresses"
     r = c.get(base, params={"q": "LINUX ee:ff", "allocated": "true"}).json()
@@ -184,7 +184,12 @@ def test_interface_device_ownership_and_usage_reservations(admin_client, invento
         first, second, port_id = devices[0].id, devices[1].id, port.id
     data = dict(address="192.0.2.1", prefix_id=p["id"], vrf_id=p["vrf_id"], interface_id=port_id)
     assert c.post("/api/v1/addresses", json={**data, "device_id": second}).status_code == 422
-    item = c.post("/api/v1/addresses", json={**data, "device_id": first}).json()
+    assert c.post("/api/v1/addresses", json={**data, "device_id": first}).status_code == 201
+    summary = c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"warning_threshold": 80}).json()
+    assert summary["utilization"] == 0 and summary["threshold_exceeded"] is False
+    with env() as db:
+        observe(db, db.get(m.Prefix, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "reachable"})
+        db.commit()
     summary = c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"warning_threshold": 80}).json()
     assert summary["utilization"] == 50 and summary["threshold_exceeded"] is False
     assert (
@@ -194,18 +199,10 @@ def test_interface_device_ownership_and_usage_reservations(admin_client, invento
         is True
     )
     with env() as db:
-        db.add(
-            m.IPObservation(
-                address_id=item["id"],
-                source="icmp",
-                source_key=p["id"],
-                data={"reachability": "no_reply"},
-                observed_at=now(),
-            )
-        )
+        observe(db, db.get(m.Prefix, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "no_reply"})
         db.commit()
     result = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses?allocated=true").json()
-    assert result["prefix"]["used"] == 1
+    assert result["prefix"]["used"] == 0
     assert result["items"][0]["connected_device"] == "D0" and result["items"][0]["connected_port"] == "Port 1"
 
 
@@ -298,4 +295,4 @@ def test_virtual_port_visible_without_claiming_physical_connection(admin_client,
         db.commit()
     row = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses?allocated=true").json()["items"][0]
     assert row["connected_port"] == "42" and row["connected_device"] == "VMware"
-    assert "connections" not in row and row["availability"] == "active"
+    assert "connections" not in row and row["availability"] == "unknown"

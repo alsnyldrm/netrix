@@ -261,3 +261,11 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - `ipam_hierarchy_browser_check.py`: 1440×1000, 375×812 ve 812×375, açık/koyu temada 78 axe kontrolü; ihlal ve JS hatası yok. Kurum filtresi, ana/alt ayrımı, üst seçimde temizleme, kaydetme/yeniden açma, toplu düzenleme, kaydırılabilen mobil alt alanlar ve kaydet butonu doğrulandı. Masaüstü ve mobil görüntüler incelendi; alan hizaları ve yükseklikleri tutarlı.
 - TypeScript/Vite üretim derlemesi, Ruff, Prettier ve diff kontrolü geçti. Mevcut Vite 500 kB paket uyarısı ve Starlette/httpx deprecation uyarısı devam ediyor. Yeni bağımlılık yok.
 - Son tam Python test takımı: **535 geçti** (224,32 saniye); testler gerçek cihaz ağına erişmedi.
+
+
+## Aktif IP filtresi ve ping tabanlı doluluk (31 Ekim 2026)
+
+- Kullanıcı doluluğun kayıt/rezervasyon sayısına göre değil aktif ping yanıtlarına göre hesaplanmasını istedi. Son 24 saatteki en son ICMP gözlemi `reachable` olan IP'ler dolu/aktif sayılır. `no_reply`, bilinmeyen, eskimiş veya geçersiz gözlemler dahil edilmez; VMware güç durumu ve manuel atama durumu aktivite yerine geçmez. Geçmiş kayıtlar silinmez.
+- Arayüz kutusu **Yalnızca aktif IP’ler**, istek parametresi `active_only` oldu. Aktiflik sayfalama öncesi uygulanır; arama ve gelişmiş filtrelerle birlikte çalışır. Başlık ve doluluk açıklaması yeni davranışı ifade eder. Eski API istemcilerinin `allocated` kayıt filtresi uyumluluk için korunur; arayüz bunu kullanmaz. Doluluk özeti tüm VRF ping sonuçlarını tek sorguda toplar; topoloji çözümü çalıştırmaz.
+- İki yeni test önce başarısız oldu, düzeltme sonrasında 46 ilgili test geçti. Son eklenen önbellek yenileme senaryosuyla iki yeni test tekrar geçti: ping yanıtı geldiğinde aktif toplam artar, yanıt kesildiğinde azalır, kayıt korunur. Sonuç önceliği, eski ping, VMware açık ama ping yok/yanıt yok, eşik sınırı, arama, sayfalama, IPv6 ve /31-/32 kapasitesi doğrulandı.
+- TypeScript/Vite, Ruff, Prettier ve diff kontrolleri geçti. `ipam_endpoint_browser_check.py` masaüstü/mobil, açık/koyu temada 8 axe kontrolünü geçti; JS hatası ve erişilebilirlik ihlali yok. Kutu açma/kapama, pasif satırın çıkması/geri gelmesi ve aktif doluluk metni doğrulandı; ekran görüntüleri incelendi. Şema ve bağımlılık değişmedi.

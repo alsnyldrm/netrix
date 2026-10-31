@@ -131,7 +131,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Kaydı kaydet", exact=True).click()
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     expect(page.get_by_role("heading", name="VLAN-10 / SERVER | 192.0.2.0/24", exact=True)).to_be_visible()
-    page.get_by_role("checkbox", name="Yalnızca kayıtlı IP’ler", exact=True).check()
+    page.get_by_role("checkbox", name="Yalnızca aktif IP’ler", exact=True).check()
     page.get_by_role("button", name="192.0.2.10 düzenle", exact=True).click()
     expect(page.get_by_label("IP adresi", exact=True)).to_have_attribute("readonly", "")
     page.get_by_role("combobox", name="Bağlı cihaz", exact=True).select_option(label="Core Switch")

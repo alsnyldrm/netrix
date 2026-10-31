@@ -594,7 +594,7 @@ export function IPAMWorkspace({
   const [total, setTotal] = useState("0");
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
-  const [allocated, setAllocated] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<Row | null>(null);
@@ -643,7 +643,7 @@ export function IPAMWorkspace({
       prefix?.id,
       offset,
       query,
-      allocated,
+      activeOnly,
       rules,
     ]);
     if (previousScope.current !== scope) setLoaded(false);
@@ -655,7 +655,7 @@ export function IPAMWorkspace({
         const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
         const result = prefix
           ? await api(
-              `/ipam/prefixes/${prefix.id}/addresses?allocated=${allocated}&${params}`,
+              `/ipam/prefixes/${prefix.id}/addresses?active_only=${activeOnly}&${params}`,
             )
           : page === "addresses"
             ? await api(`/ipam/addresses?${params}`)
@@ -682,10 +682,10 @@ export function IPAMWorkspace({
       active = false;
       clearTimeout(timer);
     };
-  }, [page, prefix?.id, offset, query, allocated, refresh, rules]);
+  }, [page, prefix?.id, offset, query, activeOnly, refresh, rules]);
   useEffect(() => {
     setSelected([]);
-  }, [prefix?.id, query, rules, allocated]);
+  }, [prefix?.id, query, rules, activeOnly]);
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     let active = true;
@@ -781,13 +781,13 @@ export function IPAMWorkspace({
             <h2>{prefix.display_name || prefix.cidr}</h2>
           </div>
           <p>
-            {prefix.used || 0} / {prefix.capacity} atanmış IP · %
+            {prefix.used || 0} / {prefix.capacity} aktif IP · %
             {prefix.utilization || 0} kullanım · Uyarı eşiği %
             {prefix.warning_threshold}
           </p>
           <p className="ipam-hint">
-            Kullanım, atanan ve rezerve edilen IP’leri kapsar; ping yanıtı
-            vermeyen bir adres boş sayılmaz.
+            Doluluk, son ping kontrolünde yanıt veren aktif IP’lere göre
+            hesaplanır. Yanıt vermeyen IP’ler doluluğa dahil edilmez.
           </p>
           <div className="ipam-actions">
             {canWrite && (
@@ -863,7 +863,9 @@ export function IPAMWorkspace({
           <div className="table-title">
             <b>
               {prefix
-                ? "Ağ içindeki tüm IP adresleri"
+                ? activeOnly
+                  ? "Ağ içindeki aktif IP adresleri"
+                  : "Ağ içindeki tüm IP adresleri"
                 : isBlocks
                   ? "Ağ blokları"
                   : "IP adresleri"}
@@ -904,13 +906,13 @@ export function IPAMWorkspace({
               <label className="ipam-check">
                 <input
                   type="checkbox"
-                  checked={allocated}
+                  checked={activeOnly}
                   onChange={(e) => {
-                    setAllocated(e.target.checked);
+                    setActiveOnly(e.target.checked);
                     setOffset("0");
                   }}
                 />
-                Yalnızca kayıtlı IP’ler
+                Yalnızca aktif IP’ler
               </label>
             )}
           </div>

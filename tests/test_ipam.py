@@ -43,7 +43,10 @@ def test_normalized_ip_uniqueness_vrf_and_prefix_boundaries(admin_client):
         ("2001:db8::/64", ["2001:db8::1"]),
     ],
 )
-def test_ipv6_and_point_to_point_capacity(admin_client, cidr, addresses):
+def test_ipv6_and_point_to_point_capacity(admin_client, env, cidr, addresses):
+    from netrix import models as m
+    from netrix.ipam.service import observe
+
     c = admin_client
     vrf = c.get("/api/v1/vrfs").json()["items"][0]["id"]
     p = c.post("/api/v1/prefixes", json={"cidr": cidr, "vrf_id": vrf})
@@ -56,6 +59,15 @@ def test_ipv6_and_point_to_point_capacity(admin_client, cidr, addresses):
             == 201
         )
     row = c.get("/api/v1/prefixes").json()["items"][0]
+    assert row["used"] == 0
+    with env() as db:
+        prefix = db.get(m.Prefix, p.json()["id"])
+        for address in addresses:
+            observe(db, prefix, address, "icmp", prefix.id, {"reachability": "reachable"})
+        db.commit()
+        from netrix.ipam.service import prefix_summary
+
+        row = prefix_summary(db, prefix)
     assert row["used"] == len(addresses)
     if ":" not in cidr:
         assert row["utilization"] == 100

@@ -84,16 +84,55 @@ def require_scope(db, prefix, scope_id=None):
     )
 
 
+def ping_availability(observations, *, at=None):
+    """Only a recent, explicit ICMP response establishes active IP usage."""
+    latest = max(
+        (o for o in observations if o.source == "icmp"),
+        key=lambda o: (o.observed_at, o.id),
+        default=None,
+    )
+    if (
+        not latest
+        or latest.observed_at < (at or now()) - timedelta(hours=24)
+        or not latest.data.get("present", True)
+    ):
+        return "unknown"
+    return {"reachable": "active", "no_reply": "passive"}.get(latest.data.get("reachability"), "unknown")
+
+
+def active_address_ids(db, vrf_ids):
+    # Batch lightweight ping facts; do not resolve device topology to count IPs.
+    latest = {}
+    for address_id, data in db.execute(
+        select(m.IPObservation.address_id, m.IPObservation.data)
+        .join(m.IPAddress, m.IPAddress.id == m.IPObservation.address_id)
+        .where(
+            m.IPAddress.vrf_id.in_(vrf_ids),
+            m.IPObservation.source == "icmp",
+            m.IPObservation.observed_at >= now() - timedelta(hours=24),
+        )
+        .order_by(m.IPObservation.observed_at.desc(), m.IPObservation.id.desc())
+    ):
+        latest.setdefault(address_id, data)
+    return {
+        id
+        for id, data in latest.items()
+        if data.get("present", True) and data.get("reachability") == "reachable"
+    }
+
+
 def prefix_summaries(db, prefixes):
     if not prefixes:
         return []
     assignments = {}
-    for vrf_id, address, status in db.execute(
-        select(m.IPAddress.vrf_id, m.IPAddress.address, m.IPAddress.status).where(
-            m.IPAddress.vrf_id.in_({p.vrf_id for p in prefixes}), m.IPAddress.status != "deprecated"
+    vrf_ids = {p.vrf_id for p in prefixes}
+    active = active_address_ids(db, vrf_ids)
+    for id, vrf_id, address, status in db.execute(
+        select(m.IPAddress.id, m.IPAddress.vrf_id, m.IPAddress.address, m.IPAddress.status).where(
+            m.IPAddress.vrf_id.in_(vrf_ids)
         )
     ):
-        assignments.setdefault(vrf_id, []).append((ipaddress.ip_address(address), status))
+        assignments.setdefault(vrf_id, []).append((id, ipaddress.ip_address(address), status))
     vlans = {
         v.id: v
         for v in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({p.vlan_id for p in prefixes if p.vlan_id})))
@@ -103,14 +142,16 @@ def prefix_summaries(db, prefixes):
         network = ipaddress.ip_network(prefix.cidr)
         capacity = network.num_addresses - (2 if network.version == 4 and network.prefixlen < 31 else 0)
         counts = {"active": 0, "reserved": 0}
-        for ip, status in assignments.get(prefix.vrf_id, ()):
+        used = 0
+        for id, ip, status in assignments.get(prefix.vrf_id, ()):
             if ip in network and not (
                 network.version == 4
                 and network.prefixlen < 31
                 and ip in (network.network_address, network.broadcast_address)
             ):
-                counts[status] += 1
-        used = sum(counts.values())
+                if status in counts:
+                    counts[status] += 1
+                used += int(id in active)
         vlan = vlans.get(prefix.vlan_id)
         item = serialize(prefix)
         item.update(
@@ -344,15 +385,7 @@ def enrich(db, rows, *, details=True):
         vlan = vlans.get(prefixes[row.prefix_id].vlan_id)
         item["vlan"] = f"VLAN-{vlan.vid} / {vlan.name}" if vlan else ""
         item["cidr"] = prefixes[row.prefix_id].cidr
-        item["availability"] = "unknown"
-        if item.get("reachability") == "reachable":
-            item["availability"] = "active"
-        elif item.get("reachability") == "no_reply":
-            item["availability"] = "passive"
-        elif item.get("power_state") == "poweredOn":
-            item["availability"] = "active"
-        elif item.get("power_state") in ("poweredOff", "suspended"):
-            item["availability"] = "passive"
+        item["availability"] = ping_availability(obs)
         result.append(item)
     return result
 
@@ -394,14 +427,15 @@ def prefix_metadata(db, prefix):
     }
 
 
-def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False, *, details=True):
+def prefix_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_only=False, details=True):
     network = ipaddress.ip_network(prefix.cidr)
-    if allocated:
+    if allocated or active_only:
+        active = active_address_ids(db, {prefix.vrf_id}) if active_only else None
         rows = sorted(
             (
                 r
                 for r in db.scalars(select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id))
-                if ipaddress.ip_address(r.address) in network
+                if ipaddress.ip_address(r.address) in network and (active is None or r.id in active)
             ),
             key=lambda r: int(ipaddress.ip_address(r.address)),
         )
