@@ -55,8 +55,17 @@ class Audit(Entity, Base):
     summary: Mapped[str] = mapped_column(String(400))
 
 
+class Institution(Entity, Base):
+    __tablename__ = "institutions"
+    name: Mapped[str] = mapped_column(String(190))
+    code: Mapped[str] = mapped_column(String(20), unique=True)
+    lock_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
 class Site(Entity, Base):
     __tablename__ = "sites"
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     code: Mapped[str] = mapped_column(String(40), unique=True)
     description: Mapped[str] = mapped_column(String(400), default="")
@@ -65,9 +74,35 @@ class Site(Entity, Base):
 
 class Cabinet(Entity, Base):
     __tablename__ = "cabinets"
+    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
+    units: Mapped[int] = mapped_column(Integer, default=42, server_default="42")
+    lock_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    __table_args__ = (CheckConstraint("units >= 1 AND units <= 60", name="ck_cabinet_units"),)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     description: Mapped[str] = mapped_column(String(400), default="")
+
+
+class ModelImage(Entity, Base):
+    __tablename__ = "model_images"
+    vendor: Mapped[str] = mapped_column(String(80))
+    model: Mapped[str] = mapped_column(String(100))
+    url: Mapped[str] = mapped_column(String(500))
+    source: Mapped[str] = mapped_column(String(500))
+    __table_args__ = (UniqueConstraint("vendor", "model"),)
+
+
+class RackPlacement(Entity, Base):
+    __tablename__ = "rack_placements"
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), unique=True)
+    start_unit: Mapped[int] = mapped_column(Integer)
+    units: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (
+        CheckConstraint(
+            "start_unit >= 1 AND units >= 1 AND start_unit + units - 1 <= 60", name="ck_rack_position"
+        ),
+    )
 
 
 class OperatingSystem(Entity, Base):
@@ -191,6 +226,8 @@ class Interface(Entity, Base):
 
 class Prefix(Entity, Base):
     __tablename__ = "prefixes"
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    scan_authorized: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     cidr: Mapped[str] = mapped_column(String(49))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
     vlan_id: Mapped[str | None] = mapped_column(ForeignKey("vlans.id"), nullable=True, index=True)
@@ -241,6 +278,7 @@ class Integration(Entity, Base):
 
 class IPAddress(Entity, Base):
     __tablename__ = "ip_addresses"
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
     address: Mapped[str] = mapped_column(String(45))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
     prefix_id: Mapped[str] = mapped_column(ForeignKey("prefixes.id"), index=True)

@@ -8,8 +8,15 @@ from .. import models as m
 from .. import services as svc
 from ..core import db_session, now
 from ..identity.security import admin, audit, current_user, operator
-from . import jobs, service
-from .schemas import IntegrationInput, LiveInput, PrefixSettings
+from . import jobs, service, table
+from .schemas import (
+    AddressBulkInput,
+    IntegrationInput,
+    LiveInput,
+    ModelImageInput,
+    PlacementInput,
+    PrefixSettings,
+)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -20,12 +27,22 @@ def addresses(
     offset: str = "0",
     limit: int = Query(100, ge=1, le=200),
     allocated: bool = False,
+    q: str = Query("", max_length=200),
+    filters: str = Query("[]", max_length=12000),
     user=Depends(current_user),
     db=Depends(db_session),
 ):
     if not offset.isdigit() or len(offset) > 40:
         raise HTTPException(422, "Geçersiz adres başlangıcı")
-    return service.prefix_addresses(db, svc.get(db, m.Prefix, id), int(offset), limit, allocated)
+    return table.addresses(
+        db,
+        svc.get(db, m.Prefix, id),
+        offset=int(offset),
+        limit=limit,
+        allocated=allocated,
+        q=q,
+        filters=filters,
+    )
 
 
 @router.put("/ipam/prefixes/{id}/settings")
@@ -120,3 +137,48 @@ def live(id: str, payload: LiveInput, user=Depends(operator), db=Depends(db_sess
             return svc.serialize(job)
     except RedisError:
         raise HTTPException(503, "Canlı izleme hizmetine ulaşılamadı") from None
+
+
+@router.get("/ipam/addresses")
+def address_table(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    q: str = Query("", max_length=200),
+    filters: str = Query("[]", max_length=12000),
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    return table.addresses(db, offset=offset, limit=limit, q=q, filters=filters)
+
+
+@router.post("/ipam/addresses/bulk")
+def address_bulk(payload: AddressBulkInput, user=Depends(operator), db=Depends(db_session)):
+    return table.bulk(db, payload, user)
+
+
+@router.get("/ipam/cabinets/{id}")
+def cabinet_detail(id: str, user=Depends(current_user), db=Depends(db_session)):
+    from .racks import detail
+
+    return detail(db, id)
+
+
+@router.put("/ipam/cabinets/{id}/placements")
+def cabinet_place(id: str, payload: PlacementInput, user=Depends(operator), db=Depends(db_session)):
+    from .racks import place
+
+    return place(db, id, payload, user)
+
+
+@router.delete("/ipam/cabinets/{id}/placements/{device_id}", status_code=204)
+def cabinet_unplace(id: str, device_id: str, user=Depends(operator), db=Depends(db_session)):
+    from .racks import unplace
+
+    unplace(db, id, device_id, user)
+
+
+@router.put("/ipam/devices/{id}/model-image")
+def model_image_save(id: str, payload: ModelImageInput, user=Depends(operator), db=Depends(db_session)):
+    from .model_images import save_image
+
+    return save_image(db, id, payload, user)

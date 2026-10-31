@@ -150,3 +150,8 @@ Alembic `20261031_13`: `dns_servers`, şifreli `integrations`, kaynak/kimlik ba�
 Alembic `20261031_14`: `cabinets(id, name, site_id, description)` ve `operating_systems(id, name, description)` katalogları. Her iki ad tekildir; kabinetin opsiyonel lokasyonu mevcut `sites` tablosuna indeksli FK ile bağlıdır. Zaman alanları `DATETIME(6)`/UTC'dir. Kataloglar başlangıçta boştur; dolu kataloglarla downgrade engellenir. Ortak `sites` ekranı IP adres yönetimi menüsüne taşınmıştır; cihaz ve ağ bloğu ilişkileri aynı kayıtlara bağlı kalır.
 
 IP formu bu kataloglardan ve ortak lokasyonlardan ad önerileri sunar; IP üzerindeki mevcut manuel metin alanları korunur. Öneri seçimi adı metin olarak kaydeder; katalog adını düzenlemek/silmek geçmiş IP değerlerini değiştirmez. Kaynaklardan gelen OS/konum gözlemleri ayrı kalır. Kabinet ve işletim sistemi CRUD işlemleri merkezi yetkilendirme, audit ve doğrulama katmanını kullanır.
+
+
+## Kurum/lokasyon hiyerarşisi ve kabinet yerleşimi (31 Ekim 2026)
+
+Alembic `20261031_15`: `institutions`, `rack_placements` ve `model_images` tabloları; `sites.institution_id/parent_id`, `prefixes.institution_id/scan_authorized`, `cabinets.sub_site_id/units/lock_version`, `ip_addresses.device_id`. İlişkiler indeksli FK, cihaz başına tek yerleşim UNIQUE ve kapasite/konum CHECK ile korunur. Kurum ve kabinet sürüm alanları kod dağıtımı/yerleşim yarışlarını serileştirir. Kurum gerekliliği ve iki seviyeli lokasyon sınırı servis doğrulamasındadır; eski lokasyonların kurum alanı veri kaybı olmadan boş kalır. Aynı kabinet içindeki U çakışması, kabinet satırının kilidi altında doğrulanır. Üretici görsel eşlemesi `(vendor, model)` başına tekildir. Yeni veriler doluyken kayıplı downgrade engellenir. Zamanlar `DATETIME(6)`/UTC'dir.

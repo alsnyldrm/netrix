@@ -86,6 +86,7 @@ import {
 } from "./inventory";
 import { BackupWorkspace } from "./backups";
 import { IPAMWorkspace, Integrations } from "./ipam";
+import { Locations, Cabinets } from "./locations";
 
 type Row = Record<string, any>;
 type Field = {
@@ -289,7 +290,8 @@ export const PAGES: Page[] = [
       }),
       ref("vrf_id", "VRF", "vrfs", true),
       ref("vlan_id", "VLAN", "vlans"),
-      ref("site_id", "Lokasyon", "sites"),
+      ref("institution_id", "Kurum", "institutions", true),
+      ref("site_id", "Lokasyon", "sites", true),
       f("description", "Açıklama"),
     ],
   },
@@ -315,17 +317,15 @@ export const PAGES: Page[] = [
       f("hostname", "Hostname"),
       f("operating_system", "İşletim sistemi", {
         suggestions: "operating-systems",
-        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
       }),
       f("cabinet", "Kabinet no", {
         suggestions: "cabinets",
-        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
       }),
       f("location", "Lokasyon", {
         suggestions: "sites",
-        hint: "Listeden seçebilir veya farklı bir değer yazabilirsiniz.",
       }),
       options("status", "Durum", ["reserved", "active", "deprecated"]),
+      ref("device_id", "Bağlı cihaz", "devices"),
       ref("interface_id", "Arayüz", "interfaces"),
     ],
   },
@@ -361,7 +361,13 @@ export const PAGES: Page[] = [
     ],
     fields: [
       f("name", "Kabinet no", { required: true }),
-      ref("site_id", "Lokasyon", "sites"),
+      ref("site_id", "Lokasyon", "sites", true),
+      ref("sub_site_id", "Alt lokasyon", "sites"),
+      f("units", "Kapasite (U)", {
+        type: "number",
+        default: 42,
+        required: true,
+      }),
       f("description", "Açıklama"),
     ],
   },
@@ -395,6 +401,7 @@ export const PAGES: Page[] = [
       ["timezone", "Saat dilimi"],
     ],
     fields: [
+      ref("institution_id", "Kurum", "institutions", true),
       f("name", "Lokasyon adı", { required: true }),
       f("code", "Benzersiz kod", { required: true }),
       f("description", "Açıklama"),
@@ -1189,6 +1196,42 @@ function Auth({
     </div>
   );
 }
+export function resourceChoices(
+  field: Field,
+  refs: Record<string, Row[]>,
+  values: Row,
+  page: string,
+) {
+  return (refs[field.ref || ""] || []).filter((r) => {
+    if (page === "addresses" && field.key === "interface_id")
+      return !!values.device_id && r.device_id === values.device_id;
+    if (page === "addresses" && field.key === "device_id")
+      return !values.vrf_id || r.vrf_id === values.vrf_id;
+    if (page === "addresses" && field.key === "prefix_id")
+      return !values.vrf_id || r.vrf_id === values.vrf_id;
+    if (page === "prefixes" && field.key === "site_id")
+      return (
+        !!values.institution_id &&
+        r.institution_id === values.institution_id &&
+        !r.parent_id
+      );
+    if (page === "cabinets" && field.key === "site_id") return !r.parent_id;
+    if (page === "cabinets" && field.key === "sub_site_id")
+      return !!values.site_id && r.parent_id === values.site_id;
+    return true;
+  });
+}
+export function dependentChange(values: Row, key: string, value: any) {
+  const next = { ...values, [key]: value };
+  if (key === "institution_id" && "site_id" in next) next.site_id = "";
+  if (key === "site_id" && "sub_site_id" in next) next.sub_site_id = "";
+  if (key === "device_id" && "interface_id" in next) next.interface_id = "";
+  if (key === "vrf_id") {
+    for (const dependent of ["prefix_id", "device_id", "interface_id"])
+      if (dependent in next) next[dependent] = "";
+  }
+  return next;
+}
 function ResourceForm({
   page,
   row,
@@ -1215,7 +1258,9 @@ function ResourceForm({
             : field.type === "array"
               ? []
               : field.required && field.ref
-                ? refs[field.ref]?.[0]?.id || ""
+                ? ["site_id", "sub_site_id", "interface_id"].includes(field.key)
+                  ? ""
+                  : refs[field.ref]?.[0]?.id || ""
                 : ""),
       ]),
     ),
@@ -1346,17 +1391,42 @@ function ResourceForm({
                 </span>
               ) : (
                 <>
-                  {field.type === "select" ? (
+                  {field.suggestions ? (
                     <select
-                      required={field.required}
+                      aria-label={field.label}
                       value={values[field.key] || ""}
                       onChange={(e) =>
                         setValues({ ...values, [field.key]: e.target.value })
                       }
                     >
+                      <option value="">Seçilmedi</option>
+                      {[
+                        ...new Set([
+                          ...(refs[field.suggestions] || []).map((r) => r.name),
+                          ...(values[field.key] ? [values[field.key]] : []),
+                        ]),
+                      ]
+                        .sort((a, b) => a.localeCompare(b, "tr"))
+                        .map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                    </select>
+                  ) : field.type === "select" ? (
+                    <select
+                      aria-label={field.label}
+                      required={field.required}
+                      value={values[field.key] || ""}
+                      onChange={(e) =>
+                        setValues(
+                          dependentChange(values, field.key, e.target.value),
+                        )
+                      }
+                    >
                       {field.ref && <option value="">Seçiniz</option>}
                       {(field.ref
-                        ? (refs[field.ref] || [])
+                        ? resourceChoices(field, refs, values, page.key)
                             .filter(
                               (r) =>
                                 page.key !== "devices" ||
@@ -1400,6 +1470,11 @@ function ResourceForm({
                     />
                   ) : (
                     <input
+                      readOnly={
+                        page.key === "addresses" &&
+                        field.key === "address" &&
+                        !!row?.address_locked
+                      }
                       aria-label={field.label}
                       aria-describedby={
                         field.hint ? `hint-${field.key}` : undefined
@@ -1416,24 +1491,13 @@ function ResourceForm({
                       }
                       value={values[field.key] ?? ""}
                       onChange={(e) =>
-                        setValues({ ...values, [field.key]: e.target.value })
+                        setValues(
+                          dependentChange(values, field.key, e.target.value),
+                        )
                       }
                     />
                   )}
                 </>
-              )}
-              {field.suggestions && (
-                <datalist id={`suggestions-${field.key}`}>
-                  {[
-                    ...new Set(
-                      (refs[field.suggestions] || []).map((r) => r.name),
-                    ),
-                  ]
-                    .sort((a, b) => a.localeCompare(b, "tr"))
-                    .map((name) => (
-                      <option key={name} value={name} />
-                    ))}
-                </datalist>
               )}
               {field.hint && (
                 <small id={`hint-${field.key}`}>{field.hint}</small>
@@ -2432,6 +2496,7 @@ function App() {
         if (active) setDashboard(d);
         const names = [
           "devices",
+          "institutions",
           "sites",
           "cabinets",
           "operating-systems",
@@ -2453,6 +2518,7 @@ function App() {
           names.map(async (name) => [
             name,
             [
+              "institutions",
               "sites",
               "cabinets",
               "operating-systems",
@@ -2885,6 +2951,7 @@ function App() {
                 {canWrite && (
                   <div className="page-actions">
                     {page.fields &&
+                      page.key !== "sites" &&
                       (isAdmin ||
                         !["credentials", "users"].includes(page.key)) && (
                         <button
@@ -2942,6 +3009,21 @@ function App() {
                 onEdit={(resource, row) =>
                   setForm({ page: PAGES.find((p) => p.key === resource)!, row })
                 }
+              />
+            ) : page.key === "sites" ? (
+              <Locations
+                refs={refs}
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+              />
+            ) : page.key === "cabinets" ? (
+              <Cabinets
+                refs={refs}
+                refresh={refresh}
+                user={user!}
+                onSaved={reload}
+                onEdit={(row) => setForm({ page, row })}
               />
             ) : page.key === "integrations" ? (
               <Integrations

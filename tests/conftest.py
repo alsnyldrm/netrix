@@ -134,9 +134,11 @@ def inventory(admin_client):
 
 
 @pytest.fixture
-def transfer_profiles(admin_client):
+def transfer_profiles(admin_client, institution):
     """Existing public profile references required by device file imports."""
-    response = admin_client.post("/api/v1/sites", json={"name": "Site-01", "code": "TRANSFER"})
+    response = admin_client.post(
+        "/api/v1/sites", json={"name": "Site-01", "code": "TRANSFER", "institution_id": institution["id"]}
+    )
     assert response.status_code == 201, response.text
     for name, protocol, secret in (
         (
@@ -150,3 +152,10 @@ def transfer_profiles(admin_client):
             "/api/v1/credentials", json={"name": name, "protocol": protocol, "secret": secret}
         )
         assert response.status_code == 201, response.text
+
+
+@pytest.fixture
+def institution(admin_client):
+    result = admin_client.post("/api/v1/institutions", json={"name": "Test institution", "code": "01"})
+    assert result.status_code == 201
+    return result.json()

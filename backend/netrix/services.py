@@ -16,6 +16,7 @@ from .identity.security import audit, encrypt
 from .ipam.schemas import DNSInput
 
 RESOURCES = {
+    "institutions": (m.Institution, s.InstitutionInput),
     "cabinets": (m.Cabinet, s.CabinetInput),
     "operating-systems": (m.OperatingSystem, s.OperatingSystemInput),
     "dns-servers": (m.DNSServer, DNSInput),
@@ -114,6 +115,9 @@ def lock_vrf(db, vrf_id):
 
 
 def validate_relations(db, name, data, row_id=None, *, lock=True):
+    from .ipam.locations import validate_location_relations
+
+    validate_location_relations(db, name, data, row_id)
     if "vrf_id" in data:
         if lock:
             lock_vrf(db, data["vrf_id"])
@@ -161,6 +165,16 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
                 if data["vrf_id"] != address.vrf_id or ipaddress.ip_address(address.address) not in network:
                     raise HTTPException(409, "Mevcut IP atamaları yeni prefix ile uyumsuz")
     if name == "addresses":
+        if row_id:
+            previous = get(db, m.IPAddress, row_id)
+            if previous.address != data["address"] and db.scalar(
+                select(m.IPObservation.id).where(m.IPObservation.address_id == row_id).limit(1)
+            ):
+                raise HTTPException(409, "Kaynaklardan gelen IP adresi değiştirilemez")
+        if data.get("device_id"):
+            device = get(db, m.Device, data["device_id"])
+            if device.archived or device.vrf_id != data["vrf_id"]:
+                raise HTTPException(422, "Bağlı cihaz aynı VRF içinde ve aktif envanterde olmalı")
         prefix = get(db, m.Prefix, data["prefix_id"])
         address, network = ipaddress.ip_address(data["address"]), ipaddress.ip_network(prefix.cidr)
         if prefix.vrf_id != data["vrf_id"] or address not in network:
@@ -174,6 +188,11 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
         if data.get("interface_id"):
             interface = get(db, m.Interface, data["interface_id"])
             device = get(db, m.Device, interface.device_id)
+            if data.get("device_id") and data["device_id"] != device.id:
+                raise HTTPException(422, "Arayüz seçilen bağlı cihaza ait değil")
+            if interface.is_deleted or device.archived:
+                raise HTTPException(422, "Arayüz aktif envanterde değil")
+            data["device_id"] = device.id
             if device.vrf_id != data["vrf_id"] or (prefix.site_id and prefix.site_id != device.site_id):
                 raise HTTPException(422, "Arayüzün VRF veya site bilgisi prefix ile uyumsuz")
     if name == "scopes" and get(db, m.Credential, data["credential_id"]).protocol not in SNMP_PROTOCOLS:
@@ -213,6 +232,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             for key in (*IDENTITY_CONNECTION_FIELDS, "vendor", "model", "kind", "lifecycle_status")
         )
     )
+    if name == "prefixes" and row_id and (row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]):
+        row.scan_authorized = row.ping_enabled = row.discovery_enabled = False
     validate_relations(db, name, data, row_id)
     if name == "device-types":
         if db.scalar(
@@ -370,20 +391,9 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
     if name == "prefixes":
-        for item in items:
-            net = ipaddress.ip_network(item["cidr"])
-            capacity = net.num_addresses - (2 if net.version == 4 and net.prefixlen < 31 else 0)
-            used = db.scalar(
-                select(func.count())
-                .select_from(m.IPAddress)
-                .where(m.IPAddress.prefix_id == item["id"], m.IPAddress.status != "deprecated")
-            )
-            item.update(
-                capacity=str(capacity),
-                used=used,
-                utilization=round(used * 100 / capacity, 2),
-                threshold_exceeded=used * 100 / capacity >= item["warning_threshold"],
-            )
+        from .ipam.service import prefix_summary
+
+        items = [prefix_summary(db, row) for row in rows]
     if name == "addresses":
         from .ipam.service import enrich
 
@@ -447,6 +457,12 @@ def authorized_device(db, device):
     scopes = db.scalars(
         select(m.Scope).where(m.Scope.vrf_id == device.vrf_id, m.Scope.enabled.is_(True))
     ).all()
+    from .ipam.service import require_scope
+
+    for prefix in db.scalars(
+        select(m.Prefix).where(m.Prefix.vrf_id == device.vrf_id, m.Prefix.scan_authorized.is_(True))
+    ):
+        scopes.append(require_scope(db, prefix))
     if not any(in_scope(device.management_ip, scope) for scope in scopes):
         address = ipaddress.ip_address(device.management_ip)
         raise ValueError(

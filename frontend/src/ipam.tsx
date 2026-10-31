@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   GearSix,
+  Columns,
+  Funnel,
+  Trash,
   Play,
   Stop,
   Plus,
@@ -9,8 +12,17 @@ import {
   PencilSimple,
   ArrowsClockwise,
 } from "@phosphor-icons/react";
-import { api, Badge, Dialog, date, speed } from "./main";
-import { allRows } from "./inventory";
+import {
+  api,
+  Badge,
+  Dialog,
+  date,
+  speed,
+  PAGES,
+  resourceChoices,
+  dependentChange,
+} from "./main";
+import { allRows, Filters, ColumnPicker } from "./inventory";
 import "./ipam.css";
 
 type Row = Record<string, any>;
@@ -40,7 +52,7 @@ const stateName = (v: string) =>
 const settingsKeys = [
   "dns_server_id",
   "vlan_device_id",
-  "scope_id",
+  "scan_authorized",
   "warning_threshold",
   "ping_enabled",
   "ping_interval",
@@ -133,11 +145,22 @@ function PrefixSettings({
             "VLAN’ın bulunduğu cihaz",
             (refs.devices || []).filter((d) => d.vrf_id === prefix.vrf_id),
           )}
-          {choices(
-            "scope_id",
-            "Yetkili keşif kapsamı",
-            (refs.scopes || []).filter((s) => s.vrf_id === prefix.vrf_id),
-          )}
+          <label className="ipam-check">
+            <input
+              type="checkbox"
+              checked={!!values.scan_authorized}
+              onChange={(e) => {
+                set("scan_authorized", e.target.checked);
+                if (!e.target.checked) {
+                  set("ping_enabled", false);
+                  set("discovery_enabled", false);
+                }
+              }}
+            />
+            <span>
+              Bu ağ bloğunda keşif ve ping işlemleri yetkilendirilmiştir
+            </span>
+          </label>
           <Field label="IP kullanım uyarı eşiği (%)">
             <input
               type="number"
@@ -173,6 +196,7 @@ function PrefixSettings({
           <label className="ipam-check">
             <input
               type="checkbox"
+              disabled={!values.scan_authorized}
               checked={values.ping_enabled}
               onChange={(e) => set("ping_enabled", e.target.checked)}
             />
@@ -181,6 +205,7 @@ function PrefixSettings({
           <label className="ipam-check">
             <input
               type="checkbox"
+              disabled={!values.scan_authorized}
               checked={values.discovery_enabled}
               onChange={(e) => set("discovery_enabled", e.target.checked)}
             />
@@ -564,45 +589,77 @@ export function IPAMWorkspace({
   const [detail, setDetail] = useState<Row | null>(null);
   const [job, setJob] = useState<Row | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const canWrite = user.role !== "viewer";
-  useEffect(() => {
-    if (prefix) {
-      const updated = refs.prefixes?.find((p) => p.id === prefix.id);
-      if (updated) setPrefix(updated);
+  const [registeredSearch, setRegisteredSearch] = useState(false);
+  const [rules, setRules] = useState<any[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [columnOpen, setColumnOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [columns, setColumns] = useState<{ key: string; label: string }[]>([]);
+  const storageKey = `netrix.ipam.columns.${user.id}`;
+  const defaults = [
+    "address",
+    "hostname",
+    "mac_address",
+    "connected_device",
+    "connected_port",
+    "vlan",
+    "operating_system",
+    "cabinet",
+    "location",
+    "availability",
+    "sources",
+  ];
+  const [shown, setShown] = useState<string[]>(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(storageKey) || "null");
+      return Array.isArray(value) && value.length ? value : defaults;
+    } catch {
+      return defaults;
     }
-  }, [refs.prefixes]);
+  });
+  const canWrite = user.role !== "viewer";
+  const isBlocks = page === "prefixes" && !prefix;
+  const visible = columns.filter((c) => shown.includes(c.key));
   useEffect(() => {
     let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const load = async () => {
+    setLoaded(false);
+    const timer = setTimeout(async () => {
       try {
+        const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
         const result = prefix
           ? await api(
-              `/ipam/prefixes/${prefix.id}/addresses?offset=${offset}&allocated=${allocated}&limit=100`,
+              `/ipam/prefixes/${prefix.id}/addresses?allocated=${allocated}&${params}`,
             )
           : page === "addresses"
-            ? await api(
-                `/addresses?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
-              )
+            ? await api(`/ipam/addresses?${params}`)
             : await api(
-                `/prefixes?limit=100&offset=${offset}&q=` +
-                  encodeURIComponent(query),
+                `/prefixes?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
               );
         if (active) {
           setRows(result.items);
           setTotal(String(result.total));
+          setColumns(result.columns || []);
+          if (result.prefix) setPrefix(result.prefix);
+          setRegisteredSearch(!!result.registered_search);
+          setError("");
           setLoaded(true);
         }
       } catch (e: any) {
-        if (active) setError(e.message);
+        if (active) {
+          setError(e.message);
+          setLoaded(true);
+        }
       }
-    };
-    timer = setTimeout(load, 150);
+    }, 200);
     return () => {
       active = false;
       clearTimeout(timer);
     };
-  }, [page, prefix?.id, offset, query, allocated, refresh]);
+  }, [page, prefix?.id, offset, query, allocated, refresh, rules]);
+  useEffect(() => {
+    setSelected([]);
+  }, [prefix?.id, query, rules, allocated]);
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     let active = true;
@@ -634,40 +691,93 @@ export function IPAMWorkspace({
       setBusy(false);
     }
   };
-  const isBlocks = page === "prefixes" && !prefix;
+  const choosePrefix = (row: Row | null) => {
+    setPrefix(row);
+    setRows([]);
+    setOffset("0");
+    setQuery("");
+    setRules([]);
+  };
+  const selectionDone = () => {
+    setSelected([]);
+    setBulkOpen(false);
+    onSaved();
+  };
+  const renderCell = (r: Row, key: string) => {
+    if (key === "address")
+      return r.id ? (
+        <button className="text-button mono" onClick={() => setDetail(r)}>
+          {r.address}
+        </button>
+      ) : (
+        <span className="mono">{r.address}</span>
+      );
+    if (key === "availability") {
+      const state = r.availability || (r.id ? "unknown" : r.status);
+      return (
+        <span className={`ipam-state ${state}`}>
+          <i aria-hidden="true" />
+          {(
+            {
+              active: "Aktif",
+              passive: "Pasif",
+              unknown: "Bilinmiyor",
+              unassigned: "Atanmamış",
+              network: "Ağ / yayın",
+            } as Row
+          )[state] || stateName(state)}
+        </span>
+      );
+    }
+    if (key === "status") return stateName(r.status);
+    if (key === "sources") return r.sources?.map(sourceName).join(", ") || "—";
+    if (["connected_device", "connected_port"].includes(key))
+      return (
+        <>
+          {r[key] || "—"}
+          {r.connection_ambiguous && (
+            <small className="ipam-sub">Belirsiz eşleşme</small>
+          )}
+        </>
+      );
+    return r[key] || "—";
+  };
   return (
     <div className="ipam-workspace">
       <ErrorNote error={error} />
       {prefix && (
         <section className="panel ipam-block-header">
           <div className="ipam-actions">
-            <button
-              className="secondary"
-              onClick={() => {
-                setPrefix(null);
-                setOffset("0");
-                setRows([]);
-              }}
-            >
+            <button className="secondary" onClick={() => choosePrefix(null)}>
               <ArrowLeft size={17} aria-hidden="true" />
               Ağ blokları
             </button>
-            <h2>{prefix.cidr}</h2>
-            <Badge value={prefix.threshold_exceeded ? "warning" : "active"} />
+            <h2>{prefix.display_name || prefix.cidr}</h2>
           </div>
           <p>
-            {prefix.description || "Ağ bloğu adres planı"} · {prefix.used || 0}{" "}
-            atanmış IP · %{prefix.utilization || 0} kullanım · Uyarı eşiği %
+            {prefix.used || 0} / {prefix.capacity} atanmış IP · %
+            {prefix.utilization || 0} kullanım · Uyarı eşiği %
             {prefix.warning_threshold}
+          </p>
+          <p className="ipam-hint">
+            Kullanım, atanan ve rezerve edilen IP’leri kapsar; ping yanıtı
+            vermeyen bir adres boş sayılmaz.
           </p>
           <div className="ipam-actions">
             {canWrite && (
               <>
                 <button
                   className="secondary"
+                  onClick={() => onEdit("prefixes", prefix)}
+                >
+                  <PencilSimple size={17} />
+                  Ağ bloğunu düzenle
+                </button>
+                <button
+                  className="secondary"
                   onClick={() => setSettings(prefix)}
                 >
-                  <GearSix size={17} aria-hidden="true" />
+                  <GearSix size={17} />
                   Ağ bloğu ayarları
                 </button>
                 <button
@@ -675,7 +785,6 @@ export function IPAMWorkspace({
                   disabled={busy}
                   onClick={() => trigger("ping")}
                 >
-                  <Play size={16} aria-hidden="true" />
                   IP durumunu kontrol et
                 </button>
                 <button
@@ -683,7 +792,7 @@ export function IPAMWorkspace({
                   disabled={busy}
                   onClick={() => trigger("discover")}
                 >
-                  <Plus size={17} aria-hidden="true" />
+                  <Plus size={17} />
                   Yeni sunucuları ekle
                 </button>
               </>
@@ -691,7 +800,8 @@ export function IPAMWorkspace({
           </div>
           {prefix.threshold_exceeded && (
             <p className="ipam-warning" role="status">
-              IP kullanım uyarı eşiği aşıldı.
+              IP kullanımı %{prefix.utilization}: %{prefix.warning_threshold}{" "}
+              uyarı eşiğine ulaşıldı.
             </p>
           )}
         </section>
@@ -734,23 +844,11 @@ export function IPAMWorkspace({
             </b>
             <span className="count-pill">{total}</span>
           </div>
-          {prefix ? (
-            <label className="ipam-check">
-              <input
-                type="checkbox"
-                checked={allocated}
-                onChange={(e) => {
-                  setAllocated(e.target.checked);
-                  setOffset("0");
-                }}
-              />
-              Yalnızca kayıtlı IP’ler
-            </label>
-          ) : (
+          <div className="ipam-table-tools">
             <label className="search-box">
               <input
                 aria-label="IPAM kayıtlarında ara"
-                placeholder="IP veya ağ ara…"
+                placeholder={isBlocks ? "Ağ ara…" : "Tüm alanlarda ara…"}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
@@ -758,39 +856,134 @@ export function IPAMWorkspace({
                 }}
               />
             </label>
-          )}
+            {!isBlocks && (
+              <>
+                <button
+                  className="secondary"
+                  onClick={() => setFilterOpen(true)}
+                >
+                  <Funnel size={17} />
+                  Filtreler{rules.length ? ` (${rules.length})` : ""}
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => setColumnOpen(true)}
+                >
+                  <Columns size={17} />
+                  Sütunlar
+                </button>
+              </>
+            )}
+            {prefix && (
+              <label className="ipam-check">
+                <input
+                  type="checkbox"
+                  checked={allocated}
+                  onChange={(e) => {
+                    setAllocated(e.target.checked);
+                    setOffset("0");
+                  }}
+                />
+                Yalnızca kayıtlı IP’ler
+              </label>
+            )}
+          </div>
         </div>
+        {registeredSearch && (
+          <p className="ipam-hint ipam-notice">
+            Büyük adres alanında arama ve filtreler kayıtlı IP’lerde uygulanır.
+            Tüm adreslere dönmek için aramayı ve filtreleri temizleyin.
+          </p>
+        )}
+        {!!selected.length && (
+          <div
+            className="ipam-bulkbar"
+            role="region"
+            aria-label="Seçilen IP işlemleri"
+          >
+            <strong>{selected.length} IP seçildi</strong>
+            <button className="secondary" onClick={() => setBulkOpen(true)}>
+              <PencilSimple size={17} />
+              Düzenle
+            </button>
+            {user.role === "admin" && (
+              <button
+                className="secondary danger"
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    !window.confirm(
+                      `${selected.length} IP kaydı silinsin mi? Kaynaklar tekrar keşfederse yeniden eklenebilir.`,
+                    )
+                  )
+                    return;
+                  setBusy(true);
+                  try {
+                    await api("/ipam/addresses/bulk", "POST", {
+                      ids: selected,
+                      action: "delete",
+                    });
+                    selectionDone();
+                  } catch (e: any) {
+                    setError(e.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Trash size={17} />
+                Sil
+              </button>
+            )}
+            <button className="text-button" onClick={() => setSelected([])}>
+              Seçimi temizle
+            </button>
+          </div>
+        )}
         <div
           className="table-scroll"
           tabIndex={0}
           role="region"
           aria-label="IPAM kayıt tablosu"
         >
-          <table>
+          <table className={!isBlocks ? "ipam-address-table" : undefined}>
             <thead>
               <tr>
+                {!isBlocks && canWrite && (
+                  <th className="ipam-select">
+                    <input
+                      type="checkbox"
+                      aria-label="Sayfadaki IP kayıtlarını seç"
+                      checked={
+                        rows.some((r) => r.id) &&
+                        rows
+                          .filter((r) => r.id)
+                          .every((r) => selected.includes(r.id))
+                      }
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? [
+                                ...new Set([
+                                  ...selected,
+                                  ...rows.filter((r) => r.id).map((r) => r.id),
+                                ]),
+                              ]
+                            : selected.filter(
+                                (id) => !rows.some((r) => r.id === id),
+                              ),
+                        )
+                      }
+                    />
+                  </th>
+                )}
                 {(isBlocks
-                  ? [
-                      "Ağ bloğu",
-                      "VLAN",
-                      "Lokasyon",
-                      "Kullanım",
-                      "Uyarı eşiği",
-                      "İşlemler",
-                    ]
-                  : [
-                      "IP adresi",
-                      "Hostname / MAC",
-                      "İşletim sistemi",
-                      "Kabinet no",
-                      "Lokasyon",
-                      "Durum",
-                      "Kaynak",
-                      "İşlemler",
-                    ]
-                ).map((v) => (
-                  <th key={v}>{v}</th>
+                  ? ["Ağ bloğu", "VLAN", "Lokasyon", "Kullanım", "Uyarı eşiği"]
+                  : visible.map((c) => c.label)
+                ).map((label) => (
+                  <th key={label}>{label}</th>
                 ))}
+                <th>İşlemler</th>
               </tr>
             </thead>
             <tbody>
@@ -800,20 +993,13 @@ export function IPAMWorkspace({
                     <td>
                       <button
                         className="text-button mono"
-                        onClick={() => {
-                          setPrefix(r);
-                          setOffset("0");
-                          setRows([]);
-                          setLoaded(false);
-                        }}
+                        onClick={() => choosePrefix(r)}
                       >
                         {r.cidr}
                       </button>
                       <small className="ipam-sub">{r.description}</small>
                     </td>
-                    <td>
-                      {refs.vlans?.find((v) => v.id === r.vlan_id)?.name || "—"}
-                    </td>
+                    <td>{r.vlan || "VLAN belirtilmedi"}</td>
                     <td>
                       {refs.sites?.find((v) => v.id === r.site_id)?.name || "—"}
                     </td>
@@ -849,49 +1035,43 @@ export function IPAMWorkspace({
                     </td>
                   </tr>
                 ) : (
-                  <tr key={r.address}>
+                  <tr key={r.id || r.address}>
+                    {canWrite && (
+                      <td className="ipam-select">
+                        {r.id && (
+                          <input
+                            type="checkbox"
+                            aria-label={`${r.address} seç`}
+                            checked={selected.includes(r.id)}
+                            onChange={(e) =>
+                              setSelected(
+                                e.target.checked
+                                  ? [...selected, r.id]
+                                  : selected.filter((id) => id !== r.id),
+                              )
+                            }
+                          />
+                        )}
+                      </td>
+                    )}
+                    {visible.map((c) => (
+                      <td
+                        key={c.key}
+                        className={c.key === "mac_address" ? "mono" : undefined}
+                      >
+                        {renderCell(r, c.key)}
+                      </td>
+                    ))}
                     <td>
-                      {r.id ? (
-                        <button
-                          className="text-button mono"
-                          onClick={() => setDetail(r)}
-                        >
-                          {r.address}
-                        </button>
-                      ) : (
-                        <span className="mono">{r.address}</span>
-                      )}
-                    </td>
-                    <td>
-                      {r.hostname || "—"}
-                      <small className="ipam-sub mono">
-                        {r.mac_address || "—"}
-                      </small>
-                    </td>
-                    <td>{r.operating_system || "—"}</td>
-                    <td>{r.cabinet || "—"}</td>
-                    <td>{r.location || "—"}</td>
-                    <td>
-                      {stateName(r.status)}
-                      <small className="ipam-sub">
-                        {r.reachability
-                          ? stateName(r.reachability)
-                          : r.power_state
-                            ? stateName(r.power_state)
-                            : ""}
-                        {r.stale ? " · Eski gözlem" : ""}
-                      </small>
-                    </td>
-                    <td>{r.sources?.map(sourceName).join(", ") || "—"}</td>
-                    <td>
-                      <div className="ipam-actions">
+                      <div className="ipam-actions ipam-row-actions">
                         {r.id && (
                           <button
-                            className="secondary"
+                            className="icon-button"
+                            aria-label={`${r.address} networkü izle`}
+                            title="Networkü izle"
                             onClick={() => setDetail(r)}
                           >
-                            <Waveform size={17} aria-hidden="true" />
-                            Networkü izle
+                            <Waveform size={18} aria-hidden="true" />
                           </button>
                         )}
                         {canWrite && r.status !== "network" && (
@@ -927,49 +1107,76 @@ export function IPAMWorkspace({
             <p>{loaded ? "Gösterilecek kayıt yok." : "Kayıtlar yükleniyor…"}</p>
           </div>
         )}
-        {
-          <div className="ipam-pagination">
-            <span>
-              {BigInt(total) > 0n
-                ? `${BigInt(offset) + 1n}–${BigInt(offset) + BigInt(rows.length)} / ${total}`
-                : "0 adres"}
-            </span>
-            <div className="ipam-actions">
-              <button
-                className="secondary"
-                disabled={offset === "0"}
-                onClick={() =>
-                  setOffset(
-                    String(BigInt(offset) > 100n ? BigInt(offset) - 100n : 0n),
-                  )
-                }
-              >
-                Önceki
-              </button>
-              <button
-                className="secondary"
-                disabled={BigInt(offset) + 100n >= BigInt(total)}
-                onClick={() => setOffset(String(BigInt(offset) + 100n))}
-              >
-                Sonraki 100 adres
-              </button>
-            </div>
+        <div className="ipam-pagination">
+          <span>
+            {BigInt(total) > 0n
+              ? `${BigInt(offset) + 1n}–${BigInt(offset) + BigInt(rows.length)} / ${total}`
+              : "0 adres"}
+          </span>
+          <div className="ipam-actions">
+            <button
+              className="secondary"
+              disabled={offset === "0"}
+              onClick={() =>
+                setOffset(
+                  String(BigInt(offset) > 100n ? BigInt(offset) - 100n : 0n),
+                )
+              }
+            >
+              Önceki
+            </button>
+            <button
+              className="secondary"
+              disabled={BigInt(offset) + 100n >= BigInt(total)}
+              onClick={() => setOffset(String(BigInt(offset) + 100n))}
+            >
+              Sonraki 100 adres
+            </button>
           </div>
-        }
+        </div>
       </section>
+      {filterOpen && (
+        <Filters
+          wide
+          columns={columns}
+          rules={rules}
+          onClose={() => setFilterOpen(false)}
+          onSave={(v) => {
+            setRules(v);
+            setOffset("0");
+          }}
+        />
+      )}
+      {columnOpen && (
+        <ColumnPicker
+          columns={columns}
+          shown={shown}
+          onClose={() => setColumnOpen(false)}
+          onSave={(v) => {
+            setShown(v);
+            localStorage.setItem(storageKey, JSON.stringify(v));
+          }}
+        />
+      )}
+      {bulkOpen && (
+        <IPBulkEditor
+          ids={selected}
+          refs={refs}
+          close={() => setBulkOpen(false)}
+          saved={selectionDone}
+        />
+      )}
       {settings && (
         <PrefixSettings
           prefix={settings}
           refs={refs}
           close={() => setSettings(null)}
           saved={(updated) => {
-            setRows((rows) =>
-              rows.map((row) =>
-                row.id === updated.id ? { ...row, ...updated } : row,
-              ),
+            setRows((items) =>
+              items.map((r) => (r.id === updated.id ? updated : r)),
             );
             setPrefix((current) =>
-              current?.id === updated.id ? { ...current, ...updated } : current,
+              current?.id === updated.id ? updated : current,
             );
             onSaved();
           }}
@@ -983,6 +1190,137 @@ export function IPAMWorkspace({
         />
       )}
     </div>
+  );
+}
+
+function IPBulkEditor({
+  ids,
+  refs,
+  close,
+  saved,
+}: {
+  ids: string[];
+  refs: Record<string, Row[]>;
+  close: () => void;
+  saved: () => void;
+}) {
+  const [values, setValues] = useState<Row>({});
+  const [enabled, setEnabled] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fields = PAGES.find((p) => p.key === "addresses")!.fields!.filter(
+    (f) => f.key !== "address",
+  );
+  return (
+    <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close}>
+      <form
+        className="ipam-form"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            const changes = Object.fromEntries(
+              enabled.map((key) => [
+                key,
+                values[key] ||
+                  (fields.find((f) => f.key === key)?.ref ? null : ""),
+              ]),
+            );
+            if (
+              enabled.includes("device_id") &&
+              !enabled.includes("interface_id")
+            )
+              changes.interface_id = null;
+            await api("/ipam/addresses/bulk", "POST", {
+              ids,
+              action: "update",
+              changes,
+            });
+            saved();
+          } catch (e: any) {
+            setError(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <p className="ipam-hint">
+          İşaretlenen alanlar tüm seçili kayıtlara uygulanır. IP ve MAC
+          adresleri korunur.
+        </p>
+        <ErrorNote error={error} />
+        <div className="ipam-fields">
+          {fields.map((f) => (
+            <div className="ipam-bulk-field" key={f.key}>
+              <label className="ipam-check">
+                <input
+                  type="checkbox"
+                  checked={enabled.includes(f.key)}
+                  onChange={(e) =>
+                    setEnabled(
+                      e.target.checked
+                        ? [...enabled, f.key]
+                        : enabled.filter((k) => k !== f.key),
+                    )
+                  }
+                />
+                {f.label} değiştir
+              </label>
+              <label className="ipam-field">
+                <span>{f.label}</span>
+                {f.ref || f.suggestions || f.options ? (
+                  <select
+                    aria-label={f.label}
+                    disabled={!enabled.includes(f.key)}
+                    value={values[f.key] || ""}
+                    onChange={(e) =>
+                      setValues(dependentChange(values, f.key, e.target.value))
+                    }
+                  >
+                    <option value="">Temizle / seçilmedi</option>
+                    {(f.ref
+                      ? resourceChoices(f, refs, values, "addresses").map(
+                          (r) => [r.id, r.name || r.cidr || r.address],
+                        )
+                      : f.suggestions
+                        ? (refs[f.suggestions] || []).map((r) => [
+                            r.name,
+                            r.name,
+                          ])
+                        : (f.options || []).map((r) =>
+                            Array.isArray(r) ? r : [r, stateName(r)],
+                          )
+                    ).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    aria-label={f.label}
+                    disabled={!enabled.includes(f.key)}
+                    value={values[f.key] || ""}
+                    onChange={(e) =>
+                      setValues({ ...values, [f.key]: e.target.value })
+                    }
+                  />
+                )}
+              </label>
+            </div>
+          ))}
+        </div>
+        <div className="ipam-actions">
+          <button type="button" className="secondary" onClick={close}>
+            Vazgeç
+          </button>
+          <button className="primary" disabled={busy || !enabled.length}>
+            Değişiklikleri uygula
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

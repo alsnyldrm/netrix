@@ -60,7 +60,10 @@ with session_factory()() as db:
         )
     )
     vrf = m.VRF(name="Global")
-    site = m.Site(name="Kuzey Kampüs", code="N")
+    institution = m.Institution(name="Fixture Üniversitesi", code="01")
+    db.add(institution)
+    db.flush()
+    site = m.Site(name="Kuzey Kampüs", code="01-000001", institution_id=institution.id)
     db.add_all([vrf, site])
     db.flush()
     credential = m.Credential(
@@ -95,9 +98,24 @@ with session_factory()() as db:
         site_id=site.id,
         description="Sunucu ağı",
         scope_id=scope.id,
+        scan_authorized=True,
+        institution_id=institution.id,
         dns_server_id=dns.id,
     )
-    db.add_all([port, p])
+    vlan = m.VLAN(vid=10, name="SERVER")
+    db.add(vlan)
+    db.flush()
+    p.vlan_id = vlan.id
+    device.vendor, device.model = "Aruba", "6100-JL675A"
+    db.add_all(
+        [
+            m.OperatingSystem(name="Windows Server"),
+            m.OperatingSystem(name="Ubuntu Linux 24.04"),
+            m.Cabinet(name="K-04", site_id=site.id, units=12),
+            port,
+            p,
+        ]
+    )
     db.flush()
     config = m.Integration(
         name="Kampüs vCenter",

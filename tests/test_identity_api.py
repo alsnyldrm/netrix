@@ -48,7 +48,7 @@ def test_setup_single_use_password_hash_and_session_revocation(admin_client, env
     )
 
 
-def test_roles_are_enforced_on_server(admin_client):
+def test_roles_are_enforced_on_server(admin_client, institution):
     c = admin_client
     for role in ("viewer", "operator"):
         r = c.post(
@@ -73,7 +73,9 @@ def test_roles_are_enforced_on_server(admin_client):
         assert c.get("/api/v1/devices").status_code == 200
         assert c.get("/api/v1/users").status_code == 403
         assert c.post("/api/v1/credentials", json={}).status_code == 403
-        result = c.post("/api/v1/sites", json={"name": role, "code": role})
+        result = c.post(
+            "/api/v1/sites", json={"name": role, "code": role, "institution_id": institution["id"]}
+        )
         assert result.status_code == (403 if role == "viewer" else 201)
         assert c.post("/api/v1/users", json={}).status_code == 403
         c.post("/api/v1/auth/logout")

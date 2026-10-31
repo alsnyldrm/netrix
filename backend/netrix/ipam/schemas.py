@@ -19,6 +19,7 @@ class DNSInput(Input):
 
 
 class PrefixSettings(Input):
+    scan_authorized: bool | None = None
     dns_server_id: str | None = None
     vlan_device_id: str | None = None
     scope_id: str | None = None
@@ -63,3 +64,45 @@ class IntegrationInput(Input):
 class LiveInput(Input):
     interface_id: str | None = None
     integration_id: str | None = None
+
+
+class AddressBulkInput(Input):
+    ids: list[str] = Field(min_length=1, max_length=1000)
+    action: Literal["update", "delete"]
+    changes: dict = Field(default_factory=dict)
+
+
+class PlacementInput(Input):
+    device_id: str
+    start_unit: int = Field(ge=1, le=60)
+    units: int = Field(ge=1, le=60)
+
+
+class ModelImageInput(Input):
+    url: str = Field(max_length=500)
+    source: str = Field(max_length=500)
+
+    @field_validator("url", "source")
+    @classmethod
+    def official_url(cls, value):
+        from urllib.parse import urlsplit
+
+        url = urlsplit(value)
+        if (
+            url.scheme != "https"
+            or url.username
+            or url.password
+            or url.port not in (None, 443)
+            or url.hostname not in ("assets.ext.hpe.com", "www.hpe.com", "buy.hpe.com", "www.fortinet.com")
+        ):
+            raise ValueError("HPE veya Fortinet resmi HTTPS adresi gerekli")
+        return value
+
+    @field_validator("url")
+    @classmethod
+    def image_host(cls, value):
+        from urllib.parse import urlsplit
+
+        if urlsplit(value).hostname not in ("assets.ext.hpe.com", "www.fortinet.com"):
+            raise ValueError("Görsel HPE varlık sunucusu veya Fortinet üzerinden gelmeli")
+        return value

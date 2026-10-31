@@ -19,9 +19,16 @@ class ConnectionTestInput(Input):
     protocol: Literal["snmpv3", "snmpv2c", "ssh", "rest"]
 
 
+class InstitutionInput(Input):
+    name: str = Field(min_length=1, max_length=190)
+    code: str = Field(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class SiteInput(Input):
+    institution_id: str = Field(min_length=1, max_length=36)
+    parent_id: str | None = None
     name: str = Field(min_length=1, max_length=120)
-    code: str = Field(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
+    code: str = Field(default="", max_length=40, pattern=r"^[A-Za-z0-9_-]*$")
     description: str = Field(default="", max_length=400)
     timezone: str = "Europe/Istanbul"
 
@@ -38,6 +45,8 @@ class SiteInput(Input):
 
 
 class CabinetInput(Input):
+    sub_site_id: str | None = None
+    units: int = Field(default=42, ge=1, le=60)
     name: str = Field(min_length=1, max_length=120)
     site_id: str | None = None
     description: str = Field(default="", max_length=400)
@@ -114,6 +123,7 @@ class DeviceInput(Input):
 
 
 class PrefixInput(Input):
+    institution_id: str | None = None
     cidr: str
     vrf_id: str
     site_id: str | None = None
@@ -127,6 +137,7 @@ class PrefixInput(Input):
 
 
 class IPInput(Input):
+    device_id: str | None = None
     address: str
     vrf_id: str
     prefix_id: str

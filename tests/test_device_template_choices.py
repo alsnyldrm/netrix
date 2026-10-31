@@ -18,7 +18,7 @@ def values(book, key):
     return [cell.value for row in book[title][bounds] for cell in row if cell.value is not None]
 
 
-def test_xlsx_lists_are_current_protocol_filtered_public_and_literal(admin_client, env):
+def test_xlsx_lists_are_current_protocol_filtered_public_and_literal(admin_client, env, institution):
     # Different protocols, formula-like names and duplicate locations exercise real references.
     for name, protocol, secret in (
         ("v2c-only", "snmpv2c", {"community": "DO-NOT-EXPORT-COMMUNITY"}),
@@ -94,7 +94,9 @@ def test_xlsx_lists_are_current_protocol_filtered_public_and_literal(admin_clien
         cell_range = next(iter(validation.cells.ranges))
         assert cell_range.min_row == 2 and cell_range.max_row == 501
     # No cached template: later records must appear on the next download.
-    admin_client.post("/api/v1/sites", json={"name": "New location", "code": "NEW"})
+    admin_client.post(
+        "/api/v1/sites", json={"name": "New location", "code": "NEW", "institution_id": institution["id"]}
+    )
     fresh = load_workbook(io.BytesIO(admin_client.get(BASE + "/xlsx/template").content))
     assert "New location" in values(fresh, "site_id")
 

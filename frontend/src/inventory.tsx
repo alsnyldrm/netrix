@@ -133,7 +133,7 @@ function value(key: string, v: any) {
   if (typeof v === "boolean") return v ? "Etkin" : "Kapalı";
   return tag(String(v));
 }
-function Filters({
+export function Filters({
   columns,
   wide = false,
   rules,
@@ -258,7 +258,7 @@ function Filters({
     </Dialog>
   );
 }
-function ColumnPicker({
+export function ColumnPicker({
   columns,
   shown,
   onSave,
