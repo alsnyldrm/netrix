@@ -566,7 +566,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 cancelled = job.cancel_requested
                 db.commit()
             heartbeat(heartbeat_role)
-            if cancelled or stop:
+            if cancelled or (stop and not task.done()):
                 task.cancel()
                 try:
                     await task

@@ -90,3 +90,22 @@ async def test_worker_restart_requeues_background_work_but_user_cancel_does_not(
             assert row.active_key == (None if cancel else "discovery:scope")
             db.delete(row)
             db.commit()
+
+
+async def test_completed_work_is_not_replayed_when_worker_stops(env, monkeypatch):
+    async def completed(*args):
+        return {"reachable": 1, "unresponsive": 0, "total": 1}
+
+    with env() as db:
+        job = m.Job(
+            kind="discovery", target_id="scope", status="running", active_key="discovery:scope", attempts=1
+        )
+        db.add(job)
+        db.commit()
+        id = job.id
+    monkeypatch.setattr(worker, "discover", completed)
+    monkeypatch.setattr(worker, "stop", True)
+    await worker.execute(id)
+    with env() as db:
+        assert db.get(m.Job, id).status == "succeeded"
+        assert db.get(m.Job, id).active_key is None
