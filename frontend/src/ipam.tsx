@@ -938,6 +938,8 @@ export function IPAMWorkspace({
                     <button
                       type="button"
                       className="secondary ipam-active-toggle"
+                      aria-label="Yalnızca aktif IP’ler"
+                      title="Yalnızca aktif IP’leri göster"
                       aria-pressed={activeOnly}
                       onClick={() => {
                         setActiveOnly((active) => !active);
@@ -945,7 +947,7 @@ export function IPAMWorkspace({
                       }}
                     >
                       <Check size={17} aria-hidden="true" />
-                      Yalnızca aktif IP’ler
+                      Aktif IP’ler
                     </button>
                   )}
                 </div>

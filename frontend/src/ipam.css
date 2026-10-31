@@ -75,6 +75,8 @@
   min-height: 44px;
 }
 .ipam-table-tools .ipam-active-toggle {
+  padding-inline: 10px;
+  font-size: 13px;
   color: var(--text-2);
 }
 .ipam-table-tools .ipam-active-toggle[aria-pressed="true"],
