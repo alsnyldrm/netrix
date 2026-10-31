@@ -84,8 +84,10 @@ class ModelImageInput(Input):
 
     @field_validator("url", "source")
     @classmethod
-    def official_url(cls, value):
+    def official_url(cls, value, info):
         from urllib.parse import urlsplit
+
+        from .model_images import IMAGE_HOSTS, SOURCE_HOSTS
 
         url = urlsplit(value)
         if (
@@ -93,16 +95,11 @@ class ModelImageInput(Input):
             or url.username
             or url.password
             or url.port not in (None, 443)
-            or url.hostname not in ("assets.ext.hpe.com", "www.hpe.com", "buy.hpe.com", "www.fortinet.com")
+            or url.hostname not in (IMAGE_HOSTS if info.field_name == "url" else SOURCE_HOSTS)
         ):
-            raise ValueError("HPE veya Fortinet resmi HTTPS adresi gerekli")
-        return value
-
-    @field_validator("url")
-    @classmethod
-    def image_host(cls, value):
-        from urllib.parse import urlsplit
-
-        if urlsplit(value).hostname not in ("assets.ext.hpe.com", "www.fortinet.com"):
-            raise ValueError("Görsel HPE varlık sunucusu veya Fortinet üzerinden gelmeli")
+            raise ValueError(
+                "Görsel için HPE, Fortinet veya cdn.blueally.com HTTPS adresi gerekli"
+                if info.field_name == "url"
+                else "Ürün sayfası için HPE veya Fortinet (docs.fortinet.com dahil) HTTPS adresi gerekli"
+            )
         return value

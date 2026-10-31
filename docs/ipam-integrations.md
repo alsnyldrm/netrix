@@ -65,7 +65,7 @@ Lokasyon ekranındaki **Yeni Kurum Ekle** kurum adı/kodunu oluşturur. Yeni lok
 
 Kabinet formu ana lokasyon, bu lokasyonun alt lokasyonu ve 1–60 U kapasiteyi içerir. Eski kabinetler 42 U ile korunur ve düzenlenebilir. Kabinete tıklayınca U yerleşimi açılır. Cihazlar merkezi envanterden seçilir; başlangıç U ve yükseklik girilir. Aynı U alanına iki cihaz veya aynı cihazın iki kabinete yerleştirilmesi engellenir. Yerleşimi kaldırmak envanter cihazını silmez. Envanter ve kabinet kayıtlarından fiziksel U konumu çıkarılamayacağı için başlangıçta konum uydurulmaz.
 
-Görseller üreticinin HTTPS kaynağından yüklenir; uygulamada üretici/model eşleşmesi saklanır. Doğrulanmış JL675A, JL677A ve JL558A görselleri hazırdır. Diğer HPE/Fortinet modelleri için yerleşim ekranında resmi görsel/ürün sayfası URL'leri modele bağlanabilir. Model veya görsel bilinmiyorsa yer tutucu açıkça bunu belirtir. Görsel URL'si sunucudan indirilmez; tarayıcı CSP yalnızca izin verilen üretici görsel alanlarını açar.
+Görseller izin verilen HTTPS kaynaklarından yüklenir; uygulamada üretici/model eşleşmesi saklanır. Doğrulanmış JL675A, JL677A ve JL558A görselleri hazırdır. Diğer HPE/Fortinet modelleri için yerleşim ekranında görsel/ürün sayfası URL'leri modele bağlanabilir. Görsel için `assets.ext.hpe.com`, `www.fortinet.com` ve `cdn.blueally.com`; ürün sayfası için HPE kaynakları, `www.fortinet.com` ve `docs.fortinet.com` desteklenir. BlueAlly bir ürün görseli CDN kaynağıdır. Cihaz seçildiğinde kayıtlı bağlantılar forma yüklenir; kayıt sonucu ve hatalar ilgili formda gösterilir. Model veya görsel bilinmiyorsa yer tutucu açıkça bunu belirtir. Görsel URL'si sunucudan indirilmez; tarayıcı CSP aynı görsel izin listesini kullanır.
 
 ## IP tablosu ve toplu işlemler
 

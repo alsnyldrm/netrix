@@ -185,6 +185,14 @@ def cabinet_unplace(id: str, device_id: str, user=Depends(operator), db=Depends(
     unplace(db, id, device_id, user)
 
 
+@router.get("/ipam/devices/{id}/model-image")
+def model_image_get(id: str, user=Depends(current_user), db=Depends(db_session)):
+    from .model_images import model_image
+
+    device = svc.get(db, m.Device, id)
+    return model_image(db, device.vendor, device.model) or {"url": "", "source": ""}
+
+
 @router.put("/ipam/devices/{id}/model-image")
 def model_image_save(id: str, payload: ModelImageInput, user=Depends(operator), db=Depends(db_session)):
     from .model_images import save_image

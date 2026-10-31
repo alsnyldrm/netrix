@@ -1,10 +1,13 @@
-"""Manufacturer-hosted model images; unknown models never get substitute photos."""
+"""Model images from approved manufacturer and product-image hosts."""
 
 import re
 
 from sqlalchemy import func, select
 
 from .. import models as m
+
+IMAGE_HOSTS = ("assets.ext.hpe.com", "www.fortinet.com", "cdn.blueally.com")
+SOURCE_HOSTS = ("assets.ext.hpe.com", "www.hpe.com", "buy.hpe.com", "www.fortinet.com", "docs.fortinet.com")
 
 IMAGES = {
     "JL677A": {

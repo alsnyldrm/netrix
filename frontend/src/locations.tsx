@@ -498,6 +498,9 @@ function Rack({
 }) {
   const [data, setData] = useState<Row | null>(null);
   const [imageValues, setImageValues] = useState({ url: "", source: "" });
+  const [imageError, setImageError] = useState("");
+  const [imageSaved, setImageSaved] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const [choice, setChoice] = useState<Row>({
@@ -506,6 +509,28 @@ function Rack({
     units: 1,
   });
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setImageValues({ url: "", source: "" });
+    setImageError("");
+    setImageSaved(false);
+    setImageLoading(!!choice.device_id);
+    if (choice.device_id) {
+      api(`/ipam/devices/${choice.device_id}/model-image`)
+        .then((image) => {
+          if (active) setImageValues(image);
+        })
+        .catch((e) => {
+          if (active) setImageError(e.message);
+        })
+        .finally(() => {
+          if (active) setImageLoading(false);
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [choice.device_id]);
   useEffect(() => {
     let active = true;
     api(`/ipam/cabinets/${row.id}`)
@@ -616,6 +641,7 @@ function Rack({
                           <button
                             className="icon-button"
                             aria-label={`${placement.device.name} yerleşimini düzenle`}
+                            disabled={busy}
                             onClick={() =>
                               setChoice({
                                 device_id: placement.device_id,
@@ -629,6 +655,7 @@ function Rack({
                           <button
                             className="icon-button"
                             aria-label={`${placement.device.name} kabinetten çıkar`}
+                            disabled={busy}
                             onClick={async () => {
                               try {
                                 await api(
@@ -672,6 +699,7 @@ function Rack({
             <Label name="Cihaz">
               <select
                 required
+                disabled={busy}
                 value={choice.device_id}
                 onChange={(e) =>
                   setChoice({ ...choice, device_id: e.target.value })
@@ -722,51 +750,77 @@ function Rack({
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!choice.device_id) {
-                  setError("Önce yerleşim alanından cihazı seçin");
+                  setImageError("Önce yerleşim alanından cihazı seçin");
                   return;
                 }
                 setBusy(true);
-                setError("");
+                setImageError("");
+                setImageSaved(false);
                 try {
-                  await api(
+                  const image = await api(
                     `/ipam/devices/${choice.device_id}/model-image`,
                     "PUT",
                     imageValues,
                   );
+                  setImageValues(image);
+                  setImageSaved(true);
                   setRevision((v) => v + 1);
                 } catch (e: any) {
-                  setError(e.message);
+                  setImageError(e.message);
                 } finally {
                   setBusy(false);
                 }
               }}
             >
               <p className="ipam-hint">
-                Seçili cihazın üretici/model eşleşmesi için HPE veya Fortinet
-                resmi görsel ve ürün sayfası bağlantılarını kaydedin.
+                Görsel için HPE, Fortinet veya BlueAlly CDN bağlantısı; ürün
+                sayfası için HPE veya Fortinet bağlantısı kullanın.
               </p>
               <Label name="Üretici görsel URL">
                 <input
                   type="url"
                   required
+                  disabled={imageLoading || busy}
                   value={imageValues.url}
-                  onChange={(e) =>
-                    setImageValues({ ...imageValues, url: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setImageSaved(false);
+                    setImageError("");
+                    setImageValues({ ...imageValues, url: e.target.value });
+                  }}
                 />
               </Label>
               <Label name="Üretici ürün sayfası URL">
                 <input
                   type="url"
                   required
+                  disabled={imageLoading || busy}
                   value={imageValues.source}
-                  onChange={(e) =>
-                    setImageValues({ ...imageValues, source: e.target.value })
-                  }
+                  onChange={(e) => {
+                    setImageSaved(false);
+                    setImageError("");
+                    setImageValues({ ...imageValues, source: e.target.value });
+                  }}
                 />
               </Label>
-              <button className="primary" disabled={busy || !choice.device_id}>
-                Model görselini kaydet
+              {imageError && (
+                <div className="error" role="alert">
+                  {imageError}
+                </div>
+              )}
+              {imageSaved && (
+                <p className="ipam-hint" role="status">
+                  Model görseli ve ürün sayfası kaydedildi.
+                </p>
+              )}
+              <button
+                className="primary"
+                disabled={busy || imageLoading || !choice.device_id}
+              >
+                {imageLoading
+                  ? "Kayıtlı bağlantılar yükleniyor…"
+                  : busy
+                    ? "Kaydediliyor…"
+                    : "Model görselini kaydet"}
               </button>
             </form>
           </details>
