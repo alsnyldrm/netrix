@@ -5,6 +5,7 @@ from sqlalchemy import select
 from .. import models as m
 from ..core import now
 from .link_deletions import matches as excluded_match
+from .link_deletions import reconcile_exclusions, user_managed
 from .neighbor_detail import addresses, same_neighbor
 from .neighbor_labels import neighbor_label
 
@@ -49,12 +50,18 @@ def sync_links(db, device, collected):
             .execution_options(populate_existing=True)
         )
     )
+    reconcile_exclusions(db, links)
     seen = set()
     for neighbor in collected.get("neighbors", []):
         if any(link.auto_add_excluded and excluded_match(link, neighbor, db) for link in links):
             # Suppression also applies to protocol duplicates in partial snapshots.
             for link in links:
                 if excluded_match(link, neighbor, db):
+                    if user_managed(link):
+                        if link.is_current:
+                            seen.add(link.id)
+                            link.updated_at = link.last_seen_at = now()
+                        continue
                     link.auto_add_excluded = True
                     link.is_current = False
             continue

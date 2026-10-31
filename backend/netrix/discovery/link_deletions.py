@@ -1,10 +1,13 @@
 """Keep deleted observations as durable discovery exclusions."""
 
+from uuid import UUID
+
 from fastapi import HTTPException
 from sqlalchemy import select
 
 from .. import models as m
 from ..identity.security import audit
+from .neighbor_detail import mac
 from .neighbor_labels import neighbor_label
 
 
@@ -13,6 +16,35 @@ def observation(link):
         key: getattr(link, key)
         for key in ("interface_name", "remote_name", "remote_port", "source", "evidence")
     }
+
+
+def canonical_label(value):
+    label = neighbor_label(value)
+    return mac(label) or label
+
+
+def uuid_identities(row):
+    evidence = row.get("evidence") or {}
+    values = [
+        row.get("remote_name"),
+        evidence.get("lldp", {}).get("chassis_id"),
+        evidence.get("cdp", {}).get("device_id"),
+    ]
+    result = set()
+    for value in values:
+        try:
+            result.add(UUID(neighbor_label(value)))
+        except ValueError:
+            pass
+    # Truncated IDs, model descriptions and interface names (e.g. vmnic4)
+    # are deliberately not treated as globally unique device identities.
+    return result
+
+
+def user_managed(link):
+    return not link.auto_add_excluded and (
+        link.source == "manual" or link.manual_remote_name is not None or link.manual_remote_port is not None
+    )
 
 
 def matches(link, neighbor, db=None):
@@ -31,11 +63,59 @@ def matches(link, neighbor, db=None):
                 return True
     # Compare the original protocol values, never the user's display corrections.
     if all(
-        neighbor_label(getattr(link, key)) == neighbor_label(neighbor[key])
+        canonical_label(getattr(link, key)) == canonical_label(neighbor[key])
         for key in ("interface_name", "remote_name", "remote_port")
     ):
         return True
+    if neighbor_label(link.interface_name) == neighbor_label(neighbor["interface_name"]) and uuid_identities(
+        observation(link)
+    ) & uuid_identities(neighbor):
+        return True
     return legacy_match(link, neighbor)
+
+
+def reconcile_exclusions(db, links):
+    """Suppress resurfaced copies using stored evidence; caller owns locks/transaction."""
+    exclusions = [link for link in links if link.auto_add_excluded]
+    removed = []
+    for link in links:
+        if link.auto_add_excluded or user_managed(link):
+            continue
+        if any(
+            deleted.device_id == link.device_id
+            and (matches(deleted, observation(link), db) or matches(link, observation(deleted), db))
+            for deleted in exclusions
+        ):
+            link.auto_add_excluded = True
+            link.is_current = False
+            removed.append(link.id)
+    return removed
+
+
+def repair_stored_exclusions(db):
+    """Repair old resurfaced copies without scanning devices or deleting history."""
+    links = list(
+        db.scalars(
+            select(m.Link).order_by(m.Link.id).with_for_update().execution_options(populate_existing=True)
+        )
+    )
+    current_ids = {link.id for link in links if link.is_current}
+    removed = set(reconcile_exclusions(db, links))
+    by_device = {}
+    for link in links:
+        if link.id in removed:
+            by_device.setdefault(link.device_id, []).append(link.id)
+    for device_id, ids in by_device.items():
+        db.add(
+            m.Event(
+                device_id=device_id,
+                kind="link_exclusions_repaired",
+                message="Silinen komşulukların yeniden oluşmuş kopyaları engellendi",
+                details={"excluded_ids": ids},
+            )
+        )
+    db.flush()
+    return {"excluded": len(removed), "hidden_current": len(removed & current_ids)}
 
 
 def delete_link(db, id, user):
@@ -77,6 +157,10 @@ def delete_links(db, ids, user):
         device = devices[target.device_id]
         removed = []
         for row in links:
+            # Deleting an automatic duplicate must not erase a separately kept
+            # user correction. Explicitly selecting that corrected row still deletes it.
+            if row.id != target.id and user_managed(row):
+                continue
             if row.device_id == target.device_id and (
                 row.id == target.id
                 or matches(target, observation(row), db)
