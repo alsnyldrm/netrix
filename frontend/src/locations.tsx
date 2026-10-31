@@ -498,6 +498,9 @@ function Rack({
 }) {
   const [data, setData] = useState<Row | null>(null);
   const [imageValues, setImageValues] = useState({ url: "", source: "" });
+  const [accessory, setAccessory] = useState<Row>({ start_unit: 1, units: 1 });
+  const [accessoryError, setAccessoryError] = useState("");
+  const [accessorySaved, setAccessorySaved] = useState(false);
   const [imageError, setImageError] = useState("");
   const [imageSaved, setImageSaved] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
@@ -544,7 +547,10 @@ function Rack({
       active = false;
     };
   }, [row.id, revision]);
-  const placements: Row[] = data?.placements || [];
+  const placements: Row[] = [
+    ...(data?.placements || []),
+    ...(data?.accessories || []).map((a: Row) => ({ ...a, accessory: true })),
+  ];
   return (
     <Dialog wide title={`${row.name} · ${row.units} U`} onClose={close}>
       <div className="rack-dialog">
@@ -568,6 +574,9 @@ function Rack({
               const placement = placements.find(
                 (p) => p.start_unit + p.units - 1 === unit,
               );
+              const placementName = placement?.accessory
+                ? "Fırçalı organizer"
+                : placement?.device.name;
               const occupied = placements.some(
                 (p) => unit >= p.start_unit && unit < p.start_unit + p.units,
               );
@@ -583,7 +592,15 @@ function Rack({
                         className="rack-device"
                         style={{ height: `${placement.units * 80 - 4}px` }}
                       >
-                        {placement.image ? (
+                        {placement.accessory ? (
+                          <div
+                            className="rack-organizer"
+                            role="img"
+                            aria-label="Fırçalı organizer şeması"
+                          >
+                            <span aria-hidden="true" />
+                          </div>
+                        ) : placement.image ? (
                           <img
                             key={placement.image.url}
                             src={placement.image.url}
@@ -597,13 +614,15 @@ function Rack({
                             }}
                           />
                         ) : null}
-                        <span className="rack-fallback">
-                          {placement.image
-                            ? "Görsel yüklenemedi"
-                            : "Üretici görseli henüz yok"}
-                          <br />
-                          {placement.device.model || placement.device.name}
-                        </span>
+                        {!placement.accessory && (
+                          <span className="rack-fallback">
+                            {placement.image
+                              ? "Görsel yüklenemedi"
+                              : "Üretici görseli henüz yok"}
+                            <br />
+                            {placement.device.model || placement.device.name}
+                          </span>
+                        )}
                       </div>
                     ) : !occupied ? (
                       <span className="rack-empty">Boş</span>
@@ -613,15 +632,17 @@ function Rack({
                     <div className="rack-info">
                       <ArrowRight size={20} aria-hidden="true" />
                       <div>
-                        <strong title={placement.device.name}>
-                          {placement.device.name}
-                        </strong>
-                        <small
-                          title={`${placement.device.management_ip} · ${placement.device.vendor} ${placement.device.model}`}
-                        >
-                          {placement.device.management_ip} ·{" "}
-                          {placement.device.vendor} {placement.device.model}
-                        </small>
+                        <strong title={placementName}>{placementName}</strong>
+                        {placement.accessory ? (
+                          <small>Yatay kablo düzenleyici · Şematik</small>
+                        ) : (
+                          <small
+                            title={`${placement.device.management_ip} · ${placement.device.vendor} ${placement.device.model}`}
+                          >
+                            {placement.device.management_ip} ·{" "}
+                            {placement.device.vendor} {placement.device.model}
+                          </small>
+                        )}
                         <small>
                           {placement.start_unit}–
                           {placement.start_unit + placement.units - 1} U
@@ -640,31 +661,52 @@ function Rack({
                         <div className="ipam-actions">
                           <button
                             className="icon-button"
-                            aria-label={`${placement.device.name} yerleşimini düzenle`}
+                            aria-label={`${placementName} yerleşimini düzenle`}
                             disabled={busy}
-                            onClick={() =>
-                              setChoice({
-                                device_id: placement.device_id,
-                                start_unit: placement.start_unit,
-                                units: placement.units,
-                              })
-                            }
+                            onClick={() => {
+                              if (placement.accessory) {
+                                setAccessory(placement);
+                                setAccessoryError("");
+                                setAccessorySaved(false);
+                                document
+                                  .getElementById("organizer-start")
+                                  ?.focus();
+                              } else
+                                setChoice({
+                                  device_id: placement.device_id,
+                                  start_unit: placement.start_unit,
+                                  units: placement.units,
+                                });
+                            }}
                           >
                             <PencilSimple size={16} />
                           </button>
                           <button
                             className="icon-button"
-                            aria-label={`${placement.device.name} kabinetten çıkar`}
+                            aria-label={`${placementName} kabinetten çıkar`}
                             disabled={busy}
                             onClick={async () => {
+                              setBusy(true);
+                              setError("");
                               try {
                                 await api(
-                                  `/ipam/cabinets/${row.id}/placements/${placement.device_id}`,
+                                  placement.accessory
+                                    ? `/ipam/cabinets/${row.id}/accessories/${placement.id}`
+                                    : `/ipam/cabinets/${row.id}/placements/${placement.device_id}`,
                                   "DELETE",
                                 );
+                                if (
+                                  placement.accessory &&
+                                  accessory.id === placement.id
+                                ) {
+                                  setAccessory({ start_unit: 1, units: 1 });
+                                  setAccessorySaved(false);
+                                }
                                 setRevision((v) => v + 1);
                               } catch (e: any) {
                                 setError(e.message);
+                              } finally {
+                                setBusy(false);
                               }
                             }}
                           >
@@ -741,6 +783,118 @@ function Rack({
               Yerleşimi kaydet
             </button>
           </form>
+        )}
+        {user.role !== "viewer" && (
+          <section
+            className="rack-organizer-section"
+            aria-labelledby="organizer-title"
+          >
+            <h3 id="organizer-title">
+              Yatay Kablo Düzenleyici / Fırçalı Organizer
+            </h3>
+            <p className="ipam-hint">
+              Kabinet içindeki konumunu ve kapladığı U yüksekliğini seçin.
+            </p>
+            <form
+              className="rack-organizer-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBusy(true);
+                setAccessoryError("");
+                setAccessorySaved(false);
+                try {
+                  await api(
+                    `/ipam/cabinets/${row.id}/accessories${accessory.id ? `/${accessory.id}` : ""}`,
+                    accessory.id ? "PUT" : "POST",
+                    {
+                      kind: "brush_organizer",
+                      start_unit: accessory.start_unit,
+                      units: accessory.units,
+                    },
+                  );
+                  setAccessory({ start_unit: 1, units: 1 });
+                  setAccessorySaved(true);
+                  setRevision((v) => v + 1);
+                } catch (e: any) {
+                  setAccessoryError(e.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <Label name="Organizer başlangıç U">
+                <input
+                  id="organizer-start"
+                  type="number"
+                  required
+                  min={1}
+                  max={row.units}
+                  disabled={busy}
+                  aria-describedby={
+                    accessoryError ? "organizer-error" : undefined
+                  }
+                  value={accessory.start_unit}
+                  onChange={(e) => {
+                    setAccessorySaved(false);
+                    setAccessory({
+                      ...accessory,
+                      start_unit: Number(e.target.value),
+                    });
+                  }}
+                />
+              </Label>
+              <Label name="Organizer yüksekliği (U)">
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  max={row.units}
+                  disabled={busy}
+                  aria-describedby={
+                    accessoryError ? "organizer-error" : undefined
+                  }
+                  value={accessory.units}
+                  onChange={(e) => {
+                    setAccessorySaved(false);
+                    setAccessory({
+                      ...accessory,
+                      units: Number(e.target.value),
+                    });
+                  }}
+                />
+              </Label>
+              <button className="primary" disabled={busy}>
+                {busy
+                  ? "Kaydediliyor…"
+                  : accessory.id
+                    ? "Organizeri güncelle"
+                    : "Organizer ekle"}
+              </button>
+              {accessory.id && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setAccessory({ start_unit: 1, units: 1 });
+                    setAccessoryError("");
+                  }}
+                >
+                  Düzenlemeden vazgeç
+                </button>
+              )}
+              {accessoryError && (
+                <div id="organizer-error" className="error" role="alert">
+                  {accessoryError}
+                </div>
+              )}
+              {accessorySaved && (
+                <p className="ipam-hint" role="status">
+                  Organizer kaydedildi.
+                </p>
+              )}
+            </form>
+          </section>
         )}
         {user.role !== "viewer" && (
           <details className="rack-image-settings">

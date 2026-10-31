@@ -105,6 +105,21 @@ class RackPlacement(Entity, Base):
     )
 
 
+class RackAccessory(Entity, Base):
+    __tablename__ = "rack_accessories"
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(30), default="brush_organizer")
+    start_unit: Mapped[int] = mapped_column(Integer)
+    units: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (
+        CheckConstraint("kind = 'brush_organizer'", name="ck_rack_accessory_kind"),
+        CheckConstraint(
+            "start_unit >= 1 AND units >= 1 AND start_unit + units - 1 <= 60",
+            name="ck_rack_accessory_position",
+        ),
+    )
+
+
 class OperatingSystem(Entity, Base):
     __tablename__ = "operating_systems"
     name: Mapped[str] = mapped_column(String(190), unique=True)

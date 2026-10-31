@@ -102,12 +102,10 @@ def validate_location_relations(db, name, data, row_id=None):
             cabinet = db.scalar(select(m.Cabinet).where(m.Cabinet.id == row_id).with_for_update())
             cabinet.lock_version += 1
             db.flush()
-            if db.scalar(
-                select(m.RackPlacement.id)
-                .where(
-                    m.RackPlacement.cabinet_id == row_id,
-                    m.RackPlacement.start_unit + m.RackPlacement.units - 1 > data["units"],
-                )
-                .limit(1)
-            ):
-                raise HTTPException(409, "Kabinet kapasitesi mevcut cihazların altına indirilemez")
+            for model in (m.RackPlacement, m.RackAccessory):
+                if db.scalar(
+                    select(model.id)
+                    .where(model.cabinet_id == row_id, model.start_unit + model.units - 1 > data["units"])
+                    .limit(1)
+                ):
+                    raise HTTPException(409, "Kabinet kapasitesi mevcut yerleşimlerin altına indirilemez")

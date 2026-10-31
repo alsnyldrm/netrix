@@ -47,7 +47,16 @@ def detail(db, id):
                 "image": model_image(db, device.vendor, device.model),
             }
         )
-    return {**serialize(cabinet), "placements": placements}
+    accessories = db.scalars(
+        select(m.RackAccessory)
+        .where(m.RackAccessory.cabinet_id == id)
+        .order_by(m.RackAccessory.start_unit.desc())
+    ).all()
+    return {
+        **serialize(cabinet),
+        "placements": placements,
+        "accessories": [serialize(a) for a in accessories],
+    }
 
 
 def lock_cabinet(db, id):
@@ -59,24 +68,35 @@ def lock_cabinet(db, id):
     return row
 
 
+def check_space(db, cabinet, start, units, *, device_id=None, accessory_id=None):
+    end = start + units - 1
+    if end > cabinet.units:
+        raise HTTPException(422, "Yerleşim kabinet kapasitesini aşıyor")
+    for model, excluded, column in (
+        (m.RackPlacement, device_id, m.RackPlacement.device_id),
+        (m.RackAccessory, accessory_id, m.RackAccessory.id),
+    ):
+        stmt = select(model.id).where(
+            model.cabinet_id == cabinet.id,
+            model.start_unit <= end,
+            model.start_unit + model.units - 1 >= start,
+        )
+        if excluded:
+            stmt = stmt.where(column != excluded)
+        if db.scalar(stmt.limit(1)):
+            raise HTTPException(409, "Seçilen U alanı başka bir cihaz veya organizer tarafından kullanılıyor")
+
+
 def place(db, id, payload, user):
     cabinet = lock_cabinet(db, id)
     device = get(db, m.Device, payload.device_id)
     if device.archived:
         raise HTTPException(422, "Arşivlenen cihaz kabinete yerleştirilemez")
     end = payload.start_unit + payload.units - 1
-    if end > cabinet.units:
-        raise HTTPException(422, "Cihaz kabinet kapasitesini aşıyor")
     previous = db.scalar(select(m.RackPlacement).where(m.RackPlacement.device_id == device.id))
     if previous and previous.cabinet_id != id:
         raise HTTPException(409, "Cihaz başka bir kabinet içinde; önce mevcut yerleşimden çıkarın")
-    for row in db.scalars(
-        select(m.RackPlacement).where(
-            m.RackPlacement.cabinet_id == id, m.RackPlacement.device_id != device.id
-        )
-    ):
-        if payload.start_unit <= row.start_unit + row.units - 1 and end >= row.start_unit:
-            raise HTTPException(409, "Seçilen U alanı başka bir cihaz tarafından kullanılıyor")
+    check_space(db, cabinet, payload.start_unit, payload.units, device_id=device.id)
     row = previous or m.RackPlacement(cabinet_id=id, device_id=device.id)
     row.start_unit, row.units = payload.start_unit, payload.units
     db.add(row)
@@ -98,5 +118,38 @@ def unplace(db, id, device_id, user):
         raise HTTPException(404, "Yerleşim bulunamadı")
     db.delete(row)
     audit(db, user, "rack_unplace", "cabinets", id, "Cihaz yerleşimi kaldırıldı; envanter korundu")
+    db.commit()
+    publish()
+
+
+def save_accessory(db, cabinet_id, payload, user, accessory_id=None):
+    cabinet = lock_cabinet(db, cabinet_id)
+    row = get(db, m.RackAccessory, accessory_id) if accessory_id else m.RackAccessory(cabinet_id=cabinet_id)
+    if row.cabinet_id != cabinet_id:
+        raise HTTPException(404, "Organizer bu kabinette bulunamadı")
+    check_space(db, cabinet, payload.start_unit, payload.units, accessory_id=accessory_id)
+    row.kind, row.start_unit, row.units = payload.kind, payload.start_unit, payload.units
+    db.add(row)
+    db.flush()
+    audit(
+        db,
+        user,
+        "rack_accessory_save",
+        "cabinets",
+        cabinet_id,
+        f"Fırçalı organizer: {row.start_unit} U, {row.units} U yüksekliğinde",
+    )
+    db.commit()
+    publish()
+    return serialize(row)
+
+
+def remove_accessory(db, cabinet_id, accessory_id, user):
+    lock_cabinet(db, cabinet_id)
+    row = get(db, m.RackAccessory, accessory_id)
+    if row.cabinet_id != cabinet_id:
+        raise HTTPException(404, "Organizer bu kabinette bulunamadı")
+    db.delete(row)
+    audit(db, user, "rack_accessory_remove", "cabinets", cabinet_id, "Fırçalı organizer kaldırıldı")
     db.commit()
     publish()

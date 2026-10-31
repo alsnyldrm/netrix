@@ -16,6 +16,7 @@ from .schemas import (
     ModelImageInput,
     PlacementInput,
     PrefixSettings,
+    RackAccessoryInput,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -191,6 +192,29 @@ def model_image_get(id: str, user=Depends(current_user), db=Depends(db_session))
 
     device = svc.get(db, m.Device, id)
     return model_image(db, device.vendor, device.model) or {"url": "", "source": ""}
+
+
+@router.post("/ipam/cabinets/{id}/accessories", status_code=201)
+def accessory_create(id: str, payload: RackAccessoryInput, user=Depends(operator), db=Depends(db_session)):
+    from .racks import save_accessory
+
+    return save_accessory(db, id, payload, user)
+
+
+@router.put("/ipam/cabinets/{id}/accessories/{accessory_id}")
+def accessory_update(
+    id: str, accessory_id: str, payload: RackAccessoryInput, user=Depends(operator), db=Depends(db_session)
+):
+    from .racks import save_accessory
+
+    return save_accessory(db, id, payload, user, accessory_id)
+
+
+@router.delete("/ipam/cabinets/{id}/accessories/{accessory_id}", status_code=204)
+def accessory_delete(id: str, accessory_id: str, user=Depends(operator), db=Depends(db_session)):
+    from .racks import remove_accessory
+
+    remove_accessory(db, id, accessory_id, user)
 
 
 @router.put("/ipam/devices/{id}/model-image")

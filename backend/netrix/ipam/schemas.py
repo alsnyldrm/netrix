@@ -78,6 +78,12 @@ class PlacementInput(Input):
     units: int = Field(ge=1, le=60)
 
 
+class RackAccessoryInput(Input):
+    kind: Literal["brush_organizer"] = "brush_organizer"
+    start_unit: int = Field(ge=1, le=60)
+    units: int = Field(default=1, ge=1, le=60)
+
+
 class ModelImageInput(Input):
     url: str = Field(max_length=500)
     source: str = Field(max_length=500)

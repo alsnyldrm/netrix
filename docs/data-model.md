@@ -159,3 +159,7 @@ Alembic `20261031_15`: `institutions`, `rack_placements` ve `model_images` tablo
 ## IP adresi konum ilişkileri (31 Ekim 2026)
 
 Alembic `20261031_17`, `ip_addresses.institution_id/site_id/sub_site_id` için nullable, indeksli FK'ler ekler. IP düzenleme formu kurum, ana lokasyon ve alt lokasyonu ayrı seçer; API aynı kurumdaki ana lokasyon ve ona bağlı alt lokasyon ilişkisini doğrular. Üst ilişki değiştiğinde toplu düzenleme eski alt ilişkileri temizler. Eski `location` metni uyumluluk için tutulur; ilişki seçildiğinde yaprak lokasyon adıyla güncellenir. Eski manuel adlardan yalnızca benzersiz, kurumlu eşleşmeler taşınır; belirsiz ve eşleşmeyen metinler korunur. Yeni ilişkiler doluyken kayıplı downgrade engellenir.
+
+## Pasif kabinet organizerleri (31 Ekim 2026)
+
+Alembic `20261031_18`, `rack_accessories` tablosunu ekler: indeksli `cabinet_id` FK, `kind=brush_organizer`, `start_unit`, `units`, UUID ve UTC zamanlar. Tür ve 1–60 U sınırları CHECK ile korunur. Cihaz/organizer U çakışmaları ve kabinet kapasitesi, aynı kabinet satır kilidi altında servis tarafından doğrulanır. Organizer cihaz/IP envanteri oluşturmaz. Kayıt varken veri kaybettiren downgrade engellenir.

@@ -94,3 +94,7 @@ Kimlik doğrulamadan sonra kullanılan JSON yanıt önbelleği en fazla 5 saniye
 Aktif DHCP kiralarının resmi kaynağı: [Microsoft Get-DhcpServerv4Lease](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4lease?view=windowsserver2025-ps).
 
 IP konum geçişi (`20261031_17`) yalnızca tek bir kurumlu lokasyonla tam ad eşleşmesi bulunan eski manuel değerleri ilişkiye çevirir. Aynı adlı, eşleşmeyen veya kurumsuz lokasyon metinleri korunur; tahmini kurum atanmaz. API yanlış kurum/lokasyon/alt lokasyon birleşimini reddeder. IP'lerin kullandığı lokasyon hiyerarşisini değiştirmek veya lokasyonu silmek için önce IP atamaları taşınmalıdır.
+
+### Fırçalı organizer
+
+Kabinet penceresindeki **Yatay Kablo Düzenleyici / Fırçalı Organizer** alanında başlangıç U ve yükseklik (varsayılan 1 U) seçilir. Organizer şematik olarak gösterilir; yanındaki düzenleme/kaldırma düğmeleri kayıt üzerinde çalışır. Organizerler merkezi cihaz envanterinden ayrıdır ve IP kaydı oluşturmaz. Cihazlarla ve diğer organizerlerle çakışma, kapasite küçültme ve kabinet silme kontrolleri uygulanır. API: `POST /api/v1/ipam/cabinets/{id}/accessories`, `PUT/DELETE /api/v1/ipam/cabinets/{id}/accessories/{accessory_id}`; kabinet detayında `accessories` listesi döner. Yazma işlemleri operatör/yönetici, okuma oturum açmış kullanıcı yetkisi gerektirir.
