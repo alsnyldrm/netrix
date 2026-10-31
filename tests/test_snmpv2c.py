@@ -72,6 +72,7 @@ async def test_v2c_discovery_monitor_identity_and_probe(admin_client, inventory)
     assert response.status_code == 201
     profile_id = response.json()["id"]
     scope = {key: inventory["scope"][key] for key in ScopeInput.model_fields}
+    scope.pop("credential_ids")  # Exercise the legacy single-profile API payload.
     scope["credential_id"] = profile_id
     assert admin_client.put("/api/v1/scopes/" + inventory["scope"]["id"], json=scope).status_code == 200
 

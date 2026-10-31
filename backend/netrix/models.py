@@ -317,10 +317,19 @@ class IPTraffic(Entity, Base):
 
 class Scope(Entity, Base):
     __tablename__ = "discovery_scopes"
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     cidr: Mapped[str] = mapped_column(String(49))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
     credential_id: Mapped[str] = mapped_column(ForeignKey("credentials.id"), index=True)
+    profiles: Mapped[list["ScopeCredential"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True, order_by="ScopeCredential.position"
+    )
+
+    @property
+    def credential_ids(self):
+        return [profile.credential_id for profile in self.profiles] or [self.credential_id]
+
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     exclusions: Mapped[list] = mapped_column(JSON, default=list)
     seeds: Mapped[list] = mapped_column(JSON, default=list)
@@ -330,6 +339,16 @@ class Scope(Entity, Base):
     __table_args__ = (
         CheckConstraint("interval_seconds = 0 OR interval_seconds >= 300", name="ck_scope_interval"),
     )
+
+
+class ScopeCredential(Base):
+    __tablename__ = "discovery_scope_credentials"
+    scope_id: Mapped[str] = mapped_column(
+        ForeignKey("discovery_scopes.id", ondelete="CASCADE"), primary_key=True
+    )
+    credential_id: Mapped[str] = mapped_column(ForeignKey("credentials.id"), primary_key=True, index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (UniqueConstraint("scope_id", "position"),)
 
 
 class Job(Entity, Base):

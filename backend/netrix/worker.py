@@ -343,7 +343,7 @@ async def discover(job_id, collector):
         scope = get(db, m.Scope, job.target_id)
         if not scope.enabled:
             raise Cancelled()
-        secret = secret_data(get(db, m.Credential, scope.credential_id))
+        profile_ids = scope.credential_ids
         targets = scope_targets(scope)
         job.total = len(targets)
         job.progress = db.scalar(
@@ -373,9 +373,24 @@ async def discover(job_id, collector):
                     )
                 )
                 port = existing_device.snmp_port if existing_device else 161
-            try:
-                collected = await collector.collect(address, port, secret)
-            except (NetworkError, TimeoutError, OSError):
+            for profile_id in profile_ids:
+                with session_factory()() as db:
+                    job = get(db, m.Job, job_id)
+                    current_scope = get(db, m.Scope, job.target_id)
+                    if job.cancel_requested or not in_scope(address, current_scope):
+                        raise Cancelled()
+                    if profile_id not in current_scope.credential_ids:
+                        continue
+                    profile = get(db, m.Credential, profile_id)
+                    profile_version = profile.updated_at
+                    secret = secret_data(profile)
+                try:
+                    async with asyncio.timeout(180):
+                        collected = await collector.collect(address, port, secret)
+                    break
+                except (NetworkError, TimeoutError, OSError):
+                    continue
+            else:
                 with session_factory()() as db:
                     job = get(db, m.Job, job_id)
                     job.progress += 1
@@ -384,7 +399,14 @@ async def discover(job_id, collector):
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
                 current_scope = get(db, m.Scope, job.target_id)
-                if job.cancel_requested or not in_scope(address, current_scope):
+                profile = db.get(m.Credential, profile_id)
+                if (
+                    job.cancel_requested
+                    or not in_scope(address, current_scope)
+                    or profile_id not in current_scope.credential_ids
+                    or not profile
+                    or profile.updated_at != profile_version
+                ):
                     raise Cancelled()
                 device = db.scalar(
                     select(m.Device)
@@ -397,7 +419,7 @@ async def discover(job_id, collector):
                         management_ip=address,
                         vrf_id=current_scope.vrf_id,
                         site_id=current_scope.site_id,
-                        snmp_credential_id=current_scope.credential_id,
+                        snmp_credential_id=profile_id,
                         kind="other",
                     )
                     db.add(device)
@@ -410,6 +432,9 @@ async def discover(job_id, collector):
                             details={"address": address},
                         )
                     )
+                # Keep a separately managed profile outside this scope intact.
+                if not device.snmp_credential_id or device.snmp_credential_id in current_scope.credential_ids:
+                    device.snmp_credential_id = profile_id
                 persist_collection(db, device, collected, job, secret["protocol"])
                 job.progress += 1
                 db.commit()

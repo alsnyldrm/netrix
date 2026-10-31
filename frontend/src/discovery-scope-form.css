@@ -1,0 +1,76 @@
+.discovery-profiles {
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.discovery-profiles legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+.discovery-profiles p,
+.discovery-profiles > small {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.discovery-profile-list {
+  display: grid;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px 2px;
+  margin: 8px 0;
+}
+.discovery-profile-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.discovery-profile-option:has(input:checked) {
+  border-color: var(--accent);
+}
+.discovery-profile-option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.discovery-profile-option input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+.discovery-profile-option > span:not(.discovery-profile-order) {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.discovery-profile-option small {
+  color: var(--text-2);
+}
+.discovery-profile-order {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 12px;
+}
+.discovery-scope-form textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.discovery-scope-form input:not([type="checkbox"]),
+.discovery-scope-form select,
+.discovery-scope-form .dialog-footer button {
+  min-height: 44px;
+}

@@ -155,10 +155,12 @@ class IPInput(Input):
 
 
 class ScopeInput(Input):
+    institution_id: str | None = Field(default=None, min_length=1, max_length=36)
     name: str = Field(min_length=1, max_length=120)
     cidr: str
     vrf_id: str
-    credential_id: str
+    credential_id: str | None = None
+    credential_ids: list[str] | None = Field(default=None, max_length=16)
     site_id: str | None = None
     exclusions: list[str] = Field(default_factory=list, max_length=256)
     seeds: list[str] = Field(default_factory=list, max_length=1024)
@@ -167,6 +169,12 @@ class ScopeInput(Input):
 
     @model_validator(mode="after")
     def scope(self):
+        if self.credential_ids is None:
+            self.credential_ids = [self.credential_id] if self.credential_id else []
+        self.credential_ids = list(dict.fromkeys(self.credential_ids))
+        if not self.credential_ids or any(not id for id in self.credential_ids):
+            raise ValueError("En az bir SNMP erişim profili seçin")
+        self.credential_id = self.credential_ids[0]
         network = ipaddress.ip_network(self.cidr, strict=True)
         self.cidr = str(network)
         if (

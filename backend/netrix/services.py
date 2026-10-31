@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import func, inspect, or_, select
+from sqlalchemy import delete, func, inspect, or_, select
 
 from . import models as m
 from . import schemas as s
@@ -89,6 +89,8 @@ def serialize(obj):
         result["local_aggregate"] = (obj.evidence or {}).get("local_aggregate")
     if isinstance(obj, m.Device):
         result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind
+    if isinstance(obj, m.Scope):
+        result["credential_ids"] = obj.credential_ids
     return result
 
 
@@ -125,6 +127,17 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             get(db, m.VRF, data["vrf_id"])
     if data.get("site_id"):
         require_ref(db, m.Site, data["site_id"])
+    if name == "sites" and row_id:
+        if db.scalar(
+            select(m.Scope.id)
+            .where(
+                m.Scope.site_id == row_id,
+                m.Scope.institution_id.is_not(None),
+                m.Scope.institution_id != data["institution_id"],
+            )
+            .limit(1)
+        ):
+            raise HTTPException(409, "Önce bu lokasyonu kullanan keşif kapsamlarının kurumunu güncelleyin")
     if name == "devices":
         if not db.scalar(select(m.DeviceType.id).where(m.DeviceType.code == data["kind"])):
             raise HTTPException(422, "Cihaz türü bulunamadı; Cihaz Türü menüsündeki kayıtlı bir türü seçin")
@@ -195,8 +208,24 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             data["device_id"] = device.id
             if device.vrf_id != data["vrf_id"] or (prefix.site_id and prefix.site_id != device.site_id):
                 raise HTTPException(422, "Arayüzün VRF veya site bilgisi prefix ile uyumsuz")
-    if name == "scopes" and get(db, m.Credential, data["credential_id"]).protocol not in SNMP_PROTOCOLS:
-        raise HTTPException(422, "Keşif SNMPv3 veya SNMPv2c profili gerektirir")
+    if name == "scopes":
+        site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
+        # Legacy clients can omit the institution when the location determines it.
+        if not data.get("institution_id") and site:
+            data["institution_id"] = site.institution_id
+        if data.get("institution_id"):
+            institution = db.scalar(
+                select(m.Institution).where(m.Institution.id == data["institution_id"]).with_for_update()
+            )
+            if not institution:
+                raise HTTPException(422, "Kurum bulunamadı")
+            institution.lock_version += 1
+            db.flush()
+            if site and site.institution_id != institution.id:
+                raise HTTPException(422, "Lokasyon seçilen kuruma ait değil")
+        for profile_id in data["credential_ids"]:
+            if get(db, m.Credential, profile_id).protocol not in SNMP_PROTOCOLS:
+                raise HTTPException(422, "Keşif SNMPv3 veya SNMPv2c profili gerektirir")
     if name == "rules" and row_id and not data["enabled"]:
         for alert in db.scalars(
             select(m.Alert).where(m.Alert.rule_id == row_id, m.Alert.active_key.is_not(None))
@@ -284,10 +313,19 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             if getattr(row, key) != data[key] or key in (manual_fields or ())
         }
         row.manual_identity_fields = sorted(set(row.manual_identity_fields or []) | changed)
+    scope_profiles = data.pop("credential_ids") if name == "scopes" else None
     for key, val in data.items():
         setattr(row, key, val)
     db.add(row)
     db.flush()
+    if scope_profiles is not None:
+        db.execute(delete(m.ScopeCredential).where(m.ScopeCredential.scope_id == row.id))
+        db.add_all(
+            m.ScopeCredential(scope_id=row.id, credential_id=id, position=position)
+            for position, id in enumerate(scope_profiles)
+        )
+        db.flush()
+        db.expire(row, ["profiles"])
     if name == "devices":
         db.expire(row, ["device_type"])
     audit(

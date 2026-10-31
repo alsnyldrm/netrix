@@ -1,3 +1,4 @@
+import { DiscoveryScopeForm } from "./discovery-scope-form";
 import { DeviceConnections } from "./device-connections";
 import { Topology } from "./topology";
 import type { TopologyDevice, TopologyLink } from "./topology-layout";
@@ -464,7 +465,8 @@ export const PAGES: Page[] = [
         hint: "Kapsamı kaydetmek bu ağda işlem yapma yetkiniz olduğunu belirtir.",
       }),
       ref("vrf_id", "VRF", "vrfs", true),
-      ref("credential_id", "SNMP erişim profili", "credentials", true),
+      f("credential_ids", "SNMP erişim profilleri", { type: "array", required: true }),
+      ref("institution_id", "Kurum", "institutions", true),
       ref("site_id", "Lokasyon", "sites"),
       f("exclusions", "Hariç tutulan CIDR listesi", {
         type: "array",
@@ -1232,7 +1234,14 @@ export function dependentChange(values: Row, key: string, value: any) {
   }
   return next;
 }
-function ResourceForm({
+function ResourceForm(props: React.ComponentProps<typeof GenericResourceForm>) {
+  return props.page.resource === "scopes" ? (
+    <DiscoveryScopeForm {...props} />
+  ) : (
+    <GenericResourceForm {...props} />
+  );
+}
+function GenericResourceForm({
   page,
   row,
   refs,
