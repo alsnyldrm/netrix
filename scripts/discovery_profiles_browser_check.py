@@ -27,6 +27,10 @@ with sync_playwright() as p:
     institution = dialog.get_by_role("combobox", name="Kurum")
     site = dialog.get_by_role("combobox", name="Lokasyon", exact=True)
     expect(site).to_be_disabled()
+    assert "1024" not in dialog.inner_text()
+    expect(
+        dialog.get_by_text("IPv4 için isteğe bağlıdır; boşsa ağın tamamı taranır.", exact=False)
+    ).to_be_visible()
     assert dialog.get_by_role("checkbox").count() == 3  # Two SNMP profiles, one enabled flag; no SSH.
     institution.select_option(label="Kuzey Üniversitesi")
     assert site.locator("option").all_text_contents() == ["Lokasyon seçin (isteğe bağlı)", "Kuzey Kampüs"]
@@ -36,7 +40,7 @@ with sync_playwright() as p:
     assert site.locator("option").all_text_contents() == ["Lokasyon seçin (isteğe bağlı)", "Güney Kampüs"]
     site.select_option(label="Güney Kampüs")
     dialog.get_by_role("textbox", name="Ad", exact=False).first.fill("Çok profilli kapsam")
-    dialog.get_by_role("textbox", name="Ağ (CIDR)").fill("192.0.2.0/30")
+    dialog.get_by_role("textbox", name="Ağ (CIDR)").fill("10.6.0.0/21")
     dialog.get_by_role("button", name="Kaydet", exact=True).click()
     expect(dialog.get_by_role("alert")).to_contain_text("En az bir SNMP")
     dialog.get_by_role("checkbox", name="Şube SNMP").check()
@@ -95,6 +99,7 @@ with sync_playwright() as p:
     assert saved.value.status == 201, saved.value.text()
     row = saved.value.json()
     assert len(row["credential_ids"]) == 2
+    assert row["cidr"] == "10.6.0.0/21" and row["seeds"] == []
     expect(dialog).not_to_be_visible()
     page.get_by_role("row").filter(has_text="Çok profilli kapsam").get_by_role(
         "button", name="Kaydı düzenle", exact=True

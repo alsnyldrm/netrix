@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import hashlib
-import ipaddress
 import logging
 import signal
 import time
@@ -31,6 +30,7 @@ from .discovery.protocols import (
     fetch_identity,
     fetch_neighbor_detail,
 )
+from .discovery.targets import scope_targets
 from .identity.security import encrypt, secret_data
 from .inventory.identity import apply_identity
 from .monitoring.control import cancel_paused_jobs
@@ -53,26 +53,6 @@ stop = False
 
 class Cancelled(Exception):
     pass
-
-
-def scope_targets(scope):
-    network = ipaddress.ip_network(scope.cidr)
-    if (network.version == 6 or network.num_addresses > 1024) and not scope.seeds:
-        raise NetworkError("Geniş ağ ve IPv6 açık hedef listesi gerektirir")
-    candidates = scope.seeds or [str(ip) for ip in network.hosts()]
-    return [
-        ip
-        for ip in candidates
-        if in_scope(ip, scope)
-        and not any(
-            (
-                ipaddress.ip_address(ip).is_multicast,
-                ipaddress.ip_address(ip).is_loopback,
-                ipaddress.ip_address(ip).is_link_local,
-                ipaddress.ip_address(ip).is_unspecified,
-            )
-        )
-    ][:1024]
 
 
 def sync_interfaces(db, device, collected, job_id):
@@ -443,7 +423,18 @@ async def discover(job_id, collector):
                 publish()
             return True
 
-    tasks = [asyncio.create_task(target(address)) for address in targets]
+    pending = iter(targets)
+
+    async def consume():
+        succeeded = completed = 0
+        for address in pending:
+            succeeded += bool(await target(address))
+            completed += 1
+            # Yield even when an already completed observation skips network I/O.
+            await asyncio.sleep(0)
+        return succeeded, completed
+
+    tasks = [asyncio.create_task(consume()) for _ in range(4)]
     try:
         results = await asyncio.gather(*tasks)
     except BaseException:
@@ -451,8 +442,9 @@ async def discover(job_id, collector):
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         raise
-    succeeded = sum(results)
-    return {"reachable": succeeded, "unresponsive": len(results) - succeeded, "total": len(results)}
+    succeeded = sum(result[0] for result in results)
+    completed = sum(result[1] for result in results)
+    return {"reachable": succeeded, "unresponsive": completed - succeeded, "total": completed}
 
 
 async def collect_device(job_id, collector):

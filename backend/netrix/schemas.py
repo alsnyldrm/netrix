@@ -198,8 +198,8 @@ class ScopeInput(Input):
         self.seeds = list(dict.fromkeys(str(ipaddress.ip_address(v)) for v in self.seeds))
         if any(ipaddress.ip_address(v) not in network for v in self.seeds):
             raise ValueError("Hedef adres kapsam dışında")
-        if (network.version == 6 or network.num_addresses > 1024) and not self.seeds:
-            raise ValueError("IPv6 ve 1024 adresten büyük ağlar için açık hedef listesi gerekli")
+        if network.version == 6 and not self.seeds:
+            raise ValueError("IPv6 için açık hedef listesi gerekli")
         if 0 < self.interval_seconds < 300:
             raise ValueError("Zamanlama en az 300 saniye olmalı")
         return self
