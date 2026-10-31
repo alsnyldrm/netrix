@@ -137,6 +137,9 @@ class PrefixInput(Input):
 
 
 class IPInput(Input):
+    institution_id: str | None = None
+    site_id: str | None = None
+    sub_site_id: str | None = None
     device_id: str | None = None
     address: str
     vrf_id: str

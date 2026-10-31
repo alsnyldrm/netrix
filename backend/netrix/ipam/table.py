@@ -199,6 +199,19 @@ def bulk(db, payload, user):
         for row in rows:
             data = {k: getattr(row, k) for k in s.IPInput.model_fields}
             data.update(payload.changes)
+            if "institution_id" in payload.changes:
+                for key in ("site_id", "sub_site_id", "location"):
+                    if key not in payload.changes:
+                        data[key] = "" if key == "location" else None
+            elif "site_id" in payload.changes:
+                if "sub_site_id" not in payload.changes:
+                    data["sub_site_id"] = None
+                data["location"] = ""
+            elif "sub_site_id" in payload.changes:
+                data["location"] = ""
+            elif "location" in payload.changes:
+                for key in ("institution_id", "site_id", "sub_site_id"):
+                    data[key] = None
             svc.save_resource(db, "addresses", data, user, row.id, commit=False)
     db.commit()
     svc.publish()

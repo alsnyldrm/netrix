@@ -3,7 +3,7 @@
 import re
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from .. import models as m
 
@@ -29,6 +29,15 @@ def validate_location_relations(db, name, data, row_id=None):
             )
         if row_id:
             existing = get(db, m.Site, row_id)
+            if (parent.id if parent else None, institution.id) != (
+                existing.parent_id,
+                existing.institution_id,
+            ) and db.scalar(
+                select(m.IPAddress.id)
+                .where(or_(m.IPAddress.site_id == row_id, m.IPAddress.sub_site_id == row_id))
+                .limit(1)
+            ):
+                raise HTTPException(409, "Önce bu lokasyonu kullanan IP adreslerini taşıyın")
             if parent and db.scalar(select(m.Cabinet.id).where(m.Cabinet.site_id == row_id).limit(1)):
                 raise HTTPException(409, "Kabinetlerin ana lokasyonu alt lokasyona dönüştürülemez")
             if data.get("parent_id") != existing.parent_id and db.scalar(
@@ -63,6 +72,16 @@ def validate_location_relations(db, name, data, row_id=None):
                     break
             else:
                 raise HTTPException(409, "Bu lokasyon için kullanılabilir kod kalmadı")
+    if name == "addresses":
+        institution = get(db, m.Institution, data["institution_id"]) if data.get("institution_id") else None
+        site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
+        sub = get(db, m.Site, data["sub_site_id"]) if data.get("sub_site_id") else None
+        if site and (not institution or site.parent_id or site.institution_id != institution.id):
+            raise HTTPException(422, "Lokasyon seçilen kurumun ana lokasyonu olmalı")
+        if sub and (not site or sub.parent_id != site.id or sub.institution_id != institution.id):
+            raise HTTPException(422, "Alt lokasyon seçilen lokasyona ait olmalı")
+        if institution:
+            data["location"] = sub.name if sub else site.name if site else ""
     if name == "prefixes":
         site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
         if data.get("institution_id"):

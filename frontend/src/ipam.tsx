@@ -1230,7 +1230,12 @@ function IPBulkEditor({
   close: () => void;
   saved: () => void;
 }) {
-  const [values, setValues] = useState<Row>({});
+  const locationFields = ["institution_id", "site_id", "sub_site_id"];
+  const [values, setValues] = useState<Row>({
+    institution_id: "",
+    site_id: "",
+    sub_site_id: "",
+  });
   const [enabled, setEnabled] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1283,13 +1288,22 @@ function IPBulkEditor({
                 <input
                   type="checkbox"
                   checked={enabled.includes(f.key)}
-                  onChange={(e) =>
-                    setEnabled(
-                      e.target.checked
-                        ? [...enabled, f.key]
-                        : enabled.filter((k) => k !== f.key),
-                    )
-                  }
+                  onChange={(e) => {
+                    if (locationFields.includes(f.key)) {
+                      setEnabled(
+                        e.target.checked
+                          ? [...new Set([...enabled, ...locationFields])]
+                          : enabled.filter(
+                              (key) => !locationFields.includes(key),
+                            ),
+                      );
+                    } else
+                      setEnabled(
+                        e.target.checked
+                          ? [...enabled, f.key]
+                          : enabled.filter((k) => k !== f.key),
+                      );
+                  }}
                 />
                 {f.label} değiştir
               </label>
@@ -1298,7 +1312,11 @@ function IPBulkEditor({
                 {f.ref || f.suggestions || f.options ? (
                   <select
                     aria-label={f.label}
-                    disabled={!enabled.includes(f.key)}
+                    disabled={
+                      !enabled.includes(f.key) ||
+                      (f.key === "site_id" && !values.institution_id) ||
+                      (f.key === "sub_site_id" && !values.site_id)
+                    }
                     value={values[f.key] || ""}
                     onChange={(e) =>
                       setValues(dependentChange(values, f.key, e.target.value))

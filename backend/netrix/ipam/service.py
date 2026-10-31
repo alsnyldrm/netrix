@@ -296,7 +296,11 @@ def enrich(db, rows, *, details=True):
         item["mac_conflict"] = len(all_macs) > 1
         if len(macs) > 1:
             item["mac_address"] = " / ".join(sorted(macs))
-        item["location"] = item["location"] or sites.get(prefixes[row.prefix_id].site_id, "")
+        item["location"] = (
+            sites.get(row.sub_site_id or row.site_id)
+            or item["location"]
+            or sites.get(prefixes[row.prefix_id].site_id, "")
+        )
         item["last_observed_at"] = obs[0].observed_at.isoformat() if obs else None
         item["stale"] = bool(obs and not recent)
         item["sources"] = sorted({o.source for o in obs})

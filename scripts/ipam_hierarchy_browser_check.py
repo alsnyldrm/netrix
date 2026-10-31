@@ -53,6 +53,18 @@ with sync_playwright() as p:
                     "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))"
                 )
                 page.screenshot(path=f"artifacts/hierarchy-{name}-{width}-{theme}.png")
+                if name in ("ip-form", "bulk") and width in (375, 812):
+                    leaf = page.get_by_role("combobox", name="Alt lokasyon", exact=True)
+                    leaf.scroll_into_view_if_needed()
+                    expect(leaf).to_be_in_viewport()
+                    page.screenshot(path=f"artifacts/hierarchy-{name}-location-{width}-{theme}.png")
+                    action = dialog.get_by_role(
+                        "button",
+                        name="Kaydı kaydet" if name == "ip-form" else "Değişiklikleri uygula",
+                        exact=True,
+                    )
+                    action.scroll_into_view_if_needed()
+                    expect(action).to_be_in_viewport()
         page.set_viewport_size({"width": 1440, "height": 1000})
 
     def goto(key):
@@ -128,9 +140,35 @@ with sync_playwright() as p:
     page.get_by_role("combobox", name="Arayüz", exact=True).select_option(label="GigabitEthernet1/0/12")
     page.get_by_role("combobox", name="İşletim sistemi", exact=True).select_option(label="Windows Server")
     page.get_by_role("combobox", name="Kabinet no", exact=True).select_option(label="K-12")
-    page.get_by_role("combobox", name="Lokasyon", exact=True).select_option(label="Kat 2")
+    institution_select = page.get_by_role("combobox", name="Kurum", exact=True)
+    location_select = page.get_by_role("combobox", name="Lokasyon", exact=True)
+    sublocation_select = page.get_by_role("combobox", name="Alt lokasyon", exact=True)
+    expect(location_select).to_be_disabled()
+    expect(sublocation_select).to_be_disabled()
+    institution_select.select_option(label="Fixture Üniversitesi")
+    assert location_select.locator("option").all_text_contents() == ["Seçiniz", "Kuzey Kampüs"]
+    location_select.select_option(label="Kuzey Kampüs")
+    assert sublocation_select.locator("option").all_text_contents() == ["Seçiniz", "Kat 2"]
+    sublocation_select.select_option(label="Kat 2")
+    institution_select.select_option(label="İkinci Kurum")
+    expect(location_select).to_have_value("")
+    expect(sublocation_select).to_have_value("")
+    expect(sublocation_select).to_be_disabled()
+    assert location_select.locator("option").count() == 1
+    institution_select.select_option(label="Fixture Üniversitesi")
+    location_select.select_option(label="Kuzey Kampüs")
+    sublocation_select.select_option(label="Kat 2")
+    location_select.select_option("")
+    expect(sublocation_select).to_have_value("")
+    location_select.select_option(label="Kuzey Kampüs")
+    sublocation_select.select_option(label="Kat 2")
     check("ip-form")
     page.get_by_role("button", name="Kaydı kaydet", exact=True).click()
+    page.get_by_role("button", name="192.0.2.10 düzenle", exact=True).click()
+    expect(institution_select.locator("option:checked")).to_have_text("Fixture Üniversitesi")
+    expect(location_select.locator("option:checked")).to_have_text("Kuzey Kampüs")
+    expect(sublocation_select.locator("option:checked")).to_have_text("Kat 2")
+    page.get_by_role("button", name="Vazgeç", exact=True).click()
     expect(
         page.get_by_role("row")
         .filter(has=page.get_by_role("checkbox", name="192.0.2.10 seç", exact=True))
@@ -165,9 +203,18 @@ with sync_playwright() as p:
     ).click()
     page.get_by_role("checkbox", name="Hostname değiştir", exact=True).check()
     page.get_by_label("Hostname", exact=True).fill("bulk-server")
+    page.get_by_role("checkbox", name="Kurum değiştir", exact=True).check()
+    institution_select.select_option(label="Fixture Üniversitesi")
+    location_select.select_option(label="Kuzey Kampüs")
+    sublocation_select.select_option(label="Kat 2")
     check("bulk")
     page.get_by_role("button", name="Değişiklikleri uygula", exact=True).click()
     expect(page.get_by_role("cell", name="bulk-server", exact=True)).to_be_visible()
+    page.get_by_role("button", name="192.0.2.10 düzenle", exact=True).click()
+    expect(institution_select.locator("option:checked")).to_have_text("Fixture Üniversitesi")
+    expect(location_select.locator("option:checked")).to_have_text("Kuzey Kampüs")
+    expect(sublocation_select.locator("option:checked")).to_have_text("Kat 2")
+    page.get_by_role("button", name="Vazgeç", exact=True).click()
     check("address-table")
     page.get_by_role("button", name="Ağ bloğu ayarları", exact=True).click()
     assert page.get_by_text("Yetkili keşif kapsamı", exact=True).count() == 0

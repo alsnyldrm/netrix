@@ -322,9 +322,9 @@ export const PAGES: Page[] = [
       f("cabinet", "Kabinet no", {
         suggestions: "cabinets",
       }),
-      f("location", "Lokasyon", {
-        suggestions: "sites",
-      }),
+      ref("institution_id", "Kurum", "institutions"),
+      ref("site_id", "Lokasyon", "sites"),
+      ref("sub_site_id", "Alt lokasyon", "sites"),
       options("status", "Durum", ["reserved", "active", "deprecated"]),
       ref("device_id", "Bağlı cihaz", "devices"),
       ref("interface_id", "Arayüz", "interfaces"),
@@ -465,7 +465,10 @@ export const PAGES: Page[] = [
         hint: "Kapsamı kaydetmek bu ağda işlem yapma yetkiniz olduğunu belirtir.",
       }),
       ref("vrf_id", "VRF", "vrfs", true),
-      f("credential_ids", "SNMP erişim profilleri", { type: "array", required: true }),
+      f("credential_ids", "SNMP erişim profilleri", {
+        type: "array",
+        required: true,
+      }),
       ref("institution_id", "Kurum", "institutions", true),
       ref("site_id", "Lokasyon", "sites"),
       f("exclusions", "Hariç tutulan CIDR listesi", {
@@ -1211,13 +1214,19 @@ export function resourceChoices(
       return !values.vrf_id || r.vrf_id === values.vrf_id;
     if (page === "addresses" && field.key === "prefix_id")
       return !values.vrf_id || r.vrf_id === values.vrf_id;
-    if (page === "prefixes" && field.key === "site_id")
+    if (["prefixes", "addresses"].includes(page) && field.key === "site_id")
       return (
         !!values.institution_id &&
         r.institution_id === values.institution_id &&
         !r.parent_id
       );
     if (page === "cabinets" && field.key === "site_id") return !r.parent_id;
+    if (page === "addresses" && field.key === "sub_site_id")
+      return (
+        !!values.site_id &&
+        r.parent_id === values.site_id &&
+        r.institution_id === values.institution_id
+      );
     if (page === "cabinets" && field.key === "sub_site_id")
       return !!values.site_id && r.parent_id === values.site_id;
     return true;
@@ -1225,8 +1234,16 @@ export function resourceChoices(
 }
 export function dependentChange(values: Row, key: string, value: any) {
   const next = { ...values, [key]: value };
-  if (key === "institution_id" && "site_id" in next) next.site_id = "";
+  if (key === "institution_id") {
+    if ("site_id" in next) next.site_id = "";
+    if ("sub_site_id" in next) next.sub_site_id = "";
+  }
   if (key === "site_id" && "sub_site_id" in next) next.sub_site_id = "";
+  if (
+    ["institution_id", "site_id", "sub_site_id"].includes(key) &&
+    "location" in next
+  )
+    next.location = "";
   if (key === "device_id" && "interface_id" in next) next.interface_id = "";
   if (key === "vrf_id") {
     for (const dependent of ["prefix_id", "device_id", "interface_id"])
@@ -1256,8 +1273,11 @@ function GenericResourceForm({
   onSaved: (saved: Row) => void;
   onTest?: (device: Row) => void;
 }) {
-  const [values, setValues] = useState<Row>(() =>
-    Object.fromEntries(
+  const [values, setValues] = useState<Row>(() => ({
+    ...(page.key === "addresses"
+      ? { location: row?.id ? row.location || "" : "" }
+      : {}),
+    ...Object.fromEntries(
       (page.fields || []).map((field) => [
         field.key,
         row?.[field.key] ??
@@ -1273,7 +1293,7 @@ function GenericResourceForm({
                 : ""),
       ]),
     ),
-  );
+  }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const fields = (page.fields || [])
@@ -1426,6 +1446,11 @@ function GenericResourceForm({
                     <select
                       aria-label={field.label}
                       required={field.required}
+                      disabled={
+                        page.key === "addresses" &&
+                        ((field.key === "site_id" && !values.institution_id) ||
+                          (field.key === "sub_site_id" && !values.site_id))
+                      }
                       value={values[field.key] || ""}
                       onChange={(e) =>
                         setValues(

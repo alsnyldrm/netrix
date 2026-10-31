@@ -263,6 +263,11 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
     )
     if name == "prefixes" and row_id and (row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]):
         row.scan_authorized = row.ping_enabled = row.discovery_enabled = False
+    if name == "addresses" and row_id:
+        hierarchy = {"institution_id", "site_id", "sub_site_id"}
+        if not hierarchy.intersection(value.model_fields_set) and data["location"] == row.location:
+            # Older clients may update another field without knowing the hierarchy.
+            data.update({key: getattr(row, key) for key in hierarchy})
     validate_relations(db, name, data, row_id)
     if name == "device-types":
         if db.scalar(

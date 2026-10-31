@@ -155,3 +155,7 @@ IP formu bu kataloglardan ve ortak lokasyonlardan ad önerileri sunar; IP üzeri
 ## Kurum/lokasyon hiyerarşisi ve kabinet yerleşimi (31 Ekim 2026)
 
 Alembic `20261031_15`: `institutions`, `rack_placements` ve `model_images` tabloları; `sites.institution_id/parent_id`, `prefixes.institution_id/scan_authorized`, `cabinets.sub_site_id/units/lock_version`, `ip_addresses.device_id`. İlişkiler indeksli FK, cihaz başına tek yerleşim UNIQUE ve kapasite/konum CHECK ile korunur. Kurum ve kabinet sürüm alanları kod dağıtımı/yerleşim yarışlarını serileştirir. Kurum gerekliliği ve iki seviyeli lokasyon sınırı servis doğrulamasındadır; eski lokasyonların kurum alanı veri kaybı olmadan boş kalır. Aynı kabinet içindeki U çakışması, kabinet satırının kilidi altında doğrulanır. Üretici görsel eşlemesi `(vendor, model)` başına tekildir. Yeni veriler doluyken kayıplı downgrade engellenir. Zamanlar `DATETIME(6)`/UTC'dir.
+
+## IP adresi konum ilişkileri (31 Ekim 2026)
+
+Alembic `20261031_17`, `ip_addresses.institution_id/site_id/sub_site_id` için nullable, indeksli FK'ler ekler. IP düzenleme formu kurum, ana lokasyon ve alt lokasyonu ayrı seçer; API aynı kurumdaki ana lokasyon ve ona bağlı alt lokasyon ilişkisini doğrular. Üst ilişki değiştiğinde toplu düzenleme eski alt ilişkileri temizler. Eski `location` metni uyumluluk için tutulur; ilişki seçildiğinde yaprak lokasyon adıyla güncellenir. Eski manuel adlardan yalnızca benzersiz, kurumlu eşleşmeler taşınır; belirsiz ve eşleşmeyen metinler korunur. Yeni ilişkiler doluyken kayıplı downgrade engellenir.

@@ -56,7 +56,7 @@ Resmi protokol kaynakları: [Microsoft DHCP rezervasyonları](https://learn.micr
 
 IP adres yönetimi sırası: Ağ blokları → IP adresleri → VLAN alanları → Kabinetler → İşletim Sistemi → Lokasyon → DNS Sunucuları → Yönlendirme alanları.
 
-Kabinetler ekranında kabinet no, ortak lokasyon ve açıklama; İşletim Sistemi ekranında ad ve açıklama yönetilir. Lokasyon ekranı envanterde kullanılan ortak kayıtları yönetmeye devam eder. IP formundaki işletim sistemi, kabinet ve lokasyon alanlarında bu listelerden seçim yapılır. Daha önce girilmiş katalog dışı metinler mevcut seçenek olarak korunur. Katalog değişiklikleri daha önce IP'ye kaydedilmiş metni otomatik değiştirmez.
+Kabinetler ekranında kabinet no, ortak lokasyon ve açıklama; İşletim Sistemi ekranında ad ve açıklama yönetilir. Lokasyon ekranı envanterde kullanılan ortak kayıtları yönetmeye devam eder. IP formundaki işletim sistemi ve kabinet alanlarında kataloglardan seçim yapılır; eski katalog dışı metinler korunur. Konum için **Kurum → Lokasyon → Alt lokasyon** ayrı seçimlerdir. Lokasyon listesi yalnızca seçilen kurumun ana lokasyonlarını, alt lokasyon listesi yalnızca seçilen lokasyonun çocuklarını içerir. Üst seçim değişince alt seçimler temizlenir. Üç ilişki kimlikleriyle kaydedilir ve düzenlemede tekrar seçili gelir; toplu düzenlemede birlikte uygulanır. İşletim sistemi/kabinet metinleri katalog değişikliklerinde korunur; bağlı lokasyonun adı tabloda güncel katalogdan okunur.
 
 
 ## Kurum, lokasyon ve kabinet hiyerarşisi
@@ -90,3 +90,5 @@ Tablo listeleri ham gözlem geçmişini ve tüm FDB adaylarını taşımaz; ayr�
 Kimlik doğrulamadan sonra kullanılan JSON yanıt önbelleği en fazla 5 saniyeliktir. API/worker yazımları refresh yayımlamadan önce Redis revizyonunu artırır; eski yanıt anahtarları kullanılmaz. Redis kesilirse 50 ms bağlantı/soket sınırı ve yeniden denemesiz istemciyle DB okumasına dönülür; hata sonrası 5 saniye önbellek denemesi ertelenir. Tarayıcıya `Cache-Control: no-store` uygulanır. `Server-Timing` başlığı IPAM işleyicisinin süresini ve hit/miss durumunu verir; kimlik doğrulama, ağ ve tarayıcı çizim süresi bu ölçüme dahil değildir. Sayfa açılışındaki sabit 200 ms bekleme kaldırılmıştır; yalnızca arama yazımı geciktirilir ve arka plan yenilemesi mevcut satırları kaldırmaz.
 
 Aktif DHCP kiralarının resmi kaynağı: [Microsoft Get-DhcpServerv4Lease](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4lease?view=windowsserver2025-ps).
+
+IP konum geçişi (`20261031_17`) yalnızca tek bir kurumlu lokasyonla tam ad eşleşmesi bulunan eski manuel değerleri ilişkiye çevirir. Aynı adlı, eşleşmeyen veya kurumsuz lokasyon metinleri korunur; tahmini kurum atanmaz. API yanlış kurum/lokasyon/alt lokasyon birleşimini reddeder. IP'lerin kullandığı lokasyon hiyerarşisini değiştirmek veya lokasyonu silmek için önce IP atamaları taşınmalıdır.

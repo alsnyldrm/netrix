@@ -251,3 +251,13 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - `scripts/ipam_endpoint_browser_check.py`: bağlı cihaz hücresinin yalnızca `FBU-DS` içermesi, ayrı port sütunu, fiziksel bond sunucusunun adı/switch/Trk2 eşleşmesi ve VM'e ait tek izleme seçeneği geçti. 1440/375 px açık/koyu temada **8 axe kontrolü** ihlalsiz; masaüstü ve mobil görüntüler incelendi. Hiyerarşi/filtre/toplu düzenleme akışları da **78 axe kontrolüyle** geçti; konsol hatası ve yatay sayfa taşması yok.
 - Ruff, değişen Python dosyalarının biçimi, Prettier, TypeScript/Vite ve diff boşluk kontrolü geçti. Şema değişikliği yok; yeni gözlem/sorgu tabloları eklenmedi. Otomatik testlerde gerçek cihaz bağlantısı engellidir; yukarıdaki canlı okumalar kullanıcının belirttiği hedef ve kaynaklarda ayrı yürütüldü.
 - Son DHCP açıklaması ve yanıt önbelleğiyle genel IPAM/canlı izleme akışı ayrıca **48 axe kontrolüyle** geçti; bu değişiklik için toplam **134 kontrol** ihlalsiz. Entegrasyon açıklaması ve formun masaüstü/mobil görüntüleri de incelendi.
+
+
+## IP formunda ayrı kurum/lokasyon/alt lokasyon (31 Ekim 2026)
+
+- Kök neden: IP formunun `location` önerileri tüm `sites` adlarını tek listede birleştiriyordu; ana/alt ayrımı ve kalıcı kurum ilişkisi yoktu. Üç ayrı, bağımlı seçim ve kimlikle kayıt eklendi. Ana lokasyon listesine alt lokasyonlar alınmaz; üst seçim değiştiğinde alt seçimler temizlenir. Toplu düzenleme de aynı hiyerarşiyi uygular.
+- Yeni iki API regresyon testi düzeltme öncesinde 422 ile başarısız oldu. Düzeltme sonrasında 37 ilgili test geçti: kayıt/yeniden okuma, kurum/ana/alt ilişki reddi, bağlı lokasyon taşıma/silme koruması, toplu kurum değişiminde alt ilişkilerin temizlenmesi, eski istemciler ve eski metinlerin korunması.
+- `ip_address_locations_migration_check.py`, izole ve geçici MariaDB 11.8.3 `netrix_test` veritabanında geçti: benzersiz eski adların taşınması, belirsiz/eşleşmeyen adların korunması, üç FK/indeks, veri varken downgrade reddi, boşaltılmış ilişkilerle downgrade/upgrade ve Alembic şema karşılaştırması. Üretim veritabanı bu testte kullanılmadı.
+- `ipam_hierarchy_browser_check.py`: 1440×1000, 375×812 ve 812×375, açık/koyu temada 78 axe kontrolü; ihlal ve JS hatası yok. Kurum filtresi, ana/alt ayrımı, üst seçimde temizleme, kaydetme/yeniden açma, toplu düzenleme, kaydırılabilen mobil alt alanlar ve kaydet butonu doğrulandı. Masaüstü ve mobil görüntüler incelendi; alan hizaları ve yükseklikleri tutarlı.
+- TypeScript/Vite üretim derlemesi, Ruff, Prettier ve diff kontrolü geçti. Mevcut Vite 500 kB paket uyarısı ve Starlette/httpx deprecation uyarısı devam ediyor. Yeni bağımlılık yok.
+- Son tam Python test takımı: **535 geçti** (224,32 saniye); testler gerçek cihaz ağına erişmedi.

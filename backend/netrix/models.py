@@ -278,6 +278,9 @@ class Integration(Entity, Base):
 
 class IPAddress(Entity, Base):
     __tablename__ = "ip_addresses"
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
+    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
     address: Mapped[str] = mapped_column(String(45))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
