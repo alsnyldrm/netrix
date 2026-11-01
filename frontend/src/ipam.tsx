@@ -226,6 +226,16 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                 detail.mac_address,
                 detail.field_sources?.mac_address,
               ],
+              [
+                "Gateway Cihazı",
+                <span
+                  className={
+                    detail.is_gateway ? "ipam-gateway" : "ipam-not-gateway"
+                  }
+                >
+                  {detail.is_gateway ? "Evet" : "Hayır"}
+                </span>,
+              ],
               ["Bağlı switch", detail.connected_device],
               [
                 "Port grubu / Sanal ağ",
@@ -516,9 +526,20 @@ export function IPAMWorkspace({
   const renderCell = (r: Row, key: string) => {
     if (key === "address")
       return r.id ? (
-        <button className="text-button mono" onClick={() => setDetail(r)}>
-          {r.address}
-        </button>
+        <>
+          <button
+            className={`text-button mono${r.is_gateway ? " ipam-gateway" : ""}`}
+            onClick={() => setDetail(r)}
+            aria-describedby={r.is_gateway ? `gateway-${r.id}` : undefined}
+          >
+            {r.address}
+          </button>
+          {r.is_gateway && (
+            <small id={`gateway-${r.id}`} className="ipam-sub ipam-gateway">
+              Gateway
+            </small>
+          )}
+        </>
       ) : (
         <span className="mono">{r.address}</span>
       );
@@ -1110,8 +1131,10 @@ function IPBulkEditor({
             const changes = Object.fromEntries(
               enabled.map((key) => [
                 key,
-                values[key] ||
-                  (fields.find((f) => f.key === key)?.ref ? null : ""),
+                fields.find((f) => f.key === key)?.type === "checkbox"
+                  ? !!values[key]
+                  : values[key] ||
+                    (fields.find((f) => f.key === key)?.ref ? null : ""),
               ]),
             );
             if (
@@ -1197,6 +1220,16 @@ function IPBulkEditor({
                       </option>
                     ))}
                   </select>
+                ) : f.type === "checkbox" ? (
+                  <input
+                    type="checkbox"
+                    aria-label={f.label}
+                    disabled={!enabled.includes(f.key)}
+                    checked={!!values[f.key]}
+                    onChange={(e) =>
+                      setValues({ ...values, [f.key]: e.target.checked })
+                    }
+                  />
                 ) : (
                   <input
                     aria-label={f.label}

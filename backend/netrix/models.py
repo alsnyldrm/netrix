@@ -302,6 +302,7 @@ class IPAddress(Entity, Base):
     operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")
     cabinet: Mapped[str] = mapped_column(String(120), default="", server_default="")
     location: Mapped[str] = mapped_column(String(190), default="", server_default="")
+    is_gateway: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     status: Mapped[str] = mapped_column(String(20), default="reserved")
     __table_args__ = (
         UniqueConstraint("vrf_id", "address"),

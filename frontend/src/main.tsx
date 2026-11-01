@@ -741,6 +741,10 @@ export const ADDRESS_PAGE: Page = {
     ref("institution_id", "Kurum", "institutions"),
     ref("site_id", "Lokasyon", "sites"),
     ref("sub_site_id", "Alt lokasyon", "sites"),
+    f("is_gateway", "Gateway olarak işaretle", {
+      type: "checkbox",
+      default: false,
+    }),
     options("status", "Durum", ["reserved", "active", "deprecated"]),
     ref("device_id", "Bağlı cihaz", "devices"),
     ref("interface_id", "Arayüz", "interfaces"),

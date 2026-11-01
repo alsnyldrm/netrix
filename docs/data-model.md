@@ -57,7 +57,7 @@ MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)
 | Tablo | Alanlar ve kısıtlar |
 | --- | --- |
 | `vlans` | domain+vid tekil; CIDR+VRF, DNS, kurum/lokasyon, açıklama, tarama ayarı, kullanım eşiği, ping/yeni sunucu aralıkları; aynı VRF'de çakışan CIDR reddedilir |
-| `ip_addresses` | VLAN FK, VRF+adres tekil; yönetilen kimlik ve yerleşim alanları |
+| `ip_addresses` | VLAN FK, VRF+adres tekil; yönetilen kimlik ve yerleşim alanları; `is_gateway` kullanıcı tarafından seçilir ve kaynak güncellemelerinde korunur |
 | `ip_observations` | IP, kaynak, kaynak anahtarı, gözlem zamanı ve kanıt; IP silmede cascade |
 | `integrations` | Yalnızca VMware/DHCP kaynakları, şifreli erişim, son başarılı kanıt; tüm VLAN'lara uygulanır |
 
