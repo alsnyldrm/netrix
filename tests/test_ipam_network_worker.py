@@ -125,3 +125,47 @@ async def test_snmp_ipam_reads_bulk_gateway_and_vlan_tables_only(monkeypatch):
     assert result["tables"]["vlan_fdb_id"] == {"0.20": "700"}
     assert all("entity" not in key for key in p.IPAM_TABLES)
     assert not {"1.3.6.1.2.1.31.1.1.1.6", "1.3.6.1.2.1.31.1.1.1.10"} & set(walked)
+
+
+async def test_restart_reuses_only_fresh_success_from_same_job_and_connection(network):
+    from datetime import timedelta
+
+    from netrix.core import now
+
+    sf, vlan_id, _, ids = network
+    with sf() as db:
+        job = m.Job(kind="ipam_discover", target_id=vlan_id)
+        db.add(job)
+        db.commit()
+        id = job.id
+    calls = []
+
+    async def collect(host, *_):
+        calls.append(host)
+        return {"tables": {}, "interfaces": []}
+
+    collector = SimpleNamespace(ipam=collect)
+    await refresh(id, collector)
+    assert len(calls) == 3
+    await refresh(id, collector)
+    assert len(calls) == 3
+    with sf() as db:
+        device = db.get(m.Device, ids[1])
+        device.snmp_port = 1161
+        db.commit()
+    await refresh(id, collector)
+    assert calls.count("198.51.100.2") == 2 and len(calls) == 4
+    with sf() as db:
+        db.scalar(
+            select(m.Observation).where(m.Observation.job_id == id, m.Observation.device_id == ids[0])
+        ).created_at = now() - timedelta(days=2)
+        db.commit()
+    await refresh(id, collector)
+    assert calls.count("198.51.100.1") == 2 and len(calls) == 5
+    with sf() as db:
+        other = m.Job(kind="ipam_discover", target_id=vlan_id)
+        db.add(other)
+        db.commit()
+        other_id = other.id
+    await refresh(other_id, collector)
+    assert len(calls) == 8

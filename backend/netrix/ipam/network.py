@@ -1,6 +1,7 @@
 """Bounded worker-only network evidence reads, separate from inventory discovery."""
 
 import asyncio
+from datetime import timedelta
 
 from sqlalchemy import select
 
@@ -51,6 +52,31 @@ async def refresh(job_id, collector):
                     profile.id,
                     profile.updated_at,
                 )
+                context = [*version[:-1], version[-1].isoformat()]
+                completed = db.scalar(
+                    select(m.Observation).where(
+                        m.Observation.job_id == job.id,
+                        m.Observation.device_id == id,
+                        m.Observation.address == device.management_ip,
+                        m.Observation.source == "ipam_network",
+                    )
+                )
+                lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
+                if (
+                    completed
+                    and not completed.evidence.get("failed")
+                    and completed.created_at >= now() - lifetime
+                ):
+                    previous = completed.evidence.get("read_context")
+                    # Earlier successful records lack the marker. Their creation
+                    # time must prove that no device/profile edits followed.
+                    compatible = (
+                        previous == context
+                        if previous
+                        else completed.created_at >= max(device.updated_at, profile.updated_at)
+                    )
+                    if compatible:
+                        return True
                 secret = secret_data(profile)
             try:
                 async with asyncio.timeout(185):
@@ -91,7 +117,7 @@ async def refresh(job_id, collector):
                         job_id=job.id, device_id=id, address=current.management_ip, source="ipam_network"
                     )
                     db.add(observation)
-                observation.evidence = data
+                observation.evidence = {**data, "read_context": context}
                 observation.created_at = now()
                 db.commit()
             return success
