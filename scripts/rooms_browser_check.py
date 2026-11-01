@@ -141,7 +141,7 @@ with sync_playwright() as p:
     check("room-list")
     page.evaluate("location.hash='devices'")
     expect(page.get_by_role("columnheader", name="Kabin no", exact=False)).to_be_visible()
-    expect(page.get_by_role("cell", name="L-0/4/13U", exact=True)).to_be_visible()
+    expect(page.get_by_role("cell", name="L-0/A/4/13U", exact=True)).to_be_visible()
     check("inventory")
     assert not errors, errors
     browser.close()

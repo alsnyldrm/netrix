@@ -221,6 +221,8 @@ def query(
                 m.RackPlacement.id.is_not(None),
                 func.coalesce(func.nullif(room.floor_number, ""), "—")
                 + "/"
+                + func.coalesce(func.nullif(room.department_name, ""), "—")
+                + "/"
                 + m.Cabinet.name
                 + "/"
                 + cast(m.RackPlacement.start_unit, String)
