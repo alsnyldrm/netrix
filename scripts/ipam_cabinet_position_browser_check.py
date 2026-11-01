@@ -1,4 +1,4 @@
-"""VLAN list/detail show floor/department/cabinet/U; existing VM label stays Sanal."""
+"""IP details show all six physical location columns; virtual IPs remain Sanal."""
 
 from pathlib import Path
 
@@ -38,6 +38,10 @@ with sync_playwright() as p:
                     page.get_by_role("textbox", name="Kabinet no", exact=True).scroll_into_view_if_needed()
                 if name == "table":
                     physical.get_by_role("cell", name="L-0/A/4/13U", exact=True).scroll_into_view_if_needed()
+                if name == "detail":
+                    page.get_by_role(
+                        "region", name="Kabinet yerleşim tablosu", exact=True
+                    ).scroll_into_view_if_needed()
                 assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth")
                 for dialog in page.get_by_role("dialog").all():
                     assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth")
@@ -51,8 +55,25 @@ with sync_playwright() as p:
 
     check("table")
     physical.get_by_role("button", name="192.0.2.11", exact=True).click()
-    expect(page.get_by_role("dialog").get_by_text("L-0/A/4/13U", exact=True)).to_be_visible()
+    table = page.get_by_role("table", name="Kabinet yerleşimi", exact=True)
+    expect(table.get_by_role("columnheader")).to_have_text(
+        ["Lokasyon", "Kat", "Bölüm", "Oda ismi", "Kabin", "U no"]
+    )
+    expect(table.get_by_role("cell")).to_have_text(["FBU-F", "L-0", "A", "Sunucu Odası", "4", "13U"])
+    expect(page.get_by_role("dialog").get_by_text("L-0/A/4/13U", exact=True)).to_have_count(0)
     check("detail")
+    scroller = page.get_by_role("region", name="Kabinet yerleşim tablosu", exact=True)
+    page.set_viewport_size({"width": 375, "height": 812})
+    scroller.focus()
+    for _ in range(25):
+        page.keyboard.press("ArrowRight")
+    expect(table.get_by_role("cell", name="13U", exact=True)).to_be_in_viewport()
+    page.screenshot(path="/tmp/netrix-ipam-position-detail-375-scrolled.png")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    vm.get_by_role("button", name="192.0.2.10", exact=True).click()
+    expect(page.get_by_role("dialog").get_by_text("Sanal", exact=True)).to_be_visible()
+    expect(page.get_by_role("table", name="Kabinet yerleşimi", exact=True)).to_have_count(0)
     page.get_by_role("button", name="Pencereyi kapat", exact=True).click()
     physical.get_by_role("button", name="192.0.2.11 düzenle", exact=True).click()
     expect(page.get_by_role("textbox", name="Kabinet no", exact=True)).to_have_value("L-0/A/4/13U")
@@ -67,4 +88,6 @@ with sync_playwright() as p:
     assert physical_data["cabinet"] == "L-0/A/4/13U" and physical_data["managed"]["cabinet"] == ""
     assert not errors, errors
     browser.close()
-print("PASS: VLAN list/detail floor-department-cabinet-U, VM Sanal, desktop/mobile, themes and accessibility")
+print(
+    "PASS: six-column IP cabinet detail, mobile table scroll, VM Sanal, desktop/mobile, themes and accessibility"
+)

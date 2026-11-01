@@ -13,6 +13,7 @@ settings.cache_clear()
 with session_factory()() as db:
     vlan = db.scalar(select(m.VLAN))
     campus = db.get(m.Site, vlan.site_id)
+    campus.name = "FBU-F"
     room = m.Site(
         name="Sunucu Odası",
         code="01-000011",

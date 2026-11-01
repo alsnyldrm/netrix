@@ -3,6 +3,7 @@
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import aliased
 
 from .. import models as m
 from ..identity.security import audit
@@ -10,16 +11,19 @@ from ..services import get, publish, serialize
 from .model_images import model_images
 
 
-def address_cabinets(db, rows):
+def address_locations(db, rows):
     """Resolve the endpoint's own rack, not the switch referenced by device_id."""
     if not rows:
         return {}
+    location, room = aliased(m.Site), aliased(m.Site)
     placements = db.execute(
         select(
-            m.IPAddress.id,
-            m.Site.floor_number,
-            m.Site.department_name,
-            m.Cabinet.name,
+            m.IPAddress.id.label("address_id"),
+            location.name.label("site_name"),
+            room.floor_number,
+            room.department_name,
+            room.name.label("room_name"),
+            m.Cabinet.name.label("cabinet_number"),
             m.RackPlacement.start_unit,
         )
         .join(
@@ -28,12 +32,29 @@ def address_cabinets(db, rows):
         )
         .join(m.RackPlacement, m.RackPlacement.device_id == m.Device.id)
         .join(m.Cabinet, m.Cabinet.id == m.RackPlacement.cabinet_id)
-        .outerjoin(m.Site, m.Site.id == m.Cabinet.sub_site_id)
+        .outerjoin(location, location.id == m.Cabinet.site_id)
+        .outerjoin(room, room.id == m.Cabinet.sub_site_id)
         .where(m.IPAddress.id.in_([r.id for r in rows]), m.Device.archived.is_(False))
-    ).all()
+    ).mappings()
+    result = {}
+    for placement in placements:
+        values = dict(placement)
+        result[values.pop("address_id")] = values
+    return result
+
+
+def position_label(location):
+    if not location:
+        return ""
+    return (
+        f"{location['floor_number'] or '—'}/{location['department_name'] or '—'}/"
+        f"{location['cabinet_number']}/{location['start_unit']}U"
+    )
+
+
+def address_cabinets(db, rows):
     return {
-        address_id: f"{floor or '—'}/{department or '—'}/{cabinet}/{unit}U"
-        for address_id, floor, department, cabinet, unit in placements
+        address_id: position_label(location) for address_id, location in address_locations(db, rows).items()
     }
 
 

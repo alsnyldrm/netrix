@@ -255,7 +255,6 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                     ? "Güncel kanıtla eşleşti"
                     : "Bağlantı kanıtı yok"),
               ],
-              ["Kabinet no", detail.cabinet],
               ["Lokasyon", detail.location],
               ["VM güç durumu", stateName(detail.power_state)],
               ["Ping", stateName(detail.reachability)],
@@ -272,6 +271,58 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
               </div>
             ))}
           </dl>
+          <section className="ipam-section ipam-rack-location">
+            <h3>Kabinet yerleşimi</h3>
+            {detail.cabinet === "Sanal" ? (
+              <p className="ipam-hint">Sanal</p>
+            ) : detail.rack_location ? (
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Kabinet yerleşim tablosu"
+              >
+                <table aria-label="Kabinet yerleşimi">
+                  <thead>
+                    <tr>
+                      {[
+                        "Lokasyon",
+                        "Kat",
+                        "Bölüm",
+                        "Oda ismi",
+                        "Kabin",
+                        "U no",
+                      ].map((label) => (
+                        <th key={label} scope="col">
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {[
+                        detail.rack_location.site_name,
+                        detail.rack_location.floor_number,
+                        detail.rack_location.department_name,
+                        detail.rack_location.room_name,
+                        detail.rack_location.cabinet_number,
+                        `${detail.rack_location.start_unit}U`,
+                      ].map((value, index) => (
+                        <td key={index}>{value || "—"}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="ipam-hint">
+                {detail.cabinet
+                  ? `Kabinet notu: ${detail.cabinet}`
+                  : "Kabinet yerleşimi tanımlanmamış."}
+              </p>
+            )}
+          </section>
           {(detail.connections?.length > 0 ||
             detail.gateway_evidence?.length > 0) && (
             <section className="ipam-section">

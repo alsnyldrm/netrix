@@ -222,6 +222,25 @@
   margin: 0;
   font-size: 16px;
 }
+.ipam-rack-location .table-scroll {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.ipam-rack-location table {
+  min-width: 640px;
+}
+.ipam-rack-location th {
+  position: static;
+}
+.ipam-rack-location td {
+  padding: 14px 16px;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.ipam-rack-location p {
+  margin: 0;
+}
 .ipam-prefix-picker {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);

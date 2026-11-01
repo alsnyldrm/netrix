@@ -28,7 +28,7 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
         db.add(other_prefix)
         db.flush()
         rows = [
-            m.IPAddress(address="192.0.2.10", vrf_id=vrf, vlan_id=prefix["id"]),
+            m.IPAddress(address="192.0.2.10", vrf_id=vrf, vlan_id=prefix["id"], location="IP note"),
             # This endpoint connects to the racked device; it does not own its cabinet.
             m.IPAddress(address="192.0.2.11", vrf_id=vrf, vlan_id=prefix["id"], device_id=device.id),
             m.IPAddress(address="192.0.2.10", vrf_id=other_vrf.id, vlan_id=other_prefix.id),
@@ -46,10 +46,22 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
     items = response.json()["items"]
     assert items[0]["cabinet"] == "L-0/A/02/42U"
     assert items[0]["rack_position"] == "L-0/A/02/42U"
+    location = {
+        "site_name": "Campus",
+        "floor_number": "L-0",
+        "department_name": "A",
+        "room_name": "Room",
+        "cabinet_number": "02",
+        "start_unit": 42,
+    }
+    assert items[0]["rack_location"] == location
     assert items[0]["managed"]["cabinet"] == ""
     assert items[1]["cabinet"] == ""
-    assert c.get(f"/api/v1/ipam/addresses/{other_id}").json()["cabinet"] == ""
-    assert c.get(f"/api/v1/ipam/addresses/{address_id}").json()["cabinet"] == "L-0/A/02/42U"
+    assert items[1]["rack_location"] is None
+    other = c.get(f"/api/v1/ipam/addresses/{other_id}").json()
+    assert other["cabinet"] == "" and other["rack_location"] is None
+    detail = c.get(f"/api/v1/ipam/addresses/{address_id}").json()
+    assert detail["cabinet"] == "L-0/A/02/42U" and detail["rack_location"] == location
     assert c.get(url + "&q=02").json()["items"][0]["cabinet"] == "L-0/A/02/42U"
     assert (
         c.put("/api/v1/cabinets/" + cabinet["id"], json={**cabinet_payload, "name": "03"}).status_code == 200
@@ -75,13 +87,22 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
     assert c.put("/api/v1/sites/" + room["id"], json=room_change).status_code == 200
     assert c.get(url).json()["items"][0]["cabinet"] == "L-1/B/03/13U"
     assert c.get(url + "&q=L-1/B/03/13U").json()["items"][0]["id"] == address_id
-    assert c.get(f"/api/v1/ipam/addresses/{address_id}").json()["cabinet"] == "L-1/B/03/13U"
+    detail = c.get(f"/api/v1/ipam/addresses/{address_id}").json()
+    assert detail["cabinet"] == "L-1/B/03/13U"
+    assert detail["rack_location"] == {
+        **location,
+        "floor_number": "L-1",
+        "department_name": "B",
+        "cabinet_number": "03",
+        "start_unit": 13,
+    }
     with env() as db:
         db.get(m.IPAddress, address_id).cabinet = ""
         db.commit()
     services.publish()
     assert c.delete(placement + "/" + device_id).status_code == 204
-    assert c.get(url).json()["items"][0]["cabinet"] == ""
+    removed = c.get(url).json()["items"][0]
+    assert removed["cabinet"] == "" and removed["rack_location"] is None
 
 
 def test_legacy_room_fields_and_many_positions_use_one_query(env, inventory):
@@ -109,6 +130,18 @@ def test_legacy_room_fields_and_many_positions_use_one_query(env, inventory):
         assert len(sql) == 1
         assert len(positions) == 20
         assert positions[rows[12].id] == "—/—/4/13U"
+        with queries() as sql:
+            locations = racks.address_locations(db, rows)
+        assert len(sql) == 1
+        assert len(locations) == 20
+        assert locations[rows[12].id] == {
+            "site_name": None,
+            "floor_number": None,
+            "department_name": None,
+            "room_name": None,
+            "cabinet_number": "4",
+            "start_unit": 13,
+        }
         db.get(m.Device, device_ids[0]).archived = True
         db.commit()
         assert rows[0].id not in racks.address_cabinets(db, rows)

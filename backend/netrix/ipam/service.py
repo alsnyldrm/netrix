@@ -332,12 +332,12 @@ def vmware_observations(obs, hostname, address, physical):
 
 
 def enrich(db, rows, *, details=True, include_options=False):
-    from .racks import address_cabinets
+    from .racks import address_locations, position_label
 
     if not rows:
         return []
     grouped = observations(db, rows)
-    cabinets = address_cabinets(db, rows)
+    locations = address_locations(db, rows)
     sites = dict(db.execute(select(m.Site.id, m.Site.name)).all())
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
     from .connections import Evidence
@@ -348,7 +348,8 @@ def enrich(db, rows, *, details=True, include_options=False):
     for row in rows:
         item = serialize(row)
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
-        item["rack_position"] = cabinets.get(row.id, "")
+        item["rack_location"] = locations.get(row.id)
+        item["rack_position"] = position_label(item["rack_location"])
         item["cabinet"] = item["rack_position"] or item["cabinet"]
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         if details:
