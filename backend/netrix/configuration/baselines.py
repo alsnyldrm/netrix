@@ -23,12 +23,22 @@ METADATA = re.compile(
     re.I,
 )
 
+PREAMBLE = re.compile(
+    r"^\s*(?:(?:\S+[#>]\s*)?(?:show (?:running-config|configuration)(?: all)?|"
+    r"display current-configuration)|(?:Current|Running) configuration:(?:\s*\d+ bytes)?|"
+    r"Building configuration\.\.\.)\s*$",
+    re.I,
+)
+
 
 def meaningful(content):
-    lines, quoted = [], False
+    lines, quoted, header = [], False, True
     for line in config_text(content).replace("\r\n", "\n").splitlines():
         if not quoted and METADATA.match(line):
             continue
+        if header and (not line.strip() or PREAMBLE.fullmatch(line)):
+            continue
+        header = False
         lines.append(line)
         if quoted or not line.lstrip().startswith(("#", "!", ";")):
             quoted = quote_state(line, quoted)

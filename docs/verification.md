@@ -315,3 +315,5 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - Atılabilir MariaDB'de eski şemadan `20261101_21` yükseltmesi ve Alembic şema karşılaştırması geçti. IP/VLAN aktarımı, bağımsız switch kaynakları, ilk geçerli base config ve sürüm üstbilgilerinin fark sayılmaması doğrulandı.
 - Yerel Playwright: 1440×1000 ve 375×812, açık/koyu tema; 44 görünüm ve son VLAN ayarları kontrolündeki 4 görünüm geçti. Taşma, konsol hatası veya axe WCAG 2.2 AA ihlali bulunmadı. Menü taşımaları, VLAN alanları/IP tablosu, envanter keşif formu, kabinet VLAN seçimi, entegrasyonlar, iki/dört panelli konfigürasyon karşılaştırması ve değişiklik onayı kapsandı.
 - Veri geçişi için yedek alınmadı. Gerçek cihaz taraması yerel testlerin parçası değildir.
+
+Canlı doğrulama ek bulgusu: kalan bir fark `show running-config` komut yankısıydı. Başlangıç yankısı için üç başarısız regresyon testiyle durum yeniden üretildi; düzeltmeden sonra konfigürasyon/worker kapsamındaki 75 test geçti. `20261101_22` veri düzeltmesi mevcut onayları koruyarak farkları yeniden hesaplar.

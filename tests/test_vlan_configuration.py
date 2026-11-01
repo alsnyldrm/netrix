@@ -282,3 +282,21 @@ def test_normalized_fortios_comparisons_do_not_leak_multiline_secrets(admin_clie
     for value in ("FIRST-SECRET", "CONTINUED-SECRET", "CHANGED-SECRET"):
         assert value not in result.text
     assert result.json()["changed"]
+
+
+@pytest.mark.parametrize(
+    "echo", ["show running-config\n", "switch# show running-config\n", "display current-configuration\n"]
+)
+def test_export_command_echo_is_not_a_config_change(echo):
+    content = "Current configuration:\n!\nhostname switch\ninterface 1\n description original\n"
+    assert baselines.fingerprint(content) == baselines.fingerprint(echo + content)
+    assert baselines.fingerprint(content) != baselines.fingerprint(
+        echo + content.replace("original", "changed")
+    )
+
+
+def test_export_command_inside_quoted_banner_is_still_significant():
+    content = 'hostname switch\nbanner motd "hello\nshow running-config\n"'
+    assert baselines.fingerprint(content) != baselines.fingerprint(
+        content.replace("show running-config", "display current-configuration")
+    )
