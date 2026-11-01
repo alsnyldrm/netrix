@@ -592,11 +592,18 @@ export function IPAMWorkspace({
         <section className="panel ipam-block-header">
           <div className="ipam-block-overview">
             <div className="ipam-actions ipam-block-title">
-              <button className="secondary" onClick={() => chooseVLAN(null)}>
+              <button
+                className="secondary ipam-block-back"
+                aria-label="VLAN alanlarına dön"
+                title="VLAN alanlarına dön"
+                onClick={() => chooseVLAN(null)}
+              >
                 <ArrowLeft size={17} aria-hidden="true" />
-                VLAN alanları
               </button>
-              <h2>{prefix.display_name || prefix.cidr}</h2>
+              <div className="ipam-block-heading">
+                <h2>{prefix.vlan || `VLAN-${prefix.vid} / ${prefix.name}`}</h2>
+                <span className="mono">{prefix.cidr}</span>
+              </div>
             </div>
             <div
               className={`ipam-block-usage${prefix.threshold_exceeded ? " is-warning" : ""}`}
@@ -612,38 +619,25 @@ export function IPAMWorkspace({
           </div>
           {canWrite && (
             <div className="ipam-scan-actions">
-              <div className="ipam-scan-action">
-                <button
-                  className="secondary"
-                  disabled={busy || jobActive}
-                  aria-describedby="prefix-ping-help"
-                  onClick={() => trigger("ping")}
-                >
-                  <Waveform size={17} aria-hidden="true" />
-                  Kayıtlı IP’lere ping at
-                </button>
-                <small id="prefix-ping-help">
-                  Kayıtlı IP’lerin yanıt durumunu günceller.
-                </small>
-              </div>
-              <div className="ipam-scan-action">
-                <button
-                  className="primary"
-                  disabled={busy || jobActive}
-                  aria-busy={busy || jobActive}
-                  aria-describedby="prefix-discover-help"
-                  onClick={() => trigger("discover")}
-                >
-                  <Broadcast size={17} aria-hidden="true" />
-                  {jobActive && job?.kind === "ipam_discover"
-                    ? "Tarama sürüyor…"
-                    : "Tara ve eşleştir"}
-                </button>
-                <small id="prefix-discover-help">
-                  IP, DNS, gateway MAC, switch/port ve VMware bilgilerini tarar
-                  ve eşleştirir.
-                </small>
-              </div>
+              <button
+                className="secondary"
+                disabled={busy || jobActive}
+                title="Kayıtlı IP’lere ping gönder"
+                onClick={() => trigger("ping")}
+              >
+                <Waveform size={17} aria-hidden="true" />
+                Ping
+              </button>
+              <button
+                className="primary"
+                disabled={busy || jobActive}
+                aria-busy={busy || jobActive}
+                title="VLAN’ı tara ve kaynak bilgilerini eşleştir"
+                onClick={() => trigger("discover")}
+              >
+                <Broadcast size={17} aria-hidden="true" />
+                Tara
+              </button>
             </div>
           )}
         </section>

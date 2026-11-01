@@ -5,41 +5,62 @@
   min-width: 0;
 }
 .ipam-block-header {
-  padding: 24px;
-  display: grid;
-  gap: 24px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 .ipam-block-overview {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-}
-.ipam-block-title {
+  gap: 20px;
+  flex: 1;
   min-width: 0;
+}
+.ipam-block-header .ipam-block-title {
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+.ipam-block-back {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+.ipam-block-heading {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ipam-block-heading > span {
+  color: var(--text-2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .ipam-block-title h2 {
   overflow-wrap: anywhere;
 }
 .ipam-block-usage {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--success);
 }
 .ipam-block-usage strong {
-  font-size: 28px;
+  font-size: 20px;
   line-height: 1.25;
 }
 .ipam-block-usage strong span {
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 500;
 }
 .ipam-block-percentage {
   color: var(--accent);
-  font-size: 22px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -49,20 +70,15 @@
 }
 .ipam-scan-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-.ipam-scan-action {
-  display: grid;
   gap: 8px;
+  flex-shrink: 0;
+  align-items: center;
 }
-.ipam-scan-action button {
-  min-height: 44px;
-}
-.ipam-scan-action small {
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.5;
+.ipam-scan-actions button {
+  min-height: 40px;
+  height: 40px;
+  min-width: 80px;
+  padding: 0 12px;
 }
 .ipam-column-tools {
   display: flex;
@@ -89,11 +105,8 @@
 }
 .ipam-block-header h2 {
   margin: 0;
-  font-size: 18px;
-}
-.ipam-block-header p {
-  color: var(--text-2);
-  margin: 12px 0;
+  font-size: 15px;
+  line-height: 1.4;
 }
 .ipam-actions {
   display: flex;
@@ -224,21 +237,43 @@
 .ipam-workspace td {
   vertical-align: middle;
 }
+@media (max-width: 1100px) {
+  .ipam-block-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .ipam-block-overview {
+    display: contents;
+  }
+  .ipam-block-title {
+    grid-column: 1 / -1;
+  }
+  .ipam-block-usage {
+    text-align: left;
+  }
+}
 @media (max-width: 640px) {
   .ipam-column-tools button {
     min-width: 0;
     white-space: normal;
   }
-  .ipam-block-overview {
-    flex-direction: column;
-    gap: 16px;
+  .ipam-block-usage strong {
+    font-size: 18px;
   }
-  .ipam-block-usage {
-    align-self: flex-end;
+  .ipam-block-usage strong span {
+    display: block;
   }
-  .ipam-scan-actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
+  .ipam-block-header .ipam-block-back {
+    flex-basis: 44px;
+    width: 44px;
+    height: 44px;
+  }
+  .ipam-scan-actions button {
+    min-width: 72px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 10px;
   }
   .ipam-fields {
     grid-template-columns: minmax(0, 1fr);
