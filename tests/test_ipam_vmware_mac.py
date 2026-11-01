@@ -122,7 +122,12 @@ def test_vm_mac_never_retains_gateway_fdb_port(network):
 
 
 @pytest.mark.parametrize("duplicate", [False, True])
-async def test_sync_matches_hostname_without_guest_ip_and_retires_removed_vm(network, monkeypatch, duplicate):
+@pytest.mark.parametrize("guest_address", ["", "192.0.2.10"])
+async def test_sync_matches_hostname_without_guest_ip_and_retires_removed_vm(
+    network, monkeypatch, duplicate, guest_address
+):
+    from sqlalchemy import func, select
+
     sf, vlan_id, row_id, _ = network
     with sf() as db:
         config = m.Integration(
@@ -139,9 +144,9 @@ async def test_sync_matches_hostname_without_guest_ip_and_retires_removed_vm(net
         db.add(job)
         db.commit()
         job_id = job.id
-    records = [record(address="")]
+    records = [record(address=guest_address)]
     if duplicate:
-        records.append(record(address="", vm_id="vm-2"))
+        records.append(record(address=guest_address, vm_id="vm-2"))
     monkeypatch.setattr(adapters, "vcenter_records", lambda *_: records)
     await jobs.integration(job_id)
     item = read(network)
@@ -149,6 +154,11 @@ async def test_sync_matches_hostname_without_guest_ip_and_retires_removed_vm(net
     assert item["field_sources"]["mac_address"] == ("gateway" if duplicate else "vcenter")
     if not duplicate:
         assert item["connected_device"] == "VM-DS" and item["connected_port"] == "89"
+    with sf() as db:
+        changes = db.scalar(select(func.count()).select_from(m.Event))
+    await jobs.integration(job_id)
+    with sf() as db:
+        assert db.scalar(select(func.count()).select_from(m.Event)) == changes
     monkeypatch.setattr(adapters, "vcenter_records", lambda *_: [])
     await jobs.integration(job_id)
     assert read(network)["mac_address"] == MAC

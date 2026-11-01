@@ -421,6 +421,14 @@ async def integration(job_id, collector=None):
                 continue
             entry = next((d for d in chosen if d.get("address") == address.address), chosen[0])
             key = current.id + ":" + entry["vm_id"] + ":" + entry["nic_key"]
+            binding = {}
+            if entry.get("address") != address.address:
+                prior = known.get(address.id, {})
+                binding["matched_by"] = (
+                    prior["matched_by"]
+                    if prior.get("macs") == {normalized_mac(entry.get("mac_address"))}
+                    else "dns_hostname"
+                )
             observed = observe(
                 db,
                 scope,
@@ -431,7 +439,7 @@ async def integration(job_id, collector=None):
                     **{k: v for k, v in entry.items() if k != "address"},
                     "integration_id": current.id,
                     "guest_address": entry.get("address", ""),
-                    "matched_by": "dns_hostname",
+                    **binding,
                 },
                 create=False,
             )
