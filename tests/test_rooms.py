@@ -30,13 +30,14 @@ def test_inventory_cabinet_position_tracks_department_and_placement(
             "units": 42,
         },
     ).json()
+    general_location = site(c, institution, name="Device general location")
     with env() as db:
         devices = [
             m.Device(
                 name=f"Placement {i}",
                 management_ip=f"192.0.2.{i + 1}",
                 vrf_id=inventory["vrf"]["id"],
-                site_id=root["id"],
+                site_id=general_location["id"],
                 discovery_scope_id=inventory["scope"]["id"],
             )
             for i in range(2)
@@ -53,13 +54,25 @@ def test_inventory_cabinet_position_tracks_department_and_placement(
         rows = c.get("/api/v1/inventory/devices").json()["items"]
         by_id = {r["id"]: r for r in rows}
         assert by_id[ids[1]]["cabinet_position"] is None
+        assert c.get("/api/v1/devices/" + ids[1]).json()["rack_location"] is None
         return by_id[ids[0]]["cabinet_position"]
 
     assert position() == "L-0/A/4/13U"
+    detail_url = "/api/v1/devices/" + ids[0]
+    assert c.get(detail_url).json()["rack_location"] == {
+        "site_name": root["name"],
+        "floor_number": "L-0",
+        "department_name": "A",
+        "room_name": "Server room",
+        "cabinet_number": "4",
+        "start_unit": 13,
+    }
     assert c.put("/api/v1/sites/" + room["id"], json={**room_data, "department_name": "B"}).status_code == 200
     assert position() == "L-0/B/4/13U"
+    assert c.get(detail_url).json()["rack_location"]["department_name"] == "B"
     assert c.put(url, json={**placement, "start_unit": 14}).status_code == 200
     assert position() == "L-0/B/4/14U"
+    assert c.get(detail_url).json()["rack_location"]["start_unit"] == 14
     # Legacy rooms without metadata must show explicit gaps, never a guessed department.
     with env() as db:
         current = db.get(m.Site, room["id"])
@@ -68,6 +81,7 @@ def test_inventory_cabinet_position_tracks_department_and_placement(
     assert position() == "—/—/4/14U"
     assert c.delete(url + "/" + ids[0]).status_code == 204
     assert position() is None
+    assert c.get(detail_url).json()["rack_location"] is None
 
 
 def test_room_required_fields_and_cabinet_room_number(admin_client, institution):

@@ -643,7 +643,12 @@ def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_s
         if row is None:
             raise HTTPException(404, "Bağlantı kaydı bulunamadı")
         return svc.serialize(row)
-    return svc.serialize(svc.get(db, svc.RESOURCES[resource][0], id))
+    item = svc.serialize(svc.get(db, svc.RESOURCES[resource][0], id))
+    if resource == "devices":
+        from .inventory.placement import device_location
+
+        item["rack_location"] = device_location(db, id)
+    return item
 
 
 @app.post(P + "/{resource}", status_code=201)

@@ -3566,7 +3566,7 @@ function App() {
                 </>
               )}
             </div>
-            <dl className="detail-grid">
+            <dl className="detail-grid device-facts">
               {[
                 ["Lokasyon", label("sites", detail.site_id)],
                 ["VRF", label("vrfs", detail.vrf_id)],
@@ -3586,6 +3586,36 @@ function App() {
                     value={detail.is_gateway ? "Evet" : "Hayır"}
                     tone={detail.is_gateway ? "success" : "danger"}
                   />
+                </dd>
+              </div>
+              <div className="device-cabinet-location">
+                <dt>Tam kabin yolu</dt>
+                <dd>
+                  <dl className="cabinet-location-grid">
+                    {[
+                      ["Lokasyon", detail.rack_location?.site_name],
+                      ["Kat", detail.rack_location?.floor_number],
+                      ["Bölüm", detail.rack_location?.department_name],
+                      ["Oda ismi", detail.rack_location?.room_name],
+                      ["Kabin", detail.rack_location?.cabinet_number],
+                      [
+                        "U no",
+                        detail.rack_location?.start_unit
+                          ? `${detail.rack_location.start_unit}U`
+                          : null,
+                      ],
+                    ].map(([label, value]) => (
+                      <div key={label}>
+                        <dt>{label}</dt>
+                        <dd>{value || "—"}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  {detail.rack_location === null && (
+                    <p className="muted cabinet-location-empty">
+                      Bu cihazın kayıtlı kabin yerleşimi yok.
+                    </p>
+                  )}
                 </dd>
               </div>
             </dl>

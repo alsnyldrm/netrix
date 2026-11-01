@@ -2064,6 +2064,7 @@ tbody tr:last-child td {
 }
 .device-detail {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   padding: 20px 22px 24px;
 }
@@ -2119,6 +2120,36 @@ tbody tr:last-child td {
   margin: 2px 0 0;
   font-weight: 500;
   font-size: 14px;
+}
+.detail-grid.device-facts {
+  grid-auto-rows: minmax(70px, auto);
+}
+.device-facts > .device-cabinet-location {
+  grid-column: 1 / -1;
+  padding: 12px 0;
+}
+.device-cabinet-location > dt {
+  padding: 0 14px;
+}
+.cabinet-location-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 1px;
+  margin: 12px 0 0;
+}
+.cabinet-location-grid > div {
+  min-width: 0;
+  padding: 0 14px;
+  overflow-wrap: anywhere;
+}
+.cabinet-location-empty {
+  margin: 12px 0 0;
+  padding: 0 14px;
+}
+@media (max-width: 640px) {
+  .cabinet-location-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .port-grid {
   display: grid;
