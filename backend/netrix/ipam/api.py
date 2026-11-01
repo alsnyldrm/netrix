@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 
 from .. import models as m
@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/v1")
 
 @router.get("/ipam/vlans/{id}/addresses")
 def addresses(
+    request: Request,
     id: str,
     offset: str = "0",
     limit: int = Query(100, ge=1, le=200),
@@ -49,6 +50,7 @@ def addresses(
             q=q,
             filters=filters,
         ),
+        force="no-cache" in request.headers.get("cache-control", "").lower(),
     )
 
 
@@ -115,10 +117,11 @@ def sync(id: str, user=Depends(admin), db=Depends(db_session)):
 
 
 @router.get("/ipam/addresses/{id}")
-def detail(id: str, user=Depends(current_user), db=Depends(db_session)):
+def detail(id: str, request: Request, user=Depends(current_user), db=Depends(db_session)):
     return read_cache.json_response(
         ["address-detail", id],
         lambda: service.enrich(db, [svc.get(db, m.IPAddress, id)], include_options=True)[0],
+        force="no-cache" in request.headers.get("cache-control", "").lower(),
     )
 
 

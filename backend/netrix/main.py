@@ -241,10 +241,14 @@ def password(
 
 
 @app.get(P + "/dashboard")
-def dashboard(user=Depends(current_user), db=Depends(db_session)):
+def dashboard(request: Request, user=Depends(current_user), db=Depends(db_session)):
     from .ipam.read_cache import json_response
 
-    return json_response(["dashboard"], lambda: dashboard_data(db))
+    return json_response(
+        ["dashboard"],
+        lambda: dashboard_data(db),
+        force="no-cache" in request.headers.get("cache-control", "").lower(),
+    )
 
 
 def dashboard_data(db):
@@ -602,6 +606,7 @@ app.include_router(patch_router)
 
 @app.get(P + "/{resource}")
 def list_items(
+    request: Request,
     resource: str,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -620,6 +625,7 @@ def list_items(
         return json_response(
             ["vlans", limit, offset, q, device_id],
             lambda: svc.list_resource(db, resource, limit, offset, q, device_id),
+            force="no-cache" in request.headers.get("cache-control", "").lower(),
         )
     return svc.list_resource(db, resource, limit, offset, q, device_id)
 

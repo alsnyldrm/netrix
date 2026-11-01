@@ -370,6 +370,7 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
 }
 
 export function IPAMWorkspace({
+  initialVLAN,
   page,
   refs,
   refresh,
@@ -377,6 +378,7 @@ export function IPAMWorkspace({
   onEdit,
   onSaved,
 }: {
+  initialVLAN?: Row | null;
   page: string;
   refs: Record<string, Row[]>;
   refresh: number;
@@ -385,6 +387,14 @@ export function IPAMWorkspace({
   onSaved: () => void;
 }) {
   const [prefix, setVLAN] = useState<Row | null>(null);
+  useEffect(() => {
+    if (initialVLAN) {
+      setVLAN(initialVLAN);
+      setOffset("0");
+      setQuery("");
+      setActiveOnly(false);
+    }
+  }, [initialVLAN]);
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);

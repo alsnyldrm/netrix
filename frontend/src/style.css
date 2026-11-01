@@ -1997,7 +1997,41 @@ tbody tr:last-child td {
   max-height: 52dvh;
   overflow-y: auto;
 }
+.command-results section {
+  display: grid;
+  gap: 2px;
+}
+.command-results h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 12px 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.command-results h3 span {
+  font-weight: 400;
+}
+.command-status {
+  margin: 12px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.refresh-spinning {
+  animation: refresh-spin 0.8s linear infinite;
+}
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refresh-spinning {
+    animation: none;
+  }
+}
 .command-results button {
+  width: 100%;
   justify-content: flex-start;
   gap: 12px;
   padding: 10px 12px;
@@ -2008,6 +2042,8 @@ tbody tr:last-child td {
   color: var(--accent);
 }
 .command-results button > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
   flex: 1;
   display: grid;
 }

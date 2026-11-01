@@ -1,5 +1,11 @@
 import { DevicePatchInfo } from "./patch-panels";
-import { api, clearReadCache, useLiveQuery } from "./data";
+import {
+  api,
+  clearReadCache,
+  refreshVisibleQueries,
+  useLiveQuery,
+} from "./data";
+import { WorkspaceSearch } from "./workspace-search";
 export { api } from "./data";
 import { JobDetails } from "./job-details";
 import { DiscoveryScopeForm } from "./discovery-scope-form";
@@ -2067,21 +2073,33 @@ function ConnectionTestDialog({
     </Dialog>
   );
 }
-function Settings({ onLogout }: { onLogout: () => void }) {
-  const [system, setSystem] = useState<Row>({});
+function Settings({
+  onLogout,
+  section,
+}: {
+  onLogout: () => void;
+  section: string;
+}) {
+  const systemQuery = useLiveQuery<Row>("/system");
+  const system = systemQuery.data || {};
   const [error, setError] = useState("");
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   useEffect(() => {
-    api("/system")
-      .then(setSystem)
-      .catch((e) => setError(e.message));
-  }, []);
+    if (section) document.getElementById("settings-" + section)?.focus();
+  }, [section]);
   return (
     <div className="settings-grid">
+      {systemQuery.error && (
+        <div className="error" role="alert">
+          {systemQuery.error}
+        </div>
+      )}
       <section className="panel">
         <header className="panel-header">
-          <h2>Platform durumu</h2>
+          <h2 id="settings-platform" tabIndex={-1}>
+            Platform durumu
+          </h2>
           <span className="mono">v{system.version || "—"}</span>
         </header>
         <dl className="system-list">
@@ -2111,7 +2129,9 @@ function Settings({ onLogout }: { onLogout: () => void }) {
       </section>
       <section className="panel">
         <header className="panel-header">
-          <h2>Parolanızı değiştirin</h2>
+          <h2 id="settings-password" tabIndex={-1}>
+            Parolanızı değiştirin
+          </h2>
           <Key size={20} />
         </header>
         <form
@@ -2194,6 +2214,10 @@ function App() {
   } | null>(null);
   const [command, setCommand] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const [settingsSection, setSettingsSection] = useState("");
+  const [shortcutVLAN, setShortcutVLAN] = useState<Row | null>(null);
   const [jobDetail, setJobDetail] = useState<Row | null>(null);
   const [jobModal, setJobModal] = useState(false);
   const [configCompare, setConfigCompare] = useState<Row | null>(null);
@@ -2234,6 +2258,21 @@ function App() {
     setRefresh((n) => n + 1);
     setReferenceRefresh((n) => n + 1);
   }, []);
+  const refreshPage = async () => {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    reload();
+    try {
+      await refreshVisibleQueries();
+      notify("Açık sayfanın verileri yenilendi.");
+    } catch (e: any) {
+      notify("Yenileme tamamlanamadı: " + e.message);
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  };
   const navigate = useCallback((key: string) => {
     const p = PAGES.find((p) => p.key === key);
     if (!p) return;
@@ -2245,6 +2284,9 @@ function App() {
     setQuery("");
     setError("");
     setCommand(false);
+    setCommandQuery("");
+    setShortcutVLAN(null);
+    setSettingsSection("");
     setDrawer(false);
   }, []);
   useEffect(() => {
@@ -2271,6 +2313,7 @@ function App() {
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
         e.preventDefault();
+        setCommandQuery("");
         setCommand((v) => !v);
       }
     };
@@ -2754,7 +2797,7 @@ function App() {
               }}
             >
               <MagnifyingGlass size={17} />
-              <span>Sayfa veya cihaz ara</span>
+              <span>Menü, ayar veya cihaz ara</span>
               <kbd>Ctrl K</kbd>
             </button>
             <div className="connection-label" title="Canlı bildirim bağlantısı">
@@ -2766,11 +2809,18 @@ function App() {
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
               className="icon-button"
-              aria-label="Verileri yenile"
-              title="Verileri yenile"
-              onClick={reload}
+              aria-label={
+                refreshing ? "Veriler yenileniyor" : "Verileri yenile"
+              }
+              title="Açık sayfanın verilerini yenile"
+              disabled={refreshing}
+              aria-busy={refreshing}
+              onClick={refreshPage}
             >
-              <ArrowsClockwise size={19} />
+              <ArrowsClockwise
+                size={19}
+                className={refreshing ? "refresh-spinning" : undefined}
+              />
             </button>
           </div>
         </header>
@@ -2846,6 +2896,7 @@ function App() {
               />
             ) : page.key === "vlans" ? (
               <IPAMWorkspace
+                initialVLAN={shortcutVLAN}
                 key={page.key}
                 page={page.key}
                 refs={refs}
@@ -2969,7 +3020,10 @@ function App() {
                 />
               </>
             ) : page.key === "settings" ? (
-              <Settings onLogout={() => setUser(null)} />
+              <Settings
+                section={settingsSection}
+                onLogout={() => setUser(null)}
+              />
             ) : (
               <>
                 {page.key === "discovery" && (
@@ -3411,60 +3465,33 @@ function App() {
           title="Çalışma alanında gezin"
           onClose={() => setCommand(false)}
         >
-          <div className="command-body">
-            <label className="command-input">
-              <MagnifyingGlass size={21} />
-              <input
-                autoFocus
-                placeholder="Sayfa veya cihaz ara…"
-                aria-label="Sayfa veya cihaz ara"
-                value={commandQuery}
-                onChange={(e) => setCommandQuery(e.target.value)}
-              />
-            </label>
-            <div className="command-results">
-              {PAGES.filter(
-                (p) =>
-                  (isAdmin || !["audit", "users"].includes(p.key)) &&
-                  (p.title + " " + p.group)
-                    .toLocaleLowerCase("tr-TR")
-                    .includes(commandQuery.toLocaleLowerCase("tr-TR")),
-              ).map((p) => (
-                <button key={p.key} onClick={() => navigate(p.key)}>
-                  <p.icon size={20} />
-                  <span>
-                    <b>{p.title}</b>
-                    <small>{p.group}</small>
-                  </span>
-                  <ArrowUpRight size={16} />
-                </button>
-              ))}
-              {commandQuery &&
-                refs.devices
-                  ?.filter((d) =>
-                    (d.name + " " + d.management_ip)
-                      .toLowerCase()
-                      .includes(commandQuery.toLowerCase()),
-                  )
-                  .slice(0, 5)
-                  .map((d) => (
-                    <button
-                      key={d.id}
-                      onClick={() => {
-                        setCommand(false);
-                        inspectDevice(d);
-                      }}
-                    >
-                      <Stack size={20} />
-                      <span>
-                        <b>{d.name}</b>
-                        <small>{d.management_ip}</small>
-                      </span>
-                      <Eye size={16} />
-                    </button>
-                  ))}
-            </div>
-          </div>
+          <WorkspaceSearch
+            pages={PAGES}
+            query={commandQuery}
+            setQuery={setCommandQuery}
+            admin={isAdmin}
+            navigate={navigate}
+            onDevice={(row) => {
+              setCommand(false);
+              inspectDevice(row);
+            }}
+            onVLAN={(row) => {
+              navigate("vlans");
+              setShortcutVLAN(row);
+            }}
+            onSettings={(section) => {
+              navigate("settings");
+              setSettingsSection(section);
+            }}
+            onTheme={() => {
+              setCommand(false);
+              toggleTheme();
+            }}
+            onRefresh={() => {
+              setCommand(false);
+              void refreshPage();
+            }}
+          />
         </Dialog>
       )}
       {detail && (

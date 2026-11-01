@@ -27,7 +27,7 @@ def client(url):
     )
 
 
-def json_response(parameters, load):
+def json_response(parameters, load, *, force=False):
     global _retry_after
     started = time.perf_counter()
     cache, key = None, None
@@ -38,7 +38,7 @@ def json_response(parameters, load):
             digest = hashlib.sha256(json.dumps(parameters, sort_keys=True).encode()).hexdigest()
             key = f"netrix:ipam:read:v1:{revision}:{digest}"
             saved = cache.get(key)
-            if saved:
+            if saved and not force:
                 saved = json.loads(saved)
                 if saved["until"] > time.time():
                     return response(saved["body"], started, "hit")

@@ -67,7 +67,11 @@ async def main():
             await browser.close()
             return
         assert first_rows_ms < 2500, report
-        assert len(requests) <= 10, report
+        # Scan progress was added alongside the address table; budget its small
+        # status reads separately from the existing data-query limit.
+        status_reads = [x for x in requests if x.split("?")[0].endswith("/scan")]
+        assert len(requests) - len(status_reads) <= 10, report
+        assert len(status_reads) <= 4, report
         assert not any(
             x.startswith(("/devices?", "/interfaces?", "/links?", "/credentials?")) for x in requests
         )
@@ -78,7 +82,7 @@ async def main():
         await expect(dialog.get_by_text("89", exact=True)).to_be_visible()
         await expect(dialog.get_by_role("status")).to_have_text("Kaynak gözlemleri yükleniyor…")
         await expect(dialog.get_by_role("status")).to_have_count(0, timeout=5000)
-        await expect(dialog.get_by_text("VMware vCenter", exact=True)).to_be_visible()
+        await expect(dialog.get_by_text("VMware vCenter", exact=True).first).to_be_visible()
 
         async def check_layout(name):
             for width, height in ((1440, 1000), (375, 812)):

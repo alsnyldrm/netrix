@@ -5,6 +5,22 @@ import { useEffect, useRef, useState } from "react";
 const pending = new Map<string, Promise<any>>();
 const views = new Map<string, { data: any; until: number }>();
 let generation = 0;
+let forcedReads = 0;
+const refreshers = new Set<() => Promise<void>>();
+
+export async function refreshVisibleQueries() {
+  clearReadCache();
+  forcedReads++;
+  try {
+    const results = await Promise.allSettled(
+      [...refreshers].map((refresh) => refresh()),
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+  } finally {
+    forcedReads--;
+  }
+}
 
 export function clearReadCache() {
   generation++;
@@ -17,7 +33,13 @@ export function api(path: string, method = "GET", body?: any): Promise<any> {
   const request = (async () => {
     const response = await fetch("/api/v1" + path, {
       method,
-      headers: { "Content-Type": "application/json", "X-Netrix-Request": "1" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Netrix-Request": "1",
+        ...(method === "GET" && forcedReads
+          ? { "Cache-Control": "no-cache" }
+          : {}),
+      },
       credentials: "same-origin",
       body: body === undefined ? undefined : JSON.stringify(body),
       ...(method === "GET" ? { signal: AbortSignal.timeout(30000) } : {}),
@@ -84,6 +106,8 @@ export function useLiveQuery<T = any>(
       running = false,
       again = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let waiters: { resolve: () => void; reject: (error: unknown) => void }[] =
+      [];
     setState({ key, data: cached(key), error: "", settled: false });
     const run = async () => {
       timer = undefined;
@@ -94,6 +118,7 @@ export function useLiveQuery<T = any>(
       }
       running = true;
       const version = generation;
+      let failure: unknown;
       try {
         const data = await loader.current();
         if (active && version === generation) {
@@ -103,6 +128,7 @@ export function useLiveQuery<T = any>(
           setState({ key, data, error: "", settled: true });
         } else if (active) again = true;
       } catch (e: any) {
+        failure = e;
         if (active)
           setState((s) => ({
             ...s,
@@ -118,6 +144,12 @@ export function useLiveQuery<T = any>(
         if (active && again) {
           again = false;
           timer = setTimeout(run, 250);
+        } else {
+          const done = waiters;
+          waiters = [];
+          done.forEach((waiter) =>
+            failure ? waiter.reject(failure) : waiter.resolve(),
+          );
         }
       }
     };
@@ -128,10 +160,18 @@ export function useLiveQuery<T = any>(
         else if (!timer) timer = setTimeout(run, 100);
       },
     };
+    const refreshNow = () =>
+      new Promise<void>((resolve, reject) => {
+        waiters.push({ resolve, reject });
+        control.current?.request();
+      });
+    refreshers.add(refreshNow);
     timer = setTimeout(run, delay);
     return () => {
       active = false;
       clearTimeout(timer);
+      refreshers.delete(refreshNow);
+      waiters.forEach((waiter) => waiter.resolve());
     };
   }, [key]);
   useEffect(() => {

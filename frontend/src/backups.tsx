@@ -1,3 +1,4 @@
+import { useLiveQuery } from "./data";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { api, Dialog, date } from "./main";
@@ -77,59 +78,57 @@ export function ConfigComparison({
   sameDevice?: boolean;
   initialDevice?: Row;
 }) {
-  const [devices, setDevices] = useState<Row[]>([]);
+  const deviceQuery = useLiveQuery<Row[]>("comparison:devices", 0, () =>
+    allRows("/inventory/backup-devices"),
+  );
+  const devices = deviceQuery.data || [];
   const [selected, setSelected] = useState<string[]>(
     initialDevice ? [initialDevice.id] : [],
   );
   const [picking, setPicking] = useState(false);
   const [search, setSearch] = useState("");
-  const [snapshots, setSnapshots] = useState<Record<string, Row[]>>({});
+  const snapshotQuery = useLiveQuery<Record<string, Row[]>>(
+    selected.length ? "comparison:snapshots:" + selected.join(",") : null,
+    0,
+    async () =>
+      Object.fromEntries(
+        await Promise.all(
+          selected.map(async (id) => [
+            id,
+            await allRows(`/snapshots?device_id=${id}`),
+          ]),
+        ),
+      ),
+  );
+  const snapshots = snapshotQuery.data || {};
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [result, setResult] = useState<Row | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    let active = true;
-    allRows("/inventory/backup-devices")
-      .then((rows) => {
-        if (active) setDevices(rows);
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+    if (!snapshotQuery.data) return;
+    const records = snapshotQuery.data;
+    setChoices((previous) => {
+      const initial: Record<string, string> = {};
+      if (sameDevice && selected.length) {
+        const rows = records[selected[0]] || [];
+        initial.left = rows.some((r: Row) => r.id === previous.left)
+          ? previous.left
+          : rows.find((r: Row) => r.is_base)?.id || rows.at(-1)?.id || "";
+        initial.right = rows.some((r: Row) => r.id === previous.right)
+          ? previous.right
+          : rows[0]?.id || "";
+      } else
+        for (const [id, rows] of Object.entries(records))
+          initial[id] = rows.some((r: Row) => r.id === previous[id])
+            ? previous[id]
+            : rows[0]?.id || "";
+      return initial;
+    });
+  }, [snapshotQuery.data, sameDevice]);
   useEffect(() => {
-    let active = true;
     setResult(null);
     setError("");
-    Promise.all(
-      selected.map(
-        async (id) =>
-          [id, await allRows(`/snapshots?device_id=${id}`)] as const,
-      ),
-    )
-      .then((pairs) => {
-        if (!active) return;
-        const records = Object.fromEntries(pairs);
-        setSnapshots(records);
-        const initial: Record<string, string> = {};
-        if (sameDevice && selected.length) {
-          const rows = records[selected[0]] || [];
-          initial.left =
-            rows.find((r: Row) => r.is_base)?.id || rows.at(-1)?.id || "";
-          initial.right = rows[0]?.id || "";
-        } else for (const [id, rows] of pairs) initial[id] = rows[0]?.id || "";
-        setChoices(initial);
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
   }, [selected.join(","), sameDevice]);
   const keys = sameDevice ? ["left", "right"] : selected;
   const ready =
@@ -142,9 +141,9 @@ export function ConfigComparison({
   };
   return (
     <div className="config-workspace">
-      {error && (
+      {(error || deviceQuery.error || snapshotQuery.error) && (
         <p role="alert" className="error">
-          {error}
+          {error || deviceQuery.error || snapshotQuery.error}
         </p>
       )}
       <div className="config-toolbar">

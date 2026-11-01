@@ -10,6 +10,7 @@ import {
   HardDrives,
 } from "@phosphor-icons/react";
 import { api, Dialog } from "./main";
+import { useLiveQuery } from "./data";
 import "./locations.css";
 type Row = Record<string, any>;
 type Props = {
@@ -537,19 +538,11 @@ function Rack({
       active = false;
     };
   }, [choice.device_id]);
+  const rackQuery = useLiveQuery<Row>(`/ipam/cabinets/${row.id}`, revision);
   useEffect(() => {
-    let active = true;
-    api(`/ipam/cabinets/${row.id}`)
-      .then((r) => {
-        if (active) setData(r);
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [row.id, revision]);
+    if (rackQuery.data) setData(rackQuery.data);
+    if (rackQuery.error) setError(rackQuery.error);
+  }, [rackQuery.data, rackQuery.error]);
   const rackDevices: Row[] = [
     ...new Map<string, Row>([
       ...(refs.devices || []).map((d) => [d.id, d] as const),
