@@ -70,7 +70,6 @@ class VLANInput(Input):
     cidr: str
     dns_server_id: str | None = None
     description: str = Field(default="", max_length=400)
-    scan_authorized: bool = True
     warning_threshold: int = Field(default=80, ge=1, le=100)
     ping_enabled: bool = False
     ping_interval: int = Field(default=300, ge=30, le=86400)

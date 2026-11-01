@@ -138,7 +138,6 @@ class VLAN(Entity, Base):
     domain: Mapped[str] = mapped_column(String(80), default="default")
     vid: Mapped[int] = mapped_column(Integer)
     institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
-    scan_authorized: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     cidr: Mapped[str | None] = mapped_column(String(49), nullable=True)
     vrf_id: Mapped[str | None] = mapped_column(ForeignKey("vrfs.id"), index=True)
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
@@ -276,14 +275,12 @@ class Integration(Entity, Base):
     encrypted_secret: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
-    credential_id: Mapped[str | None] = mapped_column(ForeignKey("credentials.id"), index=True)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
     last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
         CheckConstraint(
-            "kind in ('vcenter','windows_dhcp','corner_switch','backbone_switch','firewall')",
+            "kind in ('vcenter','windows_dhcp')",
             name="ck_integration_kind",
         ),
         CheckConstraint("interval_seconds = 0 OR interval_seconds >= 60", name="ck_integration_interval"),

@@ -212,53 +212,6 @@ def test_vlans_are_independent_of_inventory_scope_exclusions(admin_client, inven
         assert jobs.targets(db, db.get(m.VLAN, row["id"]), True) == ["192.0.2.1", "192.0.2.2"]
 
 
-async def test_switch_sources_correlate_without_inventory_or_network_discovery(
-    admin_client, env, monkeypatch
-):
-    row = vlan(admin_client)
-    profile = admin_client.post(
-        "/api/v1/credentials",
-        json={"name": "IPAM SNMP", "protocol": "snmpv2c", "secret": {"community": "fixture"}},
-    ).json()
-    response = admin_client.post(
-        "/api/v1/integrations",
-        json={
-            "name": "Corner",
-            "kind": "corner_switch",
-            "host": "192.0.2.254",
-            "port": 161,
-            "credential_id": profile["id"],
-            "enabled": True,
-        },
-    )
-    assert response.status_code == 201, response.text
-    config_id = response.json()["id"]
-    job = admin_client.post("/api/v1/integrations/" + config_id + "/sync").json()
-
-    class Collector:
-        async def collect(self, host, port, secret):
-            assert host == "192.0.2.254" and secret["protocol"] == "snmpv2c"
-            return {
-                "interfaces": [{"name": "1/1/12", "if_index": 12}],
-                "tables": {
-                    "arp_mac": {"1.192.0.2.1": "00:11:22:33:44:55"},
-                    "fdb_port": {"0.17.34.51.68.85": "12"},
-                    "bridge_ifindex": {"12": "12"},
-                },
-                "neighbors": [],
-            }
-
-    assert (await jobs.integration(job["id"], Collector()))["imported"] == 1
-    response = admin_client.get("/api/v1/ipam/vlans/" + row["id"] + "/addresses?allocated=true")
-    assert response.status_code == 200, response.text
-    ip = response.json()["items"][0]
-    assert ip["connected_device"] == "Corner" and ip["connected_port"] == "1/1/12"
-    with env() as db:
-        assert not list(db.scalars(select(m.Device)))
-        assert not list(db.scalars(select(m.Scope)))
-        assert not list(db.scalars(select(m.Observation)))
-
-
 def test_normalized_fortios_comparisons_do_not_leak_multiline_secrets(admin_client, env):
     row = vlan(admin_client)
     with env() as db:

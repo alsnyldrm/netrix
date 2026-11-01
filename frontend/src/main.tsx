@@ -255,7 +255,7 @@ export const PAGES: Page[] = [
   {
     key: "integrations",
     title: "Entegrasyonlar",
-    desc: "IPAM için VMware, DHCP, Corner Switch, Backbone Switch ve Firewall bağlantıları.",
+    desc: "IPAM için VMware vCenter ve Microsoft Windows DHCP bağlantıları.",
     group: "Yönetim",
     icon: PlugsConnected,
   },
@@ -281,11 +281,6 @@ export const PAGES: Page[] = [
       }),
       ref("vrf_id", "VRF", "vrfs", true),
       ref("dns_server_id", "DNS sunucusu", "dns-servers"),
-      f(
-        "scan_authorized",
-        "Bu ağ bloğunda keşif ve ping işlemleri yetkilendirilmiştir",
-        { type: "checkbox", default: true },
-      ),
       f("warning_threshold", "IP kullanım uyarı eşiği (%)", {
         type: "number",
         default: 80,

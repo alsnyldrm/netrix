@@ -355,7 +355,7 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
-    if replay_prefix and row.scan_authorized:
+    if replay_prefix:
         enqueue(db, "ipam_discover", row.id, user, commit=False)
     identification = None
     if identify_changed:

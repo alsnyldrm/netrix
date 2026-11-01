@@ -218,19 +218,6 @@ def test_integration_credentials_edit_and_cross_vrf_rejected(admin_client, inven
     assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={}).status_code == 403
 
 
-def test_cross_source_mac_correlation_marks_multiple_ports(admin_client, inventory, env):
-    from test_ipam_endpoint_connections import endpoint, switch
-
-    with env() as db:
-        vlan, row = endpoint(db, inventory["vrf"]["id"])
-        switch(db, vlan.vrf_id, "switch1")
-        switch(db, vlan.vrf_id, "switch2")
-        db.commit()
-        candidates = service.connection_candidates(db, row)
-        assert len(candidates) == 2 and all(r["ambiguous"] for r in candidates)
-        assert {r["device_name"] for r in candidates} == {"switch1", "switch2"}
-
-
 def test_windows_dhcp_parser_mac_and_readonly_commands():
     rows = adapters.dhcp_records(
         b'[{"address":"192.0.2.1","mac_address":"01-00-11-22-33-44-55","hostname":"PC"}]'

@@ -12,52 +12,14 @@ def endpoint(db, vrf_id):
     db.add(prefix)
     db.flush()
     row = service.observe(
-        db, prefix, "192.0.2.11", "corner_switch", "gw", {"mac_address": "00:50:56:a0:42:c0"}
+        db, prefix, "192.0.2.11", "windows_dhcp", "dhcp", {"mac_address": "00:50:56:a0:42:c0"}
     )
     return prefix, row
-
-
-class SourcePort:
-    def __init__(self, config):
-        self.config = config
-        self.device_id = config.id
-        self.id = config.id + ":7"
-        self.if_index = 7
-
-    @property
-    def name(self):
-        return self.config.evidence["interfaces"][0]["name"]
-
-    @name.setter
-    def name(self, value):
-        self.config.evidence = {**self.config.evidence, "interfaces": [{"if_index": 7, "name": value}]}
-
-
-def switch(db, vrf_id, name, uplink=False):
-    port_name = "Gi1/0/24" if uplink else "Gi1/0/7"
-    config = m.Integration(
-        name=name,
-        kind="corner_switch",
-        host=name.lower() + ".example.test",
-        port=161,
-        enabled=True,
-        encrypted_secret="fixture",
-        last_success_at=now(),
-        evidence={
-            "interfaces": [{"name": port_name, "if_index": 7}],
-            "tables": {"fdb_port": {"0.80.86.160.66.192": "3"}, "bridge_ifindex": {"3": "7"}},
-            "neighbors": [{"interface_name": port_name}] if uplink else [],
-        },
-    )
-    db.add(config)
-    db.flush()
-    return SourcePort(config)
 
 
 def test_vm_connection_wins_over_physical_fdb_and_manual_port(admin_client, inventory, env):
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
-        switch(db, prefix.vrf_id, "Transit", uplink=True)
         config = m.Integration(
             name="vCenter",
             kind="vcenter",
@@ -95,38 +57,6 @@ def test_vm_connection_wins_over_physical_fdb_and_manual_port(admin_client, inve
         assert options["integrations"][0]["switch_name"] == "FBU-DS"
 
 
-def test_physical_leaf_wins_over_transit_and_ambiguity_is_not_a_device_list(admin_client, inventory, env):
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        switch(db, prefix.vrf_id, "Transit", uplink=True)
-        switch(db, prefix.vrf_id, "Access")
-        db.commit()
-        result = service.enrich(db, [row])[0]
-        assert result["connected_device"] == "Access" and result["connected_port"] == "Gi1/0/7"
-        assert not result["connection_ambiguous"]
-        assert len(jobs.connection_options(db, row)["interfaces"]) == 1
-        # A second access location is unresolved, not two connected switches.
-        second = m.Device(name="Other", management_ip="192.0.2.22", vrf_id=prefix.vrf_id)
-        db.add(second)
-        db.flush()
-        port = m.Interface(device_id=second.id, name="1", if_index=1)
-        db.add(port)
-        db.flush()
-        context = service.connection_context(db)
-        context["devices"][second.id] = second
-        context["ports"][port.id] = port
-        context["indexed"][(prefix.vrf_id, "00:50:56:a0:42:c0")][port.id] = {
-            "interface_id": port.id,
-            "source": "arp/ndp+fdb",
-            "uplink": False,
-            "confidence": 0.8,
-            "ambiguous": False,
-        }
-        candidates = service.connection_candidates(db, row, context=context)
-        assert all(c["ambiguous"] for c in candidates)
-        assert service.physical_connections(candidates) == []
-
-
 def test_vm_record_uses_backing_switch_and_portgroup_even_without_guest_network():
     from pyVmomi import vim
 
@@ -152,7 +82,7 @@ def test_vm_record_uses_backing_switch_and_portgroup_even_without_guest_network(
     assert rows[0]["portgroup_key"] == "pg-1" and rows[0]["dvport"] == "89"
 
 
-async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_retired(
+async def test_dhcp_mac_matches_vm_without_guest_ip_and_removed_nic_is_retired(
     admin_client, inventory, env, monkeypatch
 ):
     import json
@@ -161,7 +91,6 @@ async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_reti
 
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
-        prefix.scan_authorized = True
         config = m.Integration(
             name="VC",
             kind="vcenter",
@@ -208,33 +137,11 @@ async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_reti
         assert jobs.connection_options(db, row)["integrations"] == []
 
 
-def test_aggregate_uplink_is_not_an_endpoint_port(admin_client, inventory, env):
-
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        trunk = switch(db, prefix.vrf_id, "Core", uplink=True)
-        trunk.name = "Trk1"
-        snapshot = db.get(m.Integration, trunk.device_id)
-        snapshot.evidence = {
-            **snapshot.evidence,
-            "neighbors": [{"interface_name": "A1", "evidence": {"local_aggregate": {"name": "Trk1"}}}],
-            "neighbor_detail": {"trunks": {"A1": {"name": "Trk1"}}, "spanning_tree": {"port": "Trk1"}},
-        }
-        switch(db, prefix.vrf_id, "Access")
-        db.commit()
-        result = service.enrich(db, [row])[0]
-        assert result["connected_device"] == "Access"
-        assert result["connected_port"] == "Gi1/0/7"
-
-
 def test_conflicting_vm_attachments_never_fall_back_to_a_physical_hop(admin_client, inventory, env):
     from datetime import timedelta
 
-    from netrix.core import now
-
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
-        switch(db, prefix.vrf_id, "Access")
         for number in (1, 2):
             service.observe(
                 db,
@@ -259,7 +166,7 @@ def test_conflicting_vm_attachments_never_fall_back_to_a_physical_hop(admin_clie
             if observation.source == "vcenter":
                 observation.observed_at = now() - timedelta(hours=25)
         db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "Access"
+        assert service.enrich(db, [row])[0]["connected_device"] == ""
 
 
 def test_vcenter_resolves_backing_names_from_later_inventory_pages(monkeypatch):

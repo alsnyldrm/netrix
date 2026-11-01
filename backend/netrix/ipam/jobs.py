@@ -11,11 +11,9 @@ from ..identity.security import decrypt
 from ..services import enqueue, get, in_scope, publish
 from . import adapters
 from .service import (
-    connection_candidates,
     normalized_mac,
     observations,
     observe,
-    physical_connections,
     scan_boundary,
     targets,
     virtual_connections,
@@ -29,6 +27,8 @@ SCAN_BATCH_SIZE = 32
 def validate_target(db, kind, id):
     if kind == "integration":
         row = get(db, m.Integration, id)
+        if row.kind not in ("vcenter", "windows_dhcp"):
+            raise HTTPException(422, "Yalnızca DHCP ve VMware entegrasyonları desteklenir")
         if not row.enabled:
             raise HTTPException(422, "Entegrasyonu etkinleştirin")
     else:
@@ -46,7 +46,7 @@ def connection_options(db, row):
             integrations.append({**candidate, "name": config.name})
     # A VM's access port is its virtual NIC backing, not every physical FDB hop.
     return {
-        "interfaces": [] if virtual else physical_connections(connection_candidates(db, row)),
+        "interfaces": [],
         "integrations": integrations if len(virtual) == 1 else [],
         "vm_conflict": len(virtual) > 1,
     }
@@ -146,8 +146,6 @@ async def integration(job_id, collector=None):
         config.last_run_at = now()
         db.commit()
         version = config.updated_at
-    if config.kind in ("corner_switch", "backbone_switch", "firewall"):
-        return await switch_records(job_id, config, version, collector)
     reader = adapters.vcenter_records if config.kind == "vcenter" else adapters.windows_dhcp
     # All remote reads finish before atomic persistence. Exceptions leave prior observations intact.
     records = await asyncio.to_thread(reader, config, secret)
@@ -165,9 +163,7 @@ async def integration(job_id, collector=None):
                 select(m.IPAddress, m.IPObservation)
                 .join(m.IPObservation, m.IPObservation.address_id == m.IPAddress.id)
                 .where(
-                    m.IPObservation.source.in_(
-                        ("windows_dhcp", "corner_switch", "backbone_switch", "firewall")
-                    ),
+                    m.IPObservation.source == "windows_dhcp",
                     m.IPObservation.observed_at >= now() - timedelta(hours=24),
                 )
             )
@@ -179,9 +175,8 @@ async def integration(job_id, collector=None):
                 continue
             mac = normalized_mac(evidence.data.get("mac_address"))
             if mac:
-                item = known.setdefault(address.id, {"row": address, "macs": set(), "dhcp": False})
+                item = known.setdefault(address.id, {"row": address, "macs": set()})
                 item["macs"].add(mac)
-                item["dhcp"] |= evidence.source == "windows_dhcp"
         mac_owners = {}
         if current.kind == "vcenter":
             for entry in records:
@@ -212,7 +207,7 @@ async def integration(job_id, collector=None):
                             key,
                             {
                                 **data,
-                                "matched_by": "dhcp_mac" if item["dhcp"] else "switch_mac",
+                                "matched_by": "dhcp_mac",
                                 "guest_address": entry.get("address", ""),
                             },
                             create=False,
@@ -253,8 +248,7 @@ async def integration(job_id, collector=None):
                 enqueue(db, "integration", config.id, commit=False)
         current.last_success_at = now()
         for vlan in prefixes:
-            if vlan.scan_authorized:
-                enqueue(db, "ipam_ping", vlan.id, commit=False)
+            enqueue(db, "ipam_ping", vlan.id, commit=False)
         job.total = job.progress = len(records)
         db.commit()
     publish()
@@ -270,47 +264,3 @@ async def execute(job_id, kind, collector):
     if kind == "integration":
         return await integration(job_id, collector)
     return await scan(job_id)
-
-
-async def switch_records(job_id, config, version, collector):
-    from ..discovery.protocols import SNMPCollector
-    from ..worker import Cancelled
-    from .connections import project_snapshot
-
-    with session_factory()() as db:
-        profile = get(db, m.Credential, config.credential_id)
-        secret = json.loads(decrypt(profile.encrypted_secret))
-        secret["protocol"] = profile.protocol
-        profile_version = profile.updated_at
-    evidence = await (collector or SNMPCollector()).collect(config.host, config.port, secret)
-    with session_factory()() as db:
-        current = validate_target(db, "integration", config.id)
-        profile = get(db, m.Credential, current.credential_id)
-        job = get(db, m.Job, job_id)
-        if job.cancel_requested or current.updated_at != version or profile.updated_at != profile_version:
-            raise Cancelled()
-        vlans = list(db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))))
-        imported = 0
-        for address, entries in project_snapshot(evidence)["arp"].items():
-            vlan = vlan_for(db, address, vlans)
-            if not vlan:
-                continue
-            for mac, index in entries:
-                if observe(
-                    db,
-                    vlan,
-                    address,
-                    current.kind,
-                    current.id,
-                    {"mac_address": mac, "integration_id": current.id, "switch_name": current.name},
-                ):
-                    imported += 1
-        for vlan in vlans:
-            if vlan.scan_authorized:
-                enqueue(db, "ipam_ping", vlan.id, commit=False)
-        current.evidence = evidence
-        current.last_success_at = now()
-        job.total = job.progress = imported
-        db.commit()
-    publish()
-    return {"imported": imported}

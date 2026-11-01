@@ -18,9 +18,9 @@ with session_factory()() as db:
     assert d.base_snapshot_id == "fixture-snapshot-0" and d.discovery_scope_id == "fixture-scope"
     assert not db.get(m.Snapshot, "fixture-snapshot-1").changed
     assert db.get(m.Snapshot, "fixture-snapshot-2").changed
-    assert db.scalar(select(m.Integration)).kind == "corner_switch"
+    assert db.scalar(select(m.Integration)) is None
     assert db.get(m.Scope, "fixture-scope").vlan_vid == 20
 subprocess.run(["alembic", "-c", "backend/alembic.ini", "check"], check=True)
 print(
-    "PASS: VLAN/IP ownership, independent sources, first base config, normalized differences, schema parity"
+    "PASS: VLAN/IP ownership, removed switch integrations, first base config, normalized differences, schema parity"
 )

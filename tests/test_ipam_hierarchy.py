@@ -73,27 +73,6 @@ def test_cabinet_units_placements_atomic_and_inventory_preserved(admin_client, i
     assert c.get("/api/v1/devices/" + ids[0]).status_code == 200
 
 
-def test_vlan_scan_defaults_on_and_can_be_disabled(admin_client, inventory):
-    c = admin_client
-    p = c.post(
-        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]})
-    ).json()
-    base = f"/api/v1/ipam/vlans/{p['id']}"
-    assert c.post(base + "/discover").status_code == 202
-    assert c.put(base + "/settings", json={"scan_authorized": True, "ping_enabled": True}).status_code == 200
-    assert c.post(base + "/discover").status_code == 202
-    assert (
-        c.put(base + "/settings", json={"scan_authorized": False, "ping_enabled": True}).json()[
-            "ping_enabled"
-        ]
-        is False
-    )
-    assert c.post(base + "/ping").status_code == 422
-    c.put(base + "/settings", json={"scan_authorized": True})
-    c.put("/api/v1/vlans/" + p["id"], json=vlan_payload({"cidr": "198.51.100.0/30", "vrf_id": p["vrf_id"]}))
-    assert c.post(base + "/ping").status_code == 202
-
-
 def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, env):
     c = admin_client
     p = c.post(
@@ -258,7 +237,7 @@ def test_vlan_authorization_does_not_enable_inventory_scope(admin_client, invent
         scope.enabled = False
         scope.exclusions = ["192.0.2.2/32"]
         db.commit()
-    assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"scan_authorized": True}).status_code == 200
+    assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={}).status_code == 200
     with env() as db:
         scope = db.get(m.Scope, inventory["scope"]["id"])
         assert not scope.enabled and scope.exclusions == ["192.0.2.2/32"]

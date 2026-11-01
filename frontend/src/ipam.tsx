@@ -30,9 +30,6 @@ const sourceName = (v: string) =>
   ({
     vcenter: "VMware vCenter",
     windows_dhcp: "Windows DHCP",
-    corner_switch: "Corner Switch",
-    backbone_switch: "Backbone Switch",
-    firewall: "Firewall",
     dns: "DNS",
     icmp: "Ping",
   })[v] || v;
@@ -53,7 +50,6 @@ const stateName = (v: string) =>
   "Bilinmiyor";
 const settingsKeys = [
   "dns_server_id",
-  "scan_authorized",
   "warning_threshold",
   "ping_enabled",
   "ping_interval",
@@ -141,22 +137,6 @@ function VLANSettings({
         <ErrorNote error={error} />
         <div className="ipam-fields">
           {choices("dns_server_id", "DNS sunucusu", refs["dns-servers"] || [])}
-          <label className="ipam-check">
-            <input
-              type="checkbox"
-              checked={!!values.scan_authorized}
-              onChange={(e) => {
-                set("scan_authorized", e.target.checked);
-                if (!e.target.checked) {
-                  set("ping_enabled", false);
-                  set("discovery_enabled", false);
-                }
-              }}
-            />
-            <span>
-              Bu ağ bloğunda keşif ve ping işlemleri yetkilendirilmiştir
-            </span>
-          </label>
           <Field label="IP kullanım uyarı eşiği (%)">
             <input
               type="number"
@@ -192,7 +172,6 @@ function VLANSettings({
           <label className="ipam-check">
             <input
               type="checkbox"
-              disabled={!values.scan_authorized}
               checked={values.ping_enabled}
               onChange={(e) => set("ping_enabled", e.target.checked)}
             />
@@ -201,7 +180,6 @@ function VLANSettings({
           <label className="ipam-check">
             <input
               type="checkbox"
-              disabled={!values.scan_authorized}
               checked={values.discovery_enabled}
               onChange={(e) => set("discovery_enabled", e.target.checked)}
             />
@@ -1184,7 +1162,6 @@ const integrationDefaults = {
   password: "",
   enabled: false,
   verify_tls: true,
-  credential_id: null,
   interval_seconds: 0,
 };
 export function Integrations({
@@ -1262,8 +1239,7 @@ export function Integrations({
       values.kind !== editing.kind),
   );
   const credentialsRequired =
-    !["corner_switch", "backbone_switch", "firewall"].includes(values.kind) &&
-    (!editing?.id || targetChanged || changeCredentials);
+    !editing?.id || targetChanged || changeCredentials;
   return (
     <div className="ipam-workspace">
       <ErrorNote error={error} />
@@ -1280,8 +1256,8 @@ export function Integrations({
         <p>
           VMware vCenter’dan IP, MAC, işletim sistemi, güç durumu ve sanal port;
           Windows DHCP’den sabit IPv4 rezervasyonları ve aktif kiralamalar
-          alınır. Eklenen tüm VLAN’lar bu kaynaklarla otomatik çalışır. Switch
-          bağlantıları IPAM için bağımsız olarak sorgulanır.
+          alınır. Eklenen tüm VLAN’lar DHCP ve VMware entegrasyonlarıyla
+          otomatik çalışır.
         </p>
       </section>
       {job && (
@@ -1423,43 +1399,40 @@ export function Integrations({
             }}
           >
             <ErrorNote error={formError} />
-            {editing.id &&
-              !["corner_switch", "backbone_switch", "firewall"].includes(
-                values.kind,
-              ) && (
-                <>
-                  <p
-                    className="ipam-hint"
-                    id="integration-credentials-hint"
-                    role="status"
-                  >
-                    {targetChanged
-                      ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
-                      : changeCredentials
-                        ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
-                        : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
-                  </p>
-                  <label className="ipam-check">
-                    <input
-                      type="checkbox"
-                      checked={credentialsRequired}
-                      disabled={targetChanged}
-                      aria-describedby="integration-credentials-hint"
-                      onChange={(e) => {
-                        setChangeCredentials(e.target.checked);
-                        if (!e.target.checked) {
-                          setValues((v) => ({
-                            ...v,
-                            username: "",
-                            password: "",
-                          }));
-                        }
-                      }}
-                    />
-                    Kullanıcı/parolayı değiştir
-                  </label>
-                </>
-              )}
+            {editing.id && (
+              <>
+                <p
+                  className="ipam-hint"
+                  id="integration-credentials-hint"
+                  role="status"
+                >
+                  {targetChanged
+                    ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
+                    : changeCredentials
+                      ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
+                      : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
+                </p>
+                <label className="ipam-check">
+                  <input
+                    type="checkbox"
+                    checked={credentialsRequired}
+                    disabled={targetChanged}
+                    aria-describedby="integration-credentials-hint"
+                    onChange={(e) => {
+                      setChangeCredentials(e.target.checked);
+                      if (!e.target.checked) {
+                        setValues((v) => ({
+                          ...v,
+                          username: "",
+                          password: "",
+                        }));
+                      }
+                    }}
+                  />
+                  Kullanıcı/parolayı değiştir
+                </label>
+              </>
+            )}
             <div className="ipam-fields">
               <Field label="Entegrasyon adı">
                 <input
@@ -1474,21 +1447,11 @@ export function Integrations({
                   value={values.kind}
                   onChange={(e) => {
                     set("kind", e.target.value);
-                    set(
-                      "port",
-                      e.target.value === "vcenter"
-                        ? 443
-                        : e.target.value === "windows_dhcp"
-                          ? 5986
-                          : 161,
-                    );
+                    set("port", e.target.value === "vcenter" ? 443 : 5986);
                   }}
                 >
                   <option value="vcenter">VMware vCenter</option>
                   <option value="windows_dhcp">Microsoft Windows DHCP</option>
-                  <option value="corner_switch">Corner Switch</option>
-                  <option value="backbone_switch">Backbone Switch</option>
-                  <option value="firewall">Firewall</option>
                 </select>
               </Field>
               <Field label="Sunucu adı veya IP">
@@ -1508,26 +1471,6 @@ export function Integrations({
                   onChange={(e) => set("port", Number(e.target.value))}
                 />
               </Field>
-              {["corner_switch", "backbone_switch", "firewall"].includes(
-                values.kind,
-              ) && (
-                <Field label="SNMP erişim profili">
-                  <select
-                    required
-                    value={values.credential_id || ""}
-                    onChange={(e) => set("credential_id", e.target.value)}
-                  >
-                    <option value="">Profil seçin</option>
-                    {(refs.credentials || [])
-                      .filter((p) => ["snmpv3", "snmpv2c"].includes(p.protocol))
-                      .map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
-              )}
               {credentialsRequired && (
                 <>
                   <Field label="Kullanıcı">
@@ -1584,9 +1527,7 @@ export function Integrations({
             <p className="ipam-hint">
               {values.kind === "windows_dhcp"
                 ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
-                : values.kind === "vcenter"
-                  ? "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."
-                  : "IP/MAC ve port bilgileri yalnızca IPAM için sorgulanır."}{" "}
+                : "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}{" "}
               Kaydetmek bağlantı testi başlatmaz; “Şimdi eşitle” veya zamanlama
               tetikler.
             </p>

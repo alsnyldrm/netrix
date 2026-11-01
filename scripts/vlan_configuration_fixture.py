@@ -92,7 +92,6 @@ with session_factory()() as db:
         institution_id=institution.id,
         site_id=site.id,
         dns_server_id=dns.id,
-        scan_authorized=True,
     )
     db.add(m.Cabinet(name="K-01", site_id=site.id, units=42))
     db.add_all([scope, vlan])
