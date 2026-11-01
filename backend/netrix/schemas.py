@@ -64,6 +64,34 @@ class VLANInput(Input):
     name: str = Field(min_length=1, max_length=120)
     domain: str = Field(default="default", min_length=1, max_length=80)
     vid: int = Field(ge=1, le=4094)
+    institution_id: str | None = None
+    site_id: str | None = None
+    vrf_id: str
+    cidr: str
+    dns_server_id: str | None = None
+    description: str = Field(default="", max_length=400)
+    scan_authorized: bool = True
+    warning_threshold: int = Field(default=80, ge=1, le=100)
+    ping_enabled: bool = False
+    ping_interval: int = Field(default=300, ge=30, le=86400)
+    discovery_enabled: bool = False
+    discovery_interval: int = Field(default=3600, ge=60, le=2592000)
+
+    @field_validator("cidr")
+    @classmethod
+    def network(cls, value):
+        network = ipaddress.ip_network(value, strict=True)
+        if (
+            network.is_multicast
+            or network.is_loopback
+            or network.is_link_local
+            or network.is_unspecified
+            or network.prefixlen == 0
+        ):
+            raise ValueError("Sınırlandırılmış unicast IP bloğu gerekli")
+        if network.version == 4 and network.num_addresses > 65536:
+            raise ValueError("VLAN taraması en fazla 65536 IPv4 adresi içerebilir")
+        return str(network)
 
 
 class DeviceTypeInput(Input):
@@ -118,20 +146,6 @@ class DeviceInput(Input):
         return self
 
 
-class PrefixInput(Input):
-    institution_id: str | None = None
-    cidr: str
-    vrf_id: str
-    site_id: str | None = None
-    vlan_id: str | None = None
-    description: str = Field(default="", max_length=400)
-
-    @field_validator("cidr")
-    @classmethod
-    def network(cls, value):
-        return str(ipaddress.ip_network(value, strict=True))
-
-
 class IPInput(Input):
     institution_id: str | None = None
     site_id: str | None = None
@@ -139,7 +153,7 @@ class IPInput(Input):
     device_id: str | None = None
     address: str
     vrf_id: str
-    prefix_id: str
+    vlan_id: str
     interface_id: str | None = None
     hostname: str = Field(default="", max_length=190)
     operating_system: str = Field(default="", max_length=190)
@@ -154,6 +168,7 @@ class IPInput(Input):
 
 
 class ScopeInput(Input):
+    vlan_vid: int | None = Field(default=None, ge=1, le=4094)
     institution_id: str | None = Field(default=None, min_length=1, max_length=36)
     name: str = Field(min_length=1, max_length=120)
     cidr: str
@@ -351,3 +366,8 @@ class LinkLabelsInput(Input):
         if value is not None and any(not c.isprintable() for c in value):
             raise ValueError("Alan yalnızca okunabilir karakterler içermeli")
         return value
+
+
+class ConfigCompareInput(Input):
+    snapshot_ids: list[str] = Field(min_length=2, max_length=4)
+    distinct_devices: bool = False

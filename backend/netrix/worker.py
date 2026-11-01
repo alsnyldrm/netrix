@@ -1,6 +1,5 @@
 import argparse
 import asyncio
-import hashlib
 import logging
 import signal
 import time
@@ -13,7 +12,6 @@ from . import models as m
 from .alerting.engine import evaluate
 from .configuration.failures import backup_failure
 from .configuration.formatting import config_text
-from .configuration.history import previous_valid_snapshot
 from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
@@ -31,7 +29,7 @@ from .discovery.protocols import (
     fetch_neighbor_detail,
 )
 from .discovery.targets import scope_targets
-from .identity.security import encrypt, secret_data
+from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
 from .services import (
     CONNECTION_TESTS,
@@ -127,10 +125,8 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
     )
     sync_interfaces(db, device, collected, job.id)
     device.reachability, device.last_seen_at = "reachable", now()
-    sync_links(db, device, collected)
-    from .ipam.service import inventory_observations
-
-    inventory_observations(db, device, collected)
+    if job.kind != "discovery":
+        sync_links(db, device, collected)
 
 
 async def identify_device(job_id, collector):
@@ -382,6 +378,7 @@ async def discover(job_id, collector):
                             details={"address": address},
                         )
                     )
+                device.discovery_scope_id = current_scope.id
                 # Keep a separately managed profile outside this scope intact.
                 if not device.snmp_credential_id or device.snmp_credential_id in current_scope.credential_ids:
                     device.snmp_credential_id = profile_id
@@ -442,9 +439,13 @@ async def collect_backup(job_id):
             raise BackupError("connection_changed")
         validate_cli_output(data)
         data = config_text(data)
-        previous, previous_content = previous_valid_snapshot(db, current.id)
-        fingerprint = hashlib.sha256(data.encode()).hexdigest()
-        changed = previous is not None and previous_content != data
+        from .configuration import baselines
+
+        previous = baselines.base(db, current)
+        fingerprint = baselines.fingerprint(data)
+        changed = (
+            previous is not None and baselines.fingerprint(decrypt(previous.encrypted_content)) != fingerprint
+        )
         db.add(
             m.Snapshot(
                 device_id=current.id,
@@ -459,6 +460,7 @@ async def collect_backup(job_id):
         db.flush()
         from .configuration.management import prune
 
+        baselines.base(db, current)
         prune(db, current)
         if changed:
             db.add(

@@ -1,3 +1,6 @@
+from conftest import vlan_payload
+
+
 def test_ip_location_hierarchy_persistence_and_validation(admin_client, institution, inventory):
     c = admin_client
     root = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
@@ -6,12 +9,12 @@ def test_ip_location_hierarchy_persistence_and_validation(admin_client, institut
     ).json()
     other = c.post("/api/v1/institutions", json={"name": "Other", "code": "OTHER"}).json()
     prefix = c.post(
-        "/api/v1/prefixes", json={"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]}
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]})
     ).json()
     payload = {
         "address": "192.0.2.11",
         "vrf_id": prefix["vrf_id"],
-        "prefix_id": prefix["id"],
+        "vlan_id": prefix["id"],
         "institution_id": institution["id"],
         "site_id": root["id"],
         "sub_site_id": child["id"],
@@ -55,12 +58,12 @@ def test_legacy_location_is_preserved_and_new_relations_survive_old_clients(
     c = admin_client
     root = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
     prefix = c.post(
-        "/api/v1/prefixes", json={"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]}
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]})
     ).json()
     payload = {
         "address": "192.0.2.12",
         "vrf_id": prefix["vrf_id"],
-        "prefix_id": prefix["id"],
+        "vlan_id": prefix["id"],
         "location": "Legacy room",
     }
     row = c.post("/api/v1/addresses", json=payload).json()

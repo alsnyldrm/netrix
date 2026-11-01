@@ -1,8 +1,280 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft } from "@phosphor-icons/react";
 import { api, Dialog, date } from "./main";
-import { InventoryTable } from "./inventory";
+import { allRows, InventoryTable } from "./inventory";
+import "./configurations.css";
 type Row = Record<string, any>;
+
+export function ConfigEditors({ result }: { result: Row }) {
+  return (
+    <div className="config-comparison">
+      <p role="status">
+        {result.changed
+          ? "Konfigürasyon farkları işaretlendi."
+          : "Konfigürasyon ayarları aynı."}{" "}
+        Hassas değerler maskelenir.
+      </p>
+      <div
+        className="config-editors"
+        style={{
+          gridTemplateColumns: `repeat(${result.documents.length}, minmax(0, 1fr))`,
+        }}
+      >
+        {result.documents.map((d: Row) => (
+          <section className="config-editor" key={d.id}>
+            <header>
+              <strong>{d.device_name}</strong>
+              <span>
+                {date(d.created_at)}{" "}
+                {d.is_base && <b className="base-config-label">Base config</b>}
+              </span>
+            </header>
+            <pre
+              tabIndex={0}
+              aria-label={`${d.device_name} konfigürasyonu`}
+              role="region"
+            >
+              {d.lines.map((line: Row) => (
+                <span
+                  key={line.number}
+                  className={`config-line${line.changed ? " changed" : ""}`}
+                >
+                  <span className="config-line-number" aria-hidden="true">
+                    {line.number}
+                  </span>
+                  <span>
+                    {line.changed && (
+                      <span className="sr-only">Değişen satır: </span>
+                    )}
+                    {line.text || " "}
+                  </span>
+                </span>
+              ))}
+            </pre>
+          </section>
+        ))}
+      </div>
+      {result.documents.slice(1).map(
+        (d: Row) =>
+          d.diff && (
+            <details key={d.id}>
+              <summary>
+                {result.documents[0].device_name} / {d.device_name} · Eklenen ve
+                kaldırılan satırlar
+              </summary>
+              <pre className="config-diff">{d.diff}</pre>
+            </details>
+          ),
+      )}
+    </div>
+  );
+}
+
+export function ConfigComparison({
+  sameDevice = false,
+  initialDevice,
+}: {
+  sameDevice?: boolean;
+  initialDevice?: Row;
+}) {
+  const [devices, setDevices] = useState<Row[]>([]);
+  const [selected, setSelected] = useState<string[]>(
+    initialDevice ? [initialDevice.id] : [],
+  );
+  const [picking, setPicking] = useState(false);
+  const [search, setSearch] = useState("");
+  const [snapshots, setSnapshots] = useState<Record<string, Row[]>>({});
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [result, setResult] = useState<Row | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    allRows("/inventory/backup-devices")
+      .then((rows) => {
+        if (active) setDevices(rows);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    setResult(null);
+    setError("");
+    Promise.all(
+      selected.map(
+        async (id) =>
+          [id, await allRows(`/snapshots?device_id=${id}`)] as const,
+      ),
+    )
+      .then((pairs) => {
+        if (!active) return;
+        const records = Object.fromEntries(pairs);
+        setSnapshots(records);
+        const initial: Record<string, string> = {};
+        if (sameDevice && selected.length) {
+          const rows = records[selected[0]] || [];
+          initial.left =
+            rows.find((r: Row) => r.is_base)?.id || rows.at(-1)?.id || "";
+          initial.right = rows[0]?.id || "";
+        } else for (const [id, rows] of pairs) initial[id] = rows[0]?.id || "";
+        setChoices(initial);
+      })
+      .catch((e) => {
+        if (active) setError(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selected.join(","), sameDevice]);
+  const keys = sameDevice ? ["left", "right"] : selected;
+  const ready =
+    (sameDevice ? selected.length === 1 : selected.length >= 2) &&
+    keys.every((k) => choices[k]) &&
+    new Set(keys.map((k) => choices[k])).size === keys.length;
+  const choose = (key: string, value: string) => {
+    setChoices((v) => ({ ...v, [key]: value }));
+    setResult(null);
+  };
+  return (
+    <div className="config-workspace">
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      <div className="config-toolbar">
+        <button className="secondary" onClick={() => setPicking(true)}>
+          Önce cihaz seç
+        </button>
+        <span>
+          {sameDevice
+            ? "Bir cihaz ve iki kayıtlı konfigürasyon seçin."
+            : "2–4 farklı cihaz seçin."}
+        </span>
+      </div>
+      {selected.length > 0 && (
+        <div className="config-selectors">
+          {keys.map((key, index) => {
+            const deviceId = sameDevice ? selected[0] : key;
+            const device =
+              devices.find((d) => d.id === deviceId) || initialDevice;
+            return (
+              <label key={key}>
+                <strong>
+                  {sameDevice ? (index === 0 ? "Sol" : "Sağ") + " · " : ""}
+                  {device?.name || "Cihaz"}
+                </strong>
+                <select
+                  aria-label={`${sameDevice ? (index === 0 ? "Sol" : "Sağ") : device?.name} config dosyası`}
+                  value={choices[key] || ""}
+                  onChange={(e) => choose(key, e.target.value)}
+                >
+                  <option value="">Config dosyası seçin</option>
+                  {(snapshots[deviceId] || []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {date(s.created_at)}
+                      {s.is_base ? " · Base config" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          })}
+        </div>
+      )}
+      <button
+        className="primary"
+        disabled={!ready || busy}
+        onClick={async () => {
+          setBusy(true);
+          setError("");
+          try {
+            setResult(
+              await api("/configuration/compare", "POST", {
+                snapshot_ids: keys.map((k) => choices[k]),
+                distinct_devices: !sameDevice,
+              }),
+            );
+          } catch (e: any) {
+            setError(e.message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Karşılaştırılıyor…" : "Karşılaştır"}
+      </button>
+      {result && <ConfigEditors result={result} />}
+      {picking && (
+        <Dialog
+          title={sameDevice ? "Cihaz seç" : "Karşılaştırılacak cihazları seç"}
+          onClose={() => setPicking(false)}
+        >
+          <label>
+            Cihaz ara
+            <input value={search} onChange={(e) => setSearch(e.target.value)} />
+          </label>
+          <div className="config-device-picker">
+            {devices
+              .filter((d) =>
+                `${d.name} ${d.management_ip}`
+                  .toLocaleLowerCase("tr")
+                  .includes(search.toLocaleLowerCase("tr")),
+              )
+              .map((d) => (
+                <label key={d.id}>
+                  <input
+                    type={sameDevice ? "radio" : "checkbox"}
+                    name="comparison-device"
+                    checked={selected.includes(d.id)}
+                    disabled={
+                      !sameDevice &&
+                      selected.length >= 4 &&
+                      !selected.includes(d.id)
+                    }
+                    onChange={(e) =>
+                      setSelected(
+                        sameDevice
+                          ? [d.id]
+                          : e.target.checked
+                            ? [...selected, d.id]
+                            : selected.filter((id) => id !== d.id),
+                      )
+                    }
+                  />
+                  <span>
+                    <strong>{d.name}</strong>
+                    <small>{d.management_ip}</small>
+                  </span>
+                </label>
+              ))}
+          </div>
+          {!devices.length && (
+            <p>Kayıtlı konfigürasyonu olan cihaz bulunamadı.</p>
+          )}
+          <div className="dialog-footer">
+            <span role="status">{selected.length} cihaz seçildi</span>
+            <button
+              className="primary"
+              disabled={
+                sameDevice ? selected.length !== 1 : selected.length < 2
+              }
+              onClick={() => setPicking(false)}
+            >
+              Seçimi uygula
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
 export function BackupWorkspace({
   page,
   refresh,
@@ -14,72 +286,50 @@ export function BackupWorkspace({
   user: Row;
   onSaved: () => void;
 }) {
+  const [device, setDevice] = useState<Row | null>(null);
   const [view, setView] = useState<Row | null>(null);
-  const [job, setJob] = useState<Row | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [device, setDevice] = useState<Row | null>(null);
-  const deviceFirst = page === "configuration" || page === "backup-compare";
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus();
   }, [device?.id]);
-  useEffect(() => {
-    if (!job?.id) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const d = await api(`/backup-comparisons/${job.id}`);
-        if (!active) return;
-        setJob(d);
-        setError("");
-        if (["queued", "running"].includes(d.status))
-          timer = setTimeout(poll, 1500);
-      } catch (e: any) {
-        if (active) {
-          setError(e.message);
-          timer = setTimeout(poll, 3000);
-        }
-      }
-    };
-    poll();
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [job?.id]);
   const action = async (row: Row, kind: string) => {
     setError("");
-    setJob(null);
-    if (kind === "delete") {
+    if (["delete", "base", "approve"].includes(kind)) {
       setView({ row, kind });
       return;
     }
     setBusy(true);
     try {
-      if (kind === "compare") {
-        setView({ row, kind });
-        setJob(await api(`/snapshots/${row.id}/compare-live`, "POST"));
+      if (kind === "diff") {
+        const diff = await api(`/snapshots/${row.id}/diff`);
+        if (!diff.previous_id || diff.previous_id === row.id)
+          setView({
+            row,
+            kind: "content",
+            content: "Bu dosya base config; karşılaştırılacak fark yok.",
+          });
+        else
+          setView({
+            row,
+            kind,
+            result: await api("/configuration/compare", "POST", {
+              snapshot_ids: [diff.previous_id, row.id],
+            }),
+          });
       } else {
-        const d = await api(
-          `/snapshots/${row.id}/${kind === "diff" ? "diff" : "content"}`,
-        );
-        const content =
-          kind === "diff" && !d.previous_id
-            ? "Önceki yedek bulunmuyor; karşılaştırma yapılamadı."
-            : (d.content ?? d.diff);
+        const data = await api(`/snapshots/${row.id}/content`);
         if (kind === "download") {
           const url = URL.createObjectURL(
-            new Blob([content], { type: "text/plain;charset=utf-8" }),
+            new Blob([data.content], { type: "text/plain;charset=utf-8" }),
           );
           const a = document.createElement("a");
           a.href = url;
           a.download = `netrix-${row.id}-masked.txt`;
           a.click();
           URL.revokeObjectURL(url);
-        } else
-          setView({ row, kind, content, previousAt: d.previous_created_at });
+        } else setView({ row, kind, content: data.content });
       }
     } catch (e: any) {
       setError(e.message);
@@ -87,63 +337,43 @@ export function BackupWorkspace({
       setBusy(false);
     }
   };
-  const close = () => {
-    setView(null);
-    setJob(null);
-  };
-  const pending = job && ["queued", "running"].includes(job.status);
+  if (page === "backup-compare") return <ConfigComparison />;
   return (
     <>
-      {(page === "configuration" || page === "backup-compare") && (
-        <div className="info-note">
-          <p>
-            Yedekler ve aktif config yalnızca SSH üzerinden okunur. FortiGate
-            için SCP ile sys_config dosyası alınır; cihazda admin-scp açık ve
-            SSH hesabı yedekleme yetkisine sahip olmalıdır. Eski, eksik kayıtlar
-            yerine yeni bir yedek alın.
-          </p>
-        </div>
-      )}
-      {page === "backup-settings" && (
-        <div className="info-note">
-          <p>
-            Grup atamak veya cihazın ayarlarını değiştirmek için cihazları seçip{" "}
-            <b>Ayarları uygula</b> düğmesine basın. Gruba bağlı cihazlar,
-            Gruplandırma ayarları ekranındaki zamanlama ve saklama sınırını
-            kullanır. Saklama sınırı azaltılırsa eski yedekler silinir.
-          </p>
-        </div>
-      )}
-      {error && !view && (
+      {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
-      {busy && !view && <p role="status">Yedek okunuyor…</p>}
-      {deviceFirst && device && (
+      {busy && !view && <p role="status">Konfigürasyon okunuyor…</p>}
+      {page === "backup-changes" && (
+        <p className="info-note">
+          Base config ile son konfigürasyon karşılaştırılır. Dosya sürüm
+          üstbilgileri dikkate alınmaz. Onay, base config seçimini değiştirmez.
+        </p>
+      )}
+      {page === "configuration" && device && (
         <div className="inventory-breadcrumb backup-device-heading">
-          <button
-            className="secondary"
-            onClick={() => {
-              setDevice(null);
-              setError("");
-            }}
-          >
-            <ArrowLeft size={18} aria-hidden="true" /> Cihazlara dön
+          <button className="secondary" onClick={() => setDevice(null)}>
+            <ArrowLeft size={18} aria-hidden="true" />
+            Cihazlara dön
           </button>
           <div>
             <h2 tabIndex={-1} ref={heading}>
               {device.name}
             </h2>
-            <p>
-              {device.management_ip} · {device.backup_group || "Grupsuz"}
-            </p>
+            <p>{device.management_ip}</p>
           </div>
+          <button
+            className="secondary"
+            onClick={() => setView({ kind: "compare", row: device })}
+          >
+            Karşılaştır
+          </button>
         </div>
       )}
-      {deviceFirst && !device ? (
+      {page === "configuration" && !device ? (
         <InventoryTable
-          key="backup-devices"
           resource="backup-devices"
           purpose="backup-devices"
           refresh={refresh}
@@ -159,11 +389,9 @@ export function BackupWorkspace({
           purpose={
             page === "backup-changes"
               ? "changes"
-              : page === "backup-compare"
-                ? "compare"
-                : page === "backup-settings"
-                  ? "backup-settings"
-                  : "snapshots"
+              : page === "backup-settings"
+                ? "backup-settings"
+                : "snapshots"
           }
           refresh={refresh}
           user={user}
@@ -173,130 +401,79 @@ export function BackupWorkspace({
       )}
       {view && (
         <Dialog
+          wide={view.kind === "diff" || view.kind === "compare"}
           title={
-            view.kind === "delete"
-              ? "Yedeği sil"
-              : view.kind === "compare"
-                ? "Aktif config karşılaştırması"
-                : view.kind === "diff"
-                  ? "Yedek değişiklikleri"
-                  : "Cihaz yedeği"
+            (
+              {
+                base: "Base config seç",
+                approve: "Konfigürasyon değişikliğini onayla",
+                delete: "Konfigürasyonu sil",
+                diff: "Base config / Son config",
+                compare: "Kayıtlı konfigürasyonları karşılaştır",
+              } as Row
+            )[view.kind] || "Cihaz konfigürasyonu"
           }
-          onClose={close}
+          onClose={() => setView(null)}
         >
-          <div className="backup-result">
-            <p>
-              <b>{view.row.device_name}</b> · {date(view.row.created_at)}
-            </p>
-            {error && (
-              <p role="alert" className="error">
-                {error}
+          {view.kind === "compare" ? (
+            <ConfigComparison sameDevice initialDevice={view.row} />
+          ) : (
+            <div className="backup-result">
+              <p>
+                <b>{view.row.device_name}</b> · {date(view.row.created_at)}
               </p>
-            )}
-            {view.kind === "delete" ? (
-              <>
-                <p>Bu yedek kalıcı olarak silinecek.</p>
-                <div className="dialog-footer">
-                  <button className="secondary" onClick={close}>
-                    Vazgeç
-                  </button>
-                  <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      try {
-                        await api(`/snapshots/${view.row.id}`, "DELETE");
-                        onSaved();
-                        close();
-                      } catch (e: any) {
-                        setError(e.message);
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    Yedeği sil
-                  </button>
-                </div>
-              </>
-            ) : view.kind === "compare" ? (
-              <>
-                <p role="status">
-                  {busy
-                    ? "Karşılaştırma başlatılıyor…"
-                    : pending && job.cancel_requested
-                      ? "Karşılaştırma iptal ediliyor…"
-                      : job?.status === "queued"
-                        ? "Karşılaştırma başlıyor; henüz cihaza bağlanılmadı…"
-                        : job?.status === "running"
-                          ? "Cihazın aktif konfigürasyonu SSH üzerinden okunuyor…"
-                          : job?.status === "cancelled"
-                            ? "Karşılaştırma iptal edildi."
-                            : job?.status === "succeeded"
-                              ? job.result.changed
-                                ? "Değişiklik bulundu."
-                                : "Konfigürasyon aynı."
-                              : job?.error || "Karşılaştırma tamamlanmadı."}
-                </p>
-                {pending && !job.cancel_requested && (
-                  <p className="muted">
-                    SSH okuması en fazla 90 saniye sürer. Bağlantı başarısızsa
-                    otomatik tekrar yapılmaz.
+              {["base", "approve", "delete"].includes(view.kind) ? (
+                <>
+                  <p>
+                    {view.kind === "base"
+                      ? "Bu dosya cihazın base config’i olacak. Değişiklikler bu dosyaya göre yeniden hesaplanacak."
+                      : view.kind === "approve"
+                        ? "Bu konfigürasyondaki farklar onaylanacak ve Değişenler listesinden kaldırılacak."
+                        : "Bu konfigürasyon dosyası kalıcı olarak silinecek."}
                   </p>
-                )}
-                {job?.status === "succeeded" && (
-                  <>
-                    <p className="muted">
-                      Okuma zamanı: {date(job.result.checked_at)}. Hassas
-                      değerler maskelenir.
-                    </p>
-                    <pre>
-                      {job.result.diff ||
-                        (job.result.changed
-                          ? "Değişiklik maskelenmiş alanlarda olabilir."
-                          : "Fark yok.")}
-                    </pre>
-                  </>
-                )}
-                {pending && (
-                  <button
-                    className="secondary"
-                    disabled={job.cancel_requested}
-                    onClick={async () => {
-                      try {
-                        setJob(await api(`/jobs/${job.id}/cancel`, "POST"));
-                      } catch (e: any) {
-                        setError(e.message);
-                      }
-                    }}
-                  >
-                    {job.cancel_requested
-                      ? "İptal ediliyor…"
-                      : "Karşılaştırmayı iptal et"}
-                  </button>
-                )}
-              </>
-            ) : (
-              <>
-                {view.kind === "diff" && (
-                  <>
-                    {view.previousAt && (
-                      <p className="muted">
-                        Önceki yedek: {date(view.previousAt)}
-                      </p>
-                    )}
-                    <p className="muted">
-                      Bu fark iki kayıtlı yedek arasındadır. Canlı config için
-                      “Karşılaştır” ekranını kullanın.
-                    </p>
-                  </>
-                )}
-                <p className="muted">Hassas değerler maskelenir.</p>
-                <pre>{view.content || "Görünür fark yok."}</pre>
-              </>
-            )}
-          </div>
+                  <div className="dialog-footer">
+                    <button className="secondary" onClick={() => setView(null)}>
+                      Vazgeç
+                    </button>
+                    <button
+                      className="primary"
+                      disabled={busy}
+                      onClick={async () => {
+                        setBusy(true);
+                        try {
+                          await api(
+                            `/snapshots/${view.row.id}${view.kind === "delete" ? "" : "/" + view.kind}`,
+                            view.kind === "delete" ? "DELETE" : "POST",
+                          );
+                          onSaved();
+                          setView(null);
+                        } catch (e: any) {
+                          setError(e.message);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {view.kind === "base"
+                        ? "Base config yap"
+                        : view.kind === "approve"
+                          ? "Onayla"
+                          : "Sil"}
+                    </button>
+                  </div>
+                </>
+              ) : view.result ? (
+                <ConfigEditors result={view.result} />
+              ) : (
+                <pre>{view.content}</pre>
+              )}
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+            </div>
+          )}
         </Dialog>
       )}
     </>

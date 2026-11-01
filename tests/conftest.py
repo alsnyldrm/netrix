@@ -134,7 +134,7 @@ def inventory(admin_client):
 
 
 @pytest.fixture
-def transfer_profiles(admin_client, institution):
+def transfer_profiles(admin_client, institution, env):
     """Existing public profile references required by device file imports."""
     response = admin_client.post(
         "/api/v1/sites", json={"name": "Site-01", "code": "TRANSFER", "institution_id": institution["id"]}
@@ -153,9 +153,44 @@ def transfer_profiles(admin_client, institution):
         )
         assert response.status_code == 201, response.text
 
+    from netrix import models as m
+    from sqlalchemy import select
+
+    with env() as db:
+        vrf = db.scalar(select(m.VRF))
+        db.add(
+            m.Scope(
+                name="Import network",
+                cidr="192.0.2.0/24",
+                vrf_id=vrf.id,
+                vlan_vid=20,
+                credential_id=db.scalar(select(m.Credential.id).where(m.Credential.protocol == "snmpv3")),
+            )
+        )
+        db.commit()
+
 
 @pytest.fixture
 def institution(admin_client):
     result = admin_client.post("/api/v1/institutions", json={"name": "Test institution", "code": "01"})
     assert result.status_code == 201
     return result.json()
+
+
+def vlan_payload(data):
+    """Network fixtures now belong to VLANs; keep test address boundaries unchanged."""
+    import hashlib
+
+    key = str(data.get("vrf_id", "")) + str(data.get("cidr", ""))
+    return {
+        "name": "Fixture VLAN",
+        "vid": 10,
+        "domain": hashlib.sha256(key.encode()).hexdigest()[:20],
+        **data,
+    }
+
+
+def make_vlan(**data):
+    from netrix.models import VLAN
+
+    return VLAN(**vlan_payload(data))

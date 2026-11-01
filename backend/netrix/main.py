@@ -18,7 +18,6 @@ from . import models as m
 from . import schemas as s
 from . import services as svc
 from .configuration.diff import config_diff, redact_config
-from .configuration.history import previous_valid_snapshot
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .identity.security import (
@@ -246,14 +245,16 @@ def dashboard(user=Depends(current_user), db=Depends(db_session)):
         name: db.scalar(select(func.count()).select_from(model))
         for name, model in [
             ("devices", m.Device),
-            ("prefixes", m.Prefix),
+            ("vlans", m.VLAN),
             ("addresses", m.IPAddress),
             ("snapshots", m.Snapshot),
             ("sites", m.Site),
         ]
     }
     counts["devices"] = db.scalar(
-        select(func.count()).select_from(m.Device).where(m.Device.archived.is_(False))
+        select(func.count())
+        .select_from(m.Device)
+        .where(m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None))
     )
     counts["reachable"] = db.scalar(
         select(func.count())
@@ -275,6 +276,9 @@ def dashboard(user=Depends(current_user), db=Depends(db_session)):
         .where(m.Job.kind == "discovery", m.Job.status.in_(["succeeded", "partial"]))
     )
     groups = db.execute(select(m.Device.kind, func.count()).group_by(m.Device.kind)).all()
+    from .configuration.baselines import pending_ids
+
+    counts["config_changes"] = len(list(db.scalars(pending_ids(db))))
     return {
         "counts": counts,
         "device_kinds": [{"kind": kind, "count": count} for kind, count in groups],
@@ -313,6 +317,8 @@ def snapshot_content(id: str, user=Depends(operator), db=Depends(db_session)):
 @app.get(P + "/snapshots/{id}/diff")
 def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator), db=Depends(db_session)):
     row = svc.get(db, m.Snapshot, id)
+    from .configuration.baselines import meaningful
+
     current_content = snapshot_text(row)
     if previous_id:
         previous = svc.get(db, m.Snapshot, previous_id)
@@ -320,13 +326,40 @@ def snapshot_diff(id: str, previous_id: str | None = None, user=Depends(operator
             raise HTTPException(422, "Sürümler aynı cihaza ait olmalı")
         previous_content = snapshot_text(previous)
     else:
-        previous, previous_content = previous_valid_snapshot(db, row.device_id, before=row)
+        from .configuration.baselines import base
+
+        previous = base(db, svc.get(db, m.Device, row.device_id))
+        previous_content = snapshot_text(previous) if previous else ""
     return {
-        "diff": config_diff(previous_content, current_content) if previous else "",
+        "diff": config_diff(meaningful(previous_content), meaningful(current_content)) if previous else "",
         "previous_id": previous.id if previous else None,
         "previous_created_at": previous.created_at if previous else None,
         "current_id": row.id,
     }
+
+
+@app.post(P + "/snapshots/{id}/base")
+def choose_base(id: str, user=Depends(operator), db=Depends(db_session)):
+    from .configuration.baselines import set_base
+
+    return set_base(db, id, user)
+
+
+@app.post(P + "/snapshots/{id}/approve")
+def approve_config(id: str, user=Depends(operator), db=Depends(db_session)):
+    from .configuration.baselines import approve
+
+    return approve(db, id, user)
+
+
+@app.post(P + "/configuration/compare")
+def compare_configs(payload: s.ConfigCompareInput, user=Depends(operator), db=Depends(db_session)):
+    from .configuration.baselines import comparison
+
+    result = comparison(db, payload.snapshot_ids, distinct_devices=payload.distinct_devices)
+    audit(db, user, "compare_config", "snapshots", None, "Maskelenmiş konfigürasyonlar karşılaştırıldı")
+    db.commit()
+    return result
 
 
 @app.post(P + "/jobs", status_code=202)
@@ -580,13 +613,15 @@ def list_items(
     user=Depends(current_user),
     db=Depends(db_session),
 ):
+    if resource == "addresses":
+        raise HTTPException(404, "IP adresleri VLAN içinden yönetilir")
     if resource in ("users", "audit") and user.role != "admin":
         raise HTTPException(403, "Yönetici yetkisi gerekli")
-    if resource == "prefixes":
+    if resource == "vlans":
         from .ipam.read_cache import json_response
 
         return json_response(
-            ["prefixes", limit, offset, q, device_id],
+            ["vlans", limit, offset, q, device_id],
             lambda: svc.list_resource(db, resource, limit, offset, q, device_id),
         )
     return svc.list_resource(db, resource, limit, offset, q, device_id)

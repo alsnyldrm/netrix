@@ -55,7 +55,8 @@ LABELS = {
     "backup_group": "Yedek grubu",
     "fingerprint": "SHA-256",
     "size_bytes": "Boyut (byte)",
-    "changed": "Değişiklik",
+    "changed": "Base config farkı",
+    "is_base": "Base config",
     "job_id": "Görev kimliği",
     "capacity": "Kapasite",
     "effective_backup_interval": "Uygulanan yedek aralığı",
@@ -146,6 +147,8 @@ def query(
     if group_by not in ("", "device_name", "backup_group") or (group_by and resource != "snapshots"):
         raise HTTPException(422, "Geçersiz gruplama")
     stmt = select(model)
+    if resource == "devices":
+        stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     cols = {
         c.key: getattr(model, c.key)
         for c in inspect(model).column_attrs
@@ -363,8 +366,12 @@ def query(
         )
     if expression is not None:
         stmt = stmt.where(expression)
-    if resource == "snapshots" and changed_only:
-        stmt = stmt.where(m.Snapshot.changed.is_(True))
+    if resource == "snapshots":
+        cols["is_base"] = m.Snapshot.id == m.Device.base_snapshot_id
+        if changed_only:
+            from ..configuration.baselines import pending_ids
+
+            stmt = stmt.where(m.Snapshot.id.in_(pending_ids(db)))
     if (sort_by and sort_by not in cols) or sort_direction not in ("asc", "desc"):
         raise HTTPException(422, "Geçersiz sıralama")
     ordering = [cols[group_by]] if group_by and group_by != sort_by else []

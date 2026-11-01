@@ -176,3 +176,10 @@ def test_type_permissions(admin_client, env, role, create_status):
     assert result.status_code == create_status
     row = admin_client.get(BASE).json()["items"][0]
     assert admin_client.delete(BASE + "/" + row["id"]).status_code == 403
+
+
+@pytest.fixture(autouse=True)
+def file_inventory_range(inventory, env):
+    with env() as db:
+        db.get(m.Scope, inventory["scope"]["id"]).cidr = "192.0.2.0/24"
+        db.commit()

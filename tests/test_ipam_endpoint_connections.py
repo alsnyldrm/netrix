@@ -1,55 +1,69 @@
 from types import SimpleNamespace
 
 import pytest
+from conftest import make_vlan
 from netrix import models as m
+from netrix.core import now
 from netrix.ipam import adapters, jobs, service
 
 
 def endpoint(db, vrf_id):
-    prefix = m.Prefix(cidr="192.0.2.0/24", vrf_id=vrf_id)
+    prefix = make_vlan(cidr="192.0.2.0/24", vrf_id=vrf_id)
     db.add(prefix)
     db.flush()
-    row = service.observe(db, prefix, "192.0.2.11", "inventory", "gw", {"mac_address": "00:50:56:a0:42:c0"})
+    row = service.observe(
+        db, prefix, "192.0.2.11", "corner_switch", "gw", {"mac_address": "00:50:56:a0:42:c0"}
+    )
     return prefix, row
 
 
+class SourcePort:
+    def __init__(self, config):
+        self.config = config
+        self.device_id = config.id
+        self.id = config.id + ":7"
+        self.if_index = 7
+
+    @property
+    def name(self):
+        return self.config.evidence["interfaces"][0]["name"]
+
+    @name.setter
+    def name(self, value):
+        self.config.evidence = {**self.config.evidence, "interfaces": [{"if_index": 7, "name": value}]}
+
+
 def switch(db, vrf_id, name, uplink=False):
-    device = m.Device(
-        name=name, management_ip=f"192.0.2.{20 if uplink else 21}", vrf_id=vrf_id, kind="switch"
+    port_name = "Gi1/0/24" if uplink else "Gi1/0/7"
+    config = m.Integration(
+        name=name,
+        kind="corner_switch",
+        host=name.lower() + ".example.test",
+        port=161,
+        enabled=True,
+        encrypted_secret="fixture",
+        last_success_at=now(),
+        evidence={
+            "interfaces": [{"name": port_name, "if_index": 7}],
+            "tables": {"fdb_port": {"0.80.86.160.66.192": "3"}, "bridge_ifindex": {"3": "7"}},
+            "neighbors": [{"interface_name": port_name}] if uplink else [],
+        },
     )
-    db.add(device)
+    db.add(config)
     db.flush()
-    port = m.Interface(device_id=device.id, name="Gi1/0/24" if uplink else "Gi1/0/7", if_index=7)
-    job = m.Job(kind="discovery", target_id=device.id)
-    db.add_all([port, job])
-    db.flush()
-    db.add(
-        m.Observation(
-            job_id=job.id,
-            device_id=device.id,
-            address=device.management_ip,
-            evidence={
-                "tables": {"fdb_port": {"0.80.86.160.66.192": "3"}, "bridge_ifindex": {"3": "7"}},
-                "neighbors": [{"interface_name": port.name}] if uplink else [],
-            },
-        )
-    )
-    db.flush()
-    return port
+    return SourcePort(config)
 
 
 def test_vm_connection_wins_over_physical_fdb_and_manual_port(admin_client, inventory, env):
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
-        port = switch(db, prefix.vrf_id, "Transit", uplink=True)
-        row.interface_id = port.id
+        switch(db, prefix.vrf_id, "Transit", uplink=True)
         config = m.Integration(
             name="vCenter",
             kind="vcenter",
             host="vc.test",
             port=443,
             enabled=True,
-            prefix_ids=[prefix.id],
             encrypted_secret="fixture",
         )
         db.add(config)
@@ -154,7 +168,6 @@ async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_reti
             host="vc.test",
             port=443,
             enabled=True,
-            prefix_ids=[prefix.id],
             encrypted_secret=encrypt(json.dumps({"username": "fixture", "password": "fixture"})),
         )
         db.add(config)
@@ -196,13 +209,12 @@ async def test_inventory_mac_matches_vm_without_guest_ip_and_removed_nic_is_reti
 
 
 def test_aggregate_uplink_is_not_an_endpoint_port(admin_client, inventory, env):
-    from sqlalchemy import select
 
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         trunk = switch(db, prefix.vrf_id, "Core", uplink=True)
         trunk.name = "Trk1"
-        snapshot = db.scalar(select(m.Observation).where(m.Observation.device_id == trunk.device_id))
+        snapshot = db.get(m.Integration, trunk.device_id)
         snapshot.evidence = {
             **snapshot.evidence,
             "neighbors": [{"interface_name": "A1", "evidence": {"local_aggregate": {"name": "Trk1"}}}],

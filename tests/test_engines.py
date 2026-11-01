@@ -84,8 +84,7 @@ async def test_discovery_idempotency_managed_values_and_uncertainty(admin_client
         assert c.get("/api/v1/jobs/" + r.json()["id"]).json()["status"] == "succeeded"
     assert len(c.get("/api/v1/devices").json()["items"]) == 2
     assert set(collector.calls) == {"192.0.2.1", "192.0.2.2"}
-    assert c.get("/api/v1/links").json()["items"][0]["remote_device_id"] is None
-    assert c.get("/api/v1/links").json()["items"][0]["confidence"] == 0.5
+    assert c.get("/api/v1/links").json()["items"] == []
     with env() as db:
         device = db.scalar(select(m.Device))
         device.name = "Managed name"
@@ -184,8 +183,8 @@ def test_device_tasks_enforce_authorized_scope(admin_client, inventory):
             "vrf_id": inventory["vrf"]["id"],
             "snmp_credential_id": inventory["credential"]["id"],
         },
-    ).json()
-    assert c.post("/api/v1/jobs", json={"kind": "identify", "target_id": device["id"]}).status_code == 422
+    )
+    assert device.status_code == 422
 
 
 async def test_partial_discovery_does_not_report_every_target_successful(admin_client, inventory):
@@ -259,13 +258,13 @@ def test_multiline_structured_configuration_secrets_are_redacted(config):
     assert "MUST-HIDE" not in redact_config(config)
 
 
-def test_manual_inventory_is_not_presented_as_completed_discovery(admin_client):
+def test_manual_inventory_requires_inventory_discovery_range(admin_client):
     vrf = admin_client.get("/api/v1/vrfs").json()["items"][0]["id"]
     assert (
         admin_client.post(
             "/api/v1/devices", json={"name": "Manual device", "management_ip": "192.0.2.5", "vrf_id": vrf}
         ).status_code
-        == 201
+        == 422
     )
     counts = admin_client.get("/api/v1/dashboard").json()["counts"]
-    assert counts["devices"] == 1 and counts["successful_discoveries"] == 0 and counts["reachable"] == 0
+    assert counts["devices"] == 0 and counts["successful_discoveries"] == 0 and counts["reachable"] == 0

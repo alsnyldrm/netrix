@@ -18,7 +18,7 @@ import {
   Badge,
   Dialog,
   date,
-  PAGES,
+  ADDRESS_PAGE,
   resourceChoices,
   dependentChange,
 } from "./main";
@@ -30,7 +30,8 @@ const sourceName = (v: string) =>
   ({
     vcenter: "VMware vCenter",
     windows_dhcp: "Windows DHCP",
-    inventory: "Envanter",
+    corner_switch: "Corner Switch",
+    backbone_switch: "Backbone Switch",
     dns: "DNS",
     icmp: "Ping",
   })[v] || v;
@@ -50,9 +51,7 @@ const stateName = (v: string) =>
   v ||
   "Bilinmiyor";
 const settingsKeys = [
-  "scope_id",
   "dns_server_id",
-  "vlan_device_id",
   "scan_authorized",
   "warning_threshold",
   "ping_enabled",
@@ -82,7 +81,7 @@ function Field({
   );
 }
 
-function PrefixSettings({
+function VLANSettings({
   prefix,
   refs,
   close,
@@ -116,7 +115,7 @@ function PrefixSettings({
     </Field>
   );
   return (
-    <Dialog title={`${prefix.cidr} · Ağ bloğu ayarları`} onClose={close}>
+    <Dialog title={`${prefix.cidr} · VLAN ayarları`} onClose={close}>
       <form
         className="ipam-form"
         onSubmit={async (e) => {
@@ -125,7 +124,7 @@ function PrefixSettings({
           setError("");
           try {
             const updated = await api(
-              `/ipam/prefixes/${prefix.id}/settings`,
+              `/ipam/vlans/${prefix.id}/settings`,
               "PUT",
               values,
             );
@@ -139,47 +138,8 @@ function PrefixSettings({
         }}
       >
         <ErrorNote error={error} />
-        <Field label="Keşif kapsamı">
-          <select
-            name="scope_id"
-            value={values.scope_id || ""}
-            onChange={(e) => set("scope_id", e.target.value || null)}
-            aria-describedby="prefix-scope-help"
-          >
-            <option value="">Bağlantı yok</option>
-            {values.scope_id &&
-              !(refs.scopes || []).some(
-                (scope) => scope.id === values.scope_id,
-              ) && (
-                <option value={values.scope_id}>
-                  Kayıtlı kapsam ({values.scope_id})
-                </option>
-              )}
-            {(refs.scopes || [])
-              .filter(
-                (scope) =>
-                  scope.vrf_id === prefix.vrf_id ||
-                  scope.id === values.scope_id,
-              )
-              .map((scope) => (
-                <option key={scope.id} value={scope.id}>
-                  {scope.name} · {scope.cidr}
-                </option>
-              ))}
-          </select>
-        </Field>
-        <p className="ipam-hint" id="prefix-scope-help">
-          Kapsam bu ağ bloğunu içermelidir. İlişkiyi kaldırmak için “Bağlantı
-          yok” seçip ayarları kaydedin. Bu işlem keşif kapsamını silmez ve
-          tarama yetkisini değiştirmez.
-        </p>
         <div className="ipam-fields">
           {choices("dns_server_id", "DNS sunucusu", refs["dns-servers"] || [])}
-          {choices(
-            "vlan_device_id",
-            "VLAN’ın bulunduğu cihaz",
-            (refs.devices || []).filter((d) => d.vrf_id === prefix.vrf_id),
-          )}
           <label className="ipam-check">
             <input
               type="checkbox"
@@ -248,10 +208,10 @@ function PrefixSettings({
           </label>
         </div>
         <p className="ipam-hint">
-          Ping kayıtlı IP’leri kontrol eder. Yeni sunucu keşfi yetkili kapsamda
-          tarama yapar; seçili DNS’ten isimleri alır. MAC ve cihaz bilgileri
-          envanter / entegrasyon gözlemleriyle tamamlanır. Yanıt alınamaması
-          IP’nin boş veya cihazın kapalı olduğunu kanıtlamaz.
+          Ping kayıtlı IP’leri kontrol eder. Yeni sunucu keşfi VLAN’ın IP
+          bloğunu tarar ve DNS’ten isimleri alır. MAC ve bağlantı bilgileri IPAM
+          entegrasyonlarıyla tamamlanır. Yanıt alınamaması IP’nin boş veya
+          cihazın kapalı olduğunu kanıtlamaz.
         </p>
         <div className="ipam-actions">
           <button type="button" className="secondary" onClick={close}>
@@ -376,7 +336,7 @@ export function IPAMWorkspace({
   onEdit: (resource: string, row: Row) => void;
   onSaved: () => void;
 }) {
-  const [prefix, setPrefix] = useState<Row | null>(null);
+  const [prefix, setVLAN] = useState<Row | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const [total, setTotal] = useState("0");
   const [offset, setOffset] = useState("0");
@@ -393,7 +353,7 @@ export function IPAMWorkspace({
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [deletePrefixes, setDeletePrefixes] = useState<string[]>([]);
+  const [deleteVLANs, setDeleteVLANs] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [columns, setColumns] = useState<{ key: string; label: string }[]>([]);
   const storageKey = `netrix.ipam.columns.${user.id}`;
@@ -420,7 +380,7 @@ export function IPAMWorkspace({
     }
   });
   const canWrite = user.role !== "viewer";
-  const isBlocks = page === "prefixes" && !prefix;
+  const isBlocks = page === "vlans" && !prefix;
   const visible = columns.filter((c) => shown.includes(c.key));
   const previousQuery = useRef(query);
   const previousScope = useRef("");
@@ -443,18 +403,16 @@ export function IPAMWorkspace({
         const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
         const result = prefix
           ? await api(
-              `/ipam/prefixes/${prefix.id}/addresses?active_only=${activeOnly}&${params}`,
+              `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`,
             )
-          : page === "addresses"
-            ? await api(`/ipam/addresses?${params}`)
-            : await api(
-                `/prefixes?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
-              );
+          : await api(
+              `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
+            );
         if (active) {
           setRows(result.items);
           setTotal(String(result.total));
           setColumns(result.columns || []);
-          if (result.prefix) setPrefix(result.prefix);
+          if (result.vlan) setVLAN(result.vlan);
           setRegisteredSearch(!!result.registered_search);
           setError("");
           setLoaded(true);
@@ -498,15 +456,15 @@ export function IPAMWorkspace({
     setBusy(true);
     setError("");
     try {
-      setJob(await api(`/ipam/prefixes/${prefix.id}/${action}`, "POST"));
+      setJob(await api(`/ipam/vlans/${prefix.id}/${action}`, "POST"));
     } catch (e: any) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
-  const choosePrefix = (row: Row | null) => {
-    setPrefix(row);
+  const chooseVLAN = (row: Row | null) => {
+    setVLAN(row);
     setRows([]);
     setOffset("0");
     setQuery("");
@@ -575,9 +533,9 @@ export function IPAMWorkspace({
         <section className="panel ipam-block-header">
           <div className="ipam-block-overview">
             <div className="ipam-actions ipam-block-title">
-              <button className="secondary" onClick={() => choosePrefix(null)}>
+              <button className="secondary" onClick={() => chooseVLAN(null)}>
                 <ArrowLeft size={17} aria-hidden="true" />
-                Ağ blokları
+                VLAN alanları
               </button>
               <h2>{prefix.display_name || prefix.cidr}</h2>
             </div>
@@ -662,7 +620,7 @@ export function IPAMWorkspace({
                   ? "Ağ içindeki aktif IP adresleri"
                   : "Ağ içindeki tüm IP adresleri"
                 : isBlocks
-                  ? "Ağ blokları"
+                  ? "VLAN alanları"
                   : "IP adresleri"}
             </b>
             <span className="count-pill">{total}</span>
@@ -745,7 +703,7 @@ export function IPAMWorkspace({
                 disabled={busy}
                 onClick={async () => {
                   if (isBlocks) {
-                    setDeletePrefixes([...selected]);
+                    setDeleteVLANs([...selected]);
                     return;
                   }
                   if (
@@ -792,7 +750,7 @@ export function IPAMWorkspace({
                       type="checkbox"
                       aria-label={
                         isBlocks
-                          ? "Sayfadaki ağ bloklarını seç"
+                          ? "Sayfadaki VLAN’ları seç"
                           : "Sayfadaki IP kayıtlarını seç"
                       }
                       checked={
@@ -850,9 +808,11 @@ export function IPAMWorkspace({
                     <td>
                       <button
                         className="text-button mono"
-                        onClick={() => choosePrefix(r)}
+                        onClick={() =>
+                          r.cidr ? chooseVLAN(r) : onEdit("vlans", r)
+                        }
                       >
-                        {r.cidr}
+                        {r.cidr || "IP bloğu ekle"}
                       </button>
                       <small className="ipam-sub">{r.description}</small>
                     </td>
@@ -882,7 +842,7 @@ export function IPAMWorkspace({
                             <button
                               className="icon-button"
                               aria-label={`${r.cidr} düzenle`}
-                              onClick={() => onEdit("prefixes", r)}
+                              onClick={() => onEdit("vlans", r)}
                             >
                               <PencilSimple size={18} />
                             </button>
@@ -890,8 +850,8 @@ export function IPAMWorkspace({
                               <button
                                 className="icon-button danger"
                                 aria-label={`${r.cidr} sil`}
-                                title="Ağ bloğunu sil"
-                                onClick={() => setDeletePrefixes([r.id])}
+                                title="VLAN’ı sil"
+                                onClick={() => setDeleteVLANs([r.id])}
                               >
                                 <Trash size={18} aria-hidden="true" />
                               </button>
@@ -1035,19 +995,19 @@ export function IPAMWorkspace({
           saved={selectionDone}
         />
       )}
-      {!!deletePrefixes.length && (
-        <PrefixDeleteDialog
-          ids={deletePrefixes}
-          close={() => setDeletePrefixes([])}
+      {!!deleteVLANs.length && (
+        <VLANDeleteDialog
+          ids={deleteVLANs}
+          close={() => setDeleteVLANs([])}
           saved={() => {
-            setDeletePrefixes([]);
+            setDeleteVLANs([]);
             setOffset("0");
             selectionDone();
           }}
         />
       )}
       {settings && (
-        <PrefixSettings
+        <VLANSettings
           prefix={settings}
           refs={refs}
           close={() => setSettings(null)}
@@ -1055,7 +1015,7 @@ export function IPAMWorkspace({
             setRows((items) =>
               items.map((r) => (r.id === updated.id ? updated : r)),
             );
-            setPrefix((current) =>
+            setVLAN((current) =>
               current?.id === updated.id ? updated : current,
             );
             onSaved();
@@ -1087,9 +1047,7 @@ function IPBulkEditor({
   const [enabled, setEnabled] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fields = PAGES.find((p) => p.key === "addresses")!.fields!.filter(
-    (f) => f.key !== "address",
-  );
+  const fields = ADDRESS_PAGE.fields!.filter((f) => f.key !== "address");
   return (
     <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close}>
       <form
@@ -1225,7 +1183,7 @@ const integrationDefaults = {
   password: "",
   enabled: false,
   verify_tls: true,
-  prefix_ids: [],
+  credential_id: null,
   interval_seconds: 0,
 };
 export function Integrations({
@@ -1303,13 +1261,14 @@ export function Integrations({
       values.kind !== editing.kind),
   );
   const credentialsRequired =
-    !editing?.id || targetChanged || changeCredentials;
+    !["corner_switch", "backbone_switch"].includes(values.kind) &&
+    (!editing?.id || targetChanged || changeCredentials);
   return (
     <div className="ipam-workspace">
       <ErrorNote error={error} />
       <section className="panel ipam-block-header">
         <div className="ipam-actions">
-          <h2>Envanteri IPAM ile birleştirin</h2>
+          <h2>IPAM veri kaynakları</h2>
           {user.role === "admin" && (
             <button className="primary" onClick={() => edit({})}>
               <Plus size={18} aria-hidden="true" />
@@ -1320,7 +1279,8 @@ export function Integrations({
         <p>
           VMware vCenter’dan IP, MAC, işletim sistemi, güç durumu ve sanal port;
           Windows DHCP’den sabit IPv4 rezervasyonları ve aktif kiralamalar
-          alınır. Yalnızca seçtiğiniz ağ bloklarına kayıt eklenir.
+          alınır. Eklenen tüm VLAN’lar bu kaynaklarla otomatik çalışır. Switch
+          bağlantıları IPAM için bağımsız olarak sorgulanır.
         </p>
       </section>
       {job && (
@@ -1360,7 +1320,6 @@ export function Integrations({
                 {[
                   "Entegrasyon",
                   "Sunucu",
-                  "Yetkili ağlar",
                   "Zamanlama",
                   "Son başarılı eşitleme",
                   "İşlemler",
@@ -1380,15 +1339,6 @@ export function Integrations({
                   </td>
                   <td>
                     {r.host}:{r.port}
-                  </td>
-                  <td>
-                    {r.prefix_ids
-                      .map(
-                        (id: string) =>
-                          refs.prefixes?.find((p) => p.id === id)?.cidr ||
-                          "Silinmiş ağ",
-                      )
-                      .join(", ") || "Seçilmedi"}
                   </td>
                   <td>
                     {r.interval_seconds ? `${r.interval_seconds} sn` : "Manuel"}
@@ -1472,40 +1422,41 @@ export function Integrations({
             }}
           >
             <ErrorNote error={formError} />
-            {editing.id && (
-              <>
-                <p
-                  className="ipam-hint"
-                  id="integration-credentials-hint"
-                  role="status"
-                >
-                  {targetChanged
-                    ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
-                    : changeCredentials
-                      ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
-                      : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
-                </p>
-                <label className="ipam-check">
-                  <input
-                    type="checkbox"
-                    checked={credentialsRequired}
-                    disabled={targetChanged}
-                    aria-describedby="integration-credentials-hint"
-                    onChange={(e) => {
-                      setChangeCredentials(e.target.checked);
-                      if (!e.target.checked) {
-                        setValues((v) => ({
-                          ...v,
-                          username: "",
-                          password: "",
-                        }));
-                      }
-                    }}
-                  />
-                  Kullanıcı/parolayı değiştir
-                </label>
-              </>
-            )}
+            {editing.id &&
+              !["corner_switch", "backbone_switch"].includes(values.kind) && (
+                <>
+                  <p
+                    className="ipam-hint"
+                    id="integration-credentials-hint"
+                    role="status"
+                  >
+                    {targetChanged
+                      ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
+                      : changeCredentials
+                        ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
+                        : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
+                  </p>
+                  <label className="ipam-check">
+                    <input
+                      type="checkbox"
+                      checked={credentialsRequired}
+                      disabled={targetChanged}
+                      aria-describedby="integration-credentials-hint"
+                      onChange={(e) => {
+                        setChangeCredentials(e.target.checked);
+                        if (!e.target.checked) {
+                          setValues((v) => ({
+                            ...v,
+                            username: "",
+                            password: "",
+                          }));
+                        }
+                      }}
+                    />
+                    Kullanıcı/parolayı değiştir
+                  </label>
+                </>
+              )}
             <div className="ipam-fields">
               <Field label="Entegrasyon adı">
                 <input
@@ -1520,11 +1471,20 @@ export function Integrations({
                   value={values.kind}
                   onChange={(e) => {
                     set("kind", e.target.value);
-                    set("port", e.target.value === "vcenter" ? 443 : 5986);
+                    set(
+                      "port",
+                      e.target.value === "vcenter"
+                        ? 443
+                        : e.target.value === "windows_dhcp"
+                          ? 5986
+                          : 161,
+                    );
                   }}
                 >
                   <option value="vcenter">VMware vCenter</option>
                   <option value="windows_dhcp">Microsoft Windows DHCP</option>
+                  <option value="corner_switch">Corner Switch</option>
+                  <option value="backbone_switch">Backbone Switch</option>
                 </select>
               </Field>
               <Field label="Sunucu adı veya IP">
@@ -1534,7 +1494,7 @@ export function Integrations({
                   onChange={(e) => set("host", e.target.value)}
                 />
               </Field>
-              <Field label="HTTPS portu">
+              <Field label="Bağlantı portu">
                 <input
                   type="number"
                   min="1"
@@ -1544,6 +1504,24 @@ export function Integrations({
                   onChange={(e) => set("port", Number(e.target.value))}
                 />
               </Field>
+              {["corner_switch", "backbone_switch"].includes(values.kind) && (
+                <Field label="Switch erişim profili">
+                  <select
+                    required
+                    value={values.credential_id || ""}
+                    onChange={(e) => set("credential_id", e.target.value)}
+                  >
+                    <option value="">Profil seçin</option>
+                    {(refs.credentials || [])
+                      .filter((p) => ["snmpv3", "snmpv2c"].includes(p.protocol))
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              )}
               {credentialsRequired && (
                 <>
                   <Field label="Kullanıcı">
@@ -1597,35 +1575,12 @@ export function Integrations({
                 TLS sertifikasını doğrula
               </label>
             </div>
-            <fieldset className="ipam-prefix-picker">
-              <legend>Yetkili ağ blokları</legend>
-              {(refs.prefixes || []).map((p) => (
-                <label className="ipam-check" key={p.id}>
-                  <input
-                    type="checkbox"
-                    checked={values.prefix_ids.includes(p.id)}
-                    onChange={(e) =>
-                      set(
-                        "prefix_ids",
-                        e.target.checked
-                          ? [...values.prefix_ids, p.id]
-                          : values.prefix_ids.filter(
-                              (id: string) => id !== p.id,
-                            ),
-                      )
-                    }
-                  />
-                  {p.cidr} · {refs.vrfs?.find((v) => v.id === p.vrf_id)?.name}
-                </label>
-              ))}
-              {!refs.prefixes?.length && (
-                <p>Önce IP adres yönetiminden bir ağ bloğu ekleyin.</p>
-              )}
-            </fieldset>
             <p className="ipam-hint">
               {values.kind === "windows_dhcp"
                 ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
-                : "vCenter API için envanter ve performans okuma yetkisi gerekir. Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}{" "}
+                : values.kind === "vcenter"
+                  ? "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."
+                  : "Switch port bilgileri yalnızca IPAM için sorgulanır."}{" "}
               Kaydetmek bağlantı testi başlatmaz; “Şimdi eşitle” veya zamanlama
               tetikler.
             </p>
@@ -1648,7 +1603,7 @@ export function Integrations({
   );
 }
 
-function PrefixDeleteDialog({
+function VLANDeleteDialog({
   ids,
   close,
   saved,
@@ -1662,7 +1617,7 @@ function PrefixDeleteDialog({
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
-    api("/ipam/prefixes/delete-preview", "POST", { ids })
+    api("/ipam/vlans/delete-preview", "POST", { ids })
       .then((result) => {
         if (active) setPreview(result);
       })
@@ -1675,7 +1630,7 @@ function PrefixDeleteDialog({
   }, [ids]);
   return (
     <Dialog
-      title={ids.length === 1 ? "Ağ bloğunu sil" : "Seçilen ağ bloklarını sil"}
+      title={ids.length === 1 ? "VLAN’ı sil" : "Seçilen VLAN’ları sil"}
       onClose={() => {
         if (!busy) close();
       }}
@@ -1687,7 +1642,7 @@ function PrefixDeleteDialog({
           setBusy(true);
           setError("");
           try {
-            await api("/ipam/prefixes/bulk-delete", "POST", {
+            await api("/ipam/vlans/bulk-delete", "POST", {
               ids,
               confirmation: preview.confirmation,
             });
@@ -1706,11 +1661,11 @@ function PrefixDeleteDialog({
         {preview && (
           <div className="prefix-delete-summary">
             <p>
-              <strong>{preview.prefixes.length} ağ bloğu</strong> ve bu bloklara
-              bağlı <strong>{preview.address_count} IP kaydı</strong> silinecek.
+              <strong>{preview.vlans.length} VLAN</strong> ve bu VLAN’lara bağlı{" "}
+              <strong>{preview.address_count} IP kaydı</strong> silinecek.
             </p>
-            <ul aria-label="Silinecek ağ blokları">
-              {preview.prefixes.map((p: Row) => (
+            <ul aria-label="Silinecek VLAN’lar">
+              {preview.vlans.map((p: Row) => (
                 <li key={p.id} className="mono">
                   {p.cidr}
                 </li>
@@ -1718,29 +1673,8 @@ function PrefixDeleteDialog({
             </ul>
             <p>
               İlgili işler otomatik durdurulur. IP gözlemleri de silinir.
-              Envanter, kabinet ve VLAN kayıtları korunur.
+              Envanter ve kabinet kayıtları korunur.
             </p>
-            {!!preview.integrations.length && (
-              <details>
-                <summary>
-                  Entegrasyon kapsamları güncellenir (
-                  {preview.integrations.length})
-                </summary>
-                <ul>
-                  {preview.integrations.map((c: Row, i: number) => (
-                    <li key={i}>
-                      {c.name}
-                      {c.will_disable
-                        ? " — Kapsamı boş kalacağı için devre dışı bırakılır."
-                        : " — Diğer ağ blokları korunur."}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            )}
-            {preview.integrations.some((c: Row) => c.will_disable) && (
-              <p>Kapsamı boşalan entegrasyonlar devre dışı bırakılır.</p>
-            )}
             <p>Bu işlem geri alınamaz.</p>
           </div>
         )}

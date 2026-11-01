@@ -18,11 +18,9 @@ class DNSInput(Input):
         return str(ipaddress.ip_address(value))
 
 
-class PrefixSettings(Input):
-    scan_authorized: bool | None = None
+class VLANSettings(Input):
+    scan_authorized: bool = True
     dns_server_id: str | None = None
-    vlan_device_id: str | None = None
-    scope_id: str | None = None
     warning_threshold: int = Field(default=80, ge=1, le=100)
     ping_enabled: bool = False
     ping_interval: int = Field(default=300, ge=30, le=86400)
@@ -32,14 +30,14 @@ class PrefixSettings(Input):
 
 class IntegrationInput(Input):
     name: str = Field(min_length=1, max_length=120)
-    kind: Literal["vcenter", "windows_dhcp"]
+    kind: Literal["vcenter", "windows_dhcp", "corner_switch", "backbone_switch"]
     host: str = Field(min_length=1, max_length=253)
     port: int = Field(ge=1, le=65535)
     username: str = Field(default="", max_length=190)
     password: str = Field(default="", max_length=2000)
     enabled: bool = False
     verify_tls: bool = True
-    prefix_ids: list[str] = Field(default_factory=list, max_length=256)
+    credential_id: str | None = None
     interval_seconds: int = Field(default=0, ge=0, le=2592000)
 
     @field_validator("host")
@@ -56,8 +54,6 @@ class IntegrationInput(Input):
     def valid(self):
         if 0 < self.interval_seconds < 60:
             raise ValueError("Eşitleme aralığı en az 60 saniye olmalı")
-        if self.enabled and not self.prefix_ids:
-            raise ValueError("En az bir yetkili ağ bloğu seçin")
         return self
 
 
@@ -116,9 +112,9 @@ class ModelImageInput(Input):
         return value
 
 
-class PrefixSelection(Input):
+class VLANSelection(Input):
     ids: list[str] = Field(min_length=1, max_length=100)
 
 
-class PrefixDeleteInput(PrefixSelection):
+class VLANDeleteInput(VLANSelection):
     confirmation: str = Field(min_length=64, max_length=64)

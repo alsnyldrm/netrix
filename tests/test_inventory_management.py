@@ -20,6 +20,7 @@ def records(env, inventory):
                 name=f"Device {i}",
                 management_ip=f"192.0.2.{i + 1}",
                 vrf_id=inventory["vrf"]["id"],
+                discovery_scope_id=inventory["scope"]["id"],
                 site_id=site.id,
                 kind="firewall" if i == 0 else "switch",
                 vendor="Acme",
@@ -281,7 +282,7 @@ def test_localized_filters_and_archived_backup_history(admin_client, records, en
         assert response.status_code == 200, response.text
         assert response.json()["total"] == count
     with env() as db:
-        for changed in (True, False):
+        for changed in (False, True):
             job = m.Job(kind="backup", target_id=device_id)
             db.add(job)
             db.flush()

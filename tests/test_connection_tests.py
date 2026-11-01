@@ -191,19 +191,17 @@ async def test_cancel_during_connection_test_does_not_report_success(admin_clien
     assert result["status"] == "cancelled" and not result["result"].get("success")
 
 
-def test_connection_tests_enforce_scope_and_roles(admin_client, inventory, env):
+def test_connection_tests_are_independent_of_discovery_but_enforce_roles(admin_client, inventory, env):
     device = device_with_profiles(admin_client, inventory, ["snmpv3"])
     with env() as db:
         db.get(m.Device, device["id"]).management_ip = "198.51.100.1"
         db.commit()
     url = f"/api/v1/devices/{device['id']}/connection-tests"
-    assert admin_client.get(url).json()["can_test"] is False
-    assert "198.51.100.1/32" in admin_client.get(url).json()["reason"]
-    assert "Henüz bağlantı denenmedi" in admin_client.get(url).json()["reason"]
-    assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 422
+    assert admin_client.get(url).json()["can_test"] is True
+    assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 202
     assert (
         admin_client.post("/api/v1/jobs", json={"kind": "test_snmp", "target_id": device["id"]}).status_code
-        == 422
+        == 202
     )
     admin_client.post(
         "/api/v1/users",
@@ -246,6 +244,10 @@ def test_connection_block_reason_and_post_enforce_same_policy(admin_client, inve
         db.commit()
     url = f"/api/v1/devices/{device['id']}/connection-tests"
     options = admin_client.get(url).json()
+    if state in ("excluded", "disabled", "wrong_vrf"):
+        assert options["can_test"] is True
+        assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 202
+        return
     assert options["can_test"] is False
     assert (
         "arşivlenmiş"

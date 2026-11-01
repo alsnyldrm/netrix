@@ -33,14 +33,14 @@ with sf() as db:
     db.expire_all()
     assert db.get(m.Device, device.id).created_at.microsecond == 123456
     device_id = device.id
-    prefix = m.Prefix(cidr="2001:db8::/64", vrf_id=vrf_id)
+    prefix = m.VLAN(name="Test", vid=20, cidr="2001:db8::/64", vrf_id=vrf_id)
     db.add(prefix)
     db.commit()
-    prefix_id = prefix.id
-    db.add(m.IPAddress(address="2001:db8::1", vrf_id=vrf_id, prefix_id=prefix_id))
+    vlan_id = prefix.id
+    db.add(m.IPAddress(address="2001:db8::1", vrf_id=vrf_id, vlan_id=vlan_id))
     db.commit()
     try:
-        db.add(m.IPAddress(address="2001:db8::1", vrf_id=vrf_id, prefix_id=prefix_id))
+        db.add(m.IPAddress(address="2001:db8::1", vrf_id=vrf_id, vlan_id=vlan_id))
         db.commit()
         raise AssertionError("Unique constraint missing")
     except (IntegrityError, OperationalError):
@@ -68,7 +68,7 @@ def competing_assignment(index):
             select(m.IPAddress).where(m.IPAddress.address == "2001:db8::2", m.IPAddress.vrf_id == vrf_id)
         ):
             return "existing"
-        db.add(m.IPAddress(address="2001:db8::2", vrf_id=vrf_id, prefix_id=prefix_id))
+        db.add(m.IPAddress(address="2001:db8::2", vrf_id=vrf_id, vlan_id=vlan_id))
         db.commit()
         return "created"
 

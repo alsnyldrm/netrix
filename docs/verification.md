@@ -306,3 +306,12 @@ Arayüz UI UX Pro Max ile baştan yenilendi: Teknik kobalt renk sistemi (açık 
 - İzole MariaDB `netrix_test` üzerinde migration `20261031_19` upgrade/check/downgrade/upgrade, kullanıcı tür adının korunması ve iki eşzamanlı IP yerleştirmesinin tek cihaz/yerleşim kullanması geçti. MariaDB 1020/1205/1213 çakışmaları için tüm işlemi bir kez yeniden deneme eklendi; değişen kayıt için tekrar da başarısızsa 409 döner. Mevcut U kontrolleri güncel kilitli okumalarla çalışır.
 - `rack_ip_placement_browser_check.py`: yönetim switch'i + VLAN/IP sunucusu, tür seçenekleri, arama, yinelenen kayıt, yeniden açma ve düzenleme geçti. 1440/375/812 px açık/koyu temada **6 axe kontrolü**, konsol ve hizalama/taşma kontrolleri geçti; ekranlar incelendi. Görsel ve organizer akışları **10 axe kontrolüyle** ayrıca geçti.
 - TypeScript/Vite, Ruff, biçim, Prettier ve diff kontrolleri geçti. Yeni bağımlılık yok. Üretimde yapılan salt okunur kontrol: FBU-F / Sunucu Odası / 04 kabineti boştu; SV-ID-01, `10.2.0.65`, VLAN-20 / SERVER içinde IPAM'da bulundu, merkezi cihaz kaydı yoktu. Gerçek U yüksekliği kullanıcıdan beklenirken canlı yerleşim tahmin edilmedi.
+
+
+## 1 Kasım 2026 — VLAN IPAM ve konfigürasyon referansı
+
+- Tam birim/API paketi: 637 test geçti; gerçek ağ bağlantısı test fixture'ında engellendi. Eski ağ bloğu/keşif aktarım testleri VLAN sahipliği ve kaynak bağımsızlığına uyarlandı.
+- Ruff ve frontend TypeScript/Vite derlemesi geçti. Mevcut büyük bundle uyarısı devam eder.
+- Atılabilir MariaDB'de eski şemadan `20261101_21` yükseltmesi ve Alembic şema karşılaştırması geçti. IP/VLAN aktarımı, bağımsız switch kaynakları, ilk geçerli base config ve sürüm üstbilgilerinin fark sayılmaması doğrulandı.
+- Yerel Playwright: 1440×1000 ve 375×812, açık/koyu tema; 44 görünüm ve son VLAN ayarları kontrolündeki 4 görünüm geçti. Taşma, konsol hatası veya axe WCAG 2.2 AA ihlali bulunmadı. Menü taşımaları, VLAN alanları/IP tablosu, envanter keşif formu, kabinet VLAN seçimi, entegrasyonlar, iki/dört panelli konfigürasyon karşılaştırması ve değişiklik onayı kapsandı.
+- Veri geçişi için yedek alınmadı. Gerçek cihaz taraması yerel testlerin parçası değildir.

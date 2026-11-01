@@ -38,7 +38,8 @@ LABELS = {
     "deprecated": "Kullanım dışı",
     "unassigned": "Atanmamış",
     "network": "Ağ / yayın",
-    "inventory": "Envanter",
+    "corner_switch": "Corner Switch",
+    "backbone_switch": "Backbone Switch",
     "icmp": "Ping",
     "dns": "DNS",
     "vcenter": "VMware vCenter",
@@ -118,7 +119,7 @@ def addresses(
 ):
     rules = rules_from(filters)
     if prefix and not q and not rules:
-        result = service.prefix_addresses(
+        result = service.vlan_addresses(
             db, prefix, offset, limit, allocated, active_only=active_only, details=False
         )
     else:
@@ -136,14 +137,14 @@ def addresses(
         if prefix and not allocated and not active_only:
             if network.num_addresses <= 65536:
                 by_ip = {r["address"]: r for r in enriched}
-                metadata = service.prefix_metadata(db, prefix)
+                metadata = service.vlan_metadata(db, prefix)
                 enriched = [
                     by_ip.get(
                         str(ip),
                         {
                             **metadata,
                             "address": str(ip),
-                            "prefix_id": prefix.id,
+                            "vlan_id": prefix.id,
                             "vrf_id": prefix.vrf_id,
                             "cidr": prefix.cidr,
                             "status": "network"
@@ -173,7 +174,7 @@ def addresses(
         }
     result["columns"] = [{"key": k, "label": v} for k, v in COLUMNS.items()]
     if prefix:
-        result["prefix"] = service.prefix_summary(db, prefix)
+        result["vlan"] = service.vlan_summary(db, prefix)
     return result
 
 

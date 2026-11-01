@@ -28,7 +28,9 @@ def tick():
                     enqueue(db, "integration", config.id)
                 except HTTPException:
                     db.rollback()
-        for prefix in db.scalars(select(m.Prefix)):
+        for prefix in db.scalars(
+            select(m.VLAN).where(m.VLAN.cidr.is_not(None), m.VLAN.scan_authorized.is_(True))
+        ):
             for kind, enabled, interval, last in (
                 ("ipam_ping", prefix.ping_enabled, prefix.ping_interval, prefix.last_ping_at),
                 (

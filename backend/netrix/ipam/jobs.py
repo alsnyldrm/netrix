@@ -16,25 +16,23 @@ from .service import (
     observations,
     observe,
     physical_connections,
-    prefix_for,
-    require_scope,
+    scan_boundary,
     targets,
     virtual_connections,
+    vlan_for,
 )
 
-KINDS = ("ipam_ping", "ipam_discover", "integration", "ipam_inventory")
+KINDS = ("ipam_ping", "ipam_discover", "integration")
 SCAN_BATCH_SIZE = 32
 
 
 def validate_target(db, kind, id):
     if kind == "integration":
         row = get(db, m.Integration, id)
-        if not row.enabled or not row.prefix_ids:
-            raise HTTPException(422, "Entegrasyonu etkinleştirin ve yetkili ağ bloklarını seçin")
-    elif kind == "ipam_inventory":
-        row = get(db, m.Prefix, id)
+        if not row.enabled:
+            raise HTTPException(422, "Entegrasyonu etkinleştirin")
     else:
-        row = get(db, m.Prefix, id)
+        row = get(db, m.VLAN, id)
         targets(db, row, discover=kind == "ipam_discover")
     return row
 
@@ -44,7 +42,7 @@ def connection_options(db, row):
     integrations = []
     for candidate in virtual:
         config = db.get(m.Integration, candidate["integration_id"]) if candidate["integration_id"] else None
-        if config and config.enabled and row.prefix_id in config.prefix_ids:
+        if config and config.enabled:
             integrations.append({**candidate, "name": config.name})
     # A VM's access port is its virtual NIC backing, not every physical FDB hop.
     return {
@@ -61,7 +59,7 @@ async def scan(job_id):
         job = get(db, m.Job, job_id)
         if job.cancel_requested:
             raise Cancelled()
-        prefix = get(db, m.Prefix, job.target_id)
+        prefix = get(db, m.VLAN, job.target_id)
         discover = job.kind == "ipam_discover"
         addresses = targets(db, prefix, discover)
         dns = db.get(m.DNSServer, prefix.dns_server_id) if prefix.dns_server_id else None
@@ -75,23 +73,23 @@ async def scan(job_id):
 
         async def probe(address):
             up = await adapters.ping(address)
-            hostname = await adapters.reverse_dns(address, dns) if up and dns else ""
+            hostname = await adapters.reverse_dns(address, dns) if up or not discover else ""
             return address, up, hostname
 
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
             if job.cancel_requested:
                 raise Cancelled()
-            prefix = get(db, m.Prefix, job.target_id)
-            scope = require_scope(db, prefix)
+            prefix = get(db, m.VLAN, job.target_id)
+            scope = scan_boundary(db, prefix)
             batch = [address for address in batch if in_scope(address, scope)]
         values = await asyncio.gather(*(probe(address) for address in batch))
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
             if job.cancel_requested:
                 raise Cancelled()
-            prefix = get(db, m.Prefix, job.target_id)
-            scope = require_scope(db, prefix)
+            prefix = get(db, m.VLAN, job.target_id)
+            scope = scan_boundary(db, prefix)
             for address, up, hostname in values:
                 if not in_scope(address, scope):
                     continue
@@ -106,7 +104,15 @@ async def scan(job_id):
                     create=up and discover,
                 )
                 if hostname:
-                    observe(db, prefix, address, "dns", dns.id, {"hostname": hostname}, create=False)
+                    observe(
+                        db,
+                        prefix,
+                        address,
+                        "dns",
+                        dns.id if dns else "system",
+                        {"hostname": hostname},
+                        create=False,
+                    )
             job.progress = min(start + SCAN_BATCH_SIZE, len(addresses))
             db.commit()
         publish()
@@ -115,11 +121,10 @@ async def scan(job_id):
         with session_factory()() as db:
             if get(db, m.Job, job_id).cancel_requested:
                 raise Cancelled()
-            current = get(db, m.Prefix, prefix.id)
-            require_scope(db, current)
+            current = get(db, m.VLAN, prefix.id)
+            scan_boundary(db, current)
             for config in db.scalars(select(m.Integration).where(m.Integration.enabled.is_(True))):
-                if current.id in config.prefix_ids:
-                    source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
+                source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
             db.commit()
     return {
         "checked": len(addresses),
@@ -129,7 +134,7 @@ async def scan(job_id):
     }
 
 
-async def integration(job_id):
+async def integration(job_id, collector=None):
     from ..worker import Cancelled
 
     with session_factory()() as db:
@@ -141,6 +146,8 @@ async def integration(job_id):
         config.last_run_at = now()
         db.commit()
         version = config.updated_at
+    if config.kind in ("corner_switch", "backbone_switch"):
+        return await switch_records(job_id, config, version, collector)
     reader = adapters.vcenter_records if config.kind == "vcenter" else adapters.windows_dhcp
     # All remote reads finish before atomic persistence. Exceptions leave prior observations intact.
     records = await asyncio.to_thread(reader, config, secret)
@@ -151,15 +158,14 @@ async def integration(job_id):
         current = validate_target(db, "integration", job.target_id)
         if current.updated_at != version:
             raise Cancelled()
-        prefixes = db.scalars(select(m.Prefix).where(m.Prefix.id.in_(current.prefix_ids))).all()
+        prefixes = db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))).all()
         count, matched = 0, 0
         address_evidence = list(
             db.execute(
                 select(m.IPAddress, m.IPObservation)
                 .join(m.IPObservation, m.IPObservation.address_id == m.IPAddress.id)
                 .where(
-                    m.IPAddress.prefix_id.in_(current.prefix_ids),
-                    m.IPObservation.source.in_(("windows_dhcp", "inventory")),
+                    m.IPObservation.source.in_(("windows_dhcp", "corner_switch", "backbone_switch")),
                     m.IPObservation.observed_at >= now() - timedelta(hours=24),
                 )
             )
@@ -180,7 +186,7 @@ async def integration(job_id):
                 mac = normalized_mac(entry.get("mac_address"))
                 mac_owners.setdefault(mac, set()).add((entry["vm_id"], entry["nic_key"]))
         for entry in records:
-            prefix = prefix_for(db, entry["address"], prefixes) if entry.get("address") else None
+            prefix = vlan_for(db, entry["address"], prefixes) if entry.get("address") else None
             key = current.id + (
                 ":" + entry["vm_id"] + ":" + entry["nic_key"] if current.kind == "vcenter" else ""
             )
@@ -195,7 +201,7 @@ async def integration(job_id):
                 for item in known.values():
                     address = item["row"]
                     if address.address != entry.get("address") and item["macs"] == {mac}:
-                        scope = next(p for p in prefixes if p.id == address.prefix_id)
+                        scope = next(p for p in prefixes if p.id == address.vlan_id)
                         observed = observe(
                             db,
                             scope,
@@ -204,7 +210,7 @@ async def integration(job_id):
                             key,
                             {
                                 **data,
-                                "matched_by": "dhcp_mac" if item["dhcp"] else "inventory_mac",
+                                "matched_by": "dhcp_mac" if item["dhcp"] else "switch_mac",
                                 "guest_address": entry.get("address", ""),
                             },
                             create=False,
@@ -242,25 +248,67 @@ async def integration(job_id):
             for config in db.scalars(
                 select(m.Integration).where(m.Integration.kind == "vcenter", m.Integration.enabled.is_(True))
             ):
-                if set(config.prefix_ids) & set(current.prefix_ids):
-                    enqueue(db, "integration", config.id, commit=False)
+                enqueue(db, "integration", config.id, commit=False)
         current.last_success_at = now()
+        for vlan in prefixes:
+            if vlan.scan_authorized:
+                enqueue(db, "ipam_ping", vlan.id, commit=False)
         job.total = job.progress = len(records)
         db.commit()
     publish()
     return {
         "observed": len(records),
         "imported": count,
-        "outside_selected_prefixes": len(records) - count,
+        "outside_vlans": len(records) - count,
         "matched_by_mac": matched,
     }
 
 
 async def execute(job_id, kind, collector):
-    if kind == "ipam_inventory":
-        from .inventory_sync import run
-
-        return await run(job_id)
     if kind == "integration":
-        return await integration(job_id)
+        return await integration(job_id, collector)
     return await scan(job_id)
+
+
+async def switch_records(job_id, config, version, collector):
+    from ..discovery.protocols import SNMPCollector
+    from ..worker import Cancelled
+    from .connections import project_snapshot
+
+    with session_factory()() as db:
+        profile = get(db, m.Credential, config.credential_id)
+        secret = json.loads(decrypt(profile.encrypted_secret))
+        secret["protocol"] = profile.protocol
+        profile_version = profile.updated_at
+    evidence = await (collector or SNMPCollector()).collect(config.host, config.port, secret)
+    with session_factory()() as db:
+        current = validate_target(db, "integration", config.id)
+        profile = get(db, m.Credential, current.credential_id)
+        job = get(db, m.Job, job_id)
+        if job.cancel_requested or current.updated_at != version or profile.updated_at != profile_version:
+            raise Cancelled()
+        vlans = list(db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))))
+        imported = 0
+        for address, entries in project_snapshot(evidence)["arp"].items():
+            vlan = vlan_for(db, address, vlans)
+            if not vlan:
+                continue
+            for mac, index in entries:
+                if observe(
+                    db,
+                    vlan,
+                    address,
+                    current.kind,
+                    current.id,
+                    {"mac_address": mac, "integration_id": current.id, "switch_name": current.name},
+                ):
+                    imported += 1
+        for vlan in vlans:
+            if vlan.scan_authorized:
+                enqueue(db, "ipam_ping", vlan.id, commit=False)
+        current.evidence = evidence
+        current.last_success_at = now()
+        job.total = job.progress = imported
+        db.commit()
+    publish()
+    return {"imported": imported}

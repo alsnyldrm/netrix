@@ -308,8 +308,10 @@ async def reverse_dns(address, server):
     import dns.exception
     import dns.reversename
 
-    resolver = dns.asyncresolver.Resolver(configure=False)
-    resolver.nameservers, resolver.port, resolver.lifetime = [server.address], server.port, 2
+    resolver = dns.asyncresolver.Resolver(configure=server is None)
+    resolver.lifetime = 2
+    if server:
+        resolver.nameservers, resolver.port = [server.address], server.port
     try:
         answer = await resolver.resolve(dns.reversename.from_address(address), "PTR")
         return str(answer[0]).rstrip(".")[:190]

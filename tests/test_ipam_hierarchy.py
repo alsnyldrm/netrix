@@ -1,5 +1,6 @@
 import json
 
+from conftest import vlan_payload
 from netrix import models as m
 from netrix.ipam.service import observe
 from sqlalchemy import select
@@ -72,11 +73,13 @@ def test_cabinet_units_placements_atomic_and_inventory_preserved(admin_client, i
     assert c.get("/api/v1/devices/" + ids[0]).status_code == 200
 
 
-def test_checkbox_authorization_and_cidr_change_revokes(admin_client, inventory):
+def test_vlan_scan_defaults_on_and_can_be_disabled(admin_client, inventory):
     c = admin_client
-    p = c.post("/api/v1/prefixes", json={"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]}).json()
-    base = f"/api/v1/ipam/prefixes/{p['id']}"
-    assert c.post(base + "/discover").status_code == 422
+    p = c.post(
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]})
+    ).json()
+    base = f"/api/v1/ipam/vlans/{p['id']}"
+    assert c.post(base + "/discover").status_code == 202
     assert c.put(base + "/settings", json={"scan_authorized": True, "ping_enabled": True}).status_code == 200
     assert c.post(base + "/discover").status_code == 202
     assert (
@@ -87,19 +90,21 @@ def test_checkbox_authorization_and_cidr_change_revokes(admin_client, inventory)
     )
     assert c.post(base + "/ping").status_code == 422
     c.put(base + "/settings", json={"scan_authorized": True})
-    c.put("/api/v1/prefixes/" + p["id"], json={"cidr": "198.51.100.0/30", "vrf_id": p["vrf_id"]})
-    assert c.post(base + "/ping").status_code == 422
+    c.put("/api/v1/vlans/" + p["id"], json=vlan_payload({"cidr": "198.51.100.0/30", "vrf_id": p["vrf_id"]}))
+    assert c.post(base + "/ping").status_code == 202
 
 
 def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, env):
     c = admin_client
-    p = c.post("/api/v1/prefixes", json={"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]}).json()
+    p = c.post(
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]})
+    ).json()
     with env() as db:
-        prefix = db.get(m.Prefix, p["id"])
+        prefix = db.get(m.VLAN, p["id"])
         for i in range(1, 112):
             row = m.IPAddress(
                 address=f"192.0.2.{i}",
-                prefix_id=prefix.id,
+                vlan_id=prefix.id,
                 vrf_id=prefix.vrf_id,
                 hostname=f"Host {i}",
                 operating_system="Linux",
@@ -118,7 +123,7 @@ def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, 
         observed_id = observed.id
         observe(db, prefix, "192.0.2.111", "icmp", prefix.id, {"reachability": "no_reply"})
         db.commit()
-    base = f"/api/v1/ipam/prefixes/{p['id']}/addresses"
+    base = f"/api/v1/ipam/vlans/{p['id']}/addresses"
     r = c.get(base, params={"q": "LINUX ee:ff", "allocated": "true"}).json()
     assert r["total"] == "1" and r["items"][0]["address"] == "192.0.2.111"
     assert r["items"][0]["availability"] == "passive"
@@ -171,7 +176,9 @@ def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, 
 
 def test_interface_device_ownership_and_usage_reservations(admin_client, inventory, env):
     c = admin_client
-    p = c.post("/api/v1/prefixes", json={"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]}).json()
+    p = c.post(
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]})
+    ).json()
     with env() as db:
         devices = [
             m.Device(name=f"D{i}", management_ip=f"192.0.2.{i + 1}", vrf_id=p["vrf_id"]) for i in range(2)
@@ -182,28 +189,28 @@ def test_interface_device_ownership_and_usage_reservations(admin_client, invento
         db.add(port)
         db.commit()
         first, second, port_id = devices[0].id, devices[1].id, port.id
-    data = dict(address="192.0.2.1", prefix_id=p["id"], vrf_id=p["vrf_id"], interface_id=port_id)
+    data = dict(address="192.0.2.1", vlan_id=p["id"], vrf_id=p["vrf_id"], interface_id=port_id)
     assert c.post("/api/v1/addresses", json={**data, "device_id": second}).status_code == 422
     assert c.post("/api/v1/addresses", json={**data, "device_id": first}).status_code == 201
-    summary = c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"warning_threshold": 80}).json()
+    summary = c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"warning_threshold": 80}).json()
     assert summary["utilization"] == 0 and summary["threshold_exceeded"] is False
     with env() as db:
-        observe(db, db.get(m.Prefix, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "reachable"})
+        observe(db, db.get(m.VLAN, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "reachable"})
         db.commit()
-    summary = c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"warning_threshold": 80}).json()
+    summary = c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"warning_threshold": 80}).json()
     assert summary["utilization"] == 50 and summary["threshold_exceeded"] is False
     assert (
-        c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"warning_threshold": 50}).json()[
+        c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"warning_threshold": 50}).json()[
             "threshold_exceeded"
         ]
         is True
     )
     with env() as db:
-        observe(db, db.get(m.Prefix, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "no_reply"})
+        observe(db, db.get(m.VLAN, p["id"]), "192.0.2.1", "icmp", p["id"], {"reachability": "no_reply"})
         db.commit()
-    result = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses?allocated=true").json()
-    assert result["prefix"]["used"] == 0
-    assert result["items"][0]["connected_device"] == "D0" and result["items"][0]["connected_port"] == "Port 1"
+    result = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()
+    assert result["vlan"]["used"] == 0
+    assert result["items"][0]["connected_device"] == result["items"][0]["connected_port"] == ""
 
 
 def test_manufacturer_image_exact_model_and_official_urls(admin_client, inventory, env):
@@ -239,60 +246,40 @@ def test_manufacturer_image_exact_model_and_official_urls(admin_client, inventor
         assert model_image(db, "HPE", "JG962A-other") is None
 
 
-def test_checkbox_keeps_legacy_exclusions_and_authorizes_inventory(admin_client, inventory, env):
-    import pytest
-    from netrix.ipam.service import require_scope
-    from netrix.services import authorized_device
+def test_vlan_authorization_does_not_enable_inventory_scope(admin_client, inventory, env):
+    from netrix.ipam.service import scan_boundary
 
     c = admin_client
-    p = c.post("/api/v1/prefixes", json={"cidr": "198.51.100.0/24", "vrf_id": inventory["vrf"]["id"]}).json()
+    p = c.post(
+        "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/30", "vrf_id": inventory["vrf"]["id"]})
+    ).json()
     with env() as db:
-        scope = m.Scope(
-            name="Legacy",
-            credential_id=inventory["credential"]["id"],
-            cidr=p["cidr"],
-            vrf_id=p["vrf_id"],
-            exclusions=["198.51.100.2/32"],
-            enabled=False,
-        )
-        db.add(scope)
-        db.flush()
-        db.get(m.Prefix, p["id"]).scope_id = scope.id
+        scope = db.get(m.Scope, inventory["scope"]["id"])
+        scope.enabled = False
+        scope.exclusions = ["192.0.2.2/32"]
         db.commit()
-        scope_id = scope.id
-    assert (
-        c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"scan_authorized": True}).status_code == 200
-    )
+    assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"scan_authorized": True}).status_code == 200
     with env() as db:
-        prefix = db.get(m.Prefix, p["id"])
-        assert prefix.scope_id == scope_id
-        assert require_scope(db, prefix).exclusions == ["198.51.100.2/32"]
-        allowed = m.Device(
-            name="Allowed",
-            management_ip="198.51.100.1",
-            vrf_id=p["vrf_id"],
-            archived=False,
-            lifecycle_status="active",
-        )
-        authorized_device(db, allowed)
-        allowed.management_ip = "198.51.100.2"
-        with pytest.raises(ValueError):
-            authorized_device(db, allowed)
+        scope = db.get(m.Scope, inventory["scope"]["id"])
+        assert not scope.enabled and scope.exclusions == ["192.0.2.2/32"]
+        assert scan_boundary(db, db.get(m.VLAN, p["id"])).exclusions == []
 
 
 def test_virtual_port_visible_without_claiming_physical_connection(admin_client, inventory, env):
     c = admin_client
-    p = c.post("/api/v1/prefixes", json={"cidr": "203.0.113.0/24", "vrf_id": inventory["vrf"]["id"]}).json()
+    p = c.post(
+        "/api/v1/vlans", json=vlan_payload({"cidr": "203.0.113.0/24", "vrf_id": inventory["vrf"]["id"]})
+    ).json()
     with env() as db:
         observe(
             db,
-            db.get(m.Prefix, p["id"]),
+            db.get(m.VLAN, p["id"]),
             "203.0.113.2",
             "vcenter",
             "vm-2",
             {"dvport": "42", "dvswitch": "ds-1", "power_state": "poweredOn"},
         )
         db.commit()
-    row = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses?allocated=true").json()["items"][0]
+    row = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["items"][0]
     assert row["connected_port"] == "42" and row["connected_device"] == "VMware"
     assert "connections" not in row and row["availability"] == "unknown"

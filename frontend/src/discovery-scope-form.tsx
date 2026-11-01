@@ -17,6 +17,7 @@ export function DiscoveryScopeForm({
 }) {
   const [values, setValues] = useState(() => ({
     name: row?.name || "",
+    vlan_vid: row?.vlan_vid || "",
     cidr: row?.cidr || "",
     vrf_id: row?.vrf_id || refs.vrfs?.[0]?.id || "",
     institution_id:
@@ -65,6 +66,7 @@ export function DiscoveryScopeForm({
         {
           ...values,
           site_id: values.site_id || null,
+          vlan_vid: values.vlan_vid ? Number(values.vlan_vid) : null,
           interval_seconds: Number(values.interval_seconds),
           exclusions: values.exclusions
             .split(/[\n,]+/)
@@ -205,6 +207,17 @@ export function DiscoveryScopeForm({
             </small>
           </label>
         </div>
+        <label>
+          VLAN ID
+          <input
+            type="number"
+            min="1"
+            max="4094"
+            required
+            value={values.vlan_vid}
+            onChange={(e) => set("vlan_vid", e.target.value)}
+          />
+        </label>
         <fieldset
           className="discovery-profiles"
           aria-describedby="discovery-profile-hint"

@@ -1,4 +1,5 @@
 import pytest
+from conftest import vlan_payload
 from netrix import models as m
 from netrix.ipam.service import observe
 from sqlalchemy import func, select
@@ -7,7 +8,7 @@ from sqlalchemy import func, select
 def setup(c, institution, vrf):
     site = c.post("/api/v1/sites", json={"name": "Server room", "institution_id": institution["id"]}).json()
     cabinet = c.post("/api/v1/cabinets", json={"name": "04", "site_id": site["id"], "units": 42}).json()
-    prefix = c.post("/api/v1/prefixes", json={"cidr": "192.0.2.0/24", "vrf_id": vrf}).json()
+    prefix = c.post("/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": vrf})).json()
     return cabinet, prefix
 
 
@@ -25,7 +26,7 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
             address="192.0.2.65",
             hostname="SV-ID-01",
             vrf_id=prefix["vrf_id"],
-            prefix_id=prefix["id"],
+            vlan_id=prefix["id"],
             device_id=upstream.id,
         )
         db.add(address)
@@ -93,7 +94,7 @@ def test_ip_placement_atomic_validation_vrf_virtual_and_permissions(
         db.add(other)
         db.flush()
         db.add(m.Device(name="Unrelated", management_ip="192.0.2.65", vrf_id=other.id))
-        ip = m.IPAddress(address="192.0.2.65", vrf_id=prefix["vrf_id"], prefix_id=prefix["id"])
+        ip = m.IPAddress(address="192.0.2.65", vrf_id=prefix["vrf_id"], vlan_id=prefix["id"])
         db.add(ip)
         db.commit()
         address_id = ip.id
@@ -105,7 +106,7 @@ def test_ip_placement_atomic_validation_vrf_virtual_and_permissions(
         assert db.scalar(select(func.count()).select_from(m.Device)) == 1
         observe(
             db,
-            db.get(m.Prefix, prefix["id"]),
+            db.get(m.VLAN, prefix["id"]),
             "192.0.2.65",
             "vcenter",
             "vm",

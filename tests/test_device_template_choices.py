@@ -127,6 +127,17 @@ def test_more_than_500_choices_roundtrip_without_relaxing_device_row_limit(admin
 @pytest.mark.parametrize("vrf", [None, "", "Other"])
 def test_optional_vrf_defaults_to_global_but_preserves_explicit_selection(admin_client, env, vrf):
     other = admin_client.post("/api/v1/vrfs", json={"name": "Other"}).json()
+    with env() as db:
+        db.add(
+            m.Scope(
+                name="Other network",
+                cidr="192.0.2.0/24",
+                vrf_id=other["id"],
+                vlan_vid=20,
+                credential_id=db.scalar(select(m.Credential.id).where(m.Credential.protocol == "snmpv3")),
+            )
+        )
+        db.commit()
     row = dict(
         name="Optional VRF",
         management_ip="192.0.2.150",

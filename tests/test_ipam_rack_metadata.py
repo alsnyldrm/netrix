@@ -1,5 +1,6 @@
 """Cabinet placement belongs to the endpoint, never its upstream switch."""
 
+from conftest import make_vlan, vlan_payload
 from netrix import models as m
 from netrix import services
 from netrix.ipam import read_cache
@@ -15,25 +16,25 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
     site = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
     cabinet_payload = {"name": "02", "site_id": site["id"], "units": 42}
     cabinet = c.post("/api/v1/cabinets", json=cabinet_payload).json()
-    prefix = c.post("/api/v1/prefixes", json={"cidr": "192.0.2.0/24", "vrf_id": vrf}).json()
+    prefix = c.post("/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": vrf})).json()
     with env() as db:
         device = m.Device(name="Firewall", management_ip="192.0.2.10", vrf_id=vrf)
         other_vrf = m.VRF(name="Other")
         db.add_all([device, other_vrf])
         db.flush()
-        other_prefix = m.Prefix(cidr="192.0.2.0/24", vrf_id=other_vrf.id)
+        other_prefix = make_vlan(cidr="192.0.2.0/24", vrf_id=other_vrf.id)
         db.add(other_prefix)
         db.flush()
         rows = [
-            m.IPAddress(address="192.0.2.10", vrf_id=vrf, prefix_id=prefix["id"]),
+            m.IPAddress(address="192.0.2.10", vrf_id=vrf, vlan_id=prefix["id"]),
             # This endpoint connects to the racked device; it does not own its cabinet.
-            m.IPAddress(address="192.0.2.11", vrf_id=vrf, prefix_id=prefix["id"], device_id=device.id),
-            m.IPAddress(address="192.0.2.10", vrf_id=other_vrf.id, prefix_id=other_prefix.id),
+            m.IPAddress(address="192.0.2.11", vrf_id=vrf, vlan_id=prefix["id"], device_id=device.id),
+            m.IPAddress(address="192.0.2.10", vrf_id=other_vrf.id, vlan_id=other_prefix.id),
         ]
         db.add_all(rows)
         db.commit()
         device_id, address_id, other_id = device.id, rows[0].id, rows[2].id
-    url = f"/api/v1/ipam/prefixes/{prefix['id']}/addresses?allocated=true"
+    url = f"/api/v1/ipam/vlans/{prefix['id']}/addresses?allocated=true"
     assert c.get(url).json()["items"][0]["cabinet"] == ""
     assert "hit" in c.get(url).headers["Server-Timing"]
     placement = f"/api/v1/ipam/cabinets/{cabinet['id']}/placements"

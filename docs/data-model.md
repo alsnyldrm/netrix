@@ -1,6 +1,6 @@
 # NETRIX kapsamlı veri modeli
 
-> **1 Kasım 2026:** Trafik izleme kapsamdan kalıcı olarak çıkarılmıştır. Geçerli şema migration dosyalarıdır.
+> **1 Kasım 2026:** Trafik izleme kaldırılmıştır. VLAN merkezli IPAM ve envantere özel keşif önceki ortak keşif tasarımının yerini alır. `devices.discovery_scope_id` envanter aidiyetini; `base_snapshot_id` ve onay alanları konfigürasyon referansını tutar. Geçerli şema migration dosyalarıdır.
 
 > **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk aşamada kimlik, envanter, IPAM, erişim profilleri ve keşif tabloları oluşturulur. Diğer tablolar ilgili modülle birlikte migration'a eklenir. Başlangıç tek kuruluş içindir; VRF ve site ayrımları kiracı izolasyonu yerine geçmez.
@@ -50,20 +50,16 @@ MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)
 
 ## 3. IPAM ve VLAN
 
-| Tablo | Ana alanlar | İlişkiler ve kısıtlar |
-| --- | --- | --- |
-| `vrfs` | name, route_distinguisher, description | Tekil name; varsayılan/global VRF de gerçek bir satırdır |
-| `vlan_domains` | name, site_id | VLAN kimliklerinin tekrar kullanılabildiği L2 kapsamı |
-| `vlans` | domain_id, vid, name, description | `1 <= vid <= 4094`; tekil (domain_id, vid) |
-| `prefixes` | vrf_id, parent_id, network CIDR, site_id, vlan_id, status, description | Tekil (vrf_id, network); parent aynı VRF'de üst ağ olmalı; IPv4 ve IPv6 desteklenir |
-| `ip_addresses` | vrf_id, address INET, dns_name, status, description | Tekil (vrf_id, address); yalnızca /32 veya /128 host maskesi |
-| `ip_assignments` | ip_address_id, interface_id, assignment_kind, is_primary | Tekil (ip_address_id, interface_id); anycast/virtual/shared atamalar açıkça belirtilir |
-| `interface_vlans` | interface_id, vlan_id, mode | Tekil (interface_id, vlan_id); access/tagged/native; port başına en fazla bir access veya native VLAN, mod uyumu doğrulanır |
-| `ip_change_events` | occurred_at, ip_address_id, discovery_run_id, change_kind, old_value JSONB, new_value JSONB | IP/MAC/hostname/atama değişim geçmişi; hassas veri içermez |
+Çalışan MariaDB şeması `20261101_21` ile VLAN merkezlidir:
 
-IP'nin kapsandığı ağları adres kapsama sorgusuyla bul; iç içe prefix'lerde en uzun prefix güncel alt ağı belirler. Aynı VRF'de hiyerarşik ağlara izin ver, belirsiz çakışmaları reddet. VLAN ve prefix ilişkisi isteğe bağlıdır; VLAN birden fazla prefix taşıyabilir. Birincil IP ataması arayüz ve adres ailesi başına en fazla bir tanedir. Bir IP'nin birden fazla arayüze atanması yalnızca açık shared/anycast politikasıyla mümkündür.
+| Tablo | Alanlar ve kısıtlar |
+| --- | --- |
+| `vlans` | domain+vid tekil; CIDR+VRF, DNS, kurum/lokasyon, açıklama, tarama ayarı, kullanım eşiği, ping/yeni sunucu aralıkları; aynı VRF'de çakışan CIDR reddedilir |
+| `ip_addresses` | VLAN FK, VRF+adres tekil; yönetilen kimlik ve yerleşim alanları |
+| `ip_observations` | IP, kaynak, kaynak anahtarı, gözlem zamanı ve kanıt; IP silmede cascade |
+| `integrations` | VMware/DHCP/Corner/Backbone kaynakları, şifreli erişim, son başarılı kanıt; tüm VLAN'lara uygulanır |
 
-Kullanım oranını aktif/rezerve adreslerden hesapla; büyük IPv6 blokları için tüm adresleri önceden satır olarak üretme. IPv4 ağ/yayın adresi kurallarını prefix uzunluğuna göre uygula; /31 ve /32'yi ayrıca ele al.
+Bağımsız `prefixes` tablosu kaldırılmıştır. Mevcut IP'ler bağlı VLAN'a taşınır. Eski CIDR'sız VLAN'lar korunur; yeni VLAN'da CIDR+VRF zorunludur. Büyük IPv6 blokları için tüm adresler önceden üretilmez. Ayrıntılar [VLAN ve entegrasyon davranışı](ipam-integrations.md) belgesindedir.
 
 ## 4. Cihaz erişimi ve sırlar
 

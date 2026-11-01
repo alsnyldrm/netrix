@@ -1,5 +1,6 @@
 import asyncio
 
+from conftest import make_vlan
 from netrix import models as m
 from netrix.ipam import jobs
 
@@ -9,7 +10,7 @@ async def test_ip_scan_uses_bounded_32_address_batches(env, monkeypatch):
         vrf = m.VRF(name="ICMP fixture")
         db.add(vrf)
         db.flush()
-        prefix = m.Prefix(vrf_id=vrf.id, cidr="192.0.2.0/26", scan_authorized=True)
+        prefix = make_vlan(vrf_id=vrf.id, cidr="192.0.2.0/26", scan_authorized=True)
         db.add(prefix)
         db.flush()
         job = m.Job(kind="ipam_discover", target_id=prefix.id)

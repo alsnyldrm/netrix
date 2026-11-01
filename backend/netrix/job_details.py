@@ -10,7 +10,7 @@ from .core import now
 DESCRIPTIONS = {
     "discovery": (
         "SNMP ağ keşfi",
-        "Seçilen ağ kapsamındaki IP adreslerine SNMP ile bağlanır. Yanıt veren cihazların adını, modelini, portlarını ve LLDP/CDP komşularını okuyarak envanteri ve bağlantı haritasını günceller.",
+        "Seçilen ağ kapsamındaki IP adreslerine SNMP ile bağlanır. Yanıt veren cihazların adını, modelini, portlarını ve LLDP/CDP komşularını okuyarak yalnızca cihaz envanterini günceller.",
     ),
     "ipam_ping": (
         "IP erişilebilirlik kontrolü",
@@ -20,13 +20,9 @@ DESCRIPTIONS = {
         "IP adresi keşfi",
         "Ağ bloğundaki yetkili IP adreslerine ping gönderir. Yanıt veren yeni adresleri IP listesine ekler; DNS sunucusu seçilmişse adlarını sorgular. İlgili entegrasyonları güncellemek için ek görev oluşturabilir.",
     ),
-    "ipam_inventory": (
-        "Envanterden IP eşleştirme",
-        "Mevcut cihaz gözlemlerindeki IP ve MAC bilgilerini bu ağ bloğuyla eşleştirir. Cihazlara yeni ağ sorgusu göndermez.",
-    ),
     "integration": (
         "Entegrasyon güncellemesi",
-        "Seçilen vCenter veya Windows DHCP sunucusundan kayıtları okur. Yalnızca entegrasyona atanmış ağ bloklarındaki IP, MAC ve sunucu bilgilerini günceller.",
+        "Seçilen vCenter veya Windows DHCP sunucusundan kayıtları okur. IPAM VLAN’larındaki IP, MAC ve sunucu bilgilerini günceller.",
     ),
     "identify": (
         "Cihaz kimliği sorgulama",
@@ -34,7 +30,7 @@ DESCRIPTIONS = {
     ),
     "backup": (
         "Konfigürasyon yedekleme",
-        "Cihazın mevcut konfigürasyonunu okur, şifreli bir sürüm olarak saklar ve önceki yedekle değişikliklerini karşılaştırır. Cihazın konfigürasyonunu değiştirmez.",
+        "Cihazın mevcut konfigürasyonunu okur, şifreli bir sürüm olarak saklar ve base config ile değişikliklerini karşılaştırır. Cihazın konfigürasyonunu değiştirmez.",
     ),
     "compare": (
         "Canlı konfigürasyon karşılaştırma",
@@ -62,8 +58,8 @@ DESCRIPTIONS = {
 def target_model(kind):
     if kind == "discovery":
         return m.Scope
-    if kind in ("ipam_ping", "ipam_discover", "ipam_inventory"):
-        return m.Prefix
+    if kind in ("ipam_ping", "ipam_discover"):
+        return m.VLAN
     if kind == "integration":
         return m.Integration
     return m.Device

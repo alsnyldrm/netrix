@@ -3,6 +3,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from conftest import vlan_payload
 from netrix import models as m
 from netrix import worker
 from netrix.core import now
@@ -12,7 +13,7 @@ from sqlalchemy import func, select
 
 
 def prefix(client, inventory, cidr="192.0.2.0/30"):
-    result = client.post("/api/v1/prefixes", json={"cidr": cidr, "vrf_id": inventory["vrf"]["id"]})
+    result = client.post("/api/v1/vlans", json=vlan_payload({"cidr": cidr, "vrf_id": inventory["vrf"]["id"]}))
     assert result.status_code == 201, result.text
     return result.json()
 
@@ -26,7 +27,6 @@ def integration(client, p, **changes):
         username="fixture-user",
         password="fixture-secret",
         enabled=True,
-        prefix_ids=[p["id"]],
     )
     payload.update(changes)
     result = client.post("/api/v1/integrations", json=payload)
@@ -38,15 +38,15 @@ def integration(client, p, **changes):
 def test_all_addresses_ipv6_and_managed_metadata(admin_client, inventory):
     c = admin_client
     p = prefix(c, inventory)
-    response = c.get(f"/api/v1/ipam/prefixes/{p['id']}/addresses").json()
+    response = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses").json()
     assert [r["address"] for r in response["items"]] == ["192.0.2.0", "192.0.2.1", "192.0.2.2", "192.0.2.3"]
     assert response["items"][0]["status"] == "network"
-    assert c.get("/api/v1/addresses").json()["total"] == 0
+    assert c.get("/api/v1/addresses").status_code == 404
     item = c.post(
         "/api/v1/addresses",
         json=dict(
             address="192.0.2.2",
-            prefix_id=p["id"],
+            vlan_id=p["id"],
             vrf_id=p["vrf_id"],
             operating_system="Debian",
             cabinet="K-01",
@@ -55,22 +55,21 @@ def test_all_addresses_ipv6_and_managed_metadata(admin_client, inventory):
     ).json()
     assert item["cabinet"] == "K-01"
     p6 = prefix(c, inventory, "2001:db8::/64")
-    r = c.get(f"/api/v1/ipam/prefixes/{p6['id']}/addresses?offset=18446744073709551615").json()
+    r = c.get(f"/api/v1/ipam/vlans/{p6['id']}/addresses?offset=18446744073709551615").json()
     assert r["total"] == "18446744073709551616" and len(r["items"]) == 1
     assert r["items"][0]["address"] == "2001:db8::ffff:ffff:ffff:ffff"
-    assert c.get(f"/api/v1/ipam/prefixes/{p6['id']}/addresses?offset=-1").status_code == 422
+    assert c.get(f"/api/v1/ipam/vlans/{p6['id']}/addresses?offset=-1").status_code == 422
 
 
-def test_block_settings_scope_exclusions_and_dedup(admin_client, inventory, env):
+def test_vlan_settings_ignore_inventory_exclusions_and_deduplicate(admin_client, inventory, env):
     c = admin_client
     p = prefix(c, inventory)
-    assert c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").status_code == 422
-    assert c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"ping_enabled": True}).status_code == 422
+    assert c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").status_code == 202
+    assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"ping_enabled": True}).status_code == 200
     assert (
         c.put(
-            f"/api/v1/ipam/prefixes/{p['id']}/settings",
+            f"/api/v1/ipam/vlans/{p['id']}/settings",
             json={
-                "scope_id": inventory["scope"]["id"],
                 "warning_threshold": 50,
                 "ping_enabled": True,
                 "discovery_enabled": True,
@@ -82,12 +81,12 @@ def test_block_settings_scope_exclusions_and_dedup(admin_client, inventory, env)
         scope = db.get(m.Scope, inventory["scope"]["id"])
         scope.exclusions = ["192.0.2.2/32"]
         db.commit()
-        assert service.targets(db, db.get(m.Prefix, p["id"]), True) == ["192.0.2.1"]
-    a = c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").json()
-    b = c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").json()
+        assert service.targets(db, db.get(m.VLAN, p["id"]), True) == ["192.0.2.1", "192.0.2.2"]
+    a = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    b = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
     assert a["id"] == b["id"]
-    c.post("/api/v1/addresses", json={"address": "192.0.2.1", "prefix_id": p["id"], "vrf_id": p["vrf_id"]})
-    assert c.get("/api/v1/prefixes").json()["items"][0]["threshold_exceeded"] is False
+    c.post("/api/v1/addresses", json={"address": "192.0.2.1", "vlan_id": p["id"], "vrf_id": p["vrf_id"]})
+    assert c.get("/api/v1/vlans").json()["items"][0]["threshold_exceeded"] is False
 
 
 @pytest.mark.asyncio
@@ -98,12 +97,12 @@ async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(
     p = prefix(c, inventory)
     dns = c.post("/api/v1/dns-servers", json={"name": "Internal", "address": "192.0.2.53"}).json()
     c.put(
-        f"/api/v1/ipam/prefixes/{p['id']}/settings",
-        json={"scope_id": inventory["scope"]["id"], "dns_server_id": dns["id"]},
+        f"/api/v1/ipam/vlans/{p['id']}/settings",
+        json={"dns_server_id": dns["id"]},
     )
     existing = c.post(
         "/api/v1/addresses",
-        json={"address": "192.0.2.2", "prefix_id": p["id"], "vrf_id": p["vrf_id"], "status": "reserved"},
+        json={"address": "192.0.2.2", "vlan_id": p["id"], "vrf_id": p["vrf_id"], "status": "reserved"},
     ).json()
     seen = []
 
@@ -117,12 +116,12 @@ async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(
 
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns_query)
-    job = c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").json()
+    job = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
     await worker.execute(job["id"])
     result = c.get("/api/v1/jobs/" + job["id"]).json()
     assert result["status"] == "succeeded", result
     assert set(seen) == {"192.0.2.1", "192.0.2.2"}
-    rows = c.get("/api/v1/addresses").json()["items"]
+    rows = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["items"]
     assert len(rows) == 2
     found = next(r for r in rows if r["address"] == "192.0.2.1")
     assert found["hostname"] == "server.example.test"
@@ -141,7 +140,7 @@ async def test_integration_atomic_scope_manual_preservation_and_idempotency(
         "/api/v1/addresses",
         json={
             "address": "192.0.2.1",
-            "prefix_id": p["id"],
+            "vlan_id": p["id"],
             "vrf_id": p["vrf_id"],
             "hostname": "managed",
             "operating_system": "managed-os",
@@ -174,14 +173,14 @@ async def test_integration_atomic_scope_manual_preservation_and_idempotency(
         await worker.execute(job["id"])
         result = c.get("/api/v1/jobs/" + job["id"]).json()
         assert result["status"] == "succeeded", result
-        assert result["result"]["outside_selected_prefixes"] == 1
+        assert result["result"]["outside_vlans"] == 1
     value = c.get("/api/v1/ipam/addresses/" + row["id"]).json()
     assert value["hostname"] == "managed" and value["operating_system"] == "managed-os"
     assert value["observations"][0]["data"]["hostname"] == "observed"
     assert len(value["integrations"]) == 1
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.IPObservation)) == 1
-    assert c.get("/api/v1/addresses").json()["total"] == 1
+    assert c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["total"] == "1"
 
 
 def test_integration_credentials_edit_and_cross_vrf_rejected(admin_client, inventory, env):
@@ -189,8 +188,7 @@ def test_integration_credentials_edit_and_cross_vrf_rejected(admin_client, inven
     p = prefix(c, inventory)
     config = integration(c, p)
     data = {
-        k: config[k]
-        for k in ("name", "kind", "host", "port", "enabled", "verify_tls", "prefix_ids", "interval_seconds")
+        k: config[k] for k in ("name", "kind", "host", "port", "enabled", "verify_tls", "interval_seconds")
     }
     assert c.put("/api/v1/integrations/" + config["id"], json=data).status_code == 200
     data["host"] = "another.example.test"
@@ -205,10 +203,10 @@ def test_integration_credentials_edit_and_cross_vrf_rejected(admin_client, inven
         == 422
     )
     vrf = c.post("/api/v1/vrfs", json={"name": "other"}).json()
-    p2 = c.post("/api/v1/prefixes", json={"cidr": p["cidr"], "vrf_id": vrf["id"]}).json()
+    p2 = c.post("/api/v1/vlans", json=vlan_payload({"cidr": p["cidr"], "vrf_id": vrf["id"]})).json()
     assert (
         c.post(
-            "/api/v1/integrations", json={**data, "name": "Ambiguous", "prefix_ids": [p["id"], p2["id"]]}
+            "/api/v1/integrations", json={**data, "name": "Ambiguous", "vlan_ids": [p["id"], p2["id"]]}
         ).status_code
         == 422
     )
@@ -217,43 +215,20 @@ def test_integration_credentials_edit_and_cross_vrf_rejected(admin_client, inven
         user.role = "viewer"
         db.commit()
     assert c.post("/api/v1/integrations/" + config["id"] + "/sync").status_code == 403
-    assert c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={}).status_code == 403
+    assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={}).status_code == 403
 
 
-def test_cross_device_mac_correlation_marks_multiple_ports(admin_client, inventory, env):
-    c = admin_client
-    p = prefix(c, inventory)
+def test_cross_source_mac_correlation_marks_multiple_ports(admin_client, inventory, env):
+    from test_ipam_endpoint_connections import endpoint, switch
+
     with env() as db:
-        prefix_row = db.get(m.Prefix, p["id"])
-        row = service.observe(
-            db, prefix_row, "192.0.2.1", "inventory", "gateway", {"mac_address": "00:11:22:33:44:55"}
-        )
-        for n in (1, 2):
-            device = m.Device(name=f"switch{n}", management_ip=f"192.0.2.{n}", vrf_id=p["vrf_id"])
-            db.add(device)
-            db.flush()
-            port = m.Interface(device_id=device.id, name="Gi1", if_index=7)
-            db.add(port)
-            job = m.Job(kind="discovery", target_id=device.id)
-            db.add(job)
-            db.flush()
-            db.add(
-                m.Observation(
-                    job_id=job.id,
-                    device_id=device.id,
-                    address=device.management_ip,
-                    evidence={
-                        "tables": {"fdb_port": {"0.17.34.51.68.85": "3"}, "bridge_ifindex": {"3": "7"}},
-                        "neighbors": [],
-                    },
-                )
-            )
+        vlan, row = endpoint(db, inventory["vrf"]["id"])
+        switch(db, vlan.vrf_id, "switch1")
+        switch(db, vlan.vrf_id, "switch2")
         db.commit()
         candidates = service.connection_candidates(db, row)
         assert len(candidates) == 2 and all(r["ambiguous"] for r in candidates)
         assert {r["device_name"] for r in candidates} == {"switch1", "switch2"}
-        row_id = row.id
-    assert c.get(f"/api/v1/ipam/addresses/{row_id}").json()["address"] == "192.0.2.1"
 
 
 def test_windows_dhcp_parser_mac_and_readonly_commands():
@@ -301,7 +276,7 @@ def test_stale_observations_not_presented_as_current(admin_client, inventory, en
     with env() as db:
         row = service.observe(
             db,
-            db.get(m.Prefix, p["id"]),
+            db.get(m.VLAN, p["id"]),
             "192.0.2.1",
             "vcenter",
             "vc",
@@ -317,8 +292,8 @@ def test_stale_observations_not_presented_as_current(admin_client, inventory, en
 async def test_scan_cancel_does_not_start_ping(admin_client, inventory, env, monkeypatch):
     c = admin_client
     p = prefix(c, inventory)
-    c.put(f"/api/v1/ipam/prefixes/{p['id']}/settings", json={"scope_id": inventory["scope"]["id"]})
-    job = c.post(f"/api/v1/ipam/prefixes/{p['id']}/discover").json()
+    c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={})
+    job = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
     c.post("/api/v1/jobs/" + job["id"] + "/cancel")
 
     async def forbidden(address):
@@ -371,11 +346,12 @@ async def test_dhcp_reservation_matches_vcenter_mac_without_guest_ip(
         assert followup and followup.status == "queued"
         followup_id = followup.id
     await worker.execute(followup_id)
-    result = c.get("/api/v1/addresses").json()["items"]
+    result = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["items"]
     assert len(result) == 1 and result[0]["status"] == "reserved"
     assert result[0]["operating_system"] == "Windows Server"
     assert result[0]["power_state"] == "poweredOff"
-    assert result[0]["observations"][0]["data"]["matched_by"] == "dhcp_mac"
+    detail = c.get("/api/v1/ipam/addresses/" + result[0]["id"]).json()
+    assert any(o["data"].get("matched_by") == "dhcp_mac" for o in detail["observations"])
 
 
 def test_windows_reader_tls_and_cleanup(monkeypatch):
@@ -430,7 +406,7 @@ def test_integration_settings_keep_encrypted_credentials(admin_client, inventory
         original = db.get(m.Integration, config["id"]).encrypted_secret
     payload = {
         key: config[key]
-        for key in ("name", "kind", "host", "port", "enabled", "verify_tls", "prefix_ids", "interval_seconds")
+        for key in ("name", "kind", "host", "port", "enabled", "verify_tls", "interval_seconds")
     }
     payload.update(name="Updated integration", interval_seconds=120, username="", password="")
     url = "/api/v1/integrations/" + config["id"]

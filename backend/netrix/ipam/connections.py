@@ -1,41 +1,16 @@
 """Compact, versioned projections of the latest device evidence. No network I/O."""
 
 import ipaddress
-from collections import OrderedDict
-from datetime import timedelta
-from threading import RLock
-
-from sqlalchemy import func, select
-
-from .. import models as m
-from ..core import now
-
-# Immutable observation versions, shared by API threads. Bounded by devices and facts;
-# a new observation/version, archive, VRF change or 24h expiry is checked on every read.
-_cache = OrderedDict()
-_cache_lock = RLock()
-_MAX_SNAPSHOTS = 256
-_MAX_FACTS = 400000
 
 
 def device_rank(device):
-    name = device.device_type.name.casefold() if device.device_type else device.kind.casefold()
-    if "backbone" in name or "bakbone" in name:
-        return 3
-    if device.kind == "firewall" or "firewall" in name:
-        return 4
-    return 2  # Corner/access switches and explicitly managed generic switches.
+    return 3 if device.kind == "backbone_switch" else 2
 
 
 def identity_rank(observation, devices):
-    if observation.source == "vcenter":
-        return 0
-    if observation.source == "windows_dhcp":
-        return 1
-    device = devices.get(observation.data.get("device_id"))
-    if observation.source == "inventory" and device:
-        return device_rank(device)
-    return 5 if observation.source == "inventory" else 6
+    return {"vcenter": 0, "windows_dhcp": 1, "corner_switch": 2, "backbone_switch": 3, "dns": -1}.get(
+        observation.source, 6
+    )
 
 
 def project_snapshot(evidence):
@@ -125,126 +100,3 @@ def project_snapshot(evidence):
         "hosts": {key: {**value, "members": sorted(value["members"])} for key, value in hosts.items()},
         "uplinks": uplinks,
     }
-
-
-def latest_snapshots(db, device_ids):
-    if not device_ids:
-        return {}
-    ranked = (
-        select(
-            m.Observation.id,
-            m.Observation.device_id,
-            m.Observation.created_at,
-            m.Observation.updated_at,
-            func.row_number()
-            .over(
-                partition_by=m.Observation.device_id,
-                order_by=(m.Observation.created_at.desc(), m.Observation.id.desc()),
-            )
-            .label("position"),
-        )
-        .where(
-            m.Observation.device_id.in_(device_ids),
-            m.Observation.source.in_(("snmpv3", "snmpv2c")),
-            m.Observation.created_at >= now() - timedelta(hours=24),
-        )
-        .subquery()
-    )
-    versions = db.execute(select(ranked).where(ranked.c.position == 1)).all()
-    found, missing = {}, {}
-    bind = db.get_bind()
-    with _cache_lock:
-        for row in versions:
-            key = (bind, row.id, row.updated_at)
-            if key in _cache:
-                found[row.id] = _cache[key]
-                _cache.move_to_end(key)
-            else:
-                missing[row.id] = key
-    if missing:
-        for identifier, evidence in db.execute(
-            select(m.Observation.id, m.Observation.evidence).where(m.Observation.id.in_(missing))
-        ):
-            projected = project_snapshot(evidence)
-            found[identifier] = projected
-            with _cache_lock:
-                _cache[missing[identifier]] = projected
-                while (
-                    len(_cache) > _MAX_SNAPSHOTS or sum(len(v["macs"]) for v in _cache.values()) > _MAX_FACTS
-                ):
-                    _cache.popitem(last=False)
-    return {row.device_id: (found[row.id], row.created_at) for row in versions if row.id in found}
-
-
-def managed_endpoints(links, rows, grouped, devices, snapshots):
-    """Endpoint names from operator corrections or direct LLDP/CDP advertisements.
-
-    A short hostname may match one qualified name, never multiple domains. Deleted,
-    stale, excluded links and cross-VRF names cannot override current evidence.
-    """
-    names = {}
-    for link in links:
-        name = link.manual_remote_name
-        if not name:
-            # A protocol-advertised hostname is direct endpoint evidence. Do not
-            # promote arbitrary FDB hops, descriptions or inferred inventory names.
-            evidence = link.evidence or {}
-            advertised_names = [
-                (evidence.get("lldp") or {}).get("system_name"),
-                (evidence.get("cdp") or {}).get("device_id"),
-            ]
-            name = next((n for n in advertised_names if n and n == link.remote_name), "")
-        if not name:
-            continue
-        name = name.rstrip(".").casefold()
-        device = devices[link.device_id]
-        names.setdefault((device.vrf_id, name), []).append(link)
-    advertised = {}
-    for device_id, (snapshot, _) in snapshots.items():
-        for (address, _), host in snapshot["hosts"].items():
-            if host["name"]:
-                advertised.setdefault((devices[device_id].vrf_id, address), set()).add(
-                    host["name"].rstrip(".").casefold()
-                )
-    result = {}
-    for row in rows or []:
-        ordered = sorted(
-            (
-                o
-                for o in grouped[row.id]
-                if o.observed_at >= now() - timedelta(hours=24) and o.data.get("present", True)
-            ),
-            key=lambda o: (identity_rank(o, devices), -o.observed_at.timestamp()),
-        )
-        name = (
-            (row.hostname or next((o.data.get("hostname") for o in ordered if o.data.get("hostname")), ""))
-            .rstrip(".")
-            .casefold()
-        )
-        if not name:
-            candidates = advertised.get((row.vrf_id, row.address), set())
-            if len(candidates) != 1:
-                continue
-            name = next(iter(candidates))
-        matches = names.get((row.vrf_id, name), [])
-        if not matches:
-            aliases = [
-                value
-                for (vrf, label), value in names.items()
-                if vrf == row.vrf_id
-                and label.split(".")[0] == name.split(".")[0]
-                and ("." not in label or "." not in name)
-            ]
-            matches = aliases[0] if len(aliases) == 1 else []
-        corrected = [link for link in matches if link.manual_remote_name]
-        if corrected:
-            # Corrections choose the endpoint's connection layer (e.g. backbone
-            # data NICs rather than management NICs). Include redundant peers at
-            # that layer even when their hostname came directly from LLDP/CDP.
-            ranks = {device_rank(devices[link.device_id]) for link in corrected}
-            matches = [link for link in matches if device_rank(devices[link.device_id]) in ranks]
-        elif matches:
-            rank = min(device_rank(devices[link.device_id]) for link in matches)
-            matches = [link for link in matches if device_rank(devices[link.device_id]) == rank]
-        result[row.id] = matches
-    return result

@@ -37,7 +37,7 @@ def validate_location_relations(db, name, data, row_id=None):
         if row_id:
             existing = get(db, m.Site, row_id)
             if parent and not existing.parent_id:
-                for model in (m.Device, m.Scope, m.Prefix):
+                for model in (m.Device, m.Scope, m.VLAN):
                     if db.scalar(select(model.id).where(model.site_id == row_id).limit(1)):
                         raise HTTPException(409, "Kullanılan ana lokasyon alt lokasyona dönüştürülemez")
             if (parent.id if parent else None, institution.id) != (
@@ -56,11 +56,11 @@ def validate_location_relations(db, name, data, row_id=None):
             ):
                 raise HTTPException(409, "Önce bu alt lokasyona bağlı kabinetleri taşıyın")
             if institution.id != existing.institution_id and db.scalar(
-                select(m.Prefix.id)
+                select(m.VLAN.id)
                 .where(
-                    m.Prefix.site_id == row_id,
-                    m.Prefix.institution_id.is_not(None),
-                    m.Prefix.institution_id != institution.id,
+                    m.VLAN.site_id == row_id,
+                    m.VLAN.institution_id.is_not(None),
+                    m.VLAN.institution_id != institution.id,
                 )
                 .limit(1)
             ):
@@ -93,7 +93,7 @@ def validate_location_relations(db, name, data, row_id=None):
             raise HTTPException(422, "Alt lokasyon seçilen lokasyona ait olmalı")
         if institution:
             data["location"] = sub.name if sub else site.name if site else ""
-    if name == "prefixes":
+    if name == "vlans":
         site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
         if data.get("institution_id"):
             get(db, m.Institution, data["institution_id"])

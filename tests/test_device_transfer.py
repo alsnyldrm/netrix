@@ -247,10 +247,11 @@ async def test_import_and_test_queues_assigned_protocols_and_reports_real_worker
                 "lifecycle_status": "retired",
             },
             {
-                "name": "Outside scope",
-                "management_ip": "198.51.100.1",
+                "name": "Planned",
+                "management_ip": "192.0.2.3",
                 "vrf_id": "Global",
                 "snmp_credential_id": "Test SNMP",
+                "lifecycle_status": "planned",
             },
         ]
     )

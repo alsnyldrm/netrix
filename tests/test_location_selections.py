@@ -1,6 +1,7 @@
 """Primary location IDs cannot contain sublocations, including API and bulk writes."""
 
 import pytest
+from conftest import vlan_payload
 from test_ipam_hierarchy import site
 
 
@@ -19,23 +20,23 @@ def payload(resource, inventory, institution, site_id):
             "cidr": "198.51.100.0/24",
             "credential_ids": [inventory["credential"]["id"]],
         },
-        "prefixes": {**base, "cidr": "198.51.100.0/24"},
+        "vlans": vlan_payload({**base, "cidr": "198.51.100.0/24"}),
         "addresses": {**base, "address": "198.51.100.2"},
         "cabinets": {"name": "Rack", "site_id": site_id},
     }[resource]
 
 
-@pytest.mark.parametrize("resource", ["devices", "scopes", "prefixes", "addresses", "cabinets"])
+@pytest.mark.parametrize("resource", ["devices", "scopes", "vlans", "addresses", "cabinets"])
 def test_primary_location_rejects_children_on_create_and_edit(admin_client, institution, inventory, resource):
     root = site(admin_client, institution)
     child = site(admin_client, institution, name="Server room", parent_id=root["id"])
     data = payload(resource, inventory, institution, child["id"])
     if resource == "addresses":
         prefix = admin_client.post(
-            "/api/v1/prefixes", json=payload("prefixes", inventory, institution, root["id"])
+            "/api/v1/vlans", json=vlan_payload(payload("vlans", inventory, institution, root["id"]))
         )
         assert prefix.status_code == 201, prefix.text
-        data["prefix_id"] = prefix.json()["id"]
+        data["vlan_id"] = prefix.json()["id"]
     response = admin_client.post("/api/v1/" + resource, json=data)
     assert response.status_code == 422, response.text
     assert "ana lokasyon" in response.json()["detail"]
@@ -55,7 +56,7 @@ def test_primary_location_rejects_children_on_create_and_edit(admin_client, inst
         assert admin_client.get(f"/api/v1/devices/{id}").json()["site_id"] == root["id"]
 
 
-@pytest.mark.parametrize("resource", ["devices", "scopes", "prefixes"])
+@pytest.mark.parametrize("resource", ["devices", "scopes", "vlans"])
 def test_used_primary_location_cannot_become_child(admin_client, institution, inventory, resource):
     root = site(admin_client, institution)
     other = site(admin_client, institution, name="Other campus")

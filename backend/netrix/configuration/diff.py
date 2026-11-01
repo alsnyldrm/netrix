@@ -50,7 +50,9 @@ def redact_config(content):
 
 
 def fortios_text(content):
-    return content.lstrip().startswith("#config-version=")
+    return content.lstrip().startswith("#config-version=") or bool(
+        re.match(r"config [a-z][a-z0-9-]*(?:\s|$)", content.lstrip())
+    )
 
 
 def quote_state(line, quoted):

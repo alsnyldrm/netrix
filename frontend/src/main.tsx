@@ -83,7 +83,7 @@ import {
   InterfacePicker,
   allRows,
 } from "./inventory";
-import { BackupWorkspace } from "./backups";
+import { BackupWorkspace, ConfigComparison } from "./backups";
 import { IPAMWorkspace, Integrations } from "./ipam";
 import { Locations, Cabinets } from "./locations";
 
@@ -255,75 +255,14 @@ export const PAGES: Page[] = [
   {
     key: "integrations",
     title: "Entegrasyonlar",
-    desc: "VMware vCenter ve Microsoft Windows DHCP bağlantıları.",
+    desc: "IPAM için VMware, DHCP, Corner Switch ve Backbone Switch bağlantıları.",
     group: "Yönetim",
     icon: PlugsConnected,
   },
   {
-    key: "prefixes",
-    title: "Ağ blokları",
-    desc: "IPv4 ve IPv6 alanlarınızı görünür ve düzenli tutun.",
-    group: "IP adres yönetimi",
-    icon: TreeStructure,
-    resource: "prefixes",
-    columns: [
-      ["cidr", "Ağ bloğu"],
-      ["vrf_id", "VRF"],
-      ["vlan_id", "VLAN"],
-      ["site_id", "Lokasyon"],
-      ["used", "Atanan IP"],
-      ["utilization", "Kullanım"],
-    ],
-    fields: [
-      f("cidr", "Ağ bloğu / CIDR", {
-        required: true,
-        hint: "Örnek: 192.0.2.0/24 veya 2001:db8::/64",
-      }),
-      ref("vrf_id", "VRF", "vrfs", true),
-      ref("vlan_id", "VLAN", "vlans"),
-      ref("institution_id", "Kurum", "institutions", true),
-      ref("site_id", "Lokasyon", "sites", true),
-      f("description", "Açıklama"),
-    ],
-  },
-  {
-    key: "addresses",
-    title: "IP adresleri",
-    desc: "Rezervasyonlar, atamalar ve IPv4 / IPv6 adres planınız.",
-    group: "IP adres yönetimi",
-    icon: ListNumbers,
-    resource: "addresses",
-    columns: [
-      ["address", "IP adresi"],
-      ["hostname", "Hostname"],
-      ["prefix_id", "Ağ bloğu"],
-      ["vrf_id", "VRF"],
-      ["status", "Durum"],
-      ["interface_id", "Arayüz"],
-    ],
-    fields: [
-      f("address", "IP adresi", { required: true }),
-      ref("vrf_id", "VRF", "vrfs", true),
-      ref("prefix_id", "Ağ bloğu", "prefixes", true),
-      f("hostname", "Hostname"),
-      f("operating_system", "İşletim sistemi", {
-        suggestions: "operating-systems",
-      }),
-      f("cabinet", "Kabinet no", {
-        suggestions: "cabinets",
-      }),
-      ref("institution_id", "Kurum", "institutions"),
-      ref("site_id", "Lokasyon", "sites"),
-      ref("sub_site_id", "Alt lokasyon", "sites"),
-      options("status", "Durum", ["reserved", "active", "deprecated"]),
-      ref("device_id", "Bağlı cihaz", "devices"),
-      ref("interface_id", "Arayüz", "interfaces"),
-    ],
-  },
-  {
     key: "vlans",
     title: "VLAN alanları",
-    desc: "Aynı VLAN numarasını farklı domainlerde güvenle yönetin.",
+    desc: "IP bloklarını, adresleri ve otomatik taramayı VLAN üzerinden yönetin.",
     group: "IP adres yönetimi",
     icon: Rows,
     resource: "vlans",
@@ -336,6 +275,43 @@ export const PAGES: Page[] = [
       f("name", "VLAN adı", { required: true }),
       f("vid", "VLAN ID (1–4094)", { type: "number", required: true }),
       f("domain", "Domain", { default: "default", required: true }),
+      f("cidr", "IP bloğu / CIDR", {
+        required: true,
+        hint: "VLAN kaydedildiğinde IP taraması otomatik başlar.",
+      }),
+      ref("vrf_id", "VRF", "vrfs", true),
+      ref("dns_server_id", "DNS sunucusu", "dns-servers"),
+      f(
+        "scan_authorized",
+        "Bu ağ bloğunda keşif ve ping işlemleri yetkilendirilmiştir",
+        { type: "checkbox", default: true },
+      ),
+      f("warning_threshold", "IP kullanım uyarı eşiği (%)", {
+        type: "number",
+        default: 80,
+        required: true,
+      }),
+      f("ping_interval", "Ping aralığı (saniye)", {
+        type: "number",
+        default: 300,
+        required: true,
+      }),
+      f("discovery_interval", "Yeni sunucu keşif aralığı (saniye)", {
+        type: "number",
+        default: 3600,
+        required: true,
+      }),
+      f("ping_enabled", "IP durumunu düzenli kontrol et", {
+        type: "checkbox",
+        default: false,
+      }),
+      f("discovery_enabled", "Yeni sunucuları düzenli ekle", {
+        type: "checkbox",
+        default: false,
+      }),
+      ref("institution_id", "Kurum", "institutions", true),
+      ref("site_id", "Lokasyon", "sites", true),
+      f("description", "Açıklama"),
     ],
   },
   {
@@ -402,7 +378,7 @@ export const PAGES: Page[] = [
   {
     key: "dns-servers",
     title: "DNS Sunucuları",
-    desc: "Ağ bloklarının isim çözümleme sunucuları.",
+    desc: "VLAN adreslerinin isim çözümleme sunucuları.",
     group: "IP adres yönetimi",
     icon: GlobeHemisphereWest,
     resource: "dns-servers",
@@ -437,11 +413,12 @@ export const PAGES: Page[] = [
     key: "discovery",
     title: "Ağ keşfi",
     desc: "Yalnızca sizin tanımladığınız sınırlar içinde keşfedin.",
-    group: "Keşif & bağlantı",
+    group: "Envanter",
     icon: Broadcast,
     resource: "scopes",
     columns: [
-      ["name", "Keşif kapsamı"],
+      ["name", "Keşif VLAN’ı"],
+      ["vlan_vid", "VLAN ID"],
       ["cidr", "Yetkili ağ"],
       ["vrf_id", "VRF"],
       ["enabled", "Etkin"],
@@ -481,14 +458,14 @@ export const PAGES: Page[] = [
     key: "topology",
     title: "Bağlantı haritası",
     desc: "Cihazların bağlantı hiyerarşisini haritada inceleyin.",
-    group: "Keşif & bağlantı",
+    group: "Bağlantı",
     icon: Graph,
   },
   {
     key: "neighbors",
     title: "Komşuluklar",
     desc: "Cihazların portlarındaki komşulukları inceleyin ve yönetin.",
-    group: "Keşif & bağlantı",
+    group: "Bağlantı",
     icon: PlugsConnected,
     resource: "links",
     columns: [
@@ -504,14 +481,14 @@ export const PAGES: Page[] = [
     key: "deleted-links",
     title: "Silinen komşuluklar",
     desc: "Silinen komşulukları arayın, filtreleyin ve geri yükleyin. Geri yüklenen kayıtların tarama engeli kaldırılır.",
-    group: "Keşif & bağlantı",
+    group: "Bağlantı",
     icon: Archive,
   },
   {
     key: "events",
     title: "Değişiklik günlüğü",
     desc: "IP, hostname, port, bağlantı ve alarm değişikliklerinin geçmişi.",
-    group: "Keşif & bağlantı",
+    group: "Operasyon",
     icon: ClockCounterClockwise,
     resource: "events",
     columns: [
@@ -525,7 +502,7 @@ export const PAGES: Page[] = [
     key: "jobs",
     title: "Görev merkezi",
     desc: "Kuyruktan sonuca, her işlemin izini sürün.",
-    group: "Keşif & bağlantı",
+    group: "Operasyon",
     icon: Lightning,
     resource: "jobs",
     columns: [
@@ -539,9 +516,9 @@ export const PAGES: Page[] = [
   },
   {
     key: "configuration",
-    title: "Cihaz yedekleri",
+    title: "Cihaz Konfigürasyonları",
     desc: "Yedeklerini ve sürüm geçmişini görüntülemek için bir cihaz seçin.",
-    group: "Yedekler",
+    group: "Konfigürasyon",
     icon: TerminalWindow,
     resource: "snapshots",
     columns: [
@@ -555,29 +532,29 @@ export const PAGES: Page[] = [
   {
     key: "backup-changes",
     title: "Değişenler",
-    desc: "Konfigürasyonu değişen cihaz yedekleri.",
-    group: "Yedekler",
+    desc: "Base config ile son konfigürasyon arasındaki onay bekleyen farklar.",
+    group: "Konfigürasyon",
     icon: ArrowsClockwise,
   },
   {
     key: "backup-compare",
     title: "Karşılaştır",
-    desc: "Önce cihazı, ardından aktif konfigürasyonla karşılaştırılacak yedeği seçin.",
-    group: "Yedekler",
+    desc: "İki ile dört cihaz seçin ve kayıtlı konfigürasyonlarını karşılaştırın.",
+    group: "Konfigürasyon",
     icon: GitBranch,
   },
   {
     key: "backup-settings",
     title: "Yedekleme ayarları",
     desc: "Cihaz veya gruba zamanlama ve saklama sınırı uygulayın. 0: kapalı / sınırsız.",
-    group: "Yedekler",
+    group: "Konfigürasyon",
     icon: GearSix,
   },
   {
     key: "backup-groups",
     title: "Gruplandırma ayarları",
     desc: "Firewall, switch, controller ve backbone gibi kendi yedek gruplarınızı oluşturun.",
-    group: "Yedekler",
+    group: "Konfigürasyon",
     icon: Stack,
     resource: "backup-groups",
     columns: [
@@ -731,12 +708,47 @@ export const PAGES: Page[] = [
     icon: GearSix,
   },
 ];
+export const ADDRESS_PAGE: Page = {
+  key: "addresses",
+  title: "IP adresleri",
+  desc: "Rezervasyonlar, atamalar ve IPv4 / IPv6 adres planınız.",
+  group: "IP adres yönetimi",
+  icon: ListNumbers,
+  resource: "addresses",
+  columns: [
+    ["address", "IP adresi"],
+    ["hostname", "Hostname"],
+    ["vlan_id", "VLAN"],
+    ["vrf_id", "VRF"],
+    ["status", "Durum"],
+    ["interface_id", "Arayüz"],
+  ],
+  fields: [
+    f("address", "IP adresi", { required: true }),
+    ref("vrf_id", "VRF", "vrfs", true),
+    ref("vlan_id", "VLAN", "vlans", true),
+    f("hostname", "Hostname"),
+    f("operating_system", "İşletim sistemi", {
+      suggestions: "operating-systems",
+    }),
+    f("cabinet", "Kabinet no", {
+      suggestions: "cabinets",
+    }),
+    ref("institution_id", "Kurum", "institutions"),
+    ref("site_id", "Lokasyon", "sites"),
+    ref("sub_site_id", "Alt lokasyon", "sites"),
+    options("status", "Durum", ["reserved", "active", "deprecated"]),
+    ref("device_id", "Bağlı cihaz", "devices"),
+    ref("interface_id", "Arayüz", "interfaces"),
+  ],
+};
+
 const GROUPS = [
   "Genel bakış",
   "Envanter",
-  "Keşif & bağlantı",
+  "Bağlantı",
   "IP adres yönetimi",
-  "Yedekler",
+  "Konfigürasyon",
   "Operasyon",
   "Yönetim",
 ];
@@ -840,7 +852,6 @@ const LABELS: Record<string, string> = {
   compare: "Aktif config karşılaştırması",
   integration: "Entegrasyon eşitleme",
   ipam_ping: "IP durum kontrolü",
-  ipam_inventory: "Envanterden IP eşleştirme",
   ipam_discover: "Yeni IP keşfi",
   inventory_import: "Envanter gözlem aktarımı",
   identify: "Cihaz bilgisi sorgusu",
@@ -1198,10 +1209,10 @@ export function resourceChoices(
       return !!values.device_id && r.device_id === values.device_id;
     if (page === "addresses" && field.key === "device_id")
       return !values.vrf_id || r.vrf_id === values.vrf_id;
-    if (page === "addresses" && field.key === "prefix_id")
+    if (page === "addresses" && field.key === "vlan_id")
       return !values.vrf_id || r.vrf_id === values.vrf_id;
     if (
-      ["prefixes", "addresses", "discovery"].includes(page) &&
+      ["vlans", "addresses", "discovery"].includes(page) &&
       field.key === "site_id"
     )
       return (
@@ -1234,7 +1245,7 @@ export function dependentChange(values: Row, key: string, value: any) {
     next.location = "";
   if (key === "device_id" && "interface_id" in next) next.interface_id = "";
   if (key === "vrf_id") {
-    for (const dependent of ["prefix_id", "device_id", "interface_id"])
+    for (const dependent of ["vlan_id", "device_id", "interface_id"])
       if (dependent in next) next[dependent] = "";
   }
   return next;
@@ -1669,10 +1680,10 @@ function Overview({
           },
           {
             label: "IP adres alanı",
-            value: c.prefixes || 0,
+            value: c.vlans || 0,
             note: (c.addresses || 0) + " adres kayıt altında",
             icon: TreeStructure,
-            key: "prefixes",
+            key: "vlans",
           },
           {
             label: "Konfigürasyon sürümü",
@@ -2196,6 +2207,7 @@ function App() {
   const [commandQuery, setCommandQuery] = useState("");
   const [jobDetail, setJobDetail] = useState<Row | null>(null);
   const [jobModal, setJobModal] = useState(false);
+  const [configCompare, setConfigCompare] = useState(false);
   const [jobKind, setJobKind] = useState("backup");
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
@@ -2283,7 +2295,6 @@ function App() {
           "device-types",
           "vrfs",
           "vlans",
-          "prefixes",
           "dns-servers",
           "credentials",
           "backup-groups",
@@ -2305,7 +2316,6 @@ function App() {
               "device-types",
               "devices",
               "links",
-              "prefixes",
               "scopes",
               "dns-servers",
             ].includes(name)
@@ -2333,8 +2343,7 @@ function App() {
         "configuration",
         "topology",
         "neighbors",
-        "prefixes",
-        "addresses",
+        "vlans",
       ].includes(page.key)
     )
       return;
@@ -2479,7 +2488,6 @@ function App() {
       vrf_id: "vrfs",
       vlan_id: "vlans",
       device_id: "devices",
-      prefix_id: "prefixes",
       interface_id: "interfaces",
       actor_id: "users",
     };
@@ -2552,6 +2560,15 @@ function App() {
       <a className="skip-link" href="#main">
         İçeriğe atla
       </a>
+      {configCompare && (
+        <Dialog
+          wide
+          title="Cihaz konfigürasyonlarını karşılaştır"
+          onClose={() => setConfigCompare(false)}
+        >
+          <ConfigComparison sameDevice />
+        </Dialog>
+      )}
       <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
         <div className="sidebar-head">
           <button
@@ -2619,6 +2636,15 @@ function App() {
                       weight={current === p.key ? "fill" : "regular"}
                     />
                     <span>{p.title}</span>
+                    {p.key === "backup-changes" &&
+                      !!dashboard.counts?.config_changes && (
+                        <b
+                          className="nav-count"
+                          aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
+                        >
+                          {dashboard.counts.config_changes}
+                        </b>
+                      )}
                     {p.key === "alerts" &&
                       !!dashboard.counts?.firing_alerts && (
                         <b className="nav-count">
@@ -2744,17 +2770,25 @@ function App() {
                         </button>
                       )}
                     {page.key === "configuration" && (
-                      <button
-                        className="primary"
-                        onClick={() => {
-                          setJobKind("backup");
-                          setJobTarget("");
-                          setJobModal(true);
-                        }}
-                      >
-                        <Play size={16} />
-                        Yedek al
-                      </button>
+                      <>
+                        <button
+                          className="primary"
+                          onClick={() => {
+                            setJobKind("backup");
+                            setJobTarget("");
+                            setJobModal(true);
+                          }}
+                        >
+                          <Play size={16} />
+                          Yedek al
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => setConfigCompare(true)}
+                        >
+                          Karşılaştır
+                        </button>
+                      </>
                     )}
                   </div>
                 )}
@@ -2777,7 +2811,7 @@ function App() {
                 onAdd={add}
                 onDevice={inspectDevice}
               />
-            ) : ["prefixes", "addresses"].includes(page.key) ? (
+            ) : page.key === "vlans" ? (
               <IPAMWorkspace
                 key={page.key}
                 page={page.key}
@@ -2786,7 +2820,13 @@ function App() {
                 user={user!}
                 onSaved={reload}
                 onEdit={(resource, row) =>
-                  setForm({ page: PAGES.find((p) => p.key === resource)!, row })
+                  setForm({
+                    page:
+                      resource === "addresses"
+                        ? ADDRESS_PAGE
+                        : PAGES.find((p) => p.key === resource)!,
+                    row,
+                  })
                 }
               />
             ) : page.key === "sites" ? (

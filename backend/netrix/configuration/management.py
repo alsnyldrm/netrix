@@ -46,7 +46,7 @@ def prune(db, device):
     _, count = policy(db, device)
     if not count:
         return
-    pinned = pinned_snapshots(db, device.id)
+    pinned = pinned_snapshots(db, device.id) | {device.base_snapshot_id}
     rows = db.scalars(
         select(m.Snapshot)
         .where(m.Snapshot.device_id == device.id)
@@ -120,6 +120,9 @@ async def compare_live(job_id):
             from ..worker import Cancelled
 
             raise Cancelled()
+        from .baselines import meaningful
+
+        baseline, content = meaningful(baseline), meaningful(content)
         result = {
             "base_snapshot_id": base_id,
             "diff": config_diff(baseline, content),
@@ -134,6 +137,8 @@ async def compare_live(job_id):
 def delete_snapshot(db, id, user):
     row = svc.get(db, m.Snapshot, id)
     db.scalar(select(m.Device).where(m.Device.id == row.device_id).with_for_update())
+    if db.get(m.Device, row.device_id).base_snapshot_id == id:
+        raise HTTPException(409, "Önce başka bir base config seçin")
     if id in pinned_snapshots(db, row.device_id):
         raise HTTPException(409, "Bu yedek çalışan karşılaştırmada kullanılıyor")
     db.delete(row)

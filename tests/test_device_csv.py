@@ -166,7 +166,7 @@ def test_duplicate_file_addresses_are_normalized_and_rejected(admin_client, inve
         for ip in ("2001:db8::1", "2001:0db8:0:0:0:0:0:1")
     ]
     report = admin_client.post(BASE + "/import", json={"content": render(rows), "apply": True}).json()
-    assert not report["imported"] and "birden fazla" in report["errors"][0]["message"]
+    assert not report["imported"] and any("birden fazla" in e["message"] for e in report["errors"])
 
 
 def test_ambiguous_reference_and_invalid_export_selection(admin_client, inventory, env):
@@ -327,3 +327,10 @@ def test_archived_duplicate_points_to_restore_without_importing(admin_client, in
         assert db.get(m.Device, device_id).archived
         assert db.get(m.Device, device_id).name == "Archived"
         assert db.scalar(select(func.count()).select_from(m.Job)) == 0
+
+
+@pytest.fixture(autouse=True)
+def file_inventory_range(inventory, env):
+    with env() as db:
+        db.get(m.Scope, inventory["scope"]["id"]).cidr = "192.0.2.0/24"
+        db.commit()

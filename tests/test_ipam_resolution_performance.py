@@ -13,7 +13,7 @@ def test_server_neighbor_bond_is_not_a_transit_uplink(admin_client, inventory, e
         switch(db, prefix.vrf_id, "Upstream", uplink=True)
         port = switch(db, prefix.vrf_id, "Backbone")
         port.name = "Trk2"
-        snapshot = db.scalar(select(m.Observation).where(m.Observation.device_id == port.device_id))
+        snapshot = db.get(m.Integration, port.device_id)
         snapshot.evidence = {
             **snapshot.evidence,
             "neighbors": [
@@ -65,7 +65,7 @@ def test_dhcp_identity_precedes_newer_switch_observation(admin_client, inventory
             db,
             prefix,
             row.address,
-            "inventory",
+            "backbone_switch",
             "switch",
             {"hostname": "switch-old-name", "mac_address": "00:50:56:a0:99:99"},
         )
@@ -76,70 +76,35 @@ def test_dhcp_identity_precedes_newer_switch_observation(admin_client, inventory
         assert value["mac_conflict"]
 
 
-def test_corner_then_backbone_then_firewall_arp(admin_client, inventory, env):
+def test_corner_then_backbone_sources_are_independent_of_inventory(admin_client, inventory, env):
     with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        corner = switch(db, prefix.vrf_id, "Corner")
-        backbone = switch(db, prefix.vrf_id, "Backbone", uplink=True)
-        db.add(m.DeviceType(code="bb", name="Backbone Switch"))
-        db.flush()
-        db.get(m.Device, backbone.device_id).kind = "bb"
-        o = db.scalar(select(m.Observation).where(m.Observation.device_id == backbone.device_id))
-        o.evidence = {**o.evidence, "neighbors": []}
-        firewall = m.Device(
-            name="Firewall", management_ip="192.0.2.23", vrf_id=prefix.vrf_id, kind="firewall"
-        )
-        db.add(firewall)
-        db.flush()
-        fwport = m.Interface(device_id=firewall.id, name="VLAN-020", if_index=20)
-        job = m.Job(kind="discovery", target_id=firewall.id)
-        db.add_all([fwport, job])
-        db.flush()
-        db.add(
-            m.Observation(
-                device_id=firewall.id,
-                job_id=job.id,
-                address=firewall.management_ip,
-                evidence={"tables": {"arp_mac": {"20.192.0.2.11": "00:50:56:a0:42:c0"}}},
-            )
-        )
+        vlan, row = endpoint(db, inventory["vrf"]["id"])
+        corner = switch(db, vlan.vrf_id, "Corner")
+        backbone = switch(db, vlan.vrf_id, "Backbone")
+        backbone.config.kind = "backbone_switch"
         db.commit()
         assert service.enrich(db, [row])[0]["connected_device"] == "Corner"
-        db.get(m.Device, corner.device_id).archived = True
+        corner.config.enabled = False
         db.commit()
         assert service.enrich(db, [row])[0]["connected_device"] == "Backbone"
-        db.get(m.Device, backbone.device_id).archived = True
-        db.commit()
-        result = service.enrich(db, [row])[0]
-        assert result["connected_device"] == "" and result["connected_port"] == ""
-        assert service.physical_connections(result["connections"]) == []
-
-
-def test_latest_snapshot_cache_refreshes_on_change_and_expiry(admin_client, inventory, env, monkeypatch):
-    from netrix.ipam import connections
-
-    calls = []
-    original = connections.project_snapshot
-
-    def project(evidence):
-        calls.append(1)
-        return original(evidence)
-
-    monkeypatch.setattr(connections, "project_snapshot", project)
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        port = switch(db, prefix.vrf_id, "Access")
-        db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "Access"
-        count = len(calls)
-        assert service.enrich(db, [row])[0]["connected_device"] == "Access"
-        assert len(calls) == count
-        o = db.scalar(select(m.Observation).where(m.Observation.device_id == port.device_id))
-        o.evidence = {"tables": {}}
+        backbone.config.enabled = False
         db.commit()
         assert service.enrich(db, [row])[0]["connected_device"] == ""
-        assert len(calls) > count
-        o.created_at = now() - timedelta(hours=25)
+        assert not list(db.scalars(select(m.Device)))
+
+
+def test_source_evidence_refreshes_and_expires(admin_client, inventory, env):
+    with env() as db:
+        vlan, row = endpoint(db, inventory["vrf"]["id"])
+        port = switch(db, vlan.vrf_id, "Access")
+        db.commit()
+        assert service.enrich(db, [row])[0]["connected_device"] == "Access"
+        evidence = port.config.evidence
+        port.config.evidence = {"tables": {}}
+        db.commit()
+        assert service.enrich(db, [row])[0]["connected_device"] == ""
+        port.config.evidence = evidence
+        port.config.last_success_at = now() - timedelta(hours=25)
         db.commit()
         assert service.enrich(db, [row])[0]["connected_device"] == ""
 
@@ -188,7 +153,7 @@ def test_cached_table_still_requires_authentication(admin_client, inventory, env
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         db.commit()
-        url = f"/api/v1/ipam/prefixes/{prefix.id}/addresses?allocated=true"
+        url = f"/api/v1/ipam/vlans/{prefix.id}/addresses?allocated=true"
     first = admin_client.get(url)
     assert first.status_code == 200
     cached = admin_client.get(url)
@@ -213,7 +178,7 @@ def test_ap_neighbor_mac_is_endpoint_not_transit(admin_client, inventory, env):
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         port = switch(db, prefix.vrf_id, "AP access", uplink=True)
-        snapshot = db.scalar(select(m.Observation).where(m.Observation.device_id == port.device_id))
+        snapshot = db.get(m.Integration, port.device_id)
         snapshot.evidence = {
             **snapshot.evidence,
             "neighbors": [
@@ -229,7 +194,9 @@ def test_ap_neighbor_mac_is_endpoint_not_transit(admin_client, inventory, env):
         assert result["connected_device"] == "AP access"
         assert result["connected_port"] == port.name
         # A MAC learned behind that AP must not be assigned to its uplink.
-        service.observe(db, prefix, row.address, "inventory", "gw", {"mac_address": "00:50:56:a0:42:c1"})
+        service.observe(
+            db, prefix, row.address, "backbone_switch", "gw", {"mac_address": "00:50:56:a0:42:c1"}
+        )
         snapshot.evidence = {
             **snapshot.evidence,
             "tables": {"fdb_port": {"0.80.86.160.66.193": "3"}, "bridge_ifindex": {"3": "7"}},
@@ -238,184 +205,23 @@ def test_ap_neighbor_mac_is_endpoint_not_transit(admin_client, inventory, env):
         assert service.enrich(db, [row])[0]["connected_device"] == ""
 
 
-def test_operator_topology_endpoint_precedes_other_nic_fdb(admin_client, inventory, env):
+def test_inventory_topology_never_overrides_ipam_source(admin_client, inventory, env):
     with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        row.hostname = "sv-id-01"
-        switch(db, prefix.vrf_id, "Management")
-        port = switch(db, prefix.vrf_id, "Data", uplink=True)
-        port.name = "Trk1"
-        snapshot = db.scalar(select(m.Observation).where(m.Observation.device_id == port.device_id))
-        snapshot.evidence = {"tables": {}}
-        for member in ["A2", "B2"]:
-            db.add(
-                m.Link(
-                    device_id=port.device_id,
-                    interface_name=member,
-                    remote_name="NIC hardware label",
-                    remote_port="NIC",
-                    manual_remote_name="SV-ID-01.example.test",
-                    manual_remote_port="backbone",
-                    last_seen_at=now(),
-                    evidence={"local_aggregate": {"name": "Trk1"}},
-                )
-            )
-        db.commit()
-        result = service.enrich(db, [row])[0]
-        assert result["connected_device"] == "Data"
-        assert result["connected_port"] == "A2-B2"
-        assert result["connection_members"] == ["A2", "B2"]
-        # Editing/removing managed topology must immediately change the projection.
-        for link in db.scalars(select(m.Link).where(m.Link.device_id == port.device_id)):
-            link.is_current = False
-        db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "Management"
-
-
-def test_neighbor_identity_can_find_managed_backbone_without_dns(admin_client, inventory, env):
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        management = switch(db, prefix.vrf_id, "Management")
-        observation = db.scalar(select(m.Observation).where(m.Observation.device_id == management.device_id))
-        observation.evidence = {
-            **observation.evidence,
-            "neighbors": [
-                {
-                    "interface_name": management.name,
-                    "remote_name": "sv-id-01",
-                    "evidence": {"cdp": {"management_address": row.address}},
-                }
-            ],
-        }
-        data = switch(db, prefix.vrf_id, "Data", uplink=True)
-        link = m.Link(
-            device_id=data.device_id,
-            interface_name=data.name,
-            remote_name="NIC",
-            remote_port="NIC",
-            manual_remote_name="SV-ID-01.example.test",
-            last_seen_at=now(),
-        )
-        db.add(link)
-        db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "Data"
-        for field, value in [
-            ("auto_add_excluded", True),
-            ("is_current", False),
-            ("last_seen_at", now() - timedelta(hours=25)),
-        ]:
-            original = getattr(link, field)
-            setattr(link, field, value)
-            db.commit()
-            assert service.enrich(db, [row])[0]["connected_device"] == "Management"
-            setattr(link, field, original)
-        # A correction naming a different FQDN is not an identity match.
-        row.hostname = "sv-id-01.other.test"
-        db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "Management"
-
-
-def test_managed_endpoints_on_two_switches_keep_port_pairs(admin_client, inventory, env):
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
+        vlan, row = endpoint(db, inventory["vrf"]["id"])
         row.hostname = "server.example.test"
-        first = switch(db, prefix.vrf_id, "Corner")
-        second = switch(db, prefix.vrf_id, "Backbone", uplink=True)
-        db.add(m.DeviceType(code="bb", name="Backbone Switch"))
+        switch(db, vlan.vrf_id, "IPAM source")
+        device = m.Device(name="Inventory only", management_ip="198.51.100.1", vrf_id=vlan.vrf_id)
+        db.add(device)
         db.flush()
-        db.get(m.Device, second.device_id).kind = "bb"
-        for port in [first, second]:
-            db.add(
-                m.Link(
-                    device_id=port.device_id,
-                    interface_name=port.name,
-                    remote_name="NIC",
-                    remote_port="NIC",
-                    manual_remote_name=row.hostname,
-                    last_seen_at=now(),
-                )
+        db.add(
+            m.Link(
+                device_id=device.id,
+                interface_name="1",
+                remote_name=row.hostname,
+                remote_port="NIC",
+                manual_remote_name=row.hostname,
+                last_seen_at=now(),
             )
+        )
         db.commit()
-        result = service.enrich(db, [row])[0]
-        assert not result["connection_ambiguous"]
-        assert {(g["device_name"], g["port_label"]) for g in result["connection_groups"]} == {
-            ("Corner", first.name),
-            ("Backbone", second.name),
-        }
-        from netrix.ipam.jobs import connection_options
-
-        assert {c["interface_id"] for c in connection_options(db, row)["interfaces"]} == {first.id, second.id}
-
-
-def test_two_nics_on_same_switch_are_grouped_without_fake_aggregate(admin_client, inventory, env):
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        row.hostname = "sv-vw-05.example.test"
-        first = switch(db, prefix.vrf_id, "Backbone")
-        first.name = "B7"
-        second = m.Interface(device_id=first.device_id, name="A7", if_index=8)
-        db.add(second)
-        for port in [first, second]:
-            db.add(
-                m.Link(
-                    device_id=port.device_id,
-                    interface_name=port.name,
-                    remote_name="NIC",
-                    remote_port="NIC",
-                    manual_remote_name=row.hostname,
-                    last_seen_at=now(),
-                )
-            )
-        db.commit()
-        value = service.enrich(db, [row])[0]
-        assert value["connected_device"] == "Backbone"
-        assert value["connected_port"] == "A7-B7"
-        assert not value["connection_ambiguous"]
-        from netrix.ipam.jobs import connection_options
-
-        assert {p["interface_id"] for p in connection_options(db, row)["interfaces"]} == {first.id, second.id}
-
-
-def test_corrected_and_protocol_nics_share_connection_layer(admin_client, inventory, env):
-    with env() as db:
-        prefix, row = endpoint(db, inventory["vrf"]["id"])
-        row.hostname = "sv-vw-06.example.test"
-        db.add(m.DeviceType(code="bb", name="Backbone Switch"))
-        db.flush()
-        ports = []
-        for i, name in enumerate(["BB1", "BB2", "Management"]):
-            port = switch(db, prefix.vrf_id, name)
-            db.get(m.Device, port.device_id).management_ip = f"192.0.2.{31 + i}"
-            db.flush()
-            ports.append(port)
-        for i, port in enumerate(ports):
-            if i < 2:
-                db.get(m.Device, port.device_id).kind = "bb"
-            port.name = ["I5", "A6", "31"][i]
-            # Duplicate protocol observations of one port must collapse.
-            for duplicate in range(2 if i == 1 else 1):
-                db.add(
-                    m.Link(
-                        device_id=port.device_id,
-                        interface_name=port.name,
-                        remote_name=row.hostname,
-                        remote_port=str(duplicate),
-                        manual_remote_name=row.hostname if i == 0 else None,
-                        last_seen_at=now(),
-                        evidence={"lldp": {"system_name": row.hostname}},
-                    )
-                )
-        db.commit()
-        value = service.enrich(db, [row])[0]
-        assert [(g["device_name"], g["port_label"]) for g in value["connection_groups"]] == [
-            ("BB1", "I5"),
-            ("BB2", "A6"),
-        ]
-        assert not value["connection_ambiguous"]
-        assert value.get("device_id") is None  # Never pick one arbitrary parent.
-        # Stale, excluded and different-domain protocol names do not join the group.
-        links = list(db.scalars(select(m.Link).where(m.Link.device_id == ports[1].device_id)))
-        for link in links:
-            link.last_seen_at = now() - timedelta(hours=25)
-        db.commit()
-        assert service.enrich(db, [row])[0]["connected_device"] == "BB1"
+        assert service.enrich(db, [row])[0]["connected_device"] == "IPAM source"

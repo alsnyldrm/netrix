@@ -116,3 +116,10 @@ GitHub bağlantısının desteklemediği depo oluşturma ve Git aktarımı işle
 ## Trafik izleme kaldırma kararı (1 Kasım 2026)
 
 Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme ekranları, butonlar, API uçları, sayaç toplama işleri ve trafik geçmişi yeniden eklenmez. Port/VLAN envanteri, IPAM, keşif/topoloji ve konfigürasyon yönetimi devam eder. Bu kaldırma işleminde yedek alınmaz.
+
+
+## VLAN, envanter ve konfigürasyon kararı (1 Kasım 2026)
+
+- Ağ keşfi yalnızca Envanter altındadır; cihaz envanterine alınan adresler burada tanımlanan etkin VLAN/CIDR kapsamından gelmelidir. IPAM ve topolojiye keşif sonucu aktarılmaz; cihaz bağlantısı ve konfigürasyon işleri keşif kapsamına bağımlı değildir.
+- IPAM'in sahibi VLAN'dır. Bağımsız ağ blokları ve genel IP adresleri ekranı/API listesi kaldırılmıştır. VLAN kaydı kendi CIDR, DNS ve zamanlama ayarlarıyla IP taramasını başlatır; envanter keşif kapsamı veya cihaz profili istemez. Entegrasyonlar tüm VLAN'lara uygulanır. IPAM değişikliklerinde [VLAN ve entegrasyon davranışını](docs/ipam-integrations.md) oku.
+- Konfigürasyonda ilk geçerli kayıt base config'tir; kullanıcı bunu değiştirebilir. Değişenler base ile son konfigürasyonun anlamlı farkıdır ve onayla listeden kaldırılır. Konfigürasyon işi yaparken [base config ve onay kurallarını](docs/configuration-baselines.md) oku.

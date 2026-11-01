@@ -1,0 +1,151 @@
+.config-workspace {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.config-workspace > .primary {
+  justify-self: start;
+}
+.config-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--text-2);
+}
+.config-selectors {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.config-selectors label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.config-selectors select {
+  width: 100%;
+  min-width: 0;
+}
+.config-editors {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.config-editor {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+}
+.config-editor header {
+  padding: 12px;
+  display: grid;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.config-editor header > span {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.config-editor pre {
+  margin: 0;
+  height: 480px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--surface-2);
+  padding: 8px 0;
+  font:
+    12px/1.7 "IBM Plex Mono",
+    monospace;
+}
+.config-line {
+  display: flex;
+  min-width: max-content;
+  padding-right: 12px;
+}
+.config-line.changed {
+  background: color-mix(in srgb, var(--warning) 15%, var(--surface));
+  box-shadow: inset 3px 0 var(--warning);
+}
+.config-line-number {
+  flex: 0 0 4.5em;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-3);
+  user-select: none;
+}
+.config-diff {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.7 "IBM Plex Mono",
+    monospace;
+}
+.config-comparison {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.config-device-picker {
+  max-height: 50vh;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+}
+.config-device-picker label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.config-device-picker span {
+  display: grid;
+  gap: 4px;
+}
+.config-device-picker small {
+  color: var(--text-2);
+}
+.base-config-label {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  white-space: nowrap;
+  font-size: 12px;
+}
+tr.base-config-row {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+@media (max-width: 760px) {
+  .config-editors {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .config-selectors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dialog > .config-workspace {
+  padding: 24px;
+}
+.config-editor header {
+  min-height: 76px;
+  box-sizing: border-box;
+  align-content: start;
+}
+@media (max-width: 760px) {
+  .dialog > .config-workspace {
+    padding: 16px;
+  }
+}
+.config-editor header strong {
+  color: var(--text);
+}
+.config-comparison summary {
+  color: var(--accent);
+}

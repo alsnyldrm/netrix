@@ -1,6 +1,6 @@
 import ipaddress
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -27,7 +27,6 @@ RESOURCES = {
     "vrfs": (m.VRF, s.VRFInput),
     "vlans": (m.VLAN, s.VLANInput),
     "devices": (m.Device, s.DeviceInput),
-    "prefixes": (m.Prefix, s.PrefixInput),
     "addresses": (m.IPAddress, s.IPInput),
     "scopes": (m.Scope, s.ScopeInput),
     "credentials": (m.Credential, s.CredentialInput),
@@ -42,7 +41,7 @@ RESOURCES = {
     "audit": (m.Audit, None),
     "users": (m.User, s.UserInput),
 }
-HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key"}
+HIDDEN = {"password_hash", "encrypted_secret", "encrypted_content", "active_key", "approved_config_hash"}
 SNMP_PROTOCOLS = ("snmpv3", "snmpv2c")
 CONNECTION_TESTS = {"test_snmp": "snmpv3", "test_snmpv2c": "snmpv2c", "test_ssh": "ssh", "test_api": "rest"}
 IDENTITY_CONNECTION_FIELDS = (
@@ -61,7 +60,7 @@ IDENTITY_CONNECTION_FIELDS = (
 def serialize(obj):
     result = {}
     for col in inspect(obj).mapper.column_attrs:
-        if col.key in HIDDEN:
+        if col.key in HIDDEN or (isinstance(obj, m.Integration) and col.key == "evidence"):
             continue
         value = getattr(obj, col.key)
         if isinstance(obj, m.Link) and col.key in ("remote_name", "remote_port", "interface_name"):
@@ -171,23 +170,21 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
                 select(m.Interface.id).where(m.Interface.device_id == row_id).limit(1)
             ):
                 raise HTTPException(409, "Arayüzleri bulunan cihazın VRF bilgisi değiştirilemez")
-    if name == "prefixes":
-        require_ref(db, m.VLAN, data.get("vlan_id"))
+    if name == "vlans":
+        require_ref(db, m.DNSServer, data.get("dns_server_id"))
         network = ipaddress.ip_network(data["cidr"])
         for prefix in db.scalars(
-            select(m.Prefix).where(m.Prefix.vrf_id == data["vrf_id"], m.Prefix.id != (row_id or ""))
+            select(m.VLAN).where(
+                m.VLAN.vrf_id == data["vrf_id"], m.VLAN.id != (row_id or ""), m.VLAN.cidr.is_not(None)
+            )
         ):
             other = ipaddress.ip_network(prefix.cidr)
-            if (
-                other.version == network.version
-                and other.overlaps(network)
-                and not (other.subnet_of(network) or network.subnet_of(other))
-            ):
-                raise HTTPException(409, "Ağ blokları çakışıyor")
+            if other.version == network.version and other.overlaps(network):
+                raise HTTPException(409, "VLAN IP blokları çakışıyor")
         if row_id:
-            for address in db.scalars(select(m.IPAddress).where(m.IPAddress.prefix_id == row_id)):
+            for address in db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == row_id)):
                 if data["vrf_id"] != address.vrf_id or ipaddress.ip_address(address.address) not in network:
-                    raise HTTPException(409, "Mevcut IP atamaları yeni prefix ile uyumsuz")
+                    raise HTTPException(409, "Mevcut IP atamaları yeni VLAN bloğuyla uyumsuz")
     if name == "addresses":
         if row_id:
             previous = get(db, m.IPAddress, row_id)
@@ -199,10 +196,10 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             device = get(db, m.Device, data["device_id"])
             if device.archived or device.vrf_id != data["vrf_id"]:
                 raise HTTPException(422, "Bağlı cihaz aynı VRF içinde ve aktif envanterde olmalı")
-        prefix = get(db, m.Prefix, data["prefix_id"])
+        prefix = get(db, m.VLAN, data["vlan_id"])
         address, network = ipaddress.ip_address(data["address"]), ipaddress.ip_network(prefix.cidr)
         if prefix.vrf_id != data["vrf_id"] or address not in network:
-            raise HTTPException(422, "Adres seçilen prefix veya VRF içinde değil")
+            raise HTTPException(422, "Adres seçilen VLAN veya VRF içinde değil")
         if (
             network.version == 4
             and network.prefixlen < 31
@@ -218,7 +215,7 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
                 raise HTTPException(422, "Arayüz aktif envanterde değil")
             data["device_id"] = device.id
             if device.vrf_id != data["vrf_id"] or (prefix.site_id and prefix.site_id != device.site_id):
-                raise HTTPException(422, "Arayüzün VRF veya site bilgisi prefix ile uyumsuz")
+                raise HTTPException(422, "Arayüzün VRF veya lokasyon bilgisi VLAN ile uyumsuz")
     if name == "scopes":
         site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
         # Legacy clients can omit the institution when the location determines it.
@@ -272,17 +269,20 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             for key in (*IDENTITY_CONNECTION_FIELDS, "vendor", "model", "kind", "lifecycle_status")
         )
     )
-    replay_prefix = name == "prefixes" and (
+    replay_prefix = name == "vlans" and (
         not row_id or row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]
     )
-    if name == "prefixes" and row_id and (row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]):
-        row.scan_authorized = row.ping_enabled = row.discovery_enabled = False
     if name == "addresses" and row_id:
         hierarchy = {"institution_id", "site_id", "sub_site_id"}
         if not hierarchy.intersection(value.model_fields_set) and data["location"] == row.location:
             # Older clients may update another field without knowing the hierarchy.
             data.update({key: getattr(row, key) for key in hierarchy})
     validate_relations(db, name, data, row_id)
+    if name == "devices" and (
+        not row_id or row.management_ip != data["management_ip"] or row.vrf_id != data["vrf_id"]
+    ):
+        scope = inventory_scope(db, data["vrf_id"], data["management_ip"])
+        row.discovery_scope_id = scope.id
     if name == "device-types":
         if db.scalar(
             select(m.DeviceType.id).where(
@@ -355,21 +355,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
-    if name == "devices":
-        from .ipam.service import inventory_observations
-
-        latest = db.scalar(
-            select(m.Observation)
-            .where(m.Observation.device_id == row.id, m.Observation.source.in_(SNMP_PROTOCOLS))
-            .order_by(m.Observation.created_at.desc())
-            .limit(1)
-        )
-        collected = latest.evidence if latest and latest.created_at >= now() - timedelta(hours=24) else {}
-        inventory_observations(db, row, {**collected, "hostname": row.name})
-    if replay_prefix:
-        # Durable work is committed atomically with the block. API latency must
-        # not grow with the number of devices or cached ARP/FDB observations.
-        enqueue(db, "ipam_inventory", row.id, user, commit=False)
+    if replay_prefix and row.scan_authorized:
+        enqueue(db, "ipam_discover", row.id, user, commit=False)
     identification = None
     if identify_changed:
         try:
@@ -410,6 +397,8 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         raise HTTPException(404, "Kaynak bulunamadı")
     model = RESOURCES[name][0]
     stmt = select(model)
+    if name == "devices":
+        stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "links":
         stmt = stmt.where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
     if name == "devices":
@@ -441,12 +430,11 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     if device_id and hasattr(model, "device_id"):
         stmt = stmt.where(model.device_id == device_id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
-    if name == "prefixes":
+    if name == "vlans":
         # CIDRs are stored as text. Sort numerically before pagination so that
         # 10.2 precedes 10.10 and compressed IPv6 notation orders correctly.
         def network_key(row):
-            network = ipaddress.ip_network(row.cidr)
-            return network.version, int(network.network_address), network.prefixlen, row.vrf_id, row.id
+            return row.vid, row.domain, row.id
 
         rows = sorted(db.scalars(stmt).all(), key=network_key)[offset : offset + limit]
     else:
@@ -456,14 +444,20 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         from .job_details import summaries
 
         items = [dict(item, **summary) for item, summary in zip(items, summaries(db, rows))]
-    if name == "prefixes":
-        from .ipam.service import prefix_summaries
+    if name == "vlans":
+        from .ipam.service import vlan_summaries
 
-        items = prefix_summaries(db, rows)
+        items = vlan_summaries(db, rows)
     if name == "addresses":
         from .ipam.service import enrich
 
         items = enrich(db, rows)
+    if name == "snapshots":
+        bases = {
+            d.id: d.base_snapshot_id
+            for d in db.scalars(select(m.Device).where(m.Device.id.in_({r.device_id for r in rows})))
+        }
+        items = [dict(item, is_base=bases.get(item["device_id"]) == item["id"]) for item in items]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
@@ -482,8 +476,8 @@ def delete_resource(db, name, id, user):
     row = get(db, model, id)
     if name in ("users", "vrfs"):
         raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
-    if name == "prefixes":
-        from .ipam.prefix_deletion import remove
+    if name == "vlans":
+        from .ipam.vlan_deletion import remove
 
         return remove(db, [id], user)
     if name == "device-types":
@@ -521,22 +515,6 @@ def authorized_device(db, device):
         raise ValueError("Cihaz arşivlenmiş; bağlantı testi ve cihaz sorguları çalıştırılamaz.")
     if device.lifecycle_status in ("retired", "planned", "maintenance"):
         raise ValueError("Cihaz aktif durumda değil. Cihaz ayarlarında yaşam döngüsünü Aktif yapıp kaydedin.")
-    scopes = db.scalars(
-        select(m.Scope).where(m.Scope.vrf_id == device.vrf_id, m.Scope.enabled.is_(True))
-    ).all()
-    from .ipam.service import require_scope
-
-    for prefix in db.scalars(
-        select(m.Prefix).where(m.Prefix.vrf_id == device.vrf_id, m.Prefix.scan_authorized.is_(True))
-    ):
-        scopes.append(require_scope(db, prefix))
-    if not any(in_scope(device.management_ip, scope) for scope in scopes):
-        address = ipaddress.ip_address(device.management_ip)
-        raise ValueError(
-            f"{address} için cihazın VRF'inde etkin, adresi hariç tutmayan bir keşif kapsamı yok. "
-            f"Ağ keşfi menüsünde bu cihaz için {address}/{address.max_prefixlen} kapsamı "
-            "veya yetkili ağınızı tanımlayıp etkinleştirin. Henüz bağlantı denenmedi."
-        )
 
 
 def connection_profile(db, device, protocol):
@@ -651,3 +629,21 @@ def publish():
         client.publish("netrix:events", "refresh")
     except Exception:
         pass
+
+
+def inventory_scope(db, vrf_id, address):
+    scope = next(
+        (
+            scope
+            for scope in db.scalars(
+                select(m.Scope).where(m.Scope.vrf_id == vrf_id, m.Scope.enabled.is_(True))
+            )
+            if in_scope(address, scope)
+        ),
+        None,
+    )
+    if not scope:
+        raise HTTPException(
+            422, "Cihaz adresi Envanter > Ağ keşfi bölümünde tanımlanan bir VLAN içinde olmalı"
+        )
+    return scope

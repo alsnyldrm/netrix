@@ -1070,7 +1070,7 @@ function RackIPPlacement({
     if (!prefix) return;
     const timer = window.setTimeout(() => {
       api(
-        `/ipam/prefixes/${prefix}/addresses?allocated=true&limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
+        `/ipam/vlans/${prefix}/addresses?allocated=true&limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
       )
         .then((result) => {
           if (active) setPage(result);
@@ -1130,7 +1130,7 @@ function RackIPPlacement({
         }
       }}
     >
-      <Label name="VLAN / Ağ bloğu">
+      <Label name="VLAN">
         <select
           required
           disabled={busy}
@@ -1141,8 +1141,8 @@ function RackIPPlacement({
             resetSelection();
           }}
         >
-          <option value="">Ağ bloğu seçin</option>
-          {(refs.prefixes || []).map((p) => (
+          <option value="">VLAN seçin</option>
+          {(refs.vlans || []).map((p) => (
             <option key={p.id} value={p.id}>
               {p.display_name || p.cidr}
             </option>

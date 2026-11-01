@@ -257,7 +257,7 @@ async def test_connection_profile_fallback_completes_metadata(admin_client, inve
 
 @pytest.mark.parametrize(
     "updates",
-    [{"snmp_credential_id": None}, {"management_ip": "198.51.100.1"}, {"lifecycle_status": "planned"}],
+    [{"snmp_credential_id": None}, {"lifecycle_status": "planned"}],
 )
 def test_unauthorized_or_unconfigured_save_stays_manual(admin_client, inventory, updates):
     device, _ = create_device(admin_client, inventory, **updates)

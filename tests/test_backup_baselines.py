@@ -91,7 +91,7 @@ async def test_worker_skips_error_baseline_and_only_reports_real_changes(
     assert response.status_code == 200, response.text
     assert "PRIVATE-SECRET" not in response.text and "SSH command execution" not in response.text
     if older is None:
-        assert response.json()["previous_id"] is None
+        assert response.json()["previous_id"] == snapshot_id
         assert response.json()["diff"] == ""
     else:
         assert bool(response.json()["diff"]) is expected
@@ -146,11 +146,12 @@ def test_repair_preserves_backups_and_real_changes_and_is_idempotent(admin_clien
     assert [s["id"] for s in result["items"]] == [ids[-1]]
 
 
-def test_repair_does_not_erase_change_with_pruned_baseline(admin_client, device, env):
+def test_repair_selects_first_surviving_config_as_base(admin_client, device, env):
     from netrix.configuration.history import repair_change_flags
 
     with env() as db:
         first = add_snapshot(db, device["id"], CONFIG, -2, True)
         db.commit()
-        assert repair_change_flags(db, device["id"], apply=True) == []
-        assert first.changed
+        assert len(repair_change_flags(db, device["id"], apply=True)) == 1
+        assert not first.changed
+        assert db.get(m.Device, device["id"]).base_snapshot_id == first.id

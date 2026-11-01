@@ -89,8 +89,11 @@ def test_creation_without_authorized_ssh_does_not_queue_backup(admin_client, inv
         ).json()
         data.update(adapter="rest", config_credential_id=profile["id"])
     response = admin_client.post("/api/v1/devices", json=data)
-    assert response.status_code == 201, response.text
-    assert response.json()["backup"]["status"] == "skipped"
+    if reason in ("outside", "excluded", "disabled", "other_vrf"):
+        assert response.status_code == 422
+    else:
+        assert response.status_code == 201, response.text
+        assert response.json()["backup"]["status"] == "skipped"
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind == "backup")) == 0
 

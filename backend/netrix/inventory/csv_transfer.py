@@ -313,6 +313,7 @@ def validate(db, raw):
                 raise HTTPException(
                     422, "Bu VRF ve IP adresinde zaten cihaz var; mevcut kayıtlar değiştirilmez"
                 )
+            svc.inventory_scope(db, data["vrf_id"], data["management_ip"])
             valid.append((line, data))
         except ValidationError as exc:
             for error in exc.errors(include_input=False, include_url=False):

@@ -4,7 +4,7 @@
 
 Akıllı Ağ Keşif ve Yönetim Platformu
 
-NETRIX, ortak cihaz envanteri üzerinde çalışan IPAM/ağ keşfi, konfigürasyon sürümleme platformudur. Python/FastAPI backend, MariaDB, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
+NETRIX; envantere özel ağ keşfi, VLAN üzerinden IPAM ve cihaz konfigürasyon sürümleme platformudur. Python/FastAPI backend, MariaDB, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
 
 ## Dağıtım
 
@@ -28,7 +28,7 @@ docker compose ps
 
 Şifreleme anahtarı üretimi: `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`. Kurulum token'ı üretimi: `python -c 'import secrets; print(secrets.token_urlsafe(32))'`. Bu komutları yalnızca kendi güvenli terminalinizde çalıştırın; çıktıları Git'e yazmayın. DB URL parolasında URL encoding kullanın.
 
-İlk ziyarette dağıtımda oluşturulan güvenli kurulum dosyasındaki anahtarla yönetici hesabınızı oluşturun. Sabit varsayılan kullanıcı/parola yoktur. Ardından **Erişim kasası → Lokasyon/VRF → Cihaz veya Ağ keşfi kapsamı → Manuel keşif → Görev merkezi** akışını izleyin. Gerçek ağ sorguları kendiliğinden başlamaz; zamanlama açıkça etkinleştirilmelidir.
+İlk ziyarette güvenli kurulum dosyasındaki anahtarla yönetici hesabınızı oluşturun. Sabit varsayılan kullanıcı/parola yoktur. **Envanter → Ağ keşfi** cihaz envanterine hizmet eder. **IP adres yönetimi → VLAN alanları** kendi CIDR/DNS ayarlarıyla IP taramasını başlatır; envanter keşfiyle bağlantısı yoktur. **Yönetim → Entegrasyonlar** tüm IPAM VLAN'larını zenginleştirir. **Konfigürasyon** altında base config, onay bekleyen farklar ve 2–4 cihaz karşılaştırması bulunur.
 
 ## Geliştirme ve doğrulama
 
@@ -42,7 +42,7 @@ npm ci
 npm run build
 ```
 
-Birim/API testleri gerçek ağ bağlantılarını engeller. Tarayıcı fixture sunucusu, üretim veritabanından ayrı `.secrets/browser.db` kullanır: `PYTHONPATH=backend .venv/bin/python tests/ui_server.py`; ardından `.venv/bin/python scripts/browser_check.py`. Tarayıcı akışı yalnızca yerel test sunucusuna yöneliktir. Playwright Chromium önceden kurulmalıdır.
+Birim/API testleri gerçek ağ bağlantılarını engeller. Güncel VLAN/konfigürasyon tarayıcı doğrulaması için `PYTHONPATH=backend .venv/bin/python scripts/vlan_configuration_fixture.py`, ardından `.venv/bin/python scripts/vlan_configuration_browser_check.py` çalıştırın. Fixture geçici SQLite verisi kullanır, worker başlatmaz ve gerçek cihazlara erişmez. Playwright Chromium önceden kurulmalıdır.
 
 MariaDB entegrasyonu yalnızca `netrix_test` adlı atılabilir DB'ye uygulanır: Alembic upgrade sonrası `PYTHONPATH=backend python scripts/mariadb_check.py`. Üretim veritabanında test amacıyla schema drop yapılmaz.
 
@@ -50,6 +50,8 @@ API dokümantasyonu `/api/v1/docs`, liveness `/api/v1/health/live`, DB/Redis rea
 
 ## Belgeler
 
+- [VLAN ve IPAM entegrasyonları](docs/ipam-integrations.md)
+- [Base config ve değişiklik onayı](docs/configuration-baselines.md)
 - [Çalışan mimari ve davranış sınırları](docs/architecture.md)
 - [İşletim, yedekleme ve geri yükleme](docs/operations.md)
 - [Doğrulama kayıtları](docs/verification.md)

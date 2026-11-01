@@ -95,6 +95,7 @@ const DEFAULTS: Record<string, string[]> = {
     "backup_group",
     "created_at",
     "size_bytes",
+    "is_base",
     "changed",
   ],
 };
@@ -131,6 +132,8 @@ function value(key: string, v: any) {
       : String(v).toUpperCase().replace("+", " + ");
   if (key.endsWith("_at")) return date(v);
   if (key === "speed_bps") return speed(v);
+  if (key === "is_base")
+    return v ? <span className="base-config-label">Base config</span> : "—";
   if (key === "changed") return v ? "Değişti" : "Değişmedi";
   if (["backup_retention", "effective_retention"].includes(key))
     return v ? String(v) : "Sınırsız";
@@ -916,7 +919,7 @@ export function InventoryTable({
                       </th>
                     </tr>
                   )}
-                <tr>
+                <tr className={row.is_base ? "base-config-row" : undefined}>
                   {selectRows && (
                     <td className="selection-cell">
                       <label
@@ -1052,6 +1055,22 @@ export function InventoryTable({
                         )}
                         {resource === "snapshots" && writable && (
                           <>
+                            {!row.is_base && (
+                              <button
+                                className="text-button"
+                                onClick={() => onContent?.(row, "base")}
+                              >
+                                Base config yap
+                              </button>
+                            )}
+                            {purpose === "changes" && (
+                              <button
+                                className="secondary"
+                                onClick={() => onContent?.(row, "approve")}
+                              >
+                                Onayla
+                              </button>
+                            )}
                             <button
                               className="text-button"
                               onClick={() =>

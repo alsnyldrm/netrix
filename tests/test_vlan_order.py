@@ -1,9 +1,9 @@
-"""Network blocks retain numeric ordering across pagination and search."""
+"""VLANs retain VID ordering across pagination and search."""
 
-from netrix import models as m
+from conftest import make_vlan
 
 
-def test_prefix_order_is_numeric_before_pagination_and_search(admin_client, inventory, env):
+def test_vlan_order_is_numeric_before_pagination_and_search(admin_client, inventory, env):
     vrf_id = inventory["vrf"]["id"]
     expected = [
         "10.1.0.0/23",
@@ -19,14 +19,12 @@ def test_prefix_order_is_numeric_before_pagination_and_search(admin_client, inve
     # Deliberately interleave IP families and creation order.
     with env() as db:
         for index in [3, 0, 8, 2, 7, 4, 1, 5, 6]:
-            db.add(m.Prefix(cidr=expected[index], vrf_id=vrf_id))
+            db.add(make_vlan(cidr=expected[index], vrf_id=vrf_id, vid=index + 1))
             db.flush()
         db.commit()
 
     def page(offset=0, q="", limit=2):
-        response = admin_client.get(
-            "/api/v1/prefixes", params={"limit": limit, "offset": offset, "q": q}
-        )
+        response = admin_client.get("/api/v1/vlans", params={"limit": limit, "offset": offset, "q": q})
         assert response.status_code == 200, response.text
         return response.json()
 

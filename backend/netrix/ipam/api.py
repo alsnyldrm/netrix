@@ -14,16 +14,16 @@ from .schemas import (
     IPPlacementInput,
     ModelImageInput,
     PlacementInput,
-    PrefixDeleteInput,
-    PrefixSelection,
-    PrefixSettings,
     RackAccessoryInput,
+    VLANDeleteInput,
+    VLANSelection,
+    VLANSettings,
 )
 
 router = APIRouter(prefix="/api/v1")
 
 
-@router.get("/ipam/prefixes/{id}/addresses")
+@router.get("/ipam/vlans/{id}/addresses")
 def addresses(
     id: str,
     offset: str = "0",
@@ -38,10 +38,10 @@ def addresses(
     if not offset.isdigit() or len(offset) > 40:
         raise HTTPException(422, "Geçersiz adres başlangıcı")
     return read_cache.json_response(
-        ["prefix-addresses", id, offset, limit, allocated, active_only, q, filters],
+        ["vlan-addresses", id, offset, limit, allocated, active_only, q, filters],
         lambda: table.addresses(
             db,
-            svc.get(db, m.Prefix, id),
+            svc.get(db, m.VLAN, id),
             offset=int(offset),
             limit=limit,
             allocated=allocated,
@@ -52,26 +52,26 @@ def addresses(
     )
 
 
-@router.post("/ipam/prefixes/delete-preview")
-def prefix_delete_preview(payload: PrefixSelection, user=Depends(admin), db=Depends(db_session)):
-    from .prefix_deletion import preview
+@router.post("/ipam/vlans/delete-preview")
+def vlan_delete_preview(payload: VLANSelection, user=Depends(admin), db=Depends(db_session)):
+    from .vlan_deletion import preview
 
     return preview(db, payload.ids)
 
 
-@router.post("/ipam/prefixes/bulk-delete")
-def prefix_bulk_delete(payload: PrefixDeleteInput, user=Depends(admin), db=Depends(db_session)):
-    from .prefix_deletion import remove
+@router.post("/ipam/vlans/bulk-delete")
+def vlan_bulk_delete(payload: VLANDeleteInput, user=Depends(admin), db=Depends(db_session)):
+    from .vlan_deletion import remove
 
     return remove(db, payload.ids, user, payload.confirmation)
 
 
-@router.put("/ipam/prefixes/{id}/settings")
-def settings(id: str, payload: PrefixSettings, user=Depends(operator), db=Depends(db_session)):
+@router.put("/ipam/vlans/{id}/settings")
+def settings(id: str, payload: VLANSettings, user=Depends(operator), db=Depends(db_session)):
     return service.save_settings(db, id, payload, user)
 
 
-@router.post("/ipam/prefixes/{id}/{action}", status_code=202)
+@router.post("/ipam/vlans/{id}/{action}", status_code=202)
 def scan(id: str, action: Literal["ping", "discover"], user=Depends(operator), db=Depends(db_session)):
     return svc.serialize(svc.enqueue(db, "ipam_" + action, id, user))
 
@@ -106,21 +106,6 @@ def sync(id: str, user=Depends(admin), db=Depends(db_session)):
 def detail(id: str, user=Depends(current_user), db=Depends(db_session)):
     row = svc.get(db, m.IPAddress, id)
     return {**service.enrich(db, [row])[0], **jobs.connection_options(db, row)}
-
-
-@router.get("/ipam/addresses")
-def address_table(
-    offset: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=200),
-    q: str = Query("", max_length=200),
-    filters: str = Query("[]", max_length=12000),
-    user=Depends(current_user),
-    db=Depends(db_session),
-):
-    return read_cache.json_response(
-        ["addresses", offset, limit, q, filters],
-        lambda: table.addresses(db, offset=offset, limit=limit, q=q, filters=filters),
-    )
 
 
 @router.post("/ipam/addresses/bulk")

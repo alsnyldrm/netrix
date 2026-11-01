@@ -137,8 +137,25 @@ class VLAN(Entity, Base):
     name: Mapped[str] = mapped_column(String(120))
     domain: Mapped[str] = mapped_column(String(80), default="default")
     vid: Mapped[int] = mapped_column(Integer)
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    scan_authorized: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    cidr: Mapped[str | None] = mapped_column(String(49), nullable=True)
+    vrf_id: Mapped[str | None] = mapped_column(ForeignKey("vrfs.id"), index=True)
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+    dns_server_id: Mapped[str | None] = mapped_column(ForeignKey("dns_servers.id"), index=True)
+    warning_threshold: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
+    ping_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    ping_interval: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
+    discovery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    discovery_interval: Mapped[int] = mapped_column(Integer, default=3600, server_default="3600")
+    last_ping_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    last_discovery_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
         UniqueConstraint("domain", "vid"),
+        UniqueConstraint("vrf_id", "cidr"),
+        CheckConstraint("warning_threshold >= 1 AND warning_threshold <= 100", name="ck_vlan_threshold"),
+        CheckConstraint("ping_interval >= 30 AND discovery_interval >= 60", name="ck_vlan_intervals"),
         CheckConstraint("vid >= 1 AND vid <= 4094", name="ck_vlan_vid"),
     )
 
@@ -175,6 +192,9 @@ class DeviceType(Entity, Base):
 
 class Device(Entity, Base):
     __tablename__ = "devices"
+    discovery_scope_id: Mapped[str | None] = mapped_column(
+        ForeignKey("discovery_scopes.id", ondelete="SET NULL"), index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     management_ip: Mapped[str] = mapped_column(String(45))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
@@ -210,6 +230,12 @@ class Device(Entity, Base):
     )
     backup_retention: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_backup_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    base_snapshot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("config_snapshots.id", name="fk_device_base_snapshot", use_alter=True), index=True
+    )
+    approved_config_hash: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    config_approved_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    config_approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
     __table_args__ = (
         UniqueConstraint("vrf_id", "management_ip"),
         CheckConstraint(
@@ -234,32 +260,6 @@ class Interface(Entity, Base):
     __table_args__ = (UniqueConstraint("device_id", "name"), UniqueConstraint("device_id", "if_index"))
 
 
-class Prefix(Entity, Base):
-    __tablename__ = "prefixes"
-    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
-    scan_authorized: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    cidr: Mapped[str] = mapped_column(String(49))
-    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    vlan_id: Mapped[str | None] = mapped_column(ForeignKey("vlans.id"), nullable=True, index=True)
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
-    description: Mapped[str] = mapped_column(String(400), default="")
-    dns_server_id: Mapped[str | None] = mapped_column(ForeignKey("dns_servers.id"), index=True)
-    vlan_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
-    scope_id: Mapped[str | None] = mapped_column(ForeignKey("discovery_scopes.id"), index=True)
-    warning_threshold: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
-    ping_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    ping_interval: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
-    discovery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    discovery_interval: Mapped[int] = mapped_column(Integer, default=3600, server_default="3600")
-    last_ping_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    last_discovery_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    __table_args__ = (
-        UniqueConstraint("vrf_id", "cidr"),
-        CheckConstraint("warning_threshold >= 1 AND warning_threshold <= 100", name="ck_prefix_threshold"),
-        CheckConstraint("ping_interval >= 30 AND discovery_interval >= 60", name="ck_prefix_intervals"),
-    )
-
-
 class DNSServer(Entity, Base):
     __tablename__ = "dns_servers"
     name: Mapped[str] = mapped_column(String(120), unique=True)
@@ -276,12 +276,15 @@ class Integration(Entity, Base):
     encrypted_secret: Mapped[str] = mapped_column(Text)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
-    prefix_ids: Mapped[list] = mapped_column(JSON, default=list)
+    credential_id: Mapped[str | None] = mapped_column(ForeignKey("credentials.id"), index=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
     last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
-        CheckConstraint("kind in ('vcenter','windows_dhcp')", name="ck_integration_kind"),
+        CheckConstraint(
+            "kind in ('vcenter','windows_dhcp','corner_switch','backbone_switch')", name="ck_integration_kind"
+        ),
         CheckConstraint("interval_seconds = 0 OR interval_seconds >= 60", name="ck_integration_interval"),
     )
 
@@ -294,7 +297,7 @@ class IPAddress(Entity, Base):
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
     address: Mapped[str] = mapped_column(String(45))
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    prefix_id: Mapped[str] = mapped_column(ForeignKey("prefixes.id"), index=True)
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
     interface_id: Mapped[str | None] = mapped_column(ForeignKey("interfaces.id"), nullable=True, index=True)
     hostname: Mapped[str] = mapped_column(String(190), default="")
     operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")
@@ -319,6 +322,7 @@ class IPObservation(Entity, Base):
 
 class Scope(Entity, Base):
     __tablename__ = "discovery_scopes"
+    vlan_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     cidr: Mapped[str] = mapped_column(String(49))
