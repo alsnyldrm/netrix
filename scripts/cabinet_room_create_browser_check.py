@@ -87,6 +87,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="5 düzenle", exact=True).click()
     expect(form.get_by_role("combobox")).to_have_count(2)
     expect(form.get_by_label("Oda", exact=False)).to_have_value(server["id"])
+    expect(form.get_by_label("Oda", exact=False).locator("option:checked")).to_have_text("L-0/A/Sunucu Odası")
     form.get_by_role("button", name="Vazgeç", exact=True).click()
     page.get_by_role("button", name="Lokasyonlar", exact=True).click()
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
@@ -96,7 +97,7 @@ with sync_playwright() as p:
     expect(context).to_have_count(0)
     check("root")
     form.get_by_label("Lokasyon", exact=False).select_option(label="Güney Kampüs")
-    form.get_by_label("Oda", exact=False).select_option(label="Elektrik Odası")
+    form.get_by_label("Oda", exact=False).select_option(label="L-0/A/Elektrik Odası")
     form.get_by_label("Kabinet no", exact=False).fill("6")
     form.get_by_role("button", name="Kaydı kaydet", exact=False).click()
     expect(form).to_have_count(0)
@@ -109,6 +110,35 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     expect(form.get_by_role("combobox")).to_have_count(2)
     expect(context).to_have_count(0)
+    form.get_by_role("button", name="Vazgeç", exact=True).click()
+    # Identical room names must remain distinguishable and retain their own IDs.
+    added = {}
+    for floor, department in [("L-0", "A"), ("L-0", "B"), ("L-1", "A")]:
+        response = page.request.post(
+            "http://127.0.0.1:8218/api/v1/sites",
+            headers={"X-Netrix-Request": "1"},
+            data={
+                "name": "Elektrik Odası",
+                "parent_id": server["parent_id"],
+                "institution_id": server["institution_id"],
+                "floor_number": floor,
+                "department_name": department,
+            },
+        )
+        assert response.status == 201, response.text()
+        added[f"{floor}/{department}/Elektrik Odası"] = response.json()["id"]
+    page.reload()
+    page.get_by_role("button", name="Yeni kayıt", exact=True).click()
+    form.get_by_label("Lokasyon", exact=False).select_option(label="Kuzey Kampüs")
+    room = form.get_by_label("Oda", exact=False)
+    for label, room_id in added.items():
+        expect(room.locator(f'option[value="{room_id}"]')).to_have_text(label)
+    room.select_option(label="L-1/A/Elektrik Odası")
+    form.get_by_label("Kabinet no", exact=False).fill("7")
+    check("room-labels")
+    form.get_by_role("button", name="Kaydı kaydet", exact=False).click()
+    expect(form).to_have_count(0)
+    assert saved[-1]["sub_site_id"] == added["L-1/A/Elektrik Odası"]
     assert not errors, errors
     browser.close()
 print(

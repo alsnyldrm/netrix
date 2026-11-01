@@ -1558,7 +1558,10 @@ function GenericResourceForm({
                             )
                             .map((r) => [
                               field.ref === "device-types" ? r.code : r.id,
-                              r.name || r.cidr || r.address,
+                              page.key === "cabinets" &&
+                              field.key === "sub_site_id"
+                                ? `${r.floor_number || "—"}/${r.department_name || "—"}/${r.name}`
+                                : r.name || r.cidr || r.address,
                             ])
                         : field.options || []
                       ).map((option: any) => {
