@@ -1,13 +1,15 @@
 import asyncio
 
+import pytest
 from netrix import models as m
 from netrix import worker
 from sqlalchemy import select
 
 
-async def test_long_discoveries_do_not_block_short_jobs(env, monkeypatch):
+@pytest.mark.parametrize("scan_kind", ["discovery", "ipam_discover"])
+async def test_long_discoveries_do_not_block_short_jobs(env, monkeypatch, scan_kind):
     with env() as db:
-        jobs = [m.Job(kind="discovery", target_id=f"scope-{i}") for i in range(4)]
+        jobs = [m.Job(kind=scan_kind, target_id=f"scope-{i}") for i in range(4)]
         jobs += [m.Job(kind="ipam_ping", target_id="prefix")]
         db.add_all(jobs)
         db.commit()
@@ -21,7 +23,7 @@ async def test_long_discoveries_do_not_block_short_jobs(env, monkeypatch):
         with env() as db:
             kind = db.get(m.Job, id).kind
         active += 1
-        discoveries += int(kind == "discovery")
+        discoveries += int(kind == scan_kind)
         peak = max(peak, active)
         discovery_peak = max(discovery_peak, discoveries)
         try:
@@ -33,7 +35,7 @@ async def test_long_discoveries_do_not_block_short_jobs(env, monkeypatch):
                 db.commit()
         finally:
             active -= 1
-            discoveries -= int(kind == "discovery")
+            discoveries -= int(kind == scan_kind)
 
     monkeypatch.setattr(worker, "execute", execute)
     monkeypatch.setattr(worker, "stop", False)

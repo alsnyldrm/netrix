@@ -16,7 +16,7 @@ DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için ya
 ## Bağlantı eşleştirmesi
 
 - IPAM okuması, envanterdeki aktif switch/router/firewall cihazlarının kayıtlı SNMP profillerini kullanır. Yeni erişim profili veya ağ keşfi kapsamı istemez. Okuma worker'dadır; envanter alanlarını, arayüzleri veya komşulukları değiştirmez. Ayrı `ipam_network` gözlemleri kullanılır; eski `discovery` gözlemleri bağlantıya temel olmaz.
-- Gateway arayüzü, IP-MIB arayüz adresi/prefix kanıtıyla VLAN CIDR'ına bağlı olmalıdır. Normal bir hostun ARP tablosu kaynak değildir. Aynı IP için birden fazla gateway MAC'i varsa MAC ve kesin bağlantı boş bırakılır; kanıtlar ayrıntıda gösterilir.
+- Gateway arayüzü, IP-MIB arayüz adresi/prefix kanıtıyla VLAN CIDR'ını kapsamalıdır; IPAM, bağlı gateway ağının bir alt bloğunu yönetebilir. FortiOS'un VDOM içeren adres indeksleri, ham dört oktetlik adres/maskeleri ve uzunluk okteti olmayan prefix RowPointer biçimi açık alan/ifIndex kanıtıyla çözülür. Normal bir hostun ARP tablosu kaynak değildir. Aynı IP için birden fazla gateway MAC'i varsa MAC ve kesin bağlantı boş bırakılır; kanıtlar ayrıntıda gösterilir.
 - Q-BRIDGE `dot1qTpFdbPort` içindeki FDB kimliği VLAN numarası kabul edilmez. `dot1qVlanFdbId` ile VLAN → FDB kimliği, ardından bridge port → ifIndex → arayüz adı zinciri izlenir. Paylaşılan FDB, eksik eşleme, tamamlanmamış tablo, kapalı veya kimliği çözülemeyen port bağlantı olarak seçilmez.
 - Komşuluklarda yalnızca güncel, silinmemiş ve envanterdeki kaynak cihaza ait kayıt kullanılır. Uzak IP veya tanımlı LLDP MAC alt türü eşleşmelidir. Ad/hostname benzerliği ve kullanıcı tarafından değiştirilmiş görünen etiket kimlik kanıtı değildir.
 - Uplink portları ve birden çok MAC taşıyan transit portlar uç cihazın fiziksel portu diye gösterilmez. Son switch seçimi cihaz adı veya tür sıralamasıyla yapılmaz.
@@ -32,7 +32,11 @@ Protokol temelleri: [IP-MIB (RFC 4293)](https://www.rfc-editor.org/rfc/rfc4293.h
 
 IP adres yönetimi → VLAN alanları, CIDR, VRF, DNS, kurum/lokasyon ve zamanlama ayarlarının sahibidir. Yeni VLAN/IP bloğu değişikliği aynı transaction içinde `ipam_discover` işi oluşturur. IPv4 en çok 65.536 adres, 32 eşzamanlı probe ile taranır; IPv6 uzayı gezilmez, bilinen adresler kontrol edilir.
 
-Tarama ping/DNS kontrolünden sonra gateway/switch kaynaklarını en çok dört eşzamanlı okumayla toplar. Her cihazda taşıma yeniden denemesi ve 180 saniyelik toplam protokol sınırı vardır. İptal kalan okumaları durdurur; aynı iş tekrar çalışırsa gözlemler yinelenmez. Okunamayan kaynaklar görevde kısmi sonuç olarak belirtilir. DHCP/VMware eşitlemeleri ayrıca kuyruğa alınır. Ping ve yeni IP keşif zamanlamaları ayrı kalır. Ping sonucu yalnızca güncel ICMP gözlemidir; VM güç durumu değildir.
+VLAN ayrıntısındaki **Tara ve eşleştir**, yeni VLAN kaydının otomatik başlattığı `ipam_discover` akışıyla aynıdır. Etkin iş varsa aynı iş döner; buton işlem boyunca devre dışıdır. VLAN yeniden açıldığında son tarama ve aşaması `GET /api/v1/ipam/vlans/{id}/scan` ile görünür.
+
+Tarama ping/DNS kontrolünden sonra gateway/switch kaynaklarını en çok dört eşzamanlı okumayla toplar. Her cihazda taşıma yeniden denemesi ve 180 saniyelik toplam protokol sınırı vardır. Ardından DHCP eşitlemesini, sonra VMware eşitlemesini bekler; DHCP'nin oluşturduğu VMware işi yeniden kullanılır. Her kaynak aşamasında en çok 15 dakika bekler; başarısız, iptal edilmiş, bulunamayan veya zaman aşımına uğrayan bağımlılık kısmi sonuçtur. Ana görev kaynaklar kuyruğa konunca tamamlandı sayılmaz. Kaynak okumalarından sonra yeni/ICMP yanıtı vermeyen kayıtların DNS kontrolü tamamlanır, cihaz/port kanıtları çözülür ve alan başına eşleşme sayısı kaydedilir.
+
+Envanter keşfi ve IPAM taraması birlikte en fazla iki worker yuvası kullanır; kalan yuvalar bağımlı entegrasyonlar ve kısa görevler için açıktır. Böylece kaynak bekleyen taramalar worker'ı kilitlemez. İptal beklemeyi ve sürmekte olan IPAM okumalarını durdurur; başka taramalarla paylaşılabilen entegrasyon işi otomatik iptal edilmez. Aynı iş tekrar çalışırsa IPAM ağ gözlemleri yinelenmez. Ping ve yeni IP keşif zamanlamaları ayrı kalır. Ping sonucu yalnızca güncel ICMP gözlemidir; VM güç durumu değildir.
 
 ## Entegrasyonlar
 

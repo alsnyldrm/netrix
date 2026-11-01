@@ -595,9 +595,11 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.error = "" if count == 3 else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
-            elif kind == "ipam_discover" and (result.get("network") or {}).get("failed"):
+            elif kind == "ipam_discover" and (
+                (result.get("network") or {}).get("failed") or result.get("source_failed")
+            ):
                 job.status = "partial"
-                job.error = "IP taraması tamamlandı; bazı gateway/switch kaynakları okunamadı. Bağlantı kanıtları eksik olabilir."
+                job.error = "Tarama ve eşleştirme tamamlandı; bazı gateway/switch veya entegrasyon kaynakları okunamadı. Eksik kaynakları görev ayrıntısından kontrol edin."
             else:
                 job.status = "succeeded"
             job.result, job.finished_at, job.active_key = {**job.result, **result}, now(), None
@@ -679,10 +681,10 @@ async def worker_loop():
                             )
                         del tasks[task]
                 while not stop and len(tasks) < BACKGROUND_CAPACITY:
-                    scans = sum(kind == "discovery" for kind, _ in tasks.values())
+                    scans = sum(kind in ("discovery", "ipam_discover") for kind, _ in tasks.values())
                     job_id = claim(
                         interactive=False,
-                        exclude_kinds=("discovery",) if scans >= DISCOVERY_CAPACITY else (),
+                        exclude_kinds=("discovery", "ipam_discover") if scans >= DISCOVERY_CAPACITY else (),
                         exclude_targets=tuple(target for _, target in tasks.values() if target),
                     )
                     if not job_id:

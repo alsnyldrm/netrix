@@ -120,10 +120,11 @@ def project(evidence):
 
 def gateway_interfaces(tables, network):
     attached = set()
-    for address, index in tables.get("ip_addr_ifindex", {}).items():
+    for key, index in tables.get("ip_addr_ifindex", {}).items():
         try:
-            subnet = ipaddress.ip_network(f"{address}/{tables['ip_addr_mask'][address]}", strict=False)
-            if subnet == network:
+            address = tables.get("ip_addr_address", {}).get(key, key)
+            subnet = ipaddress.ip_network(f"{address}/{tables['ip_addr_mask'][key]}", strict=False)
+            if subnet.version == network.version and subnet.prefixlen and network.subnet_of(subnet):
                 attached.add(integer(index))
         except (KeyError, ValueError):
             continue
@@ -136,12 +137,29 @@ def gateway_interfaces(tables, network):
             continue
         try:
             parts = [int(v) for v in str(pointer).lstrip(".")[len(base) :].split(".")]
-            if len(parts) < 4 or (parts[1], parts[2]) not in ((1, 4), (2, 16)) or len(parts) != parts[2] + 4:
+            length = {1: 4, 2: 16}.get(parts[1])
+            if not length:
                 continue
-            subnet = ipaddress.ip_network((ipaddress.ip_address(bytes(parts[3:-1])), parts[-1]), strict=False)
-            if parts[0] == integer(index) and subnet == network:
+            # Standard variable-length InetAddress indexes include length.
+            # FortiOS encodes these RowPointers without that octet count.
+            octets = (
+                parts[3:-1]
+                if len(parts) == length + 4 and parts[2] == length
+                else parts[2:-1]
+                if len(parts) == length + 3
+                else []
+            )
+            if len(octets) != length:
+                continue
+            subnet = ipaddress.ip_network((ipaddress.ip_address(bytes(octets)), parts[-1]), strict=False)
+            if (
+                parts[0] == integer(index)
+                and subnet.version == network.version
+                and subnet.prefixlen
+                and network.subnet_of(subnet)
+            ):
                 attached.add(parts[0])
-        except (ValueError, TypeError):
+        except (IndexError, ValueError, TypeError):
             continue
     return attached
 

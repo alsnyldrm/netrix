@@ -418,6 +418,10 @@ export function IPAMWorkspace({
     ? `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`
     : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
   const listing = useLiveQuery(path, refresh, undefined, query ? 200 : 0);
+  const latestScan = useLiveQuery<Row | null>(
+    prefix ? `/ipam/vlans/${prefix.id}/scan` : null,
+    refresh,
+  );
   const rows: Row[] = listing.data?.items || [];
   const total = String(listing.data?.total || 0);
   const loaded = !listing.loading;
@@ -444,6 +448,14 @@ export function IPAMWorkspace({
   useEffect(() => {
     setSelected([]);
   }, [prefix?.id, query, rules, activeOnly]);
+  useEffect(() => {
+    if (
+      latestScan.data &&
+      (!job || job.kind === "ipam_discover" || job.target_id !== prefix?.id)
+    ) {
+      setJob(latestScan.data);
+    }
+  }, [latestScan.data]);
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     let active = true;
@@ -477,10 +489,25 @@ export function IPAMWorkspace({
   };
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
+    setJob(null);
     setOffset("0");
     setQuery("");
     setRules([]);
   };
+  const jobActive =
+    job?.target_id === prefix?.id &&
+    ["queued", "running"].includes(job?.status);
+  const phaseName = (
+    {
+      addresses: "IP ve DNS taranıyor",
+      network: "Gateway ve switch kaynakları okunuyor",
+      dhcp: "DHCP kayıtları eşleştiriliyor",
+      vmware: "VMware işletim sistemi ve ağ kartları eşleştiriliyor",
+      dns: "Eklenen IP’lerin DNS isimleri tamamlanıyor",
+      matching: "Cihaz ve port kanıtları eşleştiriliyor",
+      complete: "Kaynak okumaları ve eşleştirme tamamlandı",
+    } as Row
+  )[job?.result?.scan_phase];
   const selectionDone = () => {
     setSelected([]);
     setBulkOpen(false);
@@ -567,7 +594,7 @@ export function IPAMWorkspace({
               <div className="ipam-scan-action">
                 <button
                   className="secondary"
-                  disabled={busy}
+                  disabled={busy || jobActive}
                   aria-describedby="prefix-ping-help"
                   onClick={() => trigger("ping")}
                 >
@@ -581,30 +608,43 @@ export function IPAMWorkspace({
               <div className="ipam-scan-action">
                 <button
                   className="primary"
-                  disabled={busy}
+                  disabled={busy || jobActive}
+                  aria-busy={busy || jobActive}
                   aria-describedby="prefix-discover-help"
                   onClick={() => trigger("discover")}
                 >
                   <Broadcast size={17} aria-hidden="true" />
-                  Ağdaki IP’leri keşfet
+                  {jobActive && job?.kind === "ipam_discover"
+                    ? "Tarama sürüyor…"
+                    : "Tara ve eşleştir"}
                 </button>
                 <small id="prefix-discover-help">
-                  Ağı tarar; yanıt veren yeni IP’leri kaydeder.
+                  IP, DNS, gateway MAC, switch/port ve VMware bilgilerini tarar
+                  ve eşleştirir.
                 </small>
               </div>
             </div>
           )}
         </section>
       )}
-      {job && (
+      {prefix && job && job.target_id === prefix.id && (
         <div className="panel ipam-job" role="status">
           <Badge value={job.status} />
           <span>
             {job.progress}/{job.total} adres ·{" "}
             {job.error ||
+              phaseName ||
               (job.status === "succeeded"
                 ? "İşlem tamamlandı."
                 : "Görev merkezinden de izleyebilirsiniz.")}
+            {job.result?.matching && (
+              <small className="ipam-sub">
+                {job.result.matching.hostname} DNS ·{" "}
+                {job.result.matching.mac_address} gateway MAC ·{" "}
+                {job.result.matching.connected_port} cihaz/port ·{" "}
+                {job.result.matching.operating_system} VMware işletim sistemi
+              </small>
+            )}
           </span>
           {canWrite && ["queued", "running"].includes(job.status) && (
             <button

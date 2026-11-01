@@ -510,3 +510,31 @@ def test_ipam_network_read_never_replaces_inventory_identity_view(network, admin
         observation_id = obs.id
     result = admin_client.get("/api/v1/observations", params={"device_id": ids[1], "limit": 5}).json()
     assert result["total"] == 1 and result["items"][0]["id"] == observation_id
+
+
+def test_fortigate_prefix_pointer_and_subdivision_prove_gateway_attachment():
+    import ipaddress
+
+    from netrix.discovery.protocols import ipv4_value
+    from netrix.ipam.connections import gateway_interfaces
+    from pysnmp.proto.rfc1902 import OctetString
+
+    # Recorded shape from FortiOS: VDOM suffix on address index; omitted length
+    # in the prefix RowPointer. The IPAM VLAN is a subdivision of the /23.
+    tables = {
+        "ip_addr_ifindex": {"10.5.0.1.1": "44"},
+        "ip_addr_address": {"10.5.0.1.1": "10.5.0.1"},
+        "ip_addr_mask": {"10.5.0.1.1": ipv4_value(OctetString(b"\xff\xff\xfe\x00"))},
+    }
+    assert gateway_interfaces(tables, ipaddress.ip_network("10.5.0.0/24")) == {44}
+    assert gateway_interfaces(tables, ipaddress.ip_network("10.6.0.0/24")) == set()
+    assert gateway_interfaces(tables, ipaddress.ip_network("10.5.0.0/22", strict=False)) == set()
+    pointer = {
+        "ip_address_ifindex": {"1.4.10.5.0.1.44": "44"},
+        "ip_address_prefix": {"1.4.10.5.0.1.44": "1.3.6.1.2.1.4.32.1.5.44.1.10.5.0.0.23"},
+    }
+    assert gateway_interfaces(pointer, ipaddress.ip_network("10.5.0.0/24")) == {44}
+    pointer["ip_address_ifindex"]["1.4.10.5.0.1.44"] = "45"
+    assert gateway_interfaces(pointer, ipaddress.ip_network("10.5.0.0/24")) == set()
+    assert ipv4_value(OctetString(b"\x0a\x05\x00\x01")) == "10.5.0.1"
+    assert ipv4_value(OctetString(b"bad")) == ""

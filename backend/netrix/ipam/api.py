@@ -76,6 +76,18 @@ def scan(id: str, action: Literal["ping", "discover"], user=Depends(operator), d
     return svc.serialize(svc.enqueue(db, "ipam_" + action, id, user))
 
 
+@router.get("/ipam/vlans/{id}/scan")
+def scan_status(id: str, user=Depends(current_user), db=Depends(db_session)):
+    svc.get(db, m.VLAN, id)
+    job = db.scalar(
+        select(m.Job)
+        .where(m.Job.target_id == id, m.Job.kind == "ipam_discover")
+        .order_by(m.Job.created_at.desc(), m.Job.id.desc())
+        .limit(1)
+    )
+    return svc.serialize(job) if job else None
+
+
 @router.post("/integrations", status_code=201)
 def create(payload: IntegrationInput, user=Depends(admin), db=Depends(db_session)):
     return service.save_integration(db, payload, user)

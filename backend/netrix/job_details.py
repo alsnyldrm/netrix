@@ -147,6 +147,16 @@ def details(db, job):
         paragraphs.append(
             f"Gateway/switch kaynakları: {network['read']} okundu, {network['failed']} okunamadı."
         )
+    if job.kind == "ipam_discover" and result.get("source_statuses"):
+        statuses = result["source_statuses"].values()
+        paragraphs.append(
+            f"DHCP/VMware eşitlemeleri: {sum(s == 'succeeded' for s in statuses)} tamamlandı, {sum(s != 'succeeded' for s in statuses)} tamamlanamadı."
+        )
+    if job.kind == "ipam_discover" and result.get("matching"):
+        match = result["matching"]
+        paragraphs.append(
+            f"Eşleştirilen {match['addresses']} IP içinde: {match['hostname']} DNS ismi, {match['mac_address']} gateway MAC, {match['connected_port']} cihaz/port, {match['operating_system']} VMware işletim sistemi. Belirsiz bağlantı: {match['ambiguous']}."
+        )
     if job.kind == "compare" and "changed" in result:
         paragraphs.append(
             "Kayıtlı yedeğe göre değişiklik bulundu."

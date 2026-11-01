@@ -1,9 +1,10 @@
 import asyncio
 import json
+import time
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 
 from .. import models as m
 from ..core import now, session_factory
@@ -22,6 +23,91 @@ from .service import (
 
 KINDS = ("ipam_ping", "ipam_discover", "integration")
 SCAN_BATCH_SIZE = 32
+SOURCE_WAIT_SECONDS = 900
+
+
+def scan_phase(job_id, phase, **result):
+    from ..worker import Cancelled
+
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        if job.cancel_requested or not db.get(m.VLAN, job.target_id):
+            raise Cancelled()
+        job.result = {**job.result, **result, "scan_phase": phase}
+        db.commit()
+    publish()
+
+
+async def wait_for_sources(job_id, ids):
+    """Dependency jobs use reserved worker slots; the parent never finishes early."""
+    from ..worker import Cancelled
+
+    deadline = time.monotonic() + SOURCE_WAIT_SECONDS
+    while True:
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            if job.cancel_requested or not db.get(m.VLAN, job.target_id):
+                raise Cancelled()
+            sources = {j.id: j.status for j in db.scalars(select(m.Job).where(m.Job.id.in_(ids)))}
+        if all(sources.get(id) not in ("queued", "running") for id in ids):
+            return {id: sources.get(id, "missing") for id in ids}
+        if time.monotonic() >= deadline:
+            return {
+                id: status if status not in ("queued", "running") else "timeout"
+                for id, status in sources.items()
+            }
+        await asyncio.sleep(0.5)
+
+
+async def complete_dns(job_id, started_at):
+    """Resolve newly imported/ICMP-silent IPs before matching is reported complete."""
+    from ..worker import Cancelled
+
+    with session_factory()() as db:
+        job = get(db, m.Job, job_id)
+        vlan = get(db, m.VLAN, job.target_id)
+        dns = db.get(m.DNSServer, vlan.dns_server_id) if vlan.dns_server_id else None
+        addresses = list(
+            db.scalars(
+                select(m.IPAddress.address)
+                .outerjoin(
+                    m.IPObservation,
+                    and_(
+                        m.IPObservation.address_id == m.IPAddress.id,
+                        m.IPObservation.source == "dns",
+                        m.IPObservation.source_key == (vlan.dns_server_id or "system"),
+                    ),
+                )
+                .where(
+                    m.IPAddress.vlan_id == vlan.id,
+                    or_(m.IPObservation.id.is_(None), m.IPObservation.observed_at < started_at),
+                )
+            )
+        )
+    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
+        batch = addresses[start : start + SCAN_BATCH_SIZE]
+        values = await asyncio.gather(*(adapters.reverse_dns(address, dns) for address in batch))
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            if job.cancel_requested:
+                raise Cancelled()
+            vlan = get(db, m.VLAN, job.target_id)
+            # A DNS selection changed during the scan: do not attach the old answer.
+            if vlan.dns_server_id != (dns.id if dns else None):
+                raise Cancelled()
+            for address, hostname in zip(batch, values):
+                observe(
+                    db,
+                    vlan,
+                    address,
+                    "dns",
+                    dns.id if dns else "system",
+                    {"hostname": hostname, "present": bool(hostname)},
+                    create=False,
+                )
+            db.commit()
+        publish()
+    return len(addresses)
 
 
 def validate_target(db, kind, id):
@@ -63,6 +149,7 @@ def connection_options(db, row, *, obs=None):
 async def scan(job_id, collector=None):
     from ..worker import Cancelled
 
+    started_at = now()
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
         if job.cancel_requested:
@@ -74,6 +161,8 @@ async def scan(job_id, collector=None):
         job.total = len(addresses)
         setattr(prefix, "last_discovery_at" if discover else "last_ping_at", now())
         db.commit()
+    if discover:
+        scan_phase(job_id, "addresses")
     reached = 0
     # Batches bound tasks, subprocesses and cancellation latency.
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
@@ -125,26 +214,76 @@ async def scan(job_id, collector=None):
             db.commit()
         publish()
     source_jobs = []
+    followup_ids = []
     network_result = None
+    source_statuses = {}
+    matching = None
     if discover:
         from ..discovery.protocols import SNMPCollector
         from .network import refresh
 
+        scan_phase(job_id, "network")
         network_result = await refresh(job_id, collector or SNMPCollector())
+        # DHCP must finish before VMware starts, including NICs without guest IPs.
+        for kind, phase in (("windows_dhcp", "dhcp"), ("vcenter", "vmware")):
+            with session_factory()() as db:
+                if get(db, m.Job, job_id).cancel_requested:
+                    raise Cancelled()
+                current = get(db, m.VLAN, prefix.id)
+                scan_boundary(db, current)
+                followups = {
+                    j.target_id: j for j in db.scalars(select(m.Job).where(m.Job.id.in_(followup_ids)))
+                }
+                ids = [
+                    (followups.get(config.id) or enqueue(db, "integration", config.id, commit=False)).id
+                    for config in db.scalars(
+                        select(m.Integration).where(
+                            m.Integration.enabled.is_(True), m.Integration.kind == kind
+                        )
+                    )
+                ]
+                source_jobs.extend(ids)
+                db.commit()
+            scan_phase(job_id, phase, network=network_result, source_jobs=source_jobs)
+            source_statuses.update(await wait_for_sources(job_id, ids))
+            with session_factory()() as db:
+                followup_ids = [
+                    child
+                    for source in db.scalars(select(m.Job).where(m.Job.id.in_(ids)))
+                    for child in source.result.get("source_jobs", [])
+                ]
+        scan_phase(job_id, "dns", source_statuses=source_statuses)
+        await complete_dns(job_id, started_at)
+        scan_phase(job_id, "matching")
+        from .service import enrich
+
         with session_factory()() as db:
-            if get(db, m.Job, job_id).cancel_requested:
-                raise Cancelled()
-            current = get(db, m.VLAN, prefix.id)
-            scan_boundary(db, current)
-            for config in db.scalars(select(m.Integration).where(m.Integration.enabled.is_(True))):
-                source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
-            db.commit()
+            rows = enrich(
+                db,
+                list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == prefix.id))),
+                details=False,
+            )
+            matching = {
+                field: sum(bool(r.get(field)) for r in rows)
+                for field in (
+                    "hostname",
+                    "mac_address",
+                    "connected_device",
+                    "connected_port",
+                    "operating_system",
+                )
+            }
+            matching.update(addresses=len(rows), ambiguous=sum(bool(r["connection_ambiguous"]) for r in rows))
+        scan_phase(job_id, "complete", matching=matching)
     return {
         "checked": len(addresses),
         "reachable": reached,
         "no_reply": len(addresses) - reached,
         "source_jobs": source_jobs,
         "network": network_result,
+        "source_statuses": source_statuses,
+        "source_failed": sum(status != "succeeded" for status in source_statuses.values()),
+        "matching": matching,
     }
 
 
@@ -271,12 +410,13 @@ async def integration(job_id, collector=None):
                     )
                     old.data = {**old.data, "present": False}
                     old.observed_at = now()
+        source_jobs = []
         if current.kind == "windows_dhcp":
             # Refresh VM information after reservations exist, using already enabled integrations only.
             for config in db.scalars(
                 select(m.Integration).where(m.Integration.kind == "vcenter", m.Integration.enabled.is_(True))
             ):
-                enqueue(db, "integration", config.id, commit=False)
+                source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
         current.last_success_at = now()
         for vlan in prefixes:
             enqueue(db, "ipam_ping", vlan.id, commit=False)
@@ -288,6 +428,7 @@ async def integration(job_id, collector=None):
         "imported": count,
         "outside_vlans": len(records) - count,
         "matched_by_mac": matched,
+        "source_jobs": source_jobs,
     }
 
 

@@ -85,12 +85,24 @@ IPAM_TABLES = {
     "ndp_type": "1.3.6.1.2.1.4.35.1.6",
     "ndp_state": "1.3.6.1.2.1.4.35.1.7",
     "ip_addr_ifindex": "1.3.6.1.2.1.4.20.1.2",
+    "ip_addr_address": "1.3.6.1.2.1.4.20.1.1",
     "ip_addr_mask": "1.3.6.1.2.1.4.20.1.3",
     "ip_address_ifindex": "1.3.6.1.2.1.4.34.1.3",
     "ip_address_prefix": "1.3.6.1.2.1.4.34.1.5",
     "vlan_fdb_id": "1.3.6.1.2.1.17.7.1.4.2.1.3",
     "vlan_fdb_status": "1.3.6.1.2.1.17.7.1.2.2.1.3",
 }
+
+
+def ipv4_value(value):
+    """Agents may encode IP-MIB addresses/masks as raw four-octet strings."""
+    try:
+        octets = value.asOctets() if hasattr(value, "asOctets") else value
+        if isinstance(octets, bytes) and len(octets) == 4:
+            return str(ipaddress.IPv4Address(octets))
+        return str(ipaddress.IPv4Address(str(value)))
+    except (ValueError, TypeError):
+        return ""
 
 
 def number(value, default=None):
@@ -222,7 +234,12 @@ class SNMPCollector:
                 neighbors = parse_neighbors(tables)
                 raw = {
                     key: {
-                        i: mac(v) if key in ("arp_mac", "ndp_mac") else str(v) for i, v in tables[key].items()
+                        i: mac(v)
+                        if key in ("arp_mac", "ndp_mac")
+                        else ipv4_value(v)
+                        if key in ("ip_addr_mask", "ip_addr_address")
+                        else str(v)
+                        for i, v in tables[key].items()
                     }
                     for key in (
                         tuple(IPAM_TABLES)
