@@ -490,11 +490,16 @@ function LocationForm({
 }
 export function Cabinets({
   refs,
+  roomId,
+  onRoomChange: setRoomId,
   user,
   onSaved,
   onEdit,
-}: Props & { onEdit: (row: Row) => void }) {
-  const [roomId, setRoomId] = useState<string | null>(null);
+}: Props & {
+  roomId: string | null;
+  onRoomChange: (id: string | null) => void;
+  onEdit: (row: Row) => void;
+}) {
   const [rack, setRack] = useState<Row | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [search, setSearch] = useState("");

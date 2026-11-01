@@ -149,8 +149,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     form = page.get_by_role("dialog").last
     form.get_by_label("Kabinet no", exact=False).fill("5")
-    form.get_by_label("Lokasyon", exact=False).select_option(label="Kuzey Kampüs")
-    form.get_by_label("Oda", exact=False).select_option(label="Sunucu Odası")
+    expect(form.get_by_role("combobox")).to_have_count(0)
+    expect(form.get_by_role("note", name="Kabinetin ekleneceği oda")).to_contain_text("Sunucu Odası")
     check("cabinet-form")
     form.get_by_role("button", name="Kaydı kaydet", exact=False).click()
     expect(page.get_by_role("button", name="5", exact=True)).to_be_visible()

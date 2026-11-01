@@ -1293,7 +1293,18 @@ function GenericResourceForm({
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const cabinetRoom =
+    page.key === "cabinets" && !row?.id
+      ? refs.sites?.find(
+          (site) =>
+            site.id === row?.sub_site_id && site.parent_id === row?.site_id,
+        )
+      : undefined;
   const fields = (page.fields || [])
+    .filter(
+      (field) =>
+        !cabinetRoom || !["site_id", "sub_site_id"].includes(field.key),
+    )
     .filter(
       (field) =>
         field.key !== "ssh_trust_host_key" || values.adapter !== "rest",
@@ -1383,6 +1394,31 @@ function GenericResourceForm({
       wide={page.key === "devices"}
     >
       <form onSubmit={submit}>
+        {cabinetRoom && (
+          <div
+            className="info-note cabinet-room-context"
+            role="note"
+            aria-label="Kabinetin ekleneceği oda"
+          >
+            <Buildings size={20} aria-hidden="true" />
+            <div>
+              <strong>{cabinetRoom.name}</strong>
+              <p>
+                {[
+                  refs.institutions?.find(
+                    (item) => item.id === cabinetRoom.institution_id,
+                  )?.name,
+                  refs.sites?.find((item) => item.id === cabinetRoom.parent_id)
+                    ?.name,
+                  `Kat: ${cabinetRoom.floor_number || "—"}`,
+                  `Bölüm: ${cabinetRoom.department_name || "—"}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            </div>
+          </div>
+        )}
         {page.key === "devices" && (
           <div className="info-note">
             <Info size={20} />
@@ -1397,7 +1433,13 @@ function GenericResourceForm({
           {fields.map((field) => (
             <label
               key={field.key}
-              className={"form-field" + (field.type === "array" ? " full" : "")}
+              className={
+                "form-field" +
+                (field.type === "array" ||
+                (cabinetRoom && field.key === "description")
+                  ? " full"
+                  : "")
+              }
             >
               <span className="field-title">
                 {field.label}
@@ -2223,6 +2265,8 @@ function App() {
   const [toast, setToast] = useState("");
   const [connected, setConnected] = useState(false);
   const [form, setForm] = useState<{ page: Page; row?: Row } | null>(null);
+  const [cabinetRoomId, setCabinetRoomId] = useState<string | null>(null);
+  useEffect(() => setCabinetRoomId(null), [current, user?.id]);
   const [detail, setDetail] = useState<Row | null>(null);
   const [config, setConfig] = useState<{
     title: string;
@@ -2495,7 +2539,16 @@ function App() {
       notify("Bu işlem için gerekli yetkiniz bulunmuyor.");
       return;
     }
-    setForm({ page: p });
+    const room =
+      key === "cabinets" && current === "cabinets"
+        ? refs.sites?.find(
+            (site) => site.id === cabinetRoomId && site.parent_id,
+          )
+        : undefined;
+    setForm({
+      page: p,
+      row: room ? { site_id: room.parent_id, sub_site_id: room.id } : undefined,
+    });
   };
   const runJob = async (kind: string, target_id: string) => {
     try {
@@ -2939,6 +2992,8 @@ function App() {
             ) : page.key === "cabinets" ? (
               <Cabinets
                 refs={refs}
+                roomId={cabinetRoomId}
+                onRoomChange={setCabinetRoomId}
                 refresh={refresh}
                 user={user!}
                 onSaved={reload}
