@@ -37,6 +37,8 @@ Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential,
 
 Kaynaklar: [ENTITY-MIB yazılım revizyonu](https://www.rfc-editor.org/rfc/rfc4133#section-3), [AOS-S sistem yazılım revizyonu](https://arubanetworking.hpe.com/techdocs/AOS-S/16.11/MCG/KB/content/kb/sh-sys-asi.htm), [AOS-CX show version](https://arubanetworking.hpe.com/techdocs/AOS-CX/10.14/HTML/fundamentals_6200/Content/SysHW_cmds/sho-ver-10.htm).
 
+FortiGate sysDescr alanında sürüm yoksa, yalnızca FortiGate enterprise kimliğiyle eşleşen cihazlarda [fgSysVersion](https://docs.fortinet.com/document/fortigate/7.6.0/fortigate-mib-information-overview/293724/fortigate-system-mibs) (`1.3.6.1.4.1.12356.101.4.1.1.0`) okunur. Sürüm ve build değeri doğrulanarak kaydedilir; desteklenmeyen/yanıtsız OID SSH alternatifini engellemez. Bağlantı testi ve IPAM toplaması bu ek okumayı yapmaz.
+
 MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)` kataloğu uygulanmıştır. `devices.kind`, değişmez `device_types.code` değerine FK ile bağlanır; görünen ad bağımsız düzenlenir. Aktif/arşiv cihaz ilişkileri silmeyi engeller. Varsayılan `other` kaydı, sınıflandırılmamış cihazlar için korunur.
 
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |

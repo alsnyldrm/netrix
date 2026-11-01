@@ -2,6 +2,26 @@
 
 import re
 
+FORTIGATE_VERSION_OID = "1.3.6.1.4.1.12356.101.4.1.1.0"
+
+
+def software_scalar(object_id):
+    """Vendor version scalars supplement agents with a hostname-only sysDescr."""
+    if str(object_id).lstrip(".").startswith("1.3.6.1.4.1.12356.101."):
+        return FORTIGATE_VERSION_OID
+    return None
+
+
+def scalar_version(oid, value):
+    if oid != FORTIGATE_VERSION_OID:
+        return ""
+    match = re.fullmatch(
+        r"v?(\d+\.\d+\.\d+)(?:,build(\d+))?(?:,\d{6})?(?: \([A-Za-z0-9. -]+\))?",
+        str(value).strip(),
+        re.I,
+    )
+    return match[1] + (f" build{match[2]}" if match[2] else "") if match else ""
+
 
 def clean_version(value):
     if not isinstance(value, str):

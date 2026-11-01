@@ -277,3 +277,43 @@ async def test_unsupported_or_failed_neighbor_walks_are_not_complete(monkeypatch
     assert result["neighbors"] == []
     assert result["neighbor_protocols_complete"] == []
     assert set(result["unsupported"]) == {"lldp_name", "cdp_name"}
+
+
+@pytest.mark.parametrize("mode", ["software", "identify", "probe", "ipam"])
+@pytest.mark.parametrize("private_value", ["v7.4.13,build2933,260929 (GA.M)", "unsupported", "timeout"])
+async def test_fortigate_version_scalar_when_sysdescr_is_hostname(monkeypatch, mode, private_value):
+    instance = Engine()
+    monkeypatch.setattr(p, "SnmpEngine", lambda: instance)
+    monkeypatch.setattr(p, "UdpTransportTarget", Transport)
+    monkeypatch.setattr(p, "ObjectType", lambda x: x)
+    monkeypatch.setattr(p, "ObjectIdentity", lambda x: x)
+    private_oid = "1.3.6.1.4.1.12356.101.4.1.1.0"
+    requests = []
+
+    async def get(engine, auth, target, context, *oids, **kwargs):
+        requests.extend(oids)
+        if oids == (private_oid,):
+            if private_value == "timeout":
+                return "timeout", 0, 0, []
+            value = p.NoSuchObject() if private_value == "unsupported" else private_value
+            return None, 0, 0, [(private_oid, value)]
+        return None, 0, 0, list(zip(oids, ["fw-hostname", "1.3.6.1.4.1.12356.101.1.600", 100, "fw", 1]))
+
+    async def walk(*args, **kwargs):
+        if False:
+            yield
+
+    monkeypatch.setattr(p, "get_cmd", get)
+    monkeypatch.setattr(p, "walk_cmd", walk)
+    monkeypatch.setattr(p, "bulk_walk_cmd", walk)
+    result = await getattr(p.SNMPCollector(), mode)(
+        "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
+    )
+    if mode in ("probe", "ipam"):
+        assert private_oid not in requests
+    else:
+        assert private_oid in requests
+        assert result["identity"].get("software_version", "") == (
+            "7.4.13 build2933" if private_value.startswith("v") else ""
+        )
+    assert instance.closed

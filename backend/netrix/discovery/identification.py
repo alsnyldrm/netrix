@@ -99,7 +99,9 @@ def snmp_identity(system, tables):
     if len(versions) == 1:
         fields["software_version"] = unique_version(versions)
     elif not versions:
-        fields["software_version"] = software_version(description)
+        fields["software_version"] = software_version(description) or clean_version(
+            system.get("software_version", "")
+        )
     # Recognize explicit model tokens, not software versions or the entire sysDescr.
     if "model" not in fields and "model" not in ambiguous:
         match = re.search(

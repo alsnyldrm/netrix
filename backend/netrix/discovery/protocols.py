@@ -33,6 +33,7 @@ from .comware import read_comware
 from .identification import rest_identity, snmp_identity, ssh_identity
 from .neighbor_detail import AOS_SWITCH
 from .neighbors import parse_neighbors
+from .software_version import scalar_version, software_scalar
 
 
 class NetworkError(Exception):
@@ -185,14 +186,31 @@ class SNMPCollector:
                     raise NetworkError("SNMP erişimi başarısız")
                 system = {key: str(values[i][1]) for i, key in enumerate(system_oids)}
                 system["uptime"] = number(values[2][1], 0)
-                if version_only:
-                    fields = snmp_identity(system, {})
-                    if fields.get("software_version"):
-                        return {"identity": {"software_version": fields["software_version"]}}
                 if probe_only:
                     if number(values[2][1]) is None:
                         raise NetworkError("SNMP sistem OID okuması başarısız")
                     return
+                version_oid = software_scalar(system.get("sys_object_id"))
+                if not ipam_only and version_oid and not snmp_identity(system, {}).get("software_version"):
+                    error, status, _, version_values = await get_cmd(
+                        snmp,
+                        auth,
+                        target,
+                        context,
+                        ObjectType(ObjectIdentity(version_oid)),
+                        lookupMib=False,
+                    )
+                    if (
+                        not error
+                        and not status
+                        and version_values
+                        and not isinstance(version_values[0][1], (EndOfMibView, NoSuchInstance, NoSuchObject))
+                    ):
+                        system["software_version"] = scalar_version(version_oid, version_values[0][1])
+                if version_only:
+                    fields = snmp_identity(system, {})
+                    if fields.get("software_version"):
+                        return {"identity": {"software_version": fields["software_version"]}}
                 limit = 16384 if ipam_only else 2048
                 for key, oid in (IPAM_TABLES if ipam_only else TABLES).items():
                     if version_only and key not in ("entity_class", "entity_software"):
