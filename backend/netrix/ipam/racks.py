@@ -14,18 +14,27 @@ def address_cabinets(db, rows):
     """Resolve the endpoint's own rack, not the switch referenced by device_id."""
     if not rows:
         return {}
-    return dict(
-        db.execute(
-            select(m.IPAddress.id, m.Cabinet.name)
-            .join(
-                m.Device,
-                (m.Device.vrf_id == m.IPAddress.vrf_id) & (m.Device.management_ip == m.IPAddress.address),
-            )
-            .join(m.RackPlacement, m.RackPlacement.device_id == m.Device.id)
-            .join(m.Cabinet, m.Cabinet.id == m.RackPlacement.cabinet_id)
-            .where(m.IPAddress.id.in_([r.id for r in rows]), m.Device.archived.is_(False))
-        ).all()
-    )
+    placements = db.execute(
+        select(
+            m.IPAddress.id,
+            m.Site.floor_number,
+            m.Site.department_name,
+            m.Cabinet.name,
+            m.RackPlacement.start_unit,
+        )
+        .join(
+            m.Device,
+            (m.Device.vrf_id == m.IPAddress.vrf_id) & (m.Device.management_ip == m.IPAddress.address),
+        )
+        .join(m.RackPlacement, m.RackPlacement.device_id == m.Device.id)
+        .join(m.Cabinet, m.Cabinet.id == m.RackPlacement.cabinet_id)
+        .outerjoin(m.Site, m.Site.id == m.Cabinet.sub_site_id)
+        .where(m.IPAddress.id.in_([r.id for r in rows]), m.Device.archived.is_(False))
+    ).all()
+    return {
+        address_id: f"{floor or '—'}/{department or '—'}/{cabinet}/{unit}U"
+        for address_id, floor, department, cabinet, unit in placements
+    }
 
 
 def detail(db, id):

@@ -56,7 +56,7 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
     device_id = r.json()["selected_device_id"]
     assert device_id != upstream_id
     assert len(r.json()["placements"]) == 2
-    assert c.get(f"/api/v1/ipam/addresses/{address_id}").json()["cabinet"] == "04"
+    assert c.get(f"/api/v1/ipam/addresses/{address_id}").json()["cabinet"] == "L-0/A/04/1U"
     assert (
         c.post(
             base + "/placements/from-ip",

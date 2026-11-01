@@ -1275,7 +1275,7 @@ function GenericResourceForm({
         field.key,
         (page.key === "addresses" &&
         field.key === "cabinet" &&
-        row?.connection_type === "vcenter"
+        (row?.connection_type === "vcenter" || row?.rack_position)
           ? (row.managed?.cabinet ?? "")
           : row?.[field.key]) ??
           field.default ??
@@ -1422,6 +1422,22 @@ function GenericResourceForm({
                   />
                   <small id={`vmware-${field.key}`}>
                     VMware vCenter’dan otomatik alınır.
+                  </small>
+                </>
+              ) : page.key === "addresses" &&
+                field.key === "cabinet" &&
+                row?.rack_position &&
+                values.vrf_id === row.vrf_id &&
+                values.address === row.address ? (
+                <>
+                  <input
+                    readOnly
+                    aria-label={field.label}
+                    aria-describedby="rack-cabinet-source"
+                    value={row.rack_position}
+                  />
+                  <small id="rack-cabinet-source">
+                    Kabinet yerleşiminden otomatik alınır.
                   </small>
                 </>
               ) : field.type === "checkbox" ? (

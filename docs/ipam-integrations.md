@@ -10,6 +10,7 @@ IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu
 | MAC | DNS hostname'i ile doğrulanan tekil VMware VM/NIC; bu eşleşme yoksa aynı VRF ve VLAN CIDR'ına doğrudan bağlı gateway arayüzünün ARP/NDP tablosu |
 | Bağlı cihaz / Port | Bağlantı → Komşuluklar'ın güncel LLDP/CDP kanıtı; gateway MAC'i ile VLAN'a ait switch FDB eşleştirmesi; VMware VM'lerinde entegrasyonun doğruladığı sanal switch/NIC portu |
 | İşletim sistemi | Yönetim → Entegrasyonlar → VMware |
+| Kabin No | Aynı VRF/IP ile cihazın kendi kabinet yerleşimi; oda katı/bölümü/kabinet numarası/başlangıç U (`L-0/A/4/13U`) |
 
 DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. DHCP ve VMware isimleri DNS yerine; DHCP MAC'i otomatik MAC alanında; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. DNS hostname'i VMware'de doğrulanırsa MAC önceliği VMware'dedir; bu açık istisna dışındaki kayıtlar gateway kuralını kullanır. Manuel hostname/OS notları ayrı `managed` alanında korunur; otomatik alanların kaynağını değiştirmez. Kaynağı olmayan otomatik değer boştur.
 
@@ -50,3 +51,5 @@ VMware IP/MAC, işletim sistemi, güç durumu, VM/NIC ve sanal switch/port grubu
 ## Silme ve menü sınırı
 
 VLAN silme önizlemesi IP sayısını gösterir. Silme VLAN'ın ping/keşif işlerini iptal eder; VLAN ve IP gözlemlerini kaldırır. Envanter ve entegrasyon kayıtları korunur. IPAM'a ait sunucular Bağlantı cihaz listesine taşınmaz. Ortak kurum/lokasyon ve kabinet tanımları kullanılmaya devam eder.
+
+VLAN IP listesindeki ve IP ayrıntısındaki Kabin No, fiziksel yerleşim varsa oda/kabinet ilişkilerinden tek toplu sorguyla üretilir. Seçilmiş üst switchin kabineti kullanılmaz. Fiziksel yerleşim, eski manuel kabinet notunun görüntülenmesine göre önceliklidir; manuel not değiştirilmez ve yerleşim yoksa kullanılabilir. Fiziksel yerleşim `rack_position` ile belirtilir; IP düzenleyicide salt okunur gösterilir ve kaydetme sırasında manuel alana kopyalanmaz. Güncel VMware VM eşleşmesinde önceki “Sanal” davranışı korunur. Kabinet numarası tanımlandığı biçimiyle gösterilir; eski ve eksik oda alanları `—` olarak belirtilir. Oda, U ve kabinet düzenlemeleri mevcut yayın/önbellek geçersizleştirme akışını kullanır.

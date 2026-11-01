@@ -348,7 +348,8 @@ def enrich(db, rows, *, details=True, include_options=False):
     for row in rows:
         item = serialize(row)
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
-        item["cabinet"] = item["cabinet"] or cabinets.get(row.id, "")
+        item["rack_position"] = cabinets.get(row.id, "")
+        item["cabinet"] = item["rack_position"] or item["cabinet"]
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         if details:
             item["observations"] = [serialize(o) for o in obs]
