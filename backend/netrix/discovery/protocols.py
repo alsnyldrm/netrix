@@ -131,6 +131,9 @@ class SNMPCollector:
     async def identify(self, host, port, secret):
         return await self._collect(host, port, secret, identity_only=True)
 
+    async def software(self, host, port, secret):
+        return await self._collect(host, port, secret, identity_only=True, version_only=True)
+
     async def probe(self, host, port, secret):
         return await self._collect(host, port, secret, probe_only=True)
 
@@ -138,7 +141,15 @@ class SNMPCollector:
         return await self._collect(host, port, secret, probe_only=True, fast_probe=True)
 
     async def _collect(
-        self, host, port, secret, identity_only=False, probe_only=False, fast_probe=False, ipam_only=False
+        self,
+        host,
+        port,
+        secret,
+        identity_only=False,
+        probe_only=False,
+        fast_probe=False,
+        ipam_only=False,
+        version_only=False,
     ):
         snmp = SnmpEngine()
         try:
@@ -160,7 +171,7 @@ class SNMPCollector:
             target = await transport_type.create((host, port), timeout=1 if fast_probe else 2, retries=1)
             context = ContextData()
             tables, unsupported = {}, []
-            async with asyncio.timeout(180):
+            async with asyncio.timeout(30 if version_only else 180):
                 system_oids = {**SYSTEM, **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only else {})}
                 error, status, _, values = await get_cmd(
                     snmp,
@@ -174,12 +185,18 @@ class SNMPCollector:
                     raise NetworkError("SNMP erişimi başarısız")
                 system = {key: str(values[i][1]) for i, key in enumerate(system_oids)}
                 system["uptime"] = number(values[2][1], 0)
+                if version_only:
+                    fields = snmp_identity(system, {})
+                    if fields.get("software_version"):
+                        return {"identity": {"software_version": fields["software_version"]}}
                 if probe_only:
                     if number(values[2][1]) is None:
                         raise NetworkError("SNMP sistem OID okuması başarısız")
                     return
                 limit = 16384 if ipam_only else 2048
                 for key, oid in (IPAM_TABLES if ipam_only else TABLES).items():
+                    if version_only and key not in ("entity_class", "entity_software"):
+                        continue
                     if identity_only and not key.startswith("entity_"):
                         continue
                     table = {}

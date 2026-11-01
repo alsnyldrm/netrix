@@ -133,6 +133,8 @@ async def identify_device(job_id, collector):
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
         device = get(db, m.Device, job.target_id)
+        version_only = bool(job.result.get("version_only"))
+        required_fields = {"software_version"} if version_only else {"vendor", "model", "kind"}
         authorized_device(db, device)
         if job.cancel_requested:
             raise Cancelled()
@@ -149,15 +151,17 @@ async def identify_device(job_id, collector):
                 )
     fields, sources, attempts = {}, {}, []
     for protocol, secret, _, _ in credentials:
-        if {"vendor", "model", "kind", "software_version"} <= fields.keys():
+        if (required_fields | {"software_version"}) <= fields.keys():
             break
         try:
             if protocol in SNMP_PROTOCOLS:
-                collect = getattr(collector, "identify", collector.collect)
+                collect = getattr(collector, "software" if version_only else "identify", collector.collect)
                 response = await collect(device.management_ip, device.snmp_port, secret)
                 values = normalize(response.get("identity")) or snmp_identity(response, {})
             else:
                 values = normalize(await fetch_identity(device, secret))
+            if version_only:
+                values = {k: v for k, v in values.items() if k == "software_version"}
             attempts.append({"protocol": protocol, "status": "read", "fields": sorted(values)})
             for key, value in values.items():
                 if key not in fields:
@@ -168,7 +172,7 @@ async def identify_device(job_id, collector):
     if attempts and all(attempt["status"] == "failed" for attempt in attempts):
         raise NetworkError("Cihaz kimlik bilgileri okunamadı")
     neighbor_data = None
-    if device.adapter in AOS_SWITCH:
+    if device.adapter in AOS_SWITCH and not version_only:
         ssh_secret = next((s for p, s, _, _ in credentials if p == "ssh"), None)
         if ssh_secret:
             try:
@@ -213,7 +217,7 @@ async def identify_device(job_id, collector):
         publish()
     return {
         "fields": fields,
-        "missing_fields": sorted({"vendor", "model", "kind"} - fields.keys()),
+        "missing_fields": sorted(required_fields - fields.keys()),
         "field_sources": sources,
         "attempts": attempts,
     }
@@ -590,9 +594,13 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                     else result.get("message", "Bağlantı testi başarısız.")
                 )
             elif kind == "identify":
-                count = len(result.get("fields", {}))
-                job.status = "succeeded" if count == 3 else "partial" if count else "failed"
-                job.error = "" if count == 3 else "Okunamayan alanlarda mevcut bilgiler korundu."
+                fields = result.get("fields", {})
+                expected = (
+                    {"software_version"} if job.result.get("version_only") else {"vendor", "model", "kind"}
+                )
+                complete = expected <= fields.keys()
+                job.status = "succeeded" if complete else "partial" if fields else "failed"
+                job.error = "" if complete else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
             elif kind == "ipam_discover" and (

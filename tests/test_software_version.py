@@ -107,6 +107,7 @@ async def test_version_falls_back_to_ssh_when_snmp_has_complete_identity(
     assert "fixture-secret" not in json.dumps(result)
     with env() as db:
         assert db.get(m.Device, device["id"]).software_version == "KB.16.11.0032"
+        assert db.get(m.Job, job["id"]).status == "succeeded"
 
 
 def test_failed_read_preserves_previous_version(env, inventory):
@@ -124,3 +125,68 @@ def test_failed_read_preserves_previous_version(env, inventory):
         apply_identity(db, device, {"software_version": "unknown"}, "fixture", "snmpv3")
         db.commit()
         assert device.software_version == "KB.16.11.0032"
+
+
+async def test_version_only_worker_skips_identity_and_neighbor_queries(
+    admin_client, inventory, env, monkeypatch
+):
+    device, _ = create_device(admin_client, inventory, adapter="aruba_5400")
+    job = admin_client.post("/api/v1/jobs", json={"kind": "identify", "target_id": device["id"]}).json()
+    with env() as db:
+        db.get(m.Job, job["id"]).result = {"version_only": True}
+        db.commit()
+
+    class Collector:
+        async def software(self, *args):
+            return {"identity": {"software_version": "KB.16.11.0032", "vendor": "Unwanted override"}}
+
+        async def collect(self, *args):
+            raise AssertionError("full collection must not run")
+
+    async def forbidden(*args):
+        raise AssertionError("SSH metadata/neighbor query must not run when SNMP version succeeded")
+
+    monkeypatch.setattr(worker, "fetch_neighbor_detail", forbidden)
+    monkeypatch.setattr(worker, "fetch_identity", forbidden)
+    assert worker.claim() == job["id"]
+    await worker.execute(job["id"], Collector())
+    with env() as db:
+        current = db.get(m.Device, device["id"])
+        assert current.software_version == "KB.16.11.0032" and current.vendor == "Manual vendor"
+        assert db.get(m.Job, job["id"]).status == "succeeded"
+
+
+@pytest.mark.parametrize(
+    "description,expected_walks",
+    [("HP Switch, revision KB.16.11.0032, ROM KB.16.01.0009", 0), ("HP Switch", 2)],
+)
+async def test_software_probe_reads_system_then_only_needed_entity_tables(
+    monkeypatch, description, expected_walks
+):
+    from netrix.discovery import protocols as p
+    from test_protocols import Engine, Transport
+
+    engine = Engine()
+    monkeypatch.setattr(p, "SnmpEngine", lambda: engine)
+    monkeypatch.setattr(p, "UdpTransportTarget", Transport)
+    monkeypatch.setattr(p, "ObjectType", lambda x: x)
+    monkeypatch.setattr(p, "ObjectIdentity", lambda x: x)
+
+    async def get(*args, **kwargs):
+        return None, 0, 0, list(zip(p.SYSTEM.values(), [description, "1.3.6.1.4.1.11", 123, "fixture"]))
+
+    walked = []
+
+    async def walk(engine, auth, target, context, oid, **kwargs):
+        walked.append(oid)
+        assert oid in (p.TABLES["entity_class"], p.TABLES["entity_software"])
+        value = 3 if oid == p.TABLES["entity_class"] else "KB.16.11.0032"
+        yield None, 0, 0, [(oid + ".1", value)]
+
+    monkeypatch.setattr(p, "get_cmd", get)
+    monkeypatch.setattr(p, "walk_cmd", walk)
+    result = await p.SNMPCollector().software(
+        "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
+    )
+    assert result["identity"]["software_version"] == "KB.16.11.0032"
+    assert len(walked) == expected_walks and engine.closed
