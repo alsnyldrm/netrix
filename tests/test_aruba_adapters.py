@@ -78,7 +78,12 @@ async def test_aruba_identity_and_backup_use_single_read_only_shell(env, monkeyp
         assert kwargs["known_hosts"] == (None if trust else settings().known_hosts)
         assert kwargs["client_keys"] == []
         shell = Shell(
-            {paging: "", identity: IDENTITIES[adapter], "show running-config": CONFIGS[adapter]},
+            {
+                "show version": "",
+                paging: "",
+                identity: IDENTITIES[adapter],
+                "show running-config": CONFIGS[adapter],
+            },
             prompt="(controller) [mynode] #" if adapter == "aruba_7200" else "fixture#",
         )
         shells.append(shell)
@@ -94,7 +99,9 @@ async def test_aruba_identity_and_backup_use_single_read_only_shell(env, monkeyp
     if adapter != "aruba_7200":
         assert fields["kind"] == "switch"
     assert await protocols.fetch_config(device, secret) == CONFIGS[adapter] + "\n"
-    assert shells[0].commands == [paging + "\n", identity + "\n"]
+    assert shells[0].commands == [paging + "\n", identity + "\n"] + (
+        ["show version\n"] if adapter in ("aruba_5400", "aruba_2900") else []
+    )
     assert shells[1].commands == [paging + "\n", "show running-config\n"]
     assert all(shell.closed for shell in shells)
     assert require_ssh_backup(device, SimpleNamespace(protocol="ssh"))
@@ -132,7 +139,8 @@ async def test_operator_is_not_silently_elevated():
 
 async def test_aoss_press_any_key_banner_and_chunked_terminal_codes():
     shell = Shell(
-        {"no page": "", "show modules": IDENTITIES["aruba_5400"]}, initial="Press any key to continue"
+        {"no page": "", "show modules": IDENTITIES["aruba_5400"], "show version": ""},
+        initial="Press any key to continue",
     )
     result = await read_aruba(Connection(shell), "aruba_5400")
     assert "Chassis:" in result and shell.commands[0] == " "

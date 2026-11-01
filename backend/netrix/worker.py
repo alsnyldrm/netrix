@@ -149,7 +149,7 @@ async def identify_device(job_id, collector):
                 )
     fields, sources, attempts = {}, {}, []
     for protocol, secret, _, _ in credentials:
-        if len(fields) == 3:
+        if {"vendor", "model", "kind", "software_version"} <= fields.keys():
             break
         try:
             if protocol in SNMP_PROTOCOLS:

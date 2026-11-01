@@ -80,6 +80,7 @@ const DEFAULTS: Record<string, string[]> = {
     "kind",
     "vendor",
     "model",
+    "software_version",
     "site_name",
     "cabinet_position",
     "lifecycle_status",
@@ -566,10 +567,30 @@ export function InventoryTable({
   const archive = purpose === "archive";
   const deletedLinks = purpose === "deleted-links";
   const restorable = archive || deletedLinks;
-  const pref = `netrix-columns:${user.id}:${purpose}${purpose === "devices" ? ":rooms-v1" : ""}`;
+  const pref = `netrix-columns:${user.id}:${purpose}${purpose === "devices" ? ":version-v1" : ""}`;
   const [shown, setShown] = useState<string[]>(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem(pref) || "null");
+      const saved = localStorage.getItem(pref);
+      let stored = JSON.parse(saved || "null");
+      if (!saved && purpose === "devices") {
+        const previous = JSON.parse(
+          localStorage.getItem(
+            `netrix-columns:${user.id}:${purpose}:rooms-v1`,
+          ) || "null",
+        );
+        if (
+          Array.isArray(previous) &&
+          previous.every((k) => typeof k === "string")
+        ) {
+          stored = [...previous];
+          if (!stored.includes("software_version"))
+            stored.splice(
+              stored.indexOf("model") + 1 || stored.length,
+              0,
+              "software_version",
+            );
+        }
+      }
       return (
         (Array.isArray(stored) &&
         stored.length &&

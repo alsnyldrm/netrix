@@ -19,6 +19,7 @@ LABELS = {
     "site_id": "Lokasyon kimliği",
     "vendor": "Üretici",
     "model": "Model",
+    "software_version": "Versiyon",
     "kind": "Cihaz türü",
     "lifecycle_status": "Yaşam döngüsü",
     "reachability": "Erişim",

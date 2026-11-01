@@ -43,8 +43,14 @@ with sync_playwright() as p:
                             assert abs(left["h"] - right["h"]) < 1
                 if name.startswith("detail"):
                     grid = dialog.locator(".detail-grid")
-                    expect(grid.locator(":scope > div:not(.device-cabinet-location)")).to_have_count(6)
-                    boxes = grid.locator(":scope > div:not(.device-cabinet-location)").evaluate_all(
+                    expect(
+                        grid.locator(
+                            ":scope > div:not(.device-cabinet-location):not(.device-software-version)"
+                        )
+                    ).to_have_count(6)
+                    boxes = grid.locator(
+                        ":scope > div:not(.device-cabinet-location):not(.device-software-version)"
+                    ).evaluate_all(
                         "els=>els.map(e=>{let r=e.getBoundingClientRect();return {y:r.y,w:r.width,h:r.height}})"
                     )
                     assert max(b["w"] for b in boxes) - min(b["w"] for b in boxes) < 1

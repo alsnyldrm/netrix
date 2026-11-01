@@ -2,7 +2,9 @@
 
 import re
 
-FIELDS = {"vendor": 80, "model": 100, "kind": 20}
+from .software_version import clean_version, software_version, unique_version
+
+FIELDS = {"vendor": 80, "model": 100, "kind": 20, "software_version": 120}
 KINDS = {"switch", "router", "firewall", "server"}
 PLACEHOLDERS = {
     "unknown",
@@ -40,6 +42,7 @@ def normalize(fields):
     if not isinstance(fields, dict):
         return {}
     result = {key: clean(fields.get(key), limit) for key, limit in FIELDS.items() if key != "kind"}
+    result["software_version"] = clean_version(result.get("software_version", ""))
     kind = fields.get("kind")
     if isinstance(kind, str) and kind.strip().lower() in KINDS:
         result["kind"] = kind.strip().lower()
@@ -91,6 +94,12 @@ def snmp_identity(system, tables):
         if "vendor" not in ambiguous and oid.startswith(f"1.3.6.1.4.1.{enterprise}."):
             fields.setdefault("vendor", vendor)
     description = system.get("sys_description", "")
+    versions = {clean_version(str(tables.get("entity_software", {}).get(i, ""))) for i in chassis}
+    versions.discard("")
+    if len(versions) == 1:
+        fields["software_version"] = unique_version(versions)
+    elif not versions:
+        fields["software_version"] = software_version(description)
     # Recognize explicit model tokens, not software versions or the entire sysDescr.
     if "model" not in fields and "model" not in ambiguous:
         match = re.search(
@@ -108,7 +117,7 @@ def snmp_identity(system, tables):
 
 
 def ssh_identity(adapter, text):
-    fields = {}
+    fields = {"software_version": software_version(text, adapter)}
     if adapter == "ios":
         if re.search(r"\bCisco\b", text, re.I):
             fields["vendor"] = "Cisco"
@@ -201,6 +210,9 @@ def rest_identity(payload):
             "vendor": payload.get("vendor") or payload.get("manufacturer"),
             "model": payload.get("model") or payload.get("model_name"),
             "kind": payload.get("kind") or payload.get("device_type") or payload.get("type"),
+            "software_version": payload.get("software_version")
+            or payload.get("firmware_version")
+            or payload.get("version"),
         }
     )
     kind = infer_kind(fields.get("model", ""))

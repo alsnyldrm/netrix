@@ -2124,6 +2124,11 @@ tbody tr:last-child td {
 .detail-grid.device-facts {
   grid-auto-rows: minmax(70px, auto);
 }
+.device-facts > .device-software-version {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .device-facts > .device-cabinet-location {
   grid-column: 1 / -1;
   padding: 12px 0;

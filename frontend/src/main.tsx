@@ -3643,6 +3643,10 @@ function App() {
                   />
                 </dd>
               </div>
+              <div className="device-software-version">
+                <dt>Versiyon</dt>
+                <dd>{detail.software_version || "—"}</dd>
+              </div>
               <div className="device-cabinet-location">
                 <dt>Tam kabin yolu</dt>
                 <dd>

@@ -33,6 +33,10 @@ Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential,
 
 ## 2. Merkezi cihaz envanteri
 
+`20261101_29`, `devices.software_version` gözlem alanını ekler; başlangıç değeri boştur. Envanter listesi ve cihaz ayrıntısında Versiyon olarak gösterilir, aranabilir ve filtrelenebilir. SNMP'de chassis `entPhysicalSoftwareRev` veya açık sysDescr yazılım revizyonu; SSH'de adaptörün sürüm çıktısı kullanılır. SNMP'de kimlik tam olsa bile sürüm eksikse atanmış SSH profili denenir. Eksik/çelişkili yanıt mevcut değeri silmez; ROM/BIOS sürümü yazılım sürümü olarak alınmaz. Manuel üretici/model/tür tercihleri korunur. AOS-S kimlik okuması aynı shell'de `show modules` ardından `show version` çalıştırır; cihaz yapılandırması değiştirilmez.
+
+Kaynaklar: [ENTITY-MIB yazılım revizyonu](https://www.rfc-editor.org/rfc/rfc4133#section-3), [AOS-S sistem yazılım revizyonu](https://arubanetworking.hpe.com/techdocs/AOS-S/16.11/MCG/KB/content/kb/sh-sys-asi.htm), [AOS-CX show version](https://arubanetworking.hpe.com/techdocs/AOS-CX/10.14/HTML/fundamentals_6200/Content/SysHW_cmds/sho-ver-10.htm).
+
 MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)` kataloğu uygulanmıştır. `devices.kind`, değişmez `device_types.code` değerine FK ile bağlanır; görünen ad bağımsız düzenlenir. Aktif/arşiv cihaz ilişkileri silmeyi engeller. Varsayılan `other` kaydı, sınıflandırılmamış cihazlar için korunur.
 
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |

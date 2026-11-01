@@ -80,7 +80,11 @@ async def read_aruba(connection, adapter, *, backup=False):
         if not prompt.endswith("#"):
             raise BackupError("aruba_privilege")
         command = "show running-config" if backup else identity
-        for current in (paging, command):
+        commands = [paging, command]
+        if not backup and adapter in ("aruba_5400", "aruba_2900"):
+            commands.append("show version")
+        identity_outputs = []
+        for current in commands:
             process.stdin.write(current + "\n")
             output, _ = await read_prompt(
                 process, prompt=prompt, limit=4 * 1024 * 1024 if backup else 256 * 1024
@@ -90,10 +94,14 @@ async def read_aruba(connection, adapter, *, backup=False):
                 lines.pop(0)
             output = "\n".join(lines).strip()
             if CLI_ERROR.search(output):
+                if current == "show version" and identity_outputs:
+                    continue
                 raise BackupError("aruba_command")
+            if not backup and current != paging:
+                identity_outputs.append(output)
         if backup:
             validate_aruba_config(adapter, output)
-        return config_text(output + "\n") if backup else output + "\n"
+        return config_text(output + "\n") if backup else "\n".join(identity_outputs) + "\n"
 
 
 def validate_aruba_config(adapter, output):

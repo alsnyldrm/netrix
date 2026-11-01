@@ -247,6 +247,7 @@ class Device(Entity, Base):
     vendor: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
     manual_identity_fields: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    software_version: Mapped[str] = mapped_column(String(120), default="", server_default="")
     kind: Mapped[str] = mapped_column(
         String(20), ForeignKey("device_types.code", name="fk_device_type"), default="other", index=True
     )

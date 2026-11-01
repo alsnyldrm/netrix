@@ -22,17 +22,22 @@ from sqlalchemy import select
         (
             "junos",
             "Hostname: edge\nModel: mx480\nJunos: 24.4R1\n",
-            {"vendor": "Juniper", "model": "mx480", "kind": "router"},
+            {"vendor": "Juniper", "model": "mx480", "kind": "router", "software_version": "24.4R1"},
         ),
         (
             "junos",
             "Model: srx1600\nJunos: 24.2\n",
-            {"vendor": "Juniper", "model": "srx1600", "kind": "firewall"},
+            {"vendor": "Juniper", "model": "srx1600", "kind": "firewall", "software_version": "24.2"},
         ),
         (
             "fortios",
             "Version: FortiGate-100F v7.4.0,build1\n",
-            {"vendor": "Fortinet", "model": "FortiGate-100F", "kind": "firewall"},
+            {
+                "vendor": "Fortinet",
+                "model": "FortiGate-100F",
+                "kind": "firewall",
+                "software_version": "7.4.0 build1",
+            },
         ),
         (
             "linux",
