@@ -255,7 +255,7 @@ export const PAGES: Page[] = [
   {
     key: "integrations",
     title: "Entegrasyonlar",
-    desc: "IPAM için VMware, DHCP, Corner Switch ve Backbone Switch bağlantıları.",
+    desc: "IPAM için VMware, DHCP, Corner Switch, Backbone Switch ve Firewall bağlantıları.",
     group: "Yönetim",
     icon: PlugsConnected,
   },

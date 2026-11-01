@@ -18,8 +18,9 @@ Entegrasyonlar yalnızca IPAM içindir. Yetkili ağ blokları seçimi kaldırıl
 - Windows DHCP: IPv4 rezervasyonları ve aktif kiralamalar, MAC/hostname kanıtları.
 - Corner Switch: bağımsız kayıtlı SNMP bağlantısından ARP/NDP/FDB ve port bilgileri.
 - Backbone Switch: aynı şekilde backbone katmanındaki bağımsız bağlantı kanıtları.
+- Firewall: bağımsız SNMP bağlantısından IP/MAC için ARP/NDP; varsa fiziksel bağlantı için FDB ve LLDP/CDP. ARP kaydındaki VLAN arayüzü fiziksel uç portu sayılmaz.
 
-Kaynak sırası VMware → DHCP → Corner Switch → Backbone Switch’tir. VMware bağlantısı varsa fiziksel FDB geçişleri VM erişim portu gibi gösterilmez. Uplink ve birden fazla çelişen port belirsiz olarak korunur. Switch erişim profili entegrasyon üzerinde bir kez seçilir; VLAN’a ek profil girilmez. Kaynak sırları mevcut şifreli erişim kasasında kalır, API’ye dönmez.
+Kaynak sırası VMware → DHCP → Corner Switch → Backbone Switch → Firewall’dur. VMware bağlantısı varsa fiziksel FDB geçişleri VM erişim portu gibi gösterilmez. Bağlı cihaz sütununda entegrasyon etiketi/IP yerine cihazın gözlemlenen sistem adı gösterilir. Doğrudan LLDP/CDP komşuluğu, MAC’in geçiş switchlerinde görüldüğü FDB kayıtlarına üstün gelir. IP, MAC veya VRF içinde benzersiz hostname ile doğrulanan komşular kullanılabilir; sayfa dışındaki isim çakışmaları da değerlendirilir. Aynı cihaza ait birden fazla doğrulanmış port switch bazında gruplanır. Kanıtsız uplink/aggregate ve çelişen FDB portları belirsiz olarak korunur. Switch erişim profili entegrasyon üzerinde bir kez seçilir; VLAN’a ek profil girilmez. Kaynak sırları mevcut şifreli erişim kasasında kalır, API’ye dönmez.
 
 ## Veri geçişi ve silme
 

@@ -146,7 +146,7 @@ async def integration(job_id, collector=None):
         config.last_run_at = now()
         db.commit()
         version = config.updated_at
-    if config.kind in ("corner_switch", "backbone_switch"):
+    if config.kind in ("corner_switch", "backbone_switch", "firewall"):
         return await switch_records(job_id, config, version, collector)
     reader = adapters.vcenter_records if config.kind == "vcenter" else adapters.windows_dhcp
     # All remote reads finish before atomic persistence. Exceptions leave prior observations intact.
@@ -165,7 +165,9 @@ async def integration(job_id, collector=None):
                 select(m.IPAddress, m.IPObservation)
                 .join(m.IPObservation, m.IPObservation.address_id == m.IPAddress.id)
                 .where(
-                    m.IPObservation.source.in_(("windows_dhcp", "corner_switch", "backbone_switch")),
+                    m.IPObservation.source.in_(
+                        ("windows_dhcp", "corner_switch", "backbone_switch", "firewall")
+                    ),
                     m.IPObservation.observed_at >= now() - timedelta(hours=24),
                 )
             )

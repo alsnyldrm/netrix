@@ -32,6 +32,7 @@ const sourceName = (v: string) =>
     windows_dhcp: "Windows DHCP",
     corner_switch: "Corner Switch",
     backbone_switch: "Backbone Switch",
+    firewall: "Firewall",
     dns: "DNS",
     icmp: "Ping",
   })[v] || v;
@@ -1261,7 +1262,7 @@ export function Integrations({
       values.kind !== editing.kind),
   );
   const credentialsRequired =
-    !["corner_switch", "backbone_switch"].includes(values.kind) &&
+    !["corner_switch", "backbone_switch", "firewall"].includes(values.kind) &&
     (!editing?.id || targetChanged || changeCredentials);
   return (
     <div className="ipam-workspace">
@@ -1423,7 +1424,9 @@ export function Integrations({
           >
             <ErrorNote error={formError} />
             {editing.id &&
-              !["corner_switch", "backbone_switch"].includes(values.kind) && (
+              !["corner_switch", "backbone_switch", "firewall"].includes(
+                values.kind,
+              ) && (
                 <>
                   <p
                     className="ipam-hint"
@@ -1485,6 +1488,7 @@ export function Integrations({
                   <option value="windows_dhcp">Microsoft Windows DHCP</option>
                   <option value="corner_switch">Corner Switch</option>
                   <option value="backbone_switch">Backbone Switch</option>
+                  <option value="firewall">Firewall</option>
                 </select>
               </Field>
               <Field label="Sunucu adı veya IP">
@@ -1504,8 +1508,10 @@ export function Integrations({
                   onChange={(e) => set("port", Number(e.target.value))}
                 />
               </Field>
-              {["corner_switch", "backbone_switch"].includes(values.kind) && (
-                <Field label="Switch erişim profili">
+              {["corner_switch", "backbone_switch", "firewall"].includes(
+                values.kind,
+              ) && (
+                <Field label="SNMP erişim profili">
                   <select
                     required
                     value={values.credential_id || ""}
@@ -1580,7 +1586,7 @@ export function Integrations({
                 ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
                 : values.kind === "vcenter"
                   ? "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."
-                  : "Switch port bilgileri yalnızca IPAM için sorgulanır."}{" "}
+                  : "IP/MAC ve port bilgileri yalnızca IPAM için sorgulanır."}{" "}
               Kaydetmek bağlantı testi başlatmaz; “Şimdi eşitle” veya zamanlama
               tetikler.
             </p>

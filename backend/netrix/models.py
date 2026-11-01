@@ -283,7 +283,8 @@ class Integration(Entity, Base):
     last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
         CheckConstraint(
-            "kind in ('vcenter','windows_dhcp','corner_switch','backbone_switch')", name="ck_integration_kind"
+            "kind in ('vcenter','windows_dhcp','corner_switch','backbone_switch','firewall')",
+            name="ck_integration_kind",
         ),
         CheckConstraint("interval_seconds = 0 OR interval_seconds >= 60", name="ck_integration_interval"),
     )

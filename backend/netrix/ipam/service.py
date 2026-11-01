@@ -173,10 +173,13 @@ def save_integration(db, payload, user, id=None):
     row = get(db, m.Integration, id) if id else m.Integration()
     data = payload.model_dump(exclude={"username", "password"})
     changed_target = id and (row.host != payload.host or row.port != payload.port or row.kind != payload.kind)
-    if payload.kind in ("corner_switch", "backbone_switch"):
+    if changed_target or (id and row.credential_id != payload.credential_id):
+        row.evidence = {}
+        row.last_success_at = None
+    if payload.kind in ("corner_switch", "backbone_switch", "firewall"):
         profile = get(db, m.Credential, payload.credential_id) if payload.credential_id else None
         if not profile or profile.protocol not in ("snmpv3", "snmpv2c"):
-            raise HTTPException(422, "Switch bağlantısı için kayıtlı SNMP profilini seçin")
+            raise HTTPException(422, "Ağ cihazı bağlantısı için kayıtlı SNMP profilini seçin")
         if not id:
             row.encrypted_secret = encrypt("{}")
     elif not id or changed_target or payload.username or payload.password:
@@ -509,23 +512,57 @@ def identity_macs(obs, devices):
 
 
 def connection_context(db, rows=None, grouped=None):
-    from .connections import project_snapshot
+    from .connections import device_name, hostname_keys, neighbor_names, project_snapshot
 
-    devices, ports, indexed = {}, {}, {}
+    devices, ports, indexed, direct = {}, {}, {}, {}
     vlans = {v.id: v for v in db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None)))}
     vrfs = {r.vrf_id for r in rows} if rows is not None else {v.vrf_id for v in vlans.values()}
-    for config in db.scalars(
-        select(m.Integration).where(
-            m.Integration.enabled.is_(True),
-            m.Integration.kind.in_(("corner_switch", "backbone_switch")),
-            m.Integration.last_success_at >= now() - timedelta(hours=24),
+    if not vrfs:
+        return {"devices": devices, "ports": ports, "indexed": indexed, "direct": direct}
+    configs = list(
+        db.scalars(
+            select(m.Integration).where(
+                m.Integration.enabled.is_(True),
+                m.Integration.kind.in_(("corner_switch", "backbone_switch", "firewall")),
+                m.Integration.last_success_at >= now() - timedelta(hours=24),
+            )
+        )
+    )
+    # Build ownership across the VRF, not just the current page. Duplicate hostnames
+    # must never become certain attachments simply because one IP is off-screen.
+    all_rows = {r.id: r for r in db.scalars(select(m.IPAddress).where(m.IPAddress.vrf_id.in_(vrfs)))}
+    names = {}
+
+    def register(row, name):
+        for key in hostname_keys(name):
+            names.setdefault((row.vrf_id, key), set()).add(row.address)
+
+    for row in all_rows.values():
+        register(row, row.hostname)
+    for observation in db.scalars(
+        select(m.IPObservation).where(
+            m.IPObservation.address_id.in_(all_rows),
+            m.IPObservation.observed_at >= now() - timedelta(hours=24),
         )
     ):
+        if observation.data.get("present", True):
+            register(all_rows[observation.address_id], observation.data.get("hostname"))
+    for config in configs:
+        vlan = vlan_for(db, config.host, list(vlans.values())) if is_ip(config.host) else None
+        if vlan:
+            for key in hostname_keys(device_name(config)):
+                names.setdefault((vlan.vrf_id, key), set()).add(config.host)
+
+    wanted_macs = None
+    if rows is not None and grouped is not None:
+        wanted_macs = set().union(*(identity_macs(grouped[r.id], {}) for r in rows))
+    for config in configs:
         evidence = config.evidence or {}
         snapshot = project_snapshot(evidence)
         devices[config.id] = SimpleNamespace(
-            id=config.id, name=config.name, kind=config.kind, device_type=None
+            id=config.id, name=device_name(config), kind=config.kind, device_type=None
         )
+        by_name, by_index = {}, {}
         for port in evidence.get("interfaces", []):
             index = port.get("if_index")
             if index is None:
@@ -534,10 +571,57 @@ def connection_context(db, rows=None, grouped=None):
             ports[port_id] = SimpleNamespace(
                 id=port_id, name=port["name"], device_id=config.id, if_index=index
             )
-            uplink = port["name"] in snapshot["uplinks"]
-            for mac, indices in snapshot["macs"].items():
-                if index not in indices:
+            by_name[port["name"]] = port_id
+            by_index[index] = port_id
+        # LLDP/CDP identifies the actual neighbor even when its management MAC
+        # differs from its chassis MAC, or a second NIC does not forward traffic.
+        for neighbor in evidence.get("neighbors") or []:
+            port_id = by_name.get(neighbor.get("interface_name"))
+            if not port_id:
+                continue
+            data = neighbor.get("evidence") or {}
+            addresses = {str((data.get(p) or {}).get("management_address") or "") for p in ("lldp", "cdp")}
+            for vrf in vrfs:
+                matched = set()
+                for key in neighbor_names(neighbor):
+                    owners = names.get((vrf, key), set())
+                    if len(owners) == 1:
+                        matched.update(owners)
+                if len(matched) > 1:
+                    matched.clear()
+                matched.update(
+                    a
+                    for a in addresses
+                    if is_ip(a)
+                    and (vlan := vlan_for(db, a, list(vlans.values()))) is not None
+                    and vlan.vrf_id == vrf
+                )
+                for address in matched:
+                    direct.setdefault((vrf, address), {})[port_id] = {
+                        "interface_id": port_id,
+                        "source": "lldp/cdp",
+                        "confidence": 0.95,
+                        "ambiguous": False,
+                        "uplink": False,
+                        "direct": True,
+                        "observed_at": config.last_success_at.isoformat(),
+                        "endpoint_name": neighbor.get("remote_name") or "",
+                        "members": [],
+                    }
+        # Index each MAC once; avoid scanning the entire FDB for every interface.
+        for mac, indices in snapshot["macs"].items():
+            if wanted_macs is not None and mac not in wanted_macs:
+                continue
+            for index in indices:
+                port_id = by_index.get(index)
+                if not port_id:
                     continue
+                name = ports[port_id].name
+                # An aggregate with no neighbor proof is a transit candidate,
+                # never a certain endpoint just because LLDP lists its members.
+                uplink = name in snapshot["uplinks"] or bool(
+                    re.match(r"^(?:trk|dyn|bridge-aggregation|port-channel|bond|lag)\d", name, re.I)
+                )
                 for vrf in vrfs:
                     indexed.setdefault((vrf, mac), {})[port_id] = {
                         "interface_id": port_id,
@@ -546,12 +630,20 @@ def connection_context(db, rows=None, grouped=None):
                         "ambiguous": uplink,
                         "uplink": uplink,
                         "observed_at": config.last_success_at.isoformat(),
-                        "neighbor_identity": snapshot["neighbor_macs"].get((mac, port["name"])),
+                        "neighbor_identity": snapshot["neighbor_macs"].get((mac, name)),
                         "direct_hosts": {
-                            a: info for (a, name), info in snapshot["hosts"].items() if name == port["name"]
+                            a: info for (a, port_name), info in snapshot["hosts"].items() if port_name == name
                         },
                     }
-    return {"devices": devices, "ports": ports, "indexed": indexed}
+    return {"devices": devices, "ports": ports, "indexed": indexed, "direct": direct}
+
+
+def is_ip(value):
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 
 def connection_candidates(db, row, *, context=None, obs=None):
@@ -574,12 +666,15 @@ def connection_candidates(db, row, *, context=None, obs=None):
                     ambiguous=False,
                     confidence=0.95,
                     source="lldp/cdp+arp/fdb",
+                    direct=True,
                     endpoint_name=host["name"],
                     members=host["members"],
                 )
             candidates[id] = item
+    candidates.update(context.get("direct", {}).get((row.vrf_id, row.address), {}))
     found = []
-    for item in candidates.values():
+    for candidate in candidates.values():
+        item = dict(candidate)
         port = context["ports"].get(item["interface_id"])
         device = context["devices"].get(port.device_id) if port else None
         if not device:
@@ -591,16 +686,13 @@ def connection_candidates(db, row, *, context=None, obs=None):
             priority=device_rank(device),
         )
         found.append(item)
-    eligible = [c for c in found if not c.get("routed") and not c.get("uplink") and c["source"] != "manual"]
+    proven = [c for c in found if c.get("direct")]
+    eligible = proven or [c for c in found if not c.get("routed") and not c.get("uplink")]
     priority = min((c["priority"] for c in eligible), default=99)
     access_count = sum(c["priority"] == priority for c in eligible)
     for item in found:
-        if item["source"] != "manual" and (
-            item not in eligible
-            or item.get("uplink")
-            or item["priority"] != priority
-            or access_count > 1
-            or len(macs) > 1
+        if item not in eligible or (
+            not proven and (item["priority"] != priority or access_count > 1 or len(macs) > 1)
         ):
             item.update(ambiguous=True, confidence=0.4)
     return found

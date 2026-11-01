@@ -40,6 +40,7 @@ LABELS = {
     "network": "Ağ / yayın",
     "corner_switch": "Corner Switch",
     "backbone_switch": "Backbone Switch",
+    "firewall": "Firewall",
     "icmp": "Ping",
     "dns": "DNS",
     "vcenter": "VMware vCenter",

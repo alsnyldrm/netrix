@@ -30,7 +30,7 @@ class VLANSettings(Input):
 
 class IntegrationInput(Input):
     name: str = Field(min_length=1, max_length=120)
-    kind: Literal["vcenter", "windows_dhcp", "corner_switch", "backbone_switch"]
+    kind: Literal["vcenter", "windows_dhcp", "corner_switch", "backbone_switch", "firewall"]
     host: str = Field(min_length=1, max_length=253)
     port: int = Field(ge=1, le=65535)
     username: str = Field(default="", max_length=190)

@@ -1,16 +1,56 @@
 """Compact, versioned projections of the latest device evidence. No network I/O."""
 
 import ipaddress
+import re
 
 
 def device_rank(device):
-    return 3 if device.kind == "backbone_switch" else 2
+    return {"corner_switch": 2, "backbone_switch": 3, "firewall": 4}.get(device.kind, 2)
 
 
 def identity_rank(observation, devices):
-    return {"vcenter": 0, "windows_dhcp": 1, "corner_switch": 2, "backbone_switch": 3, "dns": -1}.get(
-        observation.source, 6
-    )
+    return {
+        "vcenter": 0,
+        "windows_dhcp": 1,
+        "corner_switch": 2,
+        "backbone_switch": 3,
+        "firewall": 4,
+        "dns": -1,
+    }.get(observation.source, 6)
+
+
+def device_name(config):
+    """Physical identity is distinct from the integration's administrative label."""
+    name = (config.evidence or {}).get("hostname")
+    if name:
+        return str(name).strip()
+    name = config.name
+    suffix = " · " + config.host
+    if name.startswith("IPAM · ") and name.endswith(suffix):
+        return name[len("IPAM · ") : -len(suffix)]
+    return name
+
+
+def hostname_keys(value):
+    value = str(value or "").strip().rstrip(".").casefold()
+    if not value or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", value):
+        return set()
+    try:
+        ipaddress.ip_address(value)
+        return set()
+    except ValueError:
+        pass
+    return {value, value.split(".")[0]}
+
+
+def neighbor_names(neighbor):
+    data = neighbor.get("evidence") or {}
+    lldp, cdp = data.get("lldp") or {}, data.get("cdp") or {}
+    values = [neighbor.get("remote_name"), lldp.get("system_name"), cdp.get("system_name")]
+    if lldp.get("chassis_subtype") == 7:
+        values.append(lldp.get("chassis_id"))
+    values.append(cdp.get("device_id"))
+    return set().union(*(hostname_keys(value) for value in values))
 
 
 def project_snapshot(evidence):
