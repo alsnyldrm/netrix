@@ -346,3 +346,22 @@
 .ipam-workspace .secondary.danger:hover:not(:disabled) {
   background: var(--danger-soft);
 }
+
+.room-list-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.room-list-controls .search-box {
+  width: min(360px, 100%);
+}
+@media (max-width: 700px) {
+  .room-list-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .room-list-controls .search-box {
+    width: 100%;
+  }
+}

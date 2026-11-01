@@ -36,7 +36,42 @@ with sync_playwright() as p:
                 page.screenshot(path=f"/tmp/netrix-rooms-{name}-{width}-{theme}.png")
         page.set_viewport_size({"width": 1440, "height": 1000})
 
+    expect(page.get_by_role("checkbox")).to_have_count(0)
+    expect(page.get_by_role("columnheader", name="İşlemler", exact=True)).to_have_count(0)
+    expect(page.get_by_role("button", name="Seçilenleri sil", exact=False)).to_have_count(0)
+    expect(page.get_by_role("button", name="Kabinetleri aç", exact=True)).to_have_count(0)
+    search = page.get_by_label("Kabinet odalarında ara", exact=True)
+    search.fill("sunucu kuzey")
+    expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_be_visible()
+    search.fill("eşleşmeyen oda")
+    expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_have_count(0)
+    expect(page.get_by_text("Arama veya filtrelere uygun oda yok.", exact=False)).to_be_visible()
+    search.fill("")
+    page.get_by_role("button", name="Filtreler", exact=True).click()
+    filters = page.get_by_role("dialog").last
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 1 alanı", exact=True).select_option("institution_name")
+    filters.get_by_label("Koşul 1 değeri", exact=True).fill("Fixture")
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 2 alanı", exact=True).select_option("cabinet_count")
+    filters.get_by_label("Koşul 2 işlemi", exact=True).select_option("gt")
+    filters.get_by_label("Koşul 2 değeri", exact=True).fill("1")
+    filters.get_by_role("button", name="Filtreleri uygula", exact=True).click()
+    expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_have_count(0)
+    page.get_by_role("button", name="Filtreler (2)", exact=True).click()
+    filters = page.get_by_role("dialog").last
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 3 bağlantısı", exact=True).select_option("or")
+    filters.get_by_label("Koşul 3 işlemi", exact=True).select_option("eq")
+    filters.get_by_label("Koşul 3 değeri", exact=True).fill("Sunucu Odası")
+    check("filters")
+    filters.get_by_role("button", name="Filtreleri uygula", exact=True).click()
+    expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_be_visible()
     check("groups")
+    page.get_by_role("button", name="Filtreler (3)", exact=True).click()
+    filters = page.get_by_role("dialog").last
+    filters.get_by_role("button", name="Temizle", exact=True).click()
+    filters.get_by_role("button", name="Filtreleri uygula", exact=True).click()
     page.get_by_role("button", name="Sunucu Odası", exact=True).click()
     page.get_by_role("button", name="4", exact=True).click()
     expect(page.get_by_role("dialog").last).to_contain_text("Switch 1")
@@ -76,5 +111,5 @@ with sync_playwright() as p:
     assert not errors, errors
     browser.close()
 print(
-    "PASS: required room fields, cabinet room grouping, bulk removal, inventory rack position, desktop/mobile, themes and accessibility"
+    "PASS: room list without selection/actions/delete, text search, AND/OR and numeric filters, navigation, cabinet and room management, desktop/mobile, themes and accessibility"
 )

@@ -8,9 +8,12 @@ import {
   Trash,
   Buildings,
   HardDrives,
+  Funnel,
+  MagnifyingGlass,
 } from "@phosphor-icons/react";
 import { api, Dialog } from "./main";
 import { useLiveQuery } from "./data";
+import { Filters } from "./inventory";
 import "./locations.css";
 type Row = Record<string, any>;
 type Props = {
@@ -493,6 +496,18 @@ export function Cabinets({
   const [roomId, setRoomId] = useState<string | null>(null);
   const [rack, setRack] = useState<Row | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [rules, setRules] = useState<
+    { field: string; op: string; value: string; join: string }[]
+  >([]);
+  const columns = [
+    { key: "name", label: "Oda ismi" },
+    { key: "institution_name", label: "Kurum" },
+    { key: "location_name", label: "Lokasyon" },
+    { key: "cabinet_count", label: "Kabinet sayısı" },
+  ];
+  const normalize = (value: any) => String(value ?? "").toLocaleLowerCase("tr");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => setPicked([]), [roomId]);
@@ -512,18 +527,65 @@ export function Cabinets({
     roomId === "unassigned"
       ? unassigned
       : cabinets.filter((c) => c.sub_site_id === roomId);
-  const rows = roomId ? roomCabinets : groups;
+  const counts = new Map<string, number>();
+  for (const cabinet of cabinets)
+    counts.set(cabinet.sub_site_id, (counts.get(cabinet.sub_site_id) || 0) + 1);
+  const filtered = groups
+    .map((r): Row => ({
+      ...r,
+      institution_name:
+        refs.institutions?.find((i) => i.id === r.institution_id)?.name || "—",
+      location_name: refs.sites?.find((s) => s.id === r.parent_id)?.name || "—",
+      cabinet_count:
+        r.id === "unassigned" ? unassigned.length : counts.get(r.id) || 0,
+    }))
+    .filter((r) => {
+      const text = normalize(columns.map((c) => r[c.key]).join(" "));
+      if (
+        !normalize(search)
+          .trim()
+          .split(/\s+/)
+          .every((word) => text.includes(word))
+      )
+        return false;
+      return (
+        rules.reduce<boolean | undefined>((result, rule) => {
+          const actual = normalize(r[rule.field]),
+            expected = normalize(rule.value);
+          const match =
+            rule.op === "contains"
+              ? actual.includes(expected)
+              : rule.op === "not_contains"
+                ? !actual.includes(expected)
+                : rule.op === "eq"
+                  ? actual === expected
+                  : rule.op === "ne"
+                    ? actual !== expected
+                    : rule.op === "gt"
+                      ? Number(actual) > Number(expected)
+                      : rule.op === "lt"
+                        ? Number(actual) < Number(expected)
+                        : false;
+          return result === undefined
+            ? match
+            : rule.join === "or"
+              ? result || match
+              : result && match;
+        }, undefined) ?? true
+      );
+    });
+  const rows = roomId ? roomCabinets : filtered;
   const remove = async (ids: string[]) => {
     if (
       !window.confirm(
-        `${ids.length} ${roomId ? "kabinet" : "oda ve içindeki kabinetler"} silinsin mi? Yerleşimler, organizerler ve patch kayıtları kaldırılır. Envanter cihazları ve IP adresleri korunur.`,
+        `${ids.length} kabinet silinsin mi? Yerleşimler, organizerler ve patch kayıtları kaldırılır. Envanter cihazları ve IP adresleri korunur.`,
       )
     )
       return;
     setBusy(true);
     setError("");
     try {
-      await api(`/ipam/${roomId ? "cabinets" : "rooms"}/bulk-delete`, "POST", {
+      await api("/ipam/cabinets/bulk-delete", "POST", {
         ids,
       });
       setPicked([]);
@@ -555,7 +617,25 @@ export function Cabinets({
             </b>
             <span className="count-pill">{rows.length}</span>
           </div>
-          {user.role === "admin" && (
+          {!roomId && (
+            <div className="room-list-controls">
+              <label className="search-box">
+                <MagnifyingGlass size={18} aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Kabinet odalarında ara"
+                  placeholder="Oda, kurum, lokasyon ara…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </label>
+              <button className="secondary" onClick={() => setFilterOpen(true)}>
+                <Funnel size={18} aria-hidden="true" />
+                Filtreler{rules.length ? ` (${rules.length})` : ""}
+              </button>
+            </div>
+          )}
+          {roomId && user.role === "admin" && (
             <button
               className="secondary danger"
               disabled={!picked.length || busy}
@@ -574,7 +654,7 @@ export function Cabinets({
           <table>
             <thead>
               <tr>
-                {user.role === "admin" && (
+                {roomId && user.role === "admin" && (
                   <th>
                     <input
                       type="checkbox"
@@ -602,13 +682,7 @@ export function Cabinets({
                 )}
                 {(roomId
                   ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
-                  : [
-                      "Oda ismi",
-                      "Kurum",
-                      "Lokasyon",
-                      "Kabinet sayısı",
-                      "İşlemler",
-                    ]
+                  : ["Oda ismi", "Kurum", "Lokasyon", "Kabinet sayısı"]
                 ).map((c) => (
                   <th key={c}>{c}</th>
                 ))}
@@ -617,7 +691,7 @@ export function Cabinets({
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  {user.role === "admin" && (
+                  {roomId && user.role === "admin" && (
                     <td>
                       {r.id !== "unassigned" && (
                         <input
@@ -651,55 +725,36 @@ export function Cabinets({
                     </>
                   ) : (
                     <>
-                      <td>
-                        {refs.institutions?.find(
-                          (i) => i.id === r.institution_id,
-                        )?.name || "—"}
-                      </td>
-                      <td>
-                        {refs.sites?.find((s) => s.id === r.parent_id)?.name ||
-                          "—"}
-                      </td>
-                      <td>
-                        {r.id === "unassigned"
-                          ? unassigned.length
-                          : cabinets.filter((c) => c.sub_site_id === r.id)
-                              .length}
-                      </td>
+                      <td>{r.institution_name}</td>
+                      <td>{r.location_name}</td>
+                      <td>{r.cabinet_count}</td>
                     </>
                   )}
-                  <td>
-                    <div className="ipam-actions">
-                      {!roomId && (
-                        <button
-                          className="secondary"
-                          onClick={() => setRoomId(r.id)}
-                          aria-label={`${r.name} kabinetlerini aç`}
-                        >
-                          Kabinetleri aç
-                        </button>
-                      )}
-                      {roomId && user.role !== "viewer" && (
-                        <button
-                          className="icon-button"
-                          aria-label={`${r.name} düzenle`}
-                          onClick={() => onEdit(r)}
-                        >
-                          <PencilSimple size={17} />
-                        </button>
-                      )}
-                      {user.role === "admin" && r.id !== "unassigned" && (
-                        <button
-                          className="icon-button"
-                          disabled={busy}
-                          aria-label={`${r.name} sil`}
-                          onClick={() => remove([r.id])}
-                        >
-                          <Trash size={17} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
+                  {roomId && (
+                    <td>
+                      <div className="ipam-actions">
+                        {roomId && user.role !== "viewer" && (
+                          <button
+                            className="icon-button"
+                            aria-label={`${r.name} düzenle`}
+                            onClick={() => onEdit(r)}
+                          >
+                            <PencilSimple size={17} />
+                          </button>
+                        )}
+                        {user.role === "admin" && r.id !== "unassigned" && (
+                          <button
+                            className="icon-button"
+                            disabled={busy}
+                            aria-label={`${r.name} sil`}
+                            onClick={() => remove([r.id])}
+                          >
+                            <Trash size={17} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -710,11 +765,21 @@ export function Cabinets({
             <p>
               {roomId
                 ? "Bu odada henüz kabinet yok."
-                : "Henüz oda yok. Lokasyon menüsünden oda ekleyin."}
+                : groups.length
+                  ? "Arama veya filtrelere uygun oda yok. Arama ya da filtreleri değiştirin."
+                  : "Henüz oda yok. Lokasyon menüsünden oda ekleyin."}
             </p>
           </div>
         )}
       </section>
+      {filterOpen && (
+        <Filters
+          columns={columns}
+          rules={rules}
+          onSave={setRules}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
       {rack && (
         <Rack row={rack} refs={refs} user={user} close={() => setRack(null)} />
       )}
