@@ -10,6 +10,7 @@ import {
   HardDrives,
   Funnel,
   MagnifyingGlass,
+  CaretRight,
 } from "@phosphor-icons/react";
 import { api, Dialog } from "./main";
 import { useLiveQuery } from "./data";
@@ -498,9 +499,16 @@ export function Cabinets({
   const [picked, setPicked] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [expandedLocations, setExpandedLocations] = useState<
+    Record<string, boolean>
+  >({});
+  const [searchExpansion, setSearchExpansion] = useState<
+    Record<string, boolean>
+  >({});
   const [rules, setRules] = useState<
     { field: string; op: string; value: string; join: string }[]
   >([]);
+  useEffect(() => setSearchExpansion({}), [search, rules]);
   const columns = [
     { key: "floor_number", label: "Kat" },
     { key: "department_name", label: "Bölüm" },
@@ -535,6 +543,7 @@ export function Cabinets({
   const filtered = groups
     .map((r): Row => ({
       ...r,
+      location_id: r.parent_id || "unassigned",
       floor_number: r.floor_number?.trim() || "Kat belirtilmedi",
       department_name: r.department_name?.trim() || "—",
       institution_name:
@@ -596,14 +605,48 @@ export function Cabinets({
     }
     return 0;
   });
-  const floors = new Map<string, { name: string; rooms: Row[] }>();
+  const locations = new Map<
+    string,
+    { id: string; name: string; institution: string; rooms: Row[] }
+  >();
   for (const room of filtered) {
-    const key = normalize(room.floor_number);
-    if (!floors.has(key))
-      floors.set(key, { name: room.floor_number, rooms: [] });
-    floors.get(key)!.rooms.push(room);
+    if (!locations.has(room.location_id))
+      locations.set(room.location_id, {
+        id: room.location_id,
+        name:
+          room.location_id === "unassigned"
+            ? "Lokasyonu seçilmemiş"
+            : room.location_name,
+        institution: room.institution_name,
+        rooms: [],
+      });
+    locations.get(room.location_id)!.rooms.push(room);
   }
-  const floorGroups = [...floors.values()];
+  const locationGroups = [...locations.values()]
+    .sort(
+      (a, b) =>
+        collator.compare(a.name, b.name) ||
+        collator.compare(a.institution, b.institution) ||
+        collator.compare(a.id, b.id),
+    )
+    .map((location) => {
+      const floors = new Map<string, { name: string; rooms: Row[] }>();
+      for (const room of location.rooms) {
+        const key = normalize(room.floor_number);
+        if (!floors.has(key))
+          floors.set(key, { name: room.floor_number, rooms: [] });
+        floors.get(key)!.rooms.push(room);
+      }
+      return {
+        ...location,
+        floors: [...floors.values()],
+        cabinets: location.rooms.reduce(
+          (total, r) => total + r.cabinet_count,
+          0,
+        ),
+      };
+    });
+  const searching = Boolean(search.trim() || rules.length);
   const rows = roomId ? roomCabinets : filtered;
   const remove = async (ids: string[]) => {
     if (
@@ -639,21 +682,23 @@ export function Cabinets({
             {roomId && (
               <button className="secondary" onClick={() => setRoomId(null)}>
                 <ArrowLeft size={17} aria-hidden="true" />
-                Katlar
+                Lokasyonlar
               </button>
             )}
             <b>
               {roomId
                 ? current?.name || "Odası seçilmemiş"
-                : "Katlara göre kabinetler"}
+                : "Lokasyonlara göre kabinetler"}
             </b>
             <span
               className="count-pill"
               aria-label={
-                roomId ? `${rows.length} kabinet` : `${floorGroups.length} kat`
+                roomId
+                  ? `${rows.length} kabinet`
+                  : `${locationGroups.length} lokasyon`
               }
             >
-              {roomId ? rows.length : floorGroups.length}
+              {roomId ? rows.length : locationGroups.length}
             </span>
           </div>
           {!roomId && (
@@ -662,8 +707,8 @@ export function Cabinets({
                 <MagnifyingGlass size={18} aria-hidden="true" />
                 <input
                   type="search"
-                  aria-label="Kat ve odalarda ara"
-                  placeholder="Kat, bölüm, oda ara…"
+                  aria-label="Lokasyon, kat ve odalarda ara"
+                  placeholder="Lokasyon veya oda ara…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -684,52 +729,52 @@ export function Cabinets({
             </button>
           )}
         </div>
-        <div
-          className="table-scroll"
-          role="region"
-          aria-label={
-            roomId ? "Kabinet tablosu" : "Katlara göre kabinet tablosu"
-          }
-          tabIndex={0}
-        >
-          <table className={roomId ? undefined : "cabinet-floor-table"}>
-            <thead>
-              <tr>
-                {roomId && user.role === "admin" && (
-                  <th>
-                    <input
-                      type="checkbox"
-                      aria-label={
-                        roomId ? "Tüm kabinetleri seç" : "Tüm odaları seç"
-                      }
-                      checked={
-                        rows.length > 0 &&
-                        rows
-                          .filter((r) => r.id !== "unassigned")
-                          .every((r) => picked.includes(r.id)) &&
-                        picked.length > 0
-                      }
-                      onChange={(e) =>
-                        setPicked(
-                          e.target.checked
-                            ? rows
-                                .filter((r) => r.id !== "unassigned")
-                                .map((r) => r.id)
-                            : [],
-                        )
-                      }
-                    />
-                  </th>
-                )}
-                {(roomId
-                  ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
-                  : columns.map((c) => c.label)
-                ).map((c) => (
-                  <th key={c}>{c}</th>
-                ))}
-              </tr>
-            </thead>
-            {roomId ? (
+        {roomId ? (
+          <div
+            className="table-scroll"
+            role="region"
+            aria-label={
+              roomId ? "Kabinet tablosu" : "Katlara göre kabinet tablosu"
+            }
+            tabIndex={0}
+          >
+            <table className={roomId ? undefined : "cabinet-floor-table"}>
+              <thead>
+                <tr>
+                  {roomId && user.role === "admin" && (
+                    <th>
+                      <input
+                        type="checkbox"
+                        aria-label={
+                          roomId ? "Tüm kabinetleri seç" : "Tüm odaları seç"
+                        }
+                        checked={
+                          rows.length > 0 &&
+                          rows
+                            .filter((r) => r.id !== "unassigned")
+                            .every((r) => picked.includes(r.id)) &&
+                          picked.length > 0
+                        }
+                        onChange={(e) =>
+                          setPicked(
+                            e.target.checked
+                              ? rows
+                                  .filter((r) => r.id !== "unassigned")
+                                  .map((r) => r.id)
+                              : [],
+                          )
+                        }
+                      />
+                    </th>
+                  )}
+                  {(roomId
+                    ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
+                    : columns.map((c) => c.label)
+                  ).map((c) => (
+                    <th key={c}>{c}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
@@ -786,43 +831,69 @@ export function Cabinets({
                   </tr>
                 ))}
               </tbody>
-            ) : (
-              floorGroups.map((floor) => (
-                <tbody
-                  key={normalize(floor.name)}
-                  aria-label={`Kat ${floor.name}`}
+            </table>
+          </div>
+        ) : (
+          <div className="cabinet-location-list">
+            {locationGroups.map((location) => {
+              const expanded = searching
+                ? (searchExpansion[location.id] ?? true)
+                : (expandedLocations[location.id] ?? false);
+              const panelId = `cabinet-location-${location.id}`;
+              return (
+                <section
+                  className="cabinet-location"
+                  key={location.id}
+                  aria-labelledby={`${panelId}-button`}
                 >
-                  {floor.rooms.map((r, index) => (
-                    <tr key={r.id}>
-                      {index === 0 && (
-                        <th
-                          className="cabinet-floor-cell"
-                          scope="rowgroup"
-                          rowSpan={floor.rooms.length}
-                        >
-                          {floor.name}
-                        </th>
-                      )}
-                      <td>{r.department_name}</td>
-                      <td>
-                        <button
-                          className="text-button"
-                          onClick={() => setRoomId(r.id)}
-                        >
-                          <HardDrives size={19} aria-hidden="true" />
-                          {r.name}
-                        </button>
-                      </td>
-                      <td>{r.location_name}</td>
-                      <td>{r.institution_name}</td>
-                      <td>{r.cabinet_count}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))
-            )}
-          </table>
-        </div>
+                  <h2>
+                    <button
+                      id={`${panelId}-button`}
+                      type="button"
+                      className="cabinet-location-toggle"
+                      aria-expanded={expanded}
+                      aria-controls={panelId}
+                      onClick={() => {
+                        const setter = searching
+                          ? setSearchExpansion
+                          : setExpandedLocations;
+                        setter((previous) => ({
+                          ...previous,
+                          [location.id]: !expanded,
+                        }));
+                      }}
+                    >
+                      <CaretRight
+                        size={18}
+                        aria-hidden="true"
+                        className="cabinet-location-caret"
+                      />
+                      <Buildings size={20} aria-hidden="true" />
+                      <span className="cabinet-location-name">
+                        <strong>{location.name}</strong>
+                        <small>{location.institution}</small>
+                      </span>
+                      <span className="cabinet-location-summary">
+                        {location.floors.length} kat · {location.rooms.length}{" "}
+                        oda · {location.cabinets} kabinet
+                      </span>
+                    </button>
+                  </h2>
+                  <div id={panelId} hidden={!expanded}>
+                    {expanded && (
+                      <CabinetLocationTable
+                        name={location.name}
+                        floors={location.floors}
+                        columns={columns}
+                        onRoom={setRoomId}
+                      />
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        )}
         {!rows.length && (
           <div className="empty-state">
             <p>
@@ -846,6 +917,67 @@ export function Cabinets({
       {rack && (
         <Rack row={rack} refs={refs} user={user} close={() => setRack(null)} />
       )}
+    </div>
+  );
+}
+
+function CabinetLocationTable({
+  name,
+  floors,
+  columns,
+  onRoom,
+}: {
+  name: string;
+  floors: { name: string; rooms: Row[] }[];
+  columns: { key: string; label: string }[];
+  onRoom: (id: string) => void;
+}) {
+  return (
+    <div
+      className="table-scroll"
+      role="region"
+      aria-label={`${name} kat ve odaları`}
+      tabIndex={0}
+    >
+      <table className="cabinet-floor-table">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key}>{column.label}</th>
+            ))}
+          </tr>
+        </thead>
+        {floors.map((floor) => (
+          <tbody key={floor.name} aria-label={`Kat ${floor.name}`}>
+            {floor.rooms.map((room, index) => (
+              <tr key={room.id}>
+                {index === 0 && (
+                  <th
+                    className="cabinet-floor-cell"
+                    scope="rowgroup"
+                    rowSpan={floor.rooms.length}
+                  >
+                    {floor.name}
+                  </th>
+                )}
+                <td>{room.department_name}</td>
+                <td>
+                  <button
+                    className="text-button"
+                    onClick={() => onRoom(room.id)}
+                  >
+                    <HardDrives size={19} aria-hidden="true" />
+                    {room.name}
+                  </button>
+                </td>
+                <td>{room.location_name}</td>
+                <td>{room.institution_name}</td>
+                <td>{room.cabinet_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        ))}
+      </table>
     </div>
   );
 }

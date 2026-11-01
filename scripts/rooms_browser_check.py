@@ -1,5 +1,6 @@
 """Room fields, cabinet grouping, inventory position and desktop/mobile checks."""
 
+import re
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -12,12 +13,14 @@ with sync_playwright() as p:
     page.route_web_socket("**/api/v1/ws", lambda _: None)
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto("http://127.0.0.1:8215/#cabinets")
+    page.goto("http://127.0.0.1:8218/#cabinets")
     page.get_by_label("E-posta", exact=True).fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
-    expect(page.get_by_role("columnheader", name="Oda ismi", exact=True)).to_be_visible()
-    expect(page.get_by_role("row").filter(has_text="Sunucu Odası")).to_contain_text("Fixture Üniversitesi")
+    north = page.get_by_role("button", name=re.compile("^Kuzey Kampüs "))
+    south = page.get_by_role("button", name=re.compile("^Güney Kampüs "))
+    expect(north).to_have_attribute("aria-expanded", "false")
+    expect(south).to_have_attribute("aria-expanded", "false")
 
     def check(name):
         for width, height in ((1440, 1000), (375, 812)):
@@ -40,8 +43,36 @@ with sync_playwright() as p:
     expect(page.get_by_role("columnheader", name="İşlemler", exact=True)).to_have_count(0)
     expect(page.get_by_role("button", name="Seçilenleri sil", exact=False)).to_have_count(0)
     expect(page.get_by_role("button", name="Kabinetleri aç", exact=True)).to_have_count(0)
-    search = page.get_by_label("Kat ve odalarda ara", exact=True)
-    table = page.get_by_role("region", name="Katlara göre kabinet tablosu", exact=True)
+    expect(page.get_by_role("columnheader")).to_have_count(0)
+    check("locations-closed")
+    north.focus()
+    north.press("Enter")
+    expect(north).to_have_attribute("aria-expanded", "true")
+    expect(south).to_have_attribute("aria-expanded", "false")
+    table = page.get_by_role("region", name="Kuzey Kampüs kat ve odaları", exact=True)
+    expect(table).to_be_visible()
+    south.click()
+    expect(south).to_have_attribute("aria-expanded", "true")
+    south_table = page.get_by_role("region", name="Güney Kampüs kat ve odaları", exact=True)
+    expect(south_table.get_by_role("button", name="Elektrik Odası", exact=True)).to_be_visible()
+    expect(table.get_by_role("button", name="Elektrik Odası", exact=True)).to_have_count(0)
+    north.focus()
+    north.press("Space")
+    expect(north).to_have_attribute("aria-expanded", "false")
+    expect(south).to_have_attribute("aria-expanded", "true")
+    south.click()
+    search = page.get_by_label("Lokasyon, kat ve odalarda ara", exact=True)
+    search.fill("Sunucu")
+    expect(north).to_have_attribute("aria-expanded", "true")
+    expect(south).to_have_count(0)
+    north.click()
+    expect(north).to_have_attribute("aria-expanded", "false")
+    search.fill("Sunucu kuzey")
+    expect(north).to_have_attribute("aria-expanded", "true")
+    search.fill("")
+    expect(north).to_have_attribute("aria-expanded", "false")
+    expect(south).to_have_attribute("aria-expanded", "false")
+    north.click()
     expect(table.get_by_role("columnheader")).to_have_text(
         ["Kat", "Bölüm", "Oda ismi", "Lokasyon", "Kurum", "Kabinet sayısı"]
     )
@@ -111,6 +142,10 @@ with sync_playwright() as p:
     page.get_by_role("button", name="4", exact=True).click()
     expect(page.get_by_role("dialog").last).to_contain_text("Switch 1")
     page.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    page.get_by_role("button", name="Lokasyonlar", exact=True).click()
+    expect(north).to_have_attribute("aria-expanded", "true")
+    expect(table).to_be_visible()
+    page.get_by_role("button", name="Sunucu Odası", exact=True).click()
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()
     form = page.get_by_role("dialog").last
     form.get_by_label("Kabinet no", exact=False).fill("5")
@@ -146,5 +181,5 @@ with sync_playwright() as p:
     assert not errors, errors
     browser.close()
 print(
-    "PASS: floor groups, natural floor and department order, six-column priority, floor/department search and filters, no root deletion, navigation, desktop/mobile, themes and accessibility"
+    "PASS: locations initially collapsed, independent keyboard toggles, isolated floors, search/filter expansion, six-column order, navigation, desktop/mobile, themes and accessibility"
 )

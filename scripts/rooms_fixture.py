@@ -1,8 +1,14 @@
 """Isolated room/cabinet fixture; no workers or production/network access."""
 
+import os
+
 import uvicorn
+from netrix.core import settings
 from sqlalchemy import select
 from vlan_configuration_fixture import m, main, session_factory
+
+os.environ["NETRIX_PUBLIC_URL"] = "http://127.0.0.1:8218"
+settings.cache_clear()
 
 with session_factory()() as db:
     campus = db.scalar(select(m.Site).where(m.Site.parent_id.is_(None)))
@@ -36,6 +42,19 @@ with session_factory()() as db:
                 department_name=department,
             )
         )
+    other = m.Site(name="Güney Kampüs", code="01-000002", institution_id=campus.institution_id)
+    db.add(other)
+    db.flush()
+    db.add(
+        m.Site(
+            name="Elektrik Odası",
+            code="01-000021",
+            parent_id=other.id,
+            institution_id=campus.institution_id,
+            floor_number="L-0",
+            department_name="A",
+        )
+    )
     db.commit()
 
-uvicorn.run(main.app, host="127.0.0.1", port=8215, log_level="warning")
+uvicorn.run(main.app, host="127.0.0.1", port=8218, log_level="warning")
