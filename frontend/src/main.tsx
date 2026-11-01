@@ -1266,7 +1266,11 @@ function GenericResourceForm({
     ...Object.fromEntries(
       (page.fields || []).map((field) => [
         field.key,
-        row?.[field.key] ??
+        (page.key === "addresses" &&
+        field.key === "cabinet" &&
+        row?.connection_type === "vcenter"
+          ? (row.managed?.cabinet ?? "")
+          : row?.[field.key]) ??
           field.default ??
           (field.type === "checkbox"
             ? false
@@ -1393,18 +1397,20 @@ function GenericResourceForm({
                 {field.required && <span className="required"> *</span>}
               </span>
               {virtualConnection &&
-              ["device_id", "interface_id"].includes(field.key) ? (
+              ["device_id", "interface_id", "cabinet"].includes(field.key) ? (
                 <>
                   <input
                     readOnly
                     aria-label={field.label}
                     aria-describedby={`vmware-${field.key}`}
                     value={
-                      row?.connection_ambiguous
-                        ? "Birden fazla VMware bağlantısı"
-                        : (field.key === "device_id"
-                            ? row?.connected_device
-                            : row?.connected_port) || "Bilgi alınamadı"
+                      field.key === "cabinet"
+                        ? "Sanal"
+                        : row?.connection_ambiguous
+                          ? "Birden fazla VMware bağlantısı"
+                          : (field.key === "device_id"
+                              ? row?.connected_device
+                              : row?.connected_port) || "Bilgi alınamadı"
                     }
                   />
                   <small id={`vmware-${field.key}`}>

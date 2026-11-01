@@ -355,6 +355,7 @@ def enrich(db, rows, *, details=True, include_options=False):
             | {c["source"] for c in physical["connections"]}
         )
         if virtual and not item["mac_conflict"]:
+            item["cabinet"] = "Sanal"
             item["connection_type"] = "vcenter"
             item["connection_groups"] = []
             item["connected_device"] = item["connected_port"] = ""

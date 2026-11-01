@@ -13,6 +13,8 @@ IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu
 
 DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. DHCP ve VMware isimleri DNS yerine; DHCP/VMware MAC'i gateway MAC'i yerine; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. Manuel hostname/OS notları ayrı `managed` alanında korunur; otomatik alanların kaynağını değiştirmez. Kaynağı olmayan otomatik değer boştur.
 
+VMware sanal makinesi olduğu güncel eşleşmeyle doğrulanan IP adreslerinde Kabinet no `Sanal` gösterilir. Bu türetilmiş değer liste, ayrıntı ve düzenleme ekranında aynıdır; manuel kabinet kaydı korunur. Süresi dolmuş veya gateway MAC ile çelişen VMware gözlemi bu gösterimi oluşturmaz.
+
 ## Bağlantı eşleştirmesi
 
 - IPAM okuması, envanterdeki aktif switch/router/firewall cihazlarının kayıtlı SNMP profillerini kullanır. Yeni erişim profili veya ağ keşfi kapsamı istemez. Okuma worker'dadır; envanter alanlarını, arayüzleri veya komşulukları değiştirmez. Ayrı `ipam_network` gözlemleri kullanılır; eski `discovery` gözlemleri bağlantıya temel olmaz.
