@@ -33,6 +33,9 @@ const sourceName = (v: string) =>
     windows_dhcp: "Windows DHCP",
     dns: "DNS",
     icmp: "Ping",
+    gateway: "Gateway ARP/NDP",
+    neighbors: "Komşuluklar",
+    "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
   })[v] || v;
 const stateName = (v: string) =>
   ({
@@ -217,27 +220,96 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
         <>
           <dl className="ipam-summary">
             {[
-              ["Hostname", detail.hostname],
-              ["MAC adresi", detail.mac_address],
+              ["Hostname", detail.hostname, detail.field_sources?.hostname],
+              [
+                "MAC adresi",
+                detail.mac_address,
+                detail.field_sources?.mac_address,
+              ],
               ["Bağlı switch", detail.connected_device],
               [
                 "Port grubu / Sanal ağ",
                 detail.connection_type === "vcenter" ? detail.network : "",
               ],
               ["Bağlı port", detail.connected_port],
-              ["İşletim sistemi", detail.operating_system],
+              [
+                "İşletim sistemi",
+                detail.operating_system,
+                detail.field_sources?.operating_system,
+              ],
+              [
+                "Bağlantı durumu",
+                detail.connection_reason ||
+                  (detail.connected_port
+                    ? "Güncel kanıtla eşleşti"
+                    : "Bağlantı kanıtı yok"),
+              ],
               ["Kabinet no", detail.cabinet],
               ["Lokasyon", detail.location],
               ["VM güç durumu", stateName(detail.power_state)],
               ["Ping", stateName(detail.reachability)],
               ["Son gözlem", date(detail.last_observed_at)],
-            ].map(([k, v]) => (
+            ].map(([k, v, source]) => (
               <div key={k}>
                 <dt>{k}</dt>
-                <dd>{v || "—"}</dd>
+                <dd>
+                  {v || "—"}
+                  {source && (
+                    <small className="ipam-sub">{sourceName(source)}</small>
+                  )}
+                </dd>
               </div>
             ))}
           </dl>
+          {(detail.connections?.length > 0 ||
+            detail.gateway_evidence?.length > 0) && (
+            <section className="ipam-section">
+              <h3>Bağlantı kanıtları</h3>
+              {detail.connection_ambiguous && (
+                <p className="ipam-hint">
+                  Kanıtlar çeliştiği için aşağıdaki adaylardan bir bağlantı
+                  seçilmedi.
+                </p>
+              )}
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Bağlantı kanıt tablosu"
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Cihaz</th>
+                      <th>Port / MAC</th>
+                      <th>Kaynak</th>
+                      <th>Gözlem zamanı</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(detail.gateway_evidence || []).map(
+                      (e: Row, i: number) => (
+                        <tr key={`gateway-${i}`}>
+                          <td>{e.device_name}</td>
+                          <td>{e.mac_address}</td>
+                          <td>{sourceName(e.source)}</td>
+                          <td>{date(e.observed_at)}</td>
+                        </tr>
+                      ),
+                    )}
+                    {(detail.connections || []).map((e: Row, i: number) => (
+                      <tr key={`port-${i}`}>
+                        <td>{e.device_name}</td>
+                        <td>{e.port}</td>
+                        <td>{sourceName(e.source)}</td>
+                        <td>{date(e.observed_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           <section className="ipam-section">
             <h3>Kaynak gözlemleri</h3>
             {query.loading && (

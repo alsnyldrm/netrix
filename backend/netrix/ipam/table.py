@@ -45,6 +45,9 @@ LABELS = {
     "dns": "DNS",
     "vcenter": "VMware vCenter",
     "windows_dhcp": "Windows DHCP",
+    "gateway": "Gateway ARP/NDP",
+    "neighbors": "Komşuluklar",
+    "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
 }
 
 

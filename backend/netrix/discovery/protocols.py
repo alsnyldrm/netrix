@@ -16,6 +16,7 @@ from pysnmp.hlapi.v3arch.asyncio import (
     Udp6TransportTarget,
     UdpTransportTarget,
     UsmUserData,
+    bulk_walk_cmd,
     get_cmd,
     usmAesCfb128Protocol,
     usmHMAC192SHA256AuthProtocol,
@@ -77,6 +78,20 @@ TABLES = {
     "vlan_fdb_port": "1.3.6.1.2.1.17.7.1.2.2.1.2",
 }
 
+# IPAM reads address/bridge evidence only. No traffic counters are collected.
+IPAM_TABLES = {
+    **{key: oid for key, oid in TABLES.items() if not key.startswith("entity_")},
+    "arp_type": "1.3.6.1.2.1.4.22.1.4",
+    "ndp_type": "1.3.6.1.2.1.4.35.1.6",
+    "ndp_state": "1.3.6.1.2.1.4.35.1.7",
+    "ip_addr_ifindex": "1.3.6.1.2.1.4.20.1.2",
+    "ip_addr_mask": "1.3.6.1.2.1.4.20.1.3",
+    "ip_address_ifindex": "1.3.6.1.2.1.4.34.1.3",
+    "ip_address_prefix": "1.3.6.1.2.1.4.34.1.5",
+    "vlan_fdb_id": "1.3.6.1.2.1.17.7.1.4.2.1.3",
+    "vlan_fdb_status": "1.3.6.1.2.1.17.7.1.2.2.1.3",
+}
+
 
 def number(value, default=None):
     try:
@@ -94,6 +109,9 @@ def mac(value):
 
 
 class SNMPCollector:
+    async def ipam(self, host, port, secret):
+        return await self._collect(host, port, secret, ipam_only=True)
+
     async def collect(self, host, port, secret):
         return await self._collect(host, port, secret)
 
@@ -106,7 +124,9 @@ class SNMPCollector:
     async def discovery_probe(self, host, port, secret):
         return await self._collect(host, port, secret, probe_only=True, fast_probe=True)
 
-    async def _collect(self, host, port, secret, identity_only=False, probe_only=False, fast_probe=False):
+    async def _collect(
+        self, host, port, secret, identity_only=False, probe_only=False, fast_probe=False, ipam_only=False
+    ):
         snmp = SnmpEngine()
         try:
             if secret.get("protocol", "snmpv3") == "snmpv2c":
@@ -128,36 +148,40 @@ class SNMPCollector:
             context = ContextData()
             tables, unsupported = {}, []
             async with asyncio.timeout(180):
+                system_oids = {**SYSTEM, **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only else {})}
                 error, status, _, values = await get_cmd(
                     snmp,
                     auth,
                     target,
                     context,
-                    *[ObjectType(ObjectIdentity(oid)) for oid in SYSTEM.values()],
+                    *[ObjectType(ObjectIdentity(oid)) for oid in system_oids.values()],
                     lookupMib=False,
                 )
                 if error or status:
                     raise NetworkError("SNMP erişimi başarısız")
-                system = {key: str(values[i][1]) for i, key in enumerate(SYSTEM)}
+                system = {key: str(values[i][1]) for i, key in enumerate(system_oids)}
                 system["uptime"] = number(values[2][1], 0)
                 if probe_only:
                     if number(values[2][1]) is None:
                         raise NetworkError("SNMP sistem OID okuması başarısız")
                     return
-                for key, oid in TABLES.items():
+                limit = 16384 if ipam_only else 2048
+                for key, oid in (IPAM_TABLES if ipam_only else TABLES).items():
                     if identity_only and not key.startswith("entity_"):
                         continue
                     table = {}
-                    async for error, status, _, bindings in walk_cmd(
+                    walker = bulk_walk_cmd if ipam_only else walk_cmd
+                    async for error, status, _, bindings in walker(
                         snmp,
                         auth,
                         target,
                         context,
+                        *([0, 25] if ipam_only else []),
                         ObjectType(ObjectIdentity(oid)),
                         lexicographicMode=False,
                         lookupMib=False,
-                        maxRows=2048,
-                        maxCalls=2048,
+                        maxRows=limit,
+                        maxCalls=limit,
                     ):
                         if error or status:
                             unsupported.append(key)
@@ -173,7 +197,7 @@ class SNMPCollector:
                             table[index] = binding[1]
                     tables[key] = table
                 for key, table in tables.items():
-                    if len(table) >= 2048:
+                    if len(table) >= limit:
                         unsupported.append(key)
                 system["identity"] = snmp_identity(system, tables)
                 if identity_only:
@@ -200,7 +224,11 @@ class SNMPCollector:
                     key: {
                         i: mac(v) if key in ("arp_mac", "ndp_mac") else str(v) for i, v in tables[key].items()
                     }
-                    for key in ("arp_mac", "ndp_mac", "fdb_port", "bridge_ifindex", "vlan_fdb_port")
+                    for key in (
+                        tuple(IPAM_TABLES)
+                        if ipam_only
+                        else ("arp_mac", "ndp_mac", "fdb_port", "bridge_ifindex", "vlan_fdb_port")
+                    )
                 }
                 return {
                     **system,

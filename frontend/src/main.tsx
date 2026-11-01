@@ -724,9 +724,12 @@ export const ADDRESS_PAGE: Page = {
     f("address", "IP adresi", { required: true }),
     ref("vrf_id", "VRF", "vrfs", true),
     ref("vlan_id", "VLAN", "vlans", true),
-    f("hostname", "Hostname"),
+    f("hostname", "Hostname", {
+      hint: "Manuel not olarak saklanır. IP tablosundaki Hostname DNS’den alınır.",
+    }),
     f("operating_system", "İşletim sistemi", {
       suggestions: "operating-systems",
+      hint: "Manuel not olarak saklanır. IP tablosundaki işletim sistemi VMware’den alınır.",
     }),
     f("cabinet", "Kabinet no", {
       suggestions: "cabinets",

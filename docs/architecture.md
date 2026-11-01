@@ -47,7 +47,7 @@ IPAM fiziksel bağlantı çözümlemesinde firewall ARP/NDP kaydı yalnızca IP�
 
 ### VLAN IPAM sınırı
 
-VLAN, IP bloğu ve DNS/zamanlama ayarlarının sahibidir. Kayıt ile `ipam_discover` işi atomik oluşturulur. Bağımsız ağ bloğu tablosu, API ve envanterden IPAM'e eski gözlem aktarımı kaldırılmıştır. Entegrasyonlar VMware, DHCP, Corner Switch ve Backbone Switch kaynaklarını IPAM içinde toplar; envanter/topoloji gözlemlerini kullanmaz. Ayrıntılar: [VLAN ve entegrasyonlar](ipam-integrations.md).
+VLAN, IP bloğu ve DNS/zamanlama ayarlarının sahibidir. Kayıt ile `ipam_discover` işi atomik oluşturulur. Bağımsız ağ bloğu tablosu, API ve envanterden IPAM'e eski keşif gözlemi aktarımı kaldırılmıştır. Entegrasyonlar VMware ve DHCP verisini IPAM içinde toplar. Gateway/switch okumaları ayrı IPAM worker gözlemleridir; güncel Komşuluklar bağlantı kanıtı tek yönlü okunabilir. Ayrıntılar: [VLAN ve entegrasyonlar](ipam-integrations.md).
 
 VLAN silme önizlemesi `/api/v1/ipam/vlans/delete-preview`, toplu silme `/api/v1/ipam/vlans/bulk-delete` üzerindedir. Silme IP/gözlemleri ve o VLAN'ın ping/keşif işlerini kapsar. Envanter, keşif kapsamları ve tüm VLAN'lara hizmet veren entegrasyonlar korunur. Eski bir kolektör silinmiş VLAN'a yeniden IP yazamaz.
 
@@ -98,3 +98,7 @@ Toplu cihaz değişiklikleri yalnızca VRF, lokasyon, üretici, tür, model, ya�
 `compare` işi kayıtlı SSH profiliyle aktif konfigürasyonu worker'da salt okunur çeker ve seçilen yedekle maskelenmiş unified diff üretir. Aktif cihaz, bağlantı ayarlarının değişmediği ve iptal durumu kontrol edilir. Yeni yedek oluşturmaz veya yedek zamanlamasını ötelemez. Diff yalnızca admin/operator karşılaştırma uç noktasında döner; genel görev yanıtında gizlenir. Yedek indirme de maskelenmiş içeriktir. Silinen cihazın eski yedekleri listelenebilir; canlı karşılaştırma aktif cihaz gerektirir.
 
 Konfigürasyon farkları, onaylar ve çoklu cihaz karşılaştırması için [base config kuralları](configuration-baselines.md) geçerlidir.
+
+## IPAM kaynak sözleşmesi
+
+IPAM ve Envanter ayrı yazma akışlarıdır. IPAM; DNS hostname, gateway ARP/NDP MAC, VMware işletim sistemi ve switch/Komşuluklar bağlantı kanıtını tek yönlü okur. Worker bağımsız `ipam_network` gözlemi üretir; cihaz/arayüz/komşuluk yazmaz. Alan kaynakları ve eşleştirme kuralları [IPAM sözleşmesinde](ipam-integrations.md) tanımlıdır.

@@ -60,7 +60,7 @@ def connection_options(db, row, *, obs=None):
     }
 
 
-async def scan(job_id):
+async def scan(job_id, collector=None):
     from ..worker import Cancelled
 
     with session_factory()() as db:
@@ -111,21 +111,26 @@ async def scan(job_id):
                     {"reachability": "reachable" if up else "no_reply"},
                     create=up and discover,
                 )
-                if hostname:
+                if hostname or up or not discover:
                     observe(
                         db,
                         prefix,
                         address,
                         "dns",
                         dns.id if dns else "system",
-                        {"hostname": hostname},
+                        {"hostname": hostname, "present": bool(hostname)},
                         create=False,
                     )
             job.progress = min(start + SCAN_BATCH_SIZE, len(addresses))
             db.commit()
         publish()
     source_jobs = []
+    network_result = None
     if discover:
+        from ..discovery.protocols import SNMPCollector
+        from .network import refresh
+
+        network_result = await refresh(job_id, collector or SNMPCollector())
         with session_factory()() as db:
             if get(db, m.Job, job_id).cancel_requested:
                 raise Cancelled()
@@ -139,6 +144,7 @@ async def scan(job_id):
         "reachable": reached,
         "no_reply": len(addresses) - reached,
         "source_jobs": source_jobs,
+        "network": network_result,
     }
 
 
@@ -185,8 +191,25 @@ async def integration(job_id, collector=None):
             if mac:
                 item = known.setdefault(address.id, {"row": address, "macs": set()})
                 item["macs"].add(mac)
+                item["matched_by"] = "dhcp_mac"
         mac_owners = {}
         if current.kind == "vcenter":
+            from .connections import Evidence
+
+            # A VM without guest tools/IP can still be identified by the gateway
+            # MAC. A conflicting gateway identity vetoes a stale DHCP binding.
+            network = Evidence(db, {p.vrf_id for p in prefixes})
+            vlans = {p.id: p for p in prefixes}
+            for address in db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id.in_(vlans))):
+                identity = network.resolve(address, vlans[address.vlan_id])
+                if identity["mac_conflict"]:
+                    known.pop(address.id, None)
+                elif identity["mac_address"]:
+                    known[address.id] = {
+                        "row": address,
+                        "macs": {identity["mac_address"]},
+                        "matched_by": "gateway_mac",
+                    }
             for entry in records:
                 mac = normalized_mac(entry.get("mac_address"))
                 mac_owners.setdefault(mac, set()).add((entry["vm_id"], entry["nic_key"]))
@@ -215,7 +238,7 @@ async def integration(job_id, collector=None):
                             key,
                             {
                                 **data,
-                                "matched_by": "dhcp_mac",
+                                "matched_by": item["matched_by"],
                                 "guest_address": entry.get("address", ""),
                             },
                             create=False,
@@ -271,4 +294,4 @@ async def integration(job_id, collector=None):
 async def execute(job_id, kind, collector):
     if kind == "integration":
         return await integration(job_id, collector)
-    return await scan(job_id)
+    return await scan(job_id, collector)

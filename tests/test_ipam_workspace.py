@@ -175,7 +175,8 @@ async def test_integration_atomic_scope_manual_preservation_and_idempotency(
         assert result["status"] == "succeeded", result
         assert result["result"]["outside_vlans"] == 1
     value = c.get("/api/v1/ipam/addresses/" + row["id"]).json()
-    assert value["hostname"] == "managed" and value["operating_system"] == "managed-os"
+    assert value["hostname"] == "" and value["operating_system"] == "Linux"
+    assert value["managed"]["hostname"] == "managed" and value["managed"]["operating_system"] == "managed-os"
     assert value["observations"][0]["data"]["hostname"] == "observed"
     assert len(value["integrations"]) == 1
     with env() as db:

@@ -406,6 +406,10 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         stmt = stmt.options(selectinload(m.Scope.profiles))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
+    if name == "observations":
+        # The inventory's last discovery/identity view must not be replaced by
+        # independent IPAM bridge/gateway reads stored in the shared journal.
+        stmt = stmt.where(m.Observation.source != "ipam_network")
     if name == "links":
         from .discovery.visibility import inventory_links
 

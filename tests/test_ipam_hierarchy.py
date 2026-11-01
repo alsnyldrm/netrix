@@ -97,10 +97,36 @@ def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, 
             "192.0.2.111",
             "vcenter",
             "vm-1",
-            {"mac_address": "aa:bb:cc:dd:ee:ff", "reachability": "no_reply"},
+            {"mac_address": "aa:bb:cc:dd:ee:ff", "operating_system": "Linux", "reachability": "no_reply"},
         )
         observed_id = observed.id
         observe(db, prefix, "192.0.2.111", "icmp", prefix.id, {"reachability": "no_reply"})
+        observe(db, prefix, "192.0.2.110", "dns", "system", {"hostname": "Host 110"})
+        gateway = m.Device(
+            name="Gateway",
+            kind="router",
+            management_ip="192.0.2.254",
+            vrf_id=prefix.vrf_id,
+            discovery_scope_id=inventory["scope"]["id"],
+        )
+        job = m.Job(kind="ipam_discover", target_id=prefix.id)
+        db.add_all([gateway, job])
+        db.flush()
+        db.add(
+            m.Observation(
+                job_id=job.id,
+                device_id=gateway.id,
+                address=gateway.management_ip,
+                source="ipam_network",
+                evidence={
+                    "tables": {
+                        "arp_mac": {"1.192.0.2.111": "aa:bb:cc:dd:ee:ff"},
+                        "ip_addr_ifindex": {"192.0.2.254": "1"},
+                        "ip_addr_mask": {"192.0.2.254": "255.255.255.0"},
+                    }
+                },
+            )
+        )
         db.commit()
     base = f"/api/v1/ipam/vlans/{p['id']}/addresses"
     r = c.get(base, params={"q": "LINUX ee:ff", "allocated": "true"}).json()

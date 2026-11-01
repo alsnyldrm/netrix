@@ -18,7 +18,7 @@ DESCRIPTIONS = {
     ),
     "ipam_discover": (
         "IP adresi keşfi",
-        "Ağ bloğundaki yetkili IP adreslerine ping gönderir. Yanıt veren yeni adresleri IP listesine ekler; DNS sunucusu seçilmişse adlarını sorgular. İlgili entegrasyonları güncellemek için ek görev oluşturabilir.",
+        "VLAN içindeki IP adreslerini ping ve DNS ile kontrol eder. Gateway ARP/NDP ve switch MAC tablolarını kayıtlı cihaz profilleriyle okur; komşuluk kanıtlarıyla bağlantıyı eşleştirir. Envantere cihaz eklemez. DHCP/VMware eşitlemelerini de kuyruğa alır.",
     ),
     "integration": (
         "Entegrasyon güncellemesi",
@@ -141,6 +141,11 @@ def details(db, job):
     if job.kind == "integration" and "imported" in result:
         paragraphs.append(
             f"Okunan kayıt: {result.get('observed', 0)}. İşlenen IP kaydı: {result['imported']}."
+        )
+    if job.kind == "ipam_discover" and result.get("network"):
+        network = result["network"]
+        paragraphs.append(
+            f"Gateway/switch kaynakları: {network['read']} okundu, {network['failed']} okunamadı."
         )
     if job.kind == "compare" and "changed" in result:
         paragraphs.append(

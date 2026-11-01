@@ -123,3 +123,13 @@ Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme
 - Ağ keşfi yalnızca Envanter altındadır; cihaz envanterine alınan adresler burada tanımlanan etkin VLAN/CIDR kapsamından gelmelidir. IPAM ve topolojiye keşif sonucu aktarılmaz; cihaz bağlantısı ve konfigürasyon işleri keşif kapsamına bağımlı değildir.
 - IPAM'in sahibi VLAN'dır. Bağımsız ağ blokları ve genel IP adresleri ekranı/API listesi kaldırılmıştır. VLAN kaydı kendi CIDR, DNS ve zamanlama ayarlarıyla IP taramasını başlatır; envanter keşif kapsamı veya cihaz profili istemez. Entegrasyonlar tüm VLAN'lara uygulanır. IPAM değişikliklerinde [VLAN ve entegrasyon davranışını](docs/ipam-integrations.md) oku.
 - Konfigürasyonda ilk geçerli kayıt base config'tir; kullanıcı bunu değiştirebilir. Değişenler base ile son konfigürasyonun anlamlı farkıdır ve onayla listeden kaldırılır. Konfigürasyon işi yaparken [base config ve onay kurallarını](docs/configuration-baselines.md) oku.
+
+## Sabit IPAM kaynak sözleşmesi (1 Kasım 2026)
+
+Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
+
+- IP adres yönetimi ve Envanter ayrı menüler ve yazma akışlarıdır. IPAM'dan envanter cihazı veya komşuluk oluşturma.
+- IPAM Hostname yalnızca DNS'den, MAC yalnızca gateway ARP/NDP'den, işletim sistemi yalnızca VMware'den gelir. Bağlı cihaz/port, Komşuluklar'ın güncel protokol kanıtı ile switch MAC tablosundan ve ilgili VMware entegrasyonundan okunur.
+- IPAM, kayıtlı envanter gateway/switch profilleriyle worker'da bağımsız kanıt okuyabilir. Envanter Ağ keşfi sonuçları IPAM'a aktarılmaz; IPAM okuması envanteri ve topolojiyi değiştirmez.
+- VRF/VLAN ve FDB kimliği ayrımını, güncelliği, uplink elemesini, çoklu NIC kanıtını ve çakışmaları koru. Belirsiz cihaz/port adaylarından keyfi seçim yapma.
+- Kaynak sözleşmesinin ayrıntıları ve zorunlu regresyon testleri: [IPAM kaynakları ve eşleştirme](docs/ipam-integrations.md).

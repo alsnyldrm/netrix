@@ -266,6 +266,9 @@ def enrich(db, rows, *, details=True, include_options=False):
     cabinets = address_cabinets(db, rows)
     sites = dict(db.execute(select(m.Site.id, m.Site.name)).all())
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
+    from .connections import Evidence
+
+    network_evidence = Evidence(db, {r.vrf_id for r in rows})
     result = []
 
     for row in rows:
@@ -280,9 +283,6 @@ def enrich(db, rows, *, details=True, include_options=False):
         ]
         ordered = sorted(recent, key=identity_rank)
         for field in (
-            "hostname",
-            "operating_system",
-            "mac_address",
             "power_state",
             "reachability",
             "network",
@@ -299,16 +299,40 @@ def enrich(db, rows, *, details=True, include_options=False):
                     ),
                     "",
                 )
-        dns_name = next(
-            (o.data.get("hostname") for o in recent if o.source == "dns" and o.data.get("hostname")), ""
+        vlan = prefixes[row.vlan_id]
+        physical = network_evidence.resolve(row, vlan)
+        item.update(physical)
+        item["hostname"] = next(
+            (
+                o.data.get("hostname")
+                for o in recent
+                if o.source == "dns"
+                and o.source_key == (vlan.dns_server_id or "system")
+                and o.data.get("hostname")
+            ),
+            "",
         )
-        if dns_name:
-            item["hostname"] = dns_name
-        macs = identity_macs(recent)
-        all_macs = {normalized_mac(o.data.get("mac_address")) for o in recent} - {""}
-        item["mac_conflict"] = len(all_macs) > 1
-        if len(macs) > 1:
-            item["mac_address"] = " / ".join(sorted(macs))
+        # Gateway identity vetoes stale VM/DHCP IP reuse. Guest MAC is supporting
+        # evidence only; it never supplies the displayed MAC field.
+        vm_observations = [
+            o
+            for o in recent
+            if o.source == "vcenter"
+            and (not item["mac_address"] or normalized_mac(o.data.get("mac_address")) == item["mac_address"])
+        ]
+        vm_owners = {
+            (o.data.get("integration_id", o.source_key), o.data.get("vm_id")) for o in vm_observations
+        }
+        item["operating_system"] = (
+            next((o.data["operating_system"] for o in vm_observations if o.data.get("operating_system")), "")
+            if len(vm_owners) <= 1 and not item["mac_conflict"]
+            else ""
+        )
+        item["field_sources"] = {
+            "hostname": "dns" if item["hostname"] else "",
+            "mac_address": "gateway" if item["mac_address"] else "",
+            "operating_system": "vcenter" if item["operating_system"] else "",
+        }
         item["location"] = (
             sites.get(row.sub_site_id or row.site_id)
             or item["location"]
@@ -317,22 +341,24 @@ def enrich(db, rows, *, details=True, include_options=False):
         item["last_observed_at"] = obs[0].observed_at.isoformat() if obs else None
         item["stale"] = bool(obs and not recent)
         item["sources"] = sorted({o.source for o in obs})
-        virtual = virtual_connections(obs)
+        virtual = virtual_connections(vm_observations)
         if include_options:
             from .jobs import connection_options
 
             item.update(connection_options(db, row, obs=obs))
-        if details:
-            item["connections"] = []
-        item.update(
-            connected_device="",
-            connected_port="",
-            connection_groups=[],
-            connection_type="",
-            connection_ambiguous=False,
+        if not details:
+            item.pop("connections", None)
+            item.pop("gateway_evidence", None)
+        item["sources"] = sorted(
+            set(item["sources"])
+            | ({"gateway"} if physical["gateway_evidence"] else set())
+            | {c["source"] for c in physical["connections"]}
         )
-        if virtual:
+        if virtual and not item["mac_conflict"]:
             item["connection_type"] = "vcenter"
+            item["connection_groups"] = []
+            item["connected_device"] = item["connected_port"] = ""
+            item["connection_reason"] = "Birden fazla VMware NIC/IP eşleşmesi" if len(virtual) != 1 else ""
             item["connection_ambiguous"] = len(virtual) != 1
             item["network"] = ""
             if len(virtual) == 1:

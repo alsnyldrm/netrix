@@ -27,6 +27,11 @@ def test_active_usage_filter_and_status_share_latest_ping(env):
             db.add(row)
             db.flush()
             rows.append(row)
+            db.add(
+                m.IPObservation(
+                    address_id=row.id, source="dns", source_key="system", data={"hostname": f"host-{n}"}
+                )
+            )
         for index, state, age in (
             (0, "reachable", 0),
             (1, "no_reply", 0),

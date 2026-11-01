@@ -595,6 +595,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.error = "" if count == 3 else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
+            elif kind == "ipam_discover" and (result.get("network") or {}).get("failed"):
+                job.status = "partial"
+                job.error = "IP taraması tamamlandı; bazı gateway/switch kaynakları okunamadı. Bağlantı kanıtları eksik olabilir."
             else:
                 job.status = "succeeded"
             job.result, job.finished_at, job.active_key = {**job.result, **result}, now(), None
