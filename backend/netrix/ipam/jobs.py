@@ -12,6 +12,9 @@ from ..identity.security import decrypt
 from ..services import enqueue, get, in_scope, publish
 from . import adapters
 from .service import (
+    dns_hostname,
+    hostname_vm_records,
+    normalized_hostname,
     normalized_mac,
     observations,
     observe,
@@ -19,6 +22,7 @@ from .service import (
     targets,
     virtual_connections,
     vlan_for,
+    vmware_observations,
 )
 
 KINDS = ("ipam_ping", "ipam_discover", "integration")
@@ -124,7 +128,14 @@ def validate_target(db, kind, id):
 
 
 def connection_options(db, row, *, obs=None):
-    virtual = virtual_connections(obs if obs is not None else observations(db, [row])[row.id])
+    if obs is None:
+        from .connections import Evidence
+
+        obs = observations(db, [row])[row.id]
+        vlan = get(db, m.VLAN, row.vlan_id)
+        physical = Evidence(db, {row.vrf_id}).resolve(row, vlan)
+        obs, _ = vmware_observations(obs, dns_hostname(obs, vlan), row.address, physical)
+    virtual = virtual_connections(obs)
     integrations = []
     for candidate in virtual:
         config = (
@@ -316,14 +327,18 @@ async def integration(job_id, collector=None):
                 select(m.IPAddress, m.IPObservation)
                 .join(m.IPObservation, m.IPObservation.address_id == m.IPAddress.id)
                 .where(
-                    m.IPObservation.source == "windows_dhcp",
+                    m.IPObservation.source.in_(("windows_dhcp", "dns")),
                     m.IPObservation.observed_at >= now() - timedelta(hours=24),
                 )
             )
         )
         known = {}
+        dns = {}
         seen = set()
         for address, evidence in address_evidence:
+            if evidence.source == "dns":
+                dns.setdefault(address.id, []).append(evidence)
+                continue
             if not evidence.data.get("present", True):
                 continue
             mac = normalized_mac(evidence.data.get("mac_address"))
@@ -332,6 +347,9 @@ async def integration(job_id, collector=None):
                 item["macs"].add(mac)
                 item["matched_by"] = "dhcp_mac"
         mac_owners = {}
+        gateway_macs = {}
+        named_records = {}
+        ip_rows = []
         if current.kind == "vcenter":
             from .connections import Evidence
 
@@ -339,8 +357,10 @@ async def integration(job_id, collector=None):
             # MAC. A conflicting gateway identity vetoes a stale DHCP binding.
             network = Evidence(db, {p.vrf_id for p in prefixes})
             vlans = {p.id: p for p in prefixes}
-            for address in db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id.in_(vlans))):
+            ip_rows = list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id.in_(vlans))))
+            for address in ip_rows:
                 identity = network.resolve(address, vlans[address.vlan_id])
+                gateway_macs[address.id] = identity["mac_address"]
                 if identity["mac_conflict"]:
                     known.pop(address.id, None)
                 elif identity["mac_address"]:
@@ -352,6 +372,7 @@ async def integration(job_id, collector=None):
             for entry in records:
                 mac = normalized_mac(entry.get("mac_address"))
                 mac_owners.setdefault(mac, set()).add((entry["vm_id"], entry["nic_key"]))
+                named_records.setdefault(normalized_hostname(entry.get("hostname")), []).append(entry)
         for entry in records:
             prefix = vlan_for(db, entry["address"], prefixes) if entry.get("address") else None
             key = current.id + (
@@ -359,6 +380,8 @@ async def integration(job_id, collector=None):
             )
             data = {k: v for k, v in entry.items() if k != "address"}
             data["integration_id"] = current.id
+            if current.kind == "vcenter":
+                data["guest_address"] = entry.get("address", "")
             observed = observe(db, prefix, entry["address"], current.kind, key, data) if prefix else None
             if observed:
                 seen.add((observed.id, key))
@@ -385,6 +408,35 @@ async def integration(job_id, collector=None):
                         if observed:
                             seen.add((observed.id, key))
                             matched += 1
+        for address in ip_rows:
+            scope = vlans[address.vlan_id]
+            hostname = dns_hostname(dns.get(address.id, []), scope)
+            chosen = hostname_vm_records(
+                named_records.get(normalized_hostname(hostname), []),
+                hostname,
+                address.address,
+                gateway_macs.get(address.id, ""),
+            )
+            if not chosen:
+                continue
+            entry = next((d for d in chosen if d.get("address") == address.address), chosen[0])
+            key = current.id + ":" + entry["vm_id"] + ":" + entry["nic_key"]
+            observed = observe(
+                db,
+                scope,
+                address.address,
+                "vcenter",
+                key,
+                {
+                    **{k: v for k, v in entry.items() if k != "address"},
+                    "integration_id": current.id,
+                    "guest_address": entry.get("address", ""),
+                    "matched_by": "dns_hostname",
+                },
+                create=False,
+            )
+            if observed:
+                seen.add((observed.id, key))
         if current.kind in ("vcenter", "windows_dhcp"):
             # Retire disappeared IP/NIC associations only after a complete, successful snapshot.
             # Keep their evidence/history, but never use it as a current attachment.

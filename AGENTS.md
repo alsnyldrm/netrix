@@ -129,7 +129,7 @@ Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme
 Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 - IP adres yönetimi ve Envanter ayrı menüler ve yazma akışlarıdır. IPAM'dan envanter cihazı veya komşuluk oluşturma.
-- IPAM Hostname yalnızca DNS'den, MAC yalnızca gateway ARP/NDP'den, işletim sistemi yalnızca VMware'den gelir. Bağlı cihaz/port, Komşuluklar'ın güncel protokol kanıtı ile switch MAC tablosundan ve ilgili VMware entegrasyonundan okunur.
+- IPAM Hostname yalnızca DNS'den, işletim sistemi yalnızca VMware'den gelir. DNS hostname'i VMware'de tekil VM/NIC ile doğrulanırsa MAC VMware'den, aksi durumda gateway ARP/NDP'den alınır. Bağlı cihaz/port, Komşuluklar'ın güncel protokol kanıtı ile switch MAC tablosundan ve ilgili VMware entegrasyonundan okunur.
 - IPAM, kayıtlı envanter gateway/switch profilleriyle worker'da bağımsız kanıt okuyabilir. Envanter Ağ keşfi sonuçları IPAM'a aktarılmaz; IPAM okuması envanteri ve topolojiyi değiştirmez.
 - VRF/VLAN ve FDB kimliği ayrımını, güncelliği, uplink elemesini, çoklu NIC kanıtını ve çakışmaları koru. Belirsiz cihaz/port adaylarından keyfi seçim yapma.
 - Kaynak sözleşmesinin ayrıntıları ve zorunlu regresyon testleri: [IPAM kaynakları ve eşleştirme](docs/ipam-integrations.md).

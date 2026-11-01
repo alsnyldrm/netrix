@@ -140,9 +140,8 @@ def vm_records(vm_id, values, networks=None):
             result.append(
                 {
                     "address": address,
-                    "mac_address": normalized_mac(
-                        getattr(nic, "macAddress", None) or getattr(hardware, "macAddress", "")
-                    ),
+                    "mac_address": normalized_mac(getattr(hardware, "macAddress", ""))
+                    or normalized_mac(getattr(nic, "macAddress", "")),
                     "hostname": (getattr(guest, "hostName", "") or values.get("name") or "")[:190],
                     "operating_system": (
                         getattr(guest, "guestFullName", "") or values.get("config.guestFullName") or ""

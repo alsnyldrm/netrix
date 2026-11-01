@@ -155,7 +155,7 @@ def details(db, job):
     if job.kind == "ipam_discover" and result.get("matching"):
         match = result["matching"]
         paragraphs.append(
-            f"Eşleştirilen {match['addresses']} IP içinde: {match['hostname']} DNS ismi, {match['mac_address']} gateway MAC, {match['connected_port']} cihaz/port, {match['operating_system']} VMware işletim sistemi. Belirsiz bağlantı: {match['ambiguous']}."
+            f"Eşleştirilen {match['addresses']} IP içinde: {match['hostname']} DNS ismi, {match['mac_address']} MAC, {match['connected_port']} cihaz/port, {match['operating_system']} VMware işletim sistemi. Belirsiz bağlantı: {match['ambiguous']}."
         )
     if job.kind == "compare" and "changed" in result:
         paragraphs.append(

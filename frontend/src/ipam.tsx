@@ -36,6 +36,7 @@ const sourceName = (v: string) =>
     gateway: "Gateway ARP/NDP",
     neighbors: "Komşuluklar",
     "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
+    "vcenter+vlan_fdb": "VMware + switch MAC tablosu",
   })[v] || v;
 const stateName = (v: string) =>
   ({
@@ -655,7 +656,7 @@ export function IPAMWorkspace({
             {job.result?.matching && (
               <small className="ipam-sub">
                 {job.result.matching.hostname} DNS ·{" "}
-                {job.result.matching.mac_address} gateway MAC ·{" "}
+                {job.result.matching.mac_address} MAC ·{" "}
                 {job.result.matching.connected_port} cihaz/port ·{" "}
                 {job.result.matching.operating_system} VMware işletim sistemi
               </small>

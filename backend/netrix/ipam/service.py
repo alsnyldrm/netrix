@@ -257,6 +257,80 @@ def observations(db, rows):
     return result
 
 
+def dns_hostname(obs, vlan):
+    return next(
+        (
+            o.data.get("hostname")
+            for o in sorted(obs, key=lambda o: o.observed_at, reverse=True)
+            if o.source == "dns"
+            and o.source_key == (vlan.dns_server_id or "system")
+            and o.observed_at >= now() - timedelta(hours=24)
+            and o.data.get("present", True)
+            and o.data.get("hostname")
+        ),
+        "",
+    )
+
+
+def normalized_hostname(value):
+    return (value or "").strip().rstrip(".").casefold()
+
+
+def hostname_vm_records(records, hostname, address, gateway_mac=""):
+    """Select one proven VM/NIC, never the first card or a similar short name."""
+    name = normalized_hostname(hostname)
+    matches = [d for d in records if name and normalized_hostname(d.get("hostname")) == name]
+    owners = {(d.get("integration_id", ""), d.get("vm_id")) for d in matches}
+    if len(owners) != 1 or not next(iter(owners))[1]:
+        return []
+    cards = {}
+    for d in matches:
+        if not d.get("nic_key") or not normalized_mac(d.get("mac_address")):
+            return []
+        cards.setdefault(d["nic_key"], []).append(d)
+    if any(len({normalized_mac(d["mac_address"]) for d in card}) != 1 for card in cards.values()):
+        return []
+    own_ip = [card for card in cards.values() if any(d.get("address") == address for d in card)]
+    if own_ip:
+        return own_ip[0] if len(own_ip) == 1 else []
+    if len(cards) == 1:
+        return next(iter(cards.values()))
+    by_mac = [
+        card
+        for card in cards.values()
+        if gateway_mac and normalized_mac(card[0]["mac_address"]) == gateway_mac
+    ]
+    return by_mac[0] if len(by_mac) == 1 else []
+
+
+def vmware_observations(obs, hostname, address, physical):
+    recent = [
+        o
+        for o in obs
+        if o.source == "vcenter"
+        and o.observed_at >= now() - timedelta(hours=24)
+        and o.data.get("present", True)
+    ]
+    records = [
+        {
+            **o.data,
+            "integration_id": o.data.get("integration_id", o.source_key),
+            "address": o.data.get("guest_address", "" if o.data.get("matched_by") else address),
+            "observation": o,
+        }
+        for o in recent
+    ]
+    selected = hostname_vm_records(records, hostname, address, physical["mac_address"])
+    if selected:
+        return [d["observation"] for d in selected], normalized_mac(selected[0]["mac_address"])
+    # Unverified names retain the gateway identity boundary for IP reuse safety.
+    return [
+        o
+        for o in recent
+        if not physical["mac_address"] or normalized_mac(o.data.get("mac_address")) == physical["mac_address"]
+    ], ""
+
+
 def enrich(db, rows, *, details=True, include_options=False):
     from .racks import address_cabinets
 
@@ -301,25 +375,11 @@ def enrich(db, rows, *, details=True, include_options=False):
                 )
         vlan = prefixes[row.vlan_id]
         physical = network_evidence.resolve(row, vlan)
+        item["hostname"] = dns_hostname(recent, vlan)
+        vm_observations, vm_mac = vmware_observations(obs, item["hostname"], row.address, physical)
+        if vm_mac:
+            physical = network_evidence.resolve(row, vlan, identity_mac=vm_mac, identity_source="vcenter")
         item.update(physical)
-        item["hostname"] = next(
-            (
-                o.data.get("hostname")
-                for o in recent
-                if o.source == "dns"
-                and o.source_key == (vlan.dns_server_id or "system")
-                and o.data.get("hostname")
-            ),
-            "",
-        )
-        # Gateway identity vetoes stale VM/DHCP IP reuse. Guest MAC is supporting
-        # evidence only; it never supplies the displayed MAC field.
-        vm_observations = [
-            o
-            for o in recent
-            if o.source == "vcenter"
-            and (not item["mac_address"] or normalized_mac(o.data.get("mac_address")) == item["mac_address"])
-        ]
         vm_owners = {
             (o.data.get("integration_id", o.source_key), o.data.get("vm_id")) for o in vm_observations
         }
@@ -330,7 +390,7 @@ def enrich(db, rows, *, details=True, include_options=False):
         )
         item["field_sources"] = {
             "hostname": "dns" if item["hostname"] else "",
-            "mac_address": "gateway" if item["mac_address"] else "",
+            "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",
             "operating_system": "vcenter" if item["operating_system"] else "",
         }
         item["location"] = (
@@ -345,7 +405,7 @@ def enrich(db, rows, *, details=True, include_options=False):
         if include_options:
             from .jobs import connection_options
 
-            item.update(connection_options(db, row, obs=obs))
+            item.update(connection_options(db, row, obs=vm_observations))
         if not details:
             item.pop("connections", None)
             item.pop("gateway_evidence", None)

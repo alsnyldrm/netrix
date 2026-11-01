@@ -214,7 +214,7 @@ class Evidence:
             )
         )
 
-    def resolve(self, row, vlan):
+    def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway"):
         lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
         cutoff = self.at - lifetime
         snapshots = {
@@ -242,7 +242,8 @@ class Evidence:
                             "observed_at": obs.created_at.isoformat(),
                         }
                     )
-        macs = {g["mac_address"] for g in gateway}
+        gateway_macs = {g["mac_address"] for g in gateway}
+        macs = {identity_mac} if identity_mac else gateway_macs
         links = []
         for link in self.links:
             if (
@@ -348,7 +349,7 @@ class Evidence:
                         "device_name": self.devices[id].name,
                         "port": port,
                         "aggregate": None,
-                        "source": "gateway+vlan_fdb",
+                        "source": identity_source + "+vlan_fdb",
                         "observed_at": obs.created_at.isoformat(),
                         "evidence_id": obs.id,
                         "endpoint_identity": None,
@@ -385,6 +386,7 @@ class Evidence:
         return {
             "mac_address": next(iter(macs)) if len(macs) == 1 else "",
             "mac_conflict": len(macs) > 1,
+            "gateway_mac_conflict": len(gateway_macs) > 1,
             "gateway_evidence": gateway,
             "connections": values,
             "connection_groups": list(groups.values()),

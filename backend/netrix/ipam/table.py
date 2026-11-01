@@ -48,6 +48,7 @@ LABELS = {
     "gateway": "Gateway ARP/NDP",
     "neighbors": "Komşuluklar",
     "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
+    "vcenter+vlan_fdb": "VMware + switch MAC tablosu",
 }
 
 
