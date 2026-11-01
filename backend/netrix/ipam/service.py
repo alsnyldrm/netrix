@@ -608,6 +608,23 @@ def connection_context(db, rows=None, grouped=None):
                         "endpoint_name": neighbor.get("remote_name") or "",
                         "members": [],
                     }
+        # Advertised NIC MACs prove direct neighbors without an FDB row on that
+        # member. LACP may learn the endpoint only on the aggregate interface.
+        for (mac, name), identity in snapshot["neighbor_macs"].items():
+            port_id = by_name.get(name)
+            if not port_id or (wanted_macs is not None and mac not in wanted_macs):
+                continue
+            for vrf in vrfs:
+                indexed.setdefault((vrf, mac), {})[port_id] = {
+                    "interface_id": port_id,
+                    "source": "lldp/cdp",
+                    "confidence": 0.95,
+                    "ambiguous": False,
+                    "uplink": False,
+                    "direct": True,
+                    "observed_at": config.last_success_at.isoformat(),
+                    "neighbor_identity": identity,
+                }
         # Index each MAC once; avoid scanning the entire FDB for every interface.
         for mac, indices in snapshot["macs"].items():
             if wanted_macs is not None and mac not in wanted_macs:
@@ -623,6 +640,8 @@ def connection_context(db, rows=None, grouped=None):
                     re.match(r"^(?:trk|dyn|bridge-aggregation|port-channel|bond|lag)\d", name, re.I)
                 )
                 for vrf in vrfs:
+                    if indexed.get((vrf, mac), {}).get(port_id, {}).get("direct"):
+                        continue
                     indexed.setdefault((vrf, mac), {})[port_id] = {
                         "interface_id": port_id,
                         "source": config.kind,

@@ -98,6 +98,7 @@ def project_snapshot(evidence):
         mac = normalized_mac(value)
         if mac:
             arp.setdefault(address, []).append((mac, parts[0]))
+    chassis_ports, chassis_macs = {}, {}
     for neighbor in evidence.get("neighbors") or []:
         local = neighbor.get("interface_name")
         data = neighbor.get("evidence") or {}
@@ -105,12 +106,25 @@ def project_snapshot(evidence):
         port = aggregate.get("name") or local
         uplinks.update(v for v in (local, port) if v)
         lldp = data.get("lldp") or {}
+        chassis_id = str(lldp.get("chassis_id") or "").lower()
+        # UUID chassis IDs identify multiple NICs of one physical server/storage.
+        # Generic descriptions and arbitrary local IDs do not prove a shared host.
+        chassis = (
+            chassis_id
+            if lldp.get("chassis_subtype") == 7
+            and re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", chassis_id)
+            else None
+        )
+        if chassis and local:
+            chassis_ports.setdefault(chassis, set()).add(local)
         # An AP/server advertising its own MAC is the endpoint, not a transit switch.
         for value in (
             lldp.get("chassis_id") if lldp.get("chassis_subtype") == 4 else None,
             lldp.get("port_id") if lldp.get("port_subtype") == 3 else None,
         ):
             mac = normalized_mac(value)
+            if mac and chassis:
+                chassis_macs.setdefault(chassis, set()).add(mac)
             if mac and port:
                 neighbor_macs[(mac, port)] = {"name": neighbor.get("remote_name") or "", "members": []}
         # A neighbor's management IP proves the endpoint of a port/aggregate.
@@ -126,6 +140,10 @@ def project_snapshot(evidence):
                 item = hosts.setdefault(key, {"name": neighbor.get("remote_name") or "", "members": set()})
                 if local and aggregate.get("name"):
                     item["members"].add(local)
+    for chassis, member_ports in chassis_ports.items():
+        for mac in chassis_macs.get(chassis, ()):
+            for port in member_ports:
+                neighbor_macs.setdefault((mac, port), {"name": "", "members": []})
     detail = evidence.get("neighbor_detail") or {}
     for member, aggregate in (detail.get("trunks") or {}).items():
         if member in uplinks and aggregate.get("name"):

@@ -195,7 +195,7 @@ def test_ap_neighbor_mac_is_endpoint_not_transit(admin_client, inventory, env):
         assert result["connected_port"] == port.name
         # A MAC learned behind that AP must not be assigned to its uplink.
         service.observe(
-            db, prefix, row.address, "backbone_switch", "gw", {"mac_address": "00:50:56:a0:42:c1"}
+            db, prefix, row.address, "corner_switch", "gw", {"mac_address": "00:50:56:a0:42:c1"}
         )
         snapshot.evidence = {
             **snapshot.evidence,

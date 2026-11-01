@@ -184,3 +184,31 @@ def test_changing_source_target_discards_old_attachment_evidence(admin_client, i
     with env() as db:
         config = db.get(m.Integration, source_id)
         assert config.evidence == {} and config.last_success_at is None
+
+
+@pytest.mark.parametrize("shared_chassis,expected", [(True, "K3-K4"), (False, "K4")])
+def test_lacp_member_mac_is_resolved_without_member_fdb(
+    admin_client, inventory, env, shared_chassis, expected
+):
+    with env() as db:
+        vlan, row = endpoint(db, inventory["vrf"]["id"])
+        core = switch(db, vlan.vrf_id, "Storage core")
+        core.name = "Trk5"
+        chassis = "37383538-3438-5a43-3339-323038533031" if shared_chassis else "Generic server"
+        core.config.evidence = {
+            **core.config.evidence,
+            "interfaces": [
+                *core.config.evidence["interfaces"],
+                {"name": "K3", "if_index": 323},
+                {"name": "K4", "if_index": 324},
+            ],
+            "neighbors": [
+                neighbor(port, chassis, chassis_subtype=7, chassis_id=chassis, port_subtype=3, port_id=mac)
+                for port, mac in [("K3", "00:50:56:a0:42:c1"), ("K4", "00:50:56:a0:42:c0")]
+            ],
+        }
+        db.commit()
+        result = service.enrich(db, [row])[0]
+        assert result["connected_device"] == "Storage core"
+        assert result["connected_port"] == expected
+        assert not result["connection_ambiguous"]
