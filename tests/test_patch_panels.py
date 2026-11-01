@@ -97,6 +97,7 @@ def test_ports_reverse_inventory_manual_and_validation(admin_client, rack, env):
     ) == ("01", "CAT", "01A", "A1", "Cat6")
     assert c.put(first, json={**data, "interface_id": devices[1][1]}).status_code == 422
     assert c.put(first, json={**data, "cable_model": "OM3"}).status_code == 422
+    assert c.put(first, json={**data, "fiber_mode": "multimode"}).status_code == 422
     assert c.put(first, json={**data, "number": "2"}).status_code == 409
     second = ports_url + "/" + ports[1]["id"]
     assert (
@@ -167,3 +168,80 @@ def test_resize_keeps_labels_and_rejects_cable_type_change(admin_client, rack):
     updated = c.get(url + "/ports").json()["items"]
     assert [p["number"] for p in updated] == ["CAT-A", "2", "3"]
     assert updated[0]["id"] == ports[0]["id"]
+
+
+@pytest.mark.parametrize(
+    "model,mode",
+    [
+        ("OM3", "multimode"),
+        ("OM4", "multimode"),
+        ("OM3", "singlemode"),
+        ("OM4", "singlemode"),
+        ("", "singlemode"),
+        ("OM3", ""),
+    ],
+)
+def test_fiber_grade_and_mode_are_independent_and_reverse_linked(admin_client, rack, model, mode):
+    c = admin_client
+    cabinet, devices = rack
+    base = f"/api/v1/ipam/cabinets/{cabinet['id']}/patch-panels"
+    panel_data = dict(name="Fiber", kind="fiber", start_unit=2, port_count=2)
+    panel = c.post(base, json=panel_data).json()
+    url = base + f"/{panel['id']}/ports"
+    port = c.get(url).json()["items"][1]
+    endpoint = url + "/" + port["id"]
+    data = {
+        "number": "2",
+        "device_id": devices[0][0],
+        "interface_id": devices[0][1],
+        "cable_model": model,
+        "fiber_mode": mode,
+    }
+    result = c.put(endpoint, json=data)
+    assert result.status_code == 200, result.text
+    assert (result.json()["cable_model"], result.json()["fiber_mode"]) == (model, mode)
+    stored = c.get(url).json()["items"][1]
+    assert (stored["cable_model"], stored["fiber_mode"]) == (model, mode)
+    reverse = c.get(f"/api/v1/devices/{devices[0][0]}/patch-ports").json()["items"][0]
+    assert (reverse["cable_model"], reverse["fiber_mode"]) == (model, mode)
+    assert c.put(base + "/" + panel["id"], json={**panel_data, "port_count": 1}).status_code == 409
+    assert c.put(base + "/" + panel["id"], json={**panel_data, "kind": "cat"}).status_code == 409
+    assert c.put(endpoint, json={**data, "fiber_mode": "unknown"}).status_code == 422
+    assert c.put(endpoint, json={"number": "2", "cable_model": "", "fiber_mode": ""}).status_code == 200
+    assert c.put(base + "/" + panel["id"], json={**panel_data, "port_count": 1}).status_code == 200
+
+
+@pytest.mark.parametrize("legacy,mode", [("Multimode MM", "multimode"), ("Singlemode SM", "singlemode")])
+def test_legacy_fiber_mode_input_is_normalized(admin_client, rack, legacy, mode):
+    c = admin_client
+    cabinet, _ = rack
+    base = f"/api/v1/ipam/cabinets/{cabinet['id']}/patch-panels"
+    panel = c.post(base, json=dict(name="Fiber", kind="fiber", start_unit=2, port_count=1)).json()
+    url = base + f"/{panel['id']}/ports"
+    port = c.get(url).json()["items"][0]
+    result = c.put(url + "/" + port["id"], json={"number": "1", "cable_model": legacy})
+    assert result.status_code == 200, result.text
+    assert result.json()["cable_model"] == "" and result.json()["fiber_mode"] == mode
+    opposite = "singlemode" if mode == "multimode" else "multimode"
+    assert (
+        c.put(
+            url + "/" + port["id"], json={"number": "1", "cable_model": legacy, "fiber_mode": opposite}
+        ).status_code
+        == 422
+    )
+
+
+def test_mode_only_port_is_protected_during_panel_changes(admin_client, rack):
+    c = admin_client
+    cabinet, _ = rack
+    base = f"/api/v1/ipam/cabinets/{cabinet['id']}/patch-panels"
+    data = dict(name="Fiber", kind="fiber", start_unit=2, port_count=2)
+    panel = c.post(base, json=data).json()
+    url = base + "/" + panel["id"]
+    port = c.get(url + "/ports").json()["items"][1]
+    assert (
+        c.put(url + "/ports/" + port["id"], json={"number": "2", "fiber_mode": "singlemode"}).status_code
+        == 200
+    )
+    assert c.put(url, json={**data, "port_count": 1}).status_code == 409
+    assert c.put(url, json={**data, "kind": "cat"}).status_code == 409

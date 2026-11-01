@@ -154,6 +154,7 @@ class PatchPort(Entity, Base):
     device_name: Mapped[str] = mapped_column(String(190), default="")
     port_name: Mapped[str] = mapped_column(String(120), default="")
     cable_model: Mapped[str] = mapped_column(String(30), default="")
+    fiber_mode: Mapped[str] = mapped_column(String(12), default="", server_default="")
     __table_args__ = (
         UniqueConstraint("panel_id", "number", name="uq_patch_port_number"),
         UniqueConstraint("panel_id", "position", name="uq_patch_port_position"),
@@ -162,6 +163,7 @@ class PatchPort(Entity, Base):
             "cable_model in ('','Cat5','Cat6','Cat7','OM3','OM4','Multimode MM','Singlemode SM')",
             name="ck_patch_cable_model",
         ),
+        CheckConstraint("fiber_mode in ('','multimode','singlemode')", name="ck_patch_fiber_mode"),
     )
 
 

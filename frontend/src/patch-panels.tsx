@@ -9,8 +9,14 @@ export const panelKind = (kind: string) =>
   kind === "fiber" ? "Fiber Patch Panel" : "CAT Patch Panel";
 const cables: Record<string, string[]> = {
   cat: ["Cat5", "Cat6", "Cat7"],
-  fiber: ["OM3", "OM4", "Multimode MM", "Singlemode SM"],
+  fiber: ["OM3", "OM4"],
 };
+const fiberModes: Record<string, string> = {
+  multimode: "Multimode (MM)",
+  singlemode: "Singlemode (SM)",
+};
+const cableLabel = (port: Row) =>
+  [port.cable_model, fiberModes[port.fiber_mode]].filter(Boolean).join(" · ");
 const defaults = {
   name: "",
   kind: "cat",
@@ -21,12 +27,14 @@ const defaults = {
 function Field({
   label,
   children,
+  wide = false,
 }: {
   label: string;
   children: React.ReactElement<any>;
+  wide?: boolean;
 }) {
   return (
-    <label className="ipam-field">
+    <label className={`ipam-field${wide ? " patch-wide" : ""}`}>
       <span>{label}</span>
       {cloneElement(children, { "aria-label": label })}
     </label>
@@ -347,7 +355,7 @@ export function PatchPorts({
         >
           {rows
             .filter((p) =>
-              [p.number, p.device_name, p.port_name, p.cable_model]
+              [p.number, p.device_name, p.port_name, cableLabel(p)]
                 .join(" ")
                 .toLocaleLowerCase("tr")
                 .includes(portSearch.toLocaleLowerCase("tr")),
@@ -365,7 +373,7 @@ export function PatchPorts({
                 <span>{port.device_name || "Boş"}</span>
                 <small>
                   {port.port_name || "—"} ·{" "}
-                  {port.cable_model || "Kablo seçilmedi"}
+                  {cableLabel(port) || "Kablo seçilmedi"}
                 </small>
               </button>
             ))}
@@ -396,6 +404,7 @@ export function PatchPorts({
                       ? values.port_name || ""
                       : "",
                   cable_model: values.cable_model || "",
+                  fiber_mode: values.fiber_mode || "",
                 });
                 setValues(updated);
                 setSelected(updated);
@@ -412,7 +421,7 @@ export function PatchPorts({
             <h3 className="patch-wide" ref={editor} tabIndex={-1}>
               Port {selected.number} bağlantısı
             </h3>
-            <Field label="Port numarası">
+            <Field label="Port numarası" wide={panel.kind === "fiber"}>
               <input
                 required
                 maxLength={40}
@@ -433,6 +442,22 @@ export function PatchPorts({
                 ))}
               </select>
             </Field>
+            {panel.kind === "fiber" && (
+              <Field label="Fiber türü">
+                <select
+                  disabled={user.role === "viewer"}
+                  value={values.fiber_mode || ""}
+                  onChange={(e) => set("fiber_mode", e.target.value)}
+                >
+                  <option value="">Seçilmedi</option>
+                  {Object.entries(fiberModes).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Cihaz girişi">
               <select
                 disabled={user.role === "viewer"}
@@ -586,6 +611,7 @@ export function PatchPorts({
                       device_name: "",
                       port_name: "",
                       cable_model: "",
+                      fiber_mode: "",
                     }))
                   }
                 >
@@ -638,6 +664,7 @@ export function DevicePatchInfo({
                   "Panel portu",
                   "Cihaz portu",
                   "Kablo modeli",
+                  "Fiber türü",
                 ].map((c) => (
                   <th key={c}>{c}</th>
                 ))}
@@ -655,6 +682,7 @@ export function DevicePatchInfo({
                   <td>{r.number}</td>
                   <td>{r.port_name || "—"}</td>
                   <td>{r.cable_model || "—"}</td>
+                  <td>{fiberModes[r.fiber_mode] || "—"}</td>
                 </tr>
               ))}
             </tbody>

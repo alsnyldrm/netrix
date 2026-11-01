@@ -105,6 +105,17 @@ class PatchPortInput(Input):
     device_name: str = Field(default="", max_length=190)
     port_name: str = Field(default="", max_length=120)
     cable_model: Literal["", "Cat5", "Cat6", "Cat7", "OM3", "OM4", "Multimode MM", "Singlemode SM"] = ""
+    fiber_mode: Literal["", "multimode", "singlemode"] = ""
+
+    @model_validator(mode="after")
+    def legacy_fiber_mode(self):
+        mode = {"Multimode MM": "multimode", "Singlemode SM": "singlemode"}.get(self.cable_model)
+        if mode:
+            if self.fiber_mode and self.fiber_mode != mode:
+                raise ValueError("Fiber türü eski kablo seçimiyle çelişiyor")
+            self.cable_model = ""
+            self.fiber_mode = mode
+        return self
 
     @field_validator("number", "device_name", "port_name")
     @classmethod

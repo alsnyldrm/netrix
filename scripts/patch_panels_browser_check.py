@@ -16,6 +16,8 @@ with sync_playwright() as p:
     page.get_by_label("E-posta", exact=True).fill("browser@example.test")
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
+    page.get_by_role("button", name="Kuzey Kampüs", exact=False).click()
+    page.get_by_role("button", name="Sunucu Odası", exact=True).click()
     page.get_by_role("button", name="K-01", exact=True).click()
     rack = page.get_by_role("dialog").last
 
@@ -25,6 +27,8 @@ with sync_playwright() as p:
             for theme in ("light", "dark"):
                 page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
                 page.wait_for_timeout(350)
+                if name == "fiber-port":
+                    ports.get_by_label("Fiber türü", exact=True).scroll_into_view_if_needed()
                 assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth"), name
                 for dialog in page.get_by_role("dialog").all():
                     assert dialog.evaluate("e=>e.scrollWidth<=e.clientWidth"), name
@@ -48,6 +52,7 @@ with sync_playwright() as p:
     assert "B2" not in ports.get_by_label("Bağlı cihaz portu", exact=True).inner_text()
     ports.get_by_label("Bağlı cihaz portu", exact=True).select_option(label="A1")
     ports.get_by_label("Kablo modeli", exact=True).select_option("Cat6")
+    expect(ports.get_by_label("Fiber türü", exact=True)).to_have_count(0)
     ports.get_by_role("button", name="Port bağlantısını kaydet", exact=True).click()
     expect(ports.get_by_role("status")).to_have_text("Port C-01 kaydedildi.")
     check("cat-port")
@@ -68,14 +73,30 @@ with sync_playwright() as p:
     ports = page.get_by_role("dialog").last
     ports.get_by_role("button", name="Port 1 · Boş", exact=True).click()
     options = ports.get_by_label("Kablo modeli", exact=True).locator("option").all_text_contents()
-    assert set(options) == {"Seçilmedi", "OM3", "OM4", "Multimode MM", "Singlemode SM"}
+    assert set(options) == {"Seçilmedi", "OM3", "OM4"}
+    assert ports.get_by_label("Fiber türü", exact=True).locator("option").all_text_contents() == [
+        "Seçilmedi",
+        "Multimode (MM)",
+        "Singlemode (SM)",
+    ]
     ports.get_by_label("Cihaz girişi", exact=True).select_option("manual")
     ports.get_by_label("Bağlı cihaz adı / IP", exact=True).fill("Switch 2")
     ports.get_by_label("Bağlı cihaz portu (manuel)", exact=True).fill("B2")
     ports.get_by_label("Kablo modeli", exact=True).select_option("OM4")
+    ports.get_by_label("Fiber türü", exact=True).select_option("multimode")
     ports.get_by_role("button", name="Port bağlantısını kaydet", exact=True).click()
     expect(ports.get_by_role("status")).to_have_text("Port 1 kaydedildi.")
     check("fiber-port")
+    ports.get_by_role("button", name="Port 2 · Boş", exact=True).click()
+    ports.get_by_role("button", name="Port 1 · Switch 2 · B2", exact=True).click()
+    expect(ports.get_by_label("Kablo modeli", exact=True)).to_have_value("OM4")
+    expect(ports.get_by_label("Fiber türü", exact=True)).to_have_value("multimode")
+    ports.get_by_label("Kablo modeli", exact=True).select_option("OM3")
+    expect(ports.get_by_label("Fiber türü", exact=True)).to_have_value("multimode")
+    ports.get_by_label("Fiber türü", exact=True).select_option("singlemode")
+    expect(ports.get_by_label("Kablo modeli", exact=True)).to_have_value("OM3")
+    ports.get_by_role("button", name="Port bağlantısını kaydet", exact=True).click()
+    expect(ports.get_by_role("status")).to_have_text("Port 1 kaydedildi.")
     ports.get_by_role("button", name="Pencereyi kapat", exact=True).click()
     check("rack")
     page.get_by_role("dialog").last.get_by_role("button", name="Pencereyi kapat", exact=True).click()
@@ -88,6 +109,15 @@ with sync_playwright() as p:
     expect(patch_row).to_contain_text("A1")
     expect(patch_row).to_contain_text("Cat6")
     check("device")
+    detail.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    page.get_by_role("button", name="Switch 2", exact=True).click()
+    fiber_row = (
+        page.get_by_role("dialog")
+        .last.get_by_role("row")
+        .filter(has=page.get_by_role("cell", name="FIBER-01", exact=False))
+    )
+    expect(fiber_row).to_contain_text("OM3")
+    expect(fiber_row).to_contain_text("Singlemode (SM)")
     assert not errors, errors
     browser.close()
 print(

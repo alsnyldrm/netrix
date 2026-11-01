@@ -9,7 +9,7 @@ from ..identity.security import audit
 from ..services import get, publish, serialize
 from .racks import check_space, lock_cabinet
 
-CABLES = {"cat": {"Cat5", "Cat6", "Cat7"}, "fiber": {"OM3", "OM4", "Multimode MM", "Singlemode SM"}}
+CABLES = {"cat": {"Cat5", "Cat6", "Cat7"}, "fiber": {"OM3", "OM4"}}
 
 
 def panel_in(db, cabinet_id, panel_id, *, lock=False):
@@ -38,10 +38,16 @@ def save_panel(db, cabinet_id, payload, user, panel_id=None):
         raise HTTPException(409, "Bu kabinette aynı adlı patch panel var")
     ports = list(db.scalars(select(m.PatchPort).where(m.PatchPort.panel_id == panel_id))) if panel_id else []
     for port in ports:
-        if port.cable_model and port.cable_model not in CABLES[payload.kind]:
+        if (port.cable_model and port.cable_model not in CABLES[payload.kind]) or (
+            port.fiber_mode and payload.kind != "fiber"
+        ):
             raise HTTPException(409, "Panel türünü değiştirmeden önce uyumsuz kablo kayıtlarını düzenleyin")
         if port.position > payload.port_count and (
-            port.device_name or port.port_name or port.cable_model or port.number != str(port.position)
+            port.device_name
+            or port.port_name
+            or port.cable_model
+            or port.fiber_mode
+            or port.number != str(port.position)
         ):
             raise HTTPException(
                 409, "Port sayısını azaltmadan önce kaldırılacak portların bilgilerini temizleyin"
@@ -115,6 +121,8 @@ def save_port(db, cabinet_id, panel_id, port_id, payload, user):
         raise HTTPException(404, "Port bu patch panelde bulunamadı")
     if payload.cable_model and payload.cable_model not in CABLES[panel.kind]:
         raise HTTPException(422, "Kablo modeli panel türüne uygun değil")
+    if payload.fiber_mode and panel.kind != "fiber":
+        raise HTTPException(422, "Fiber türü yalnızca fiber patch panelde seçilebilir")
     if db.scalar(
         select(m.PatchPort.id)
         .where(
@@ -166,6 +174,7 @@ def save_port(db, cabinet_id, panel_id, port_id, payload, user):
     port.device_name = device.name if device else payload.device_name
     port.port_name = interface.name if interface else payload.port_name
     port.cable_model = payload.cable_model
+    port.fiber_mode = payload.fiber_mode
     audit(
         db,
         user,
@@ -225,6 +234,7 @@ def device_ports(db, device_id):
                 "number": p.number,
                 "port_name": interfaces.get(p.interface_id, p.port_name),
                 "cable_model": p.cable_model,
+                "fiber_mode": p.fiber_mode,
             }
             for p, panel, c in rows
         ]
