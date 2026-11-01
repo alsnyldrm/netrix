@@ -63,8 +63,7 @@
   color: var(--accent);
 }
 .inventory-panel .error,
-.inventory-panel > [role="status"],
-.empty-inline {
+.inventory-panel > [role="status"] {
   margin: 16px;
 }
 .filter-rule {

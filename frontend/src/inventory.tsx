@@ -1096,7 +1096,9 @@ export function InventoryTable({
         </table>
       </div>
       {!loading && !data.items.length && (
-        <p className="empty-inline">Bu koşullara uyan kayıt bulunamadı.</p>
+        <div className="empty-state">
+          <p>Bu koşullara uyan kayıt bulunamadı.</p>
+        </div>
       )}
       <footer className="inventory-pagination">
         <span>
