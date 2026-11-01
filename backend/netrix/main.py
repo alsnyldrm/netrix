@@ -73,7 +73,10 @@ async def security_headers(request, call_next):
         f"img-src 'self' data: {image_sources}; "
         "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     )
-    if request.url.path.startswith("/api/"):
+    # Re-fetch the application shell after deployment; hashed assets keep their own policy.
+    if request.url.path.startswith("/api/") or response.headers.get("content-type", "").startswith(
+        "text/html"
+    ):
         response.headers["Cache-Control"] = "no-store"
     return response
 
