@@ -329,7 +329,7 @@ class InterfaceSelectionInput(Input):
 
 class BulkInput(Input):
     ids: list[str] = Field(min_length=1, max_length=100)
-    action: Literal["update", "delete", "restore"]
+    action: Literal["update", "delete", "restore", "purge"]
     changes: dict = Field(default_factory=dict)
 
 

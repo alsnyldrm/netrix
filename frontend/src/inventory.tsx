@@ -657,15 +657,17 @@ export function InventoryTable({
       setSelected([]);
       setDialog("");
       setNotice(
-        action === "restore"
-          ? deletedLinks
-            ? `${selected.length} komşuluk kaydı geri yüklendi. Tarama engelleri kaldırıldı.`
-            : `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
-          : action === "delete" && resource === "devices"
-            ? `${selected.length} cihaz arşivlendi. Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
-            : action === "delete" && resource === "links"
-              ? `${selected.length} komşuluk kaydı silindi. Sonraki taramalarda yeniden eklenmeleri engellendi.`
-              : "İşlem tamamlandı.",
+        action === "purge"
+          ? `${selected.length} cihaz kalıcı silindi.`
+          : action === "restore"
+            ? deletedLinks
+              ? `${selected.length} komşuluk kaydı geri yüklendi. Tarama engelleri kaldırıldı.`
+              : `${selected.length} cihaz geri yüklendi. Cihaz envanterinde Bakımda durumunda görünecek.`
+            : action === "delete" && resource === "devices"
+              ? `${selected.length} cihaz arşivlendi. Envanter → Arşivlenmiş cihazlar menüsünden geri yükleyebilirsiniz.`
+              : action === "delete" && resource === "links"
+                ? `${selected.length} komşuluk kaydı silindi. Sonraki taramalarda yeniden eklenmeleri engellendi.`
+                : "İşlem tamamlandı.",
       );
       onSaved();
     } catch (e: any) {
@@ -756,17 +758,19 @@ export function InventoryTable({
           </label>
         )}
       </div>
-      {selected.length > 0 && (
-        <div className="inventory-selection">
+      {(selected.length > 0 || (archive && user.role === "admin")) && (
+        <div
+          className={`inventory-selection${archive ? " archive-selection" : ""}`}
+        >
           <b role="status">{selected.length} kayıt seçildi</b>
           {restorable ? (
             <button
               className="secondary"
-              disabled={busy}
+              disabled={busy || loading || !selected.length}
               onClick={() => setDialog("restore")}
             >
               <ArrowCounterClockwise size={16} />
-              Geri yükle
+              {archive ? "Toplu geri yükle" : "Geri yükle"}
             </button>
           ) : resource === "devices" ? (
             <button className="secondary" onClick={() => setDialog("bulk")}>
@@ -776,15 +780,27 @@ export function InventoryTable({
                 : "Toplu değiştir"}
             </button>
           ) : null}
+          {archive && user.role === "admin" && (
+            <button
+              className="secondary delete-confirm archive-delete"
+              disabled={busy || loading || !selected.length}
+              onClick={() => setDialog("purge")}
+            >
+              <Trash size={16} aria-hidden="true" />
+              Kalıcı sil
+            </button>
+          )}
           {user.role === "admin" && !restorable && (
             <button className="secondary" onClick={() => setDialog("delete")}>
               <Trash size={16} aria-hidden="true" />
               Sil
             </button>
           )}
-          <button className="text-button" onClick={() => setSelected([])}>
-            Seçimi kaldır
-          </button>
+          {selected.length > 0 && (
+            <button className="text-button" onClick={() => setSelected([])}>
+              Seçimi kaldır
+            </button>
+          )}
         </div>
       )}
       {error && (
@@ -982,6 +998,20 @@ export function InventoryTable({
                             onClick={() => onContent?.(row, "details")}
                           >
                             <Eye size={18} aria-hidden="true" />
+                          </button>
+                        )}
+                        {archive && user.role === "admin" && (
+                          <button
+                            className="secondary delete-confirm archive-delete"
+                            disabled={busy || loading}
+                            aria-label={`${row.name} kalıcı sil`}
+                            onClick={() => {
+                              setSelected([row.id]);
+                              setDialog("purge");
+                            }}
+                          >
+                            <Trash size={18} aria-hidden="true" />
+                            Kalıcı sil
                           </button>
                         )}
                         {restorable && user.role === "admin" && (
@@ -1228,6 +1258,61 @@ export function InventoryTable({
                 {error}
               </p>
             )}
+          </form>
+        </Dialog>
+      )}
+      {dialog === "purge" && (
+        <Dialog
+          title="Cihazları kalıcı sil"
+          onClose={() => {
+            if (!busy) setDialog("");
+          }}
+        >
+          <form
+            className="archive-purge-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              apply("purge");
+            }}
+          >
+            <p>
+              <strong>
+                {selected.length} cihaz kalıcı silinecek. Bu işlem geri
+                alınamaz.
+              </strong>
+            </p>
+            <p>
+              Cihazların arayüzleri, konfigürasyon yedekleri (base config
+              dahil), keşif gözlemleri, alarm kayıtları, bağlantıları ve kabin
+              yerleşimleri silinir.
+            </p>
+            <p className="muted">
+              IPAM adresleri, ortak profiller ve işlem geçmişi korunur; silinen
+              cihazlarla ilişkileri kaldırılır. Etkin bir keşif aynı cihazı
+              yeniden bulursa yeni kayıt oluşturabilir.
+            </p>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <div className="dialog-footer">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setDialog("")}
+              >
+                Vazgeç
+              </button>
+              <button
+                className="secondary delete-confirm archive-delete"
+                disabled={busy || !selected.length}
+              >
+                <Trash size={18} aria-hidden="true" />
+                {busy ? "Siliniyor…" : `${selected.length} cihazı kalıcı sil`}
+              </button>
+            </div>
           </form>
         </Dialog>
       )}

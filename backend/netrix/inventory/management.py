@@ -432,7 +432,7 @@ def select_interfaces(db, device_id, payload, user):
 def bulk(db, resource, payload, user):
     if resource not in ("devices", "interfaces", "links"):
         raise HTTPException(404, "Kaynak bulunamadı")
-    if payload.action == "delete" and user.role != "admin":
+    if payload.action in ("delete", "purge") and user.role != "admin":
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
     if payload.action == "restore" and user.role != "admin":
         raise HTTPException(403, "Geri yükleme için yönetici yetkisi gerekli")
@@ -448,8 +448,17 @@ def bulk(db, resource, payload, user):
     if len(rows) != len(ids):
         raise HTTPException(404, "Seçilen kayıtlardan biri bulunamadı")
     if resource == "devices":
-        if payload.action not in ("update", "delete", "restore"):
+        if payload.action not in ("update", "delete", "restore", "purge"):
             raise HTTPException(422, "Geçersiz cihaz işlemi")
+        if payload.action == "purge":
+            if payload.changes:
+                raise HTTPException(422, "Kalıcı silme sırasında alanlar değiştirilemez")
+            from .archive import purge_devices
+
+            purge_devices(db, rows, user)
+            db.commit()
+            svc.publish()
+            return {"updated": len(rows)}
         if payload.action == "restore":
             if payload.changes:
                 raise HTTPException(422, "Geri yükleme sırasında alanlar değiştirilemez")
