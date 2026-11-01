@@ -2,7 +2,7 @@
 
 from alembic import op
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 revision = "20261101_22"
 down_revision = "20261101_21"
@@ -16,7 +16,11 @@ def upgrade():
     from netrix.identity.security import decrypt
 
     with Session(bind=op.get_bind()) as db:
-        for device in db.scalars(select(m.Device)):
+        for device in db.scalars(
+            select(m.Device).options(
+                load_only(m.Device.id, m.Device.base_snapshot_id, m.Device.approved_config_hash)
+            )
+        ):
             approved = (
                 db.scalar(
                     select(m.Snapshot)

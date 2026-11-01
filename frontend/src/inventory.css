@@ -51,6 +51,18 @@
 .inventory-actions {
   flex-wrap: nowrap;
 }
+.inventory-device-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.gateway-device-row > td:first-child {
+  box-shadow: inset 3px 0 var(--success);
+}
+.gateway-device-row .inventory-device-name > .text-button {
+  color: var(--success);
+}
 .selection-cell {
   width: 48px;
   text-align: center;

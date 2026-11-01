@@ -185,10 +185,13 @@ def upgrade():
     # Encryption keys stay in the application secret environment. No config is logged.
     from netrix import models as m
     from netrix.configuration.baselines import rebuild
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, load_only
 
     with Session(bind=db) as session:
-        for device in session.scalars(sa.select(m.Device)):
+        # Read only columns present at this revision, regardless of later model additions.
+        for device in session.scalars(
+            sa.select(m.Device).options(load_only(m.Device.id, m.Device.base_snapshot_id))
+        ):
             rebuild(session, device)
         session.commit()
 

@@ -2064,6 +2064,7 @@ tbody tr:last-child td {
 }
 .detail-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
   gap: 1px;
   border: 1px solid var(--border);
   border-radius: var(--radius);

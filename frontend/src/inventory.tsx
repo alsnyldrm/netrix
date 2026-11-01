@@ -114,6 +114,10 @@ export async function allRows(path: string) {
 }
 function value(key: string, v: any) {
   if (v == null || v === "") return "—";
+  if (key === "is_gateway")
+    return (
+      <Badge value={v ? "Evet" : "Hayır"} tone={v ? "success" : "danger"} />
+    );
   if (key === "lifecycle_status" || key === "reachability")
     return (
       <Badge
@@ -913,7 +917,15 @@ export function InventoryTable({
                       </th>
                     </tr>
                   )}
-                <tr className={row.is_base ? "base-config-row" : undefined}>
+                <tr
+                  className={
+                    row.is_base
+                      ? "base-config-row"
+                      : resource === "devices" && row.is_gateway
+                        ? "gateway-device-row"
+                        : undefined
+                  }
+                >
                   {selectRows && (
                     <td className="selection-cell">
                       <label
@@ -945,7 +957,23 @@ export function InventoryTable({
                   )}
                   {visible.map((c) => (
                     <td key={c.key}>
-                      {c.key === "name" && onDevice ? (
+                      {c.key === "name" && resource === "devices" ? (
+                        <span className="inventory-device-name">
+                          {onDevice ? (
+                            <button
+                              className="text-button"
+                              onClick={() => onDevice(row)}
+                            >
+                              {row.name}
+                            </button>
+                          ) : (
+                            <span>{row.name}</span>
+                          )}
+                          {row.is_gateway && (
+                            <Badge value="Gateway" tone="success" />
+                          )}
+                        </span>
+                      ) : c.key === "name" && onDevice ? (
                         <button
                           className="text-button"
                           onClick={() => onDevice(row)}

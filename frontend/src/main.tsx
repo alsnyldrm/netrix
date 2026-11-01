@@ -197,6 +197,10 @@ export const PAGES: Page[] = [
         default: false,
         hint: "Bu cihazın sunduğu SSH host anahtarı kabul edilir. SSH testi, cihaz bilgisi okuma ve yedeklemede geçerlidir.",
       }),
+      f("is_gateway", "Gateway olarak işaretle", {
+        type: "checkbox",
+        default: false,
+      }),
       f("config_path", "REST konfigürasyon yolu", { default: "/api/config" }),
       f("identity_path", "REST cihaz bilgisi yolu", {
         default: "/api/system",
@@ -3511,6 +3515,15 @@ function App() {
                   <dd>{v}</dd>
                 </div>
               ))}
+              <div>
+                <dt>Gateway Cihazı</dt>
+                <dd>
+                  <Badge
+                    value={detail.is_gateway ? "Evet" : "Hayır"}
+                    tone={detail.is_gateway ? "success" : "danger"}
+                  />
+                </dd>
+              </div>
             </dl>
             <DeviceConnections
               key={`connections:${detail.id}`}

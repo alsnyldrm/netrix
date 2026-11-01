@@ -2,6 +2,8 @@
 
 > **1 Kasım 2026:** Trafik izleme kaldırılmıştır. VLAN merkezli IPAM ve envantere özel keşif önceki ortak keşif tasarımının yerini alır. `devices.discovery_scope_id` envanter aidiyetini; `base_snapshot_id` ve onay alanları konfigürasyon referansını tutar. Geçerli şema migration dosyalarıdır.
 
+> **Gateway işareti:** `20261101_25`, `devices.is_gateway` için boş olamayan boolean alan ekler. Mevcut cihazlar varsayılan olarak işaretli değildir. Cihaz ayarından kullanıcı yönetir; protokol gözlemleri bu alanı değiştirmez. İşaret, cihazın ağ yapılandırmasını değiştirmez. Envanterde yeşil Gateway etiketiyle, ayrıntılarda Evet/Hayır bilgisiyle gösterilir; sütun ve filtre olarak kullanılabilir.
+
 > **29 Ekim 2026 güncellemesi:** Proje sahibi harici MariaDB ve üç modülün arayüz/motorlarıyla birlikte teslimini istedi. Bu belgedeki PostgreSQL/TimescaleDB seçimleri eski hedef tasarıma aittir. Çalışan MariaDB tür eşlemeleri, süreçler ve uygulanan davranışlar için [mimariyi](architecture.md) ve migration dosyalarını esas alın.
 Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk aşamada kimlik, envanter, IPAM, erişim profilleri ve keşif tabloları oluşturulur. Diğer tablolar ilgili modülle birlikte migration'a eklenir. Başlangıç tek kuruluş içindir; VRF ve site ayrımları kiracı izolasyonu yerine geçmez.
 
