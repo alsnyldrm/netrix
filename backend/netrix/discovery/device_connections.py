@@ -9,6 +9,7 @@ from .. import models as m
 from .link_edits import confidence, name_label, port_label
 from .link_edits import peer_id as effective_peer_id
 from .neighbor_labels import neighbor_label
+from .visibility import inventory_links
 
 
 def anchor_level(device):
@@ -56,7 +57,11 @@ def device_connections(db, device):
     devices = {
         d.id: d
         for d in db.scalars(
-            select(m.Device).where(m.Device.vrf_id == device.vrf_id, m.Device.archived.is_(False))
+            select(m.Device).where(
+                m.Device.vrf_id == device.vrf_id,
+                m.Device.archived.is_(False),
+                m.Device.discovery_scope_id.is_not(None),
+            )
         )
     }
     if device.id not in devices:
@@ -70,6 +75,7 @@ def device_connections(db, device):
                 m.Device.archived.is_(False),
                 m.Link.is_current.is_(True),
                 m.Link.auto_add_excluded.is_(False),
+                inventory_links(),
             )
         )
     )

@@ -2,6 +2,8 @@
 
 NETRIX; FastAPI, SQLAlchemy/Alembic, harici MariaDB ve Redis kullanan modüler monolittir. Cihaz kimlikleri ortaktır; envanter keşfi ile VLAN IPAM toplama akışları ayrıdır. Hazır ağ yönetimi ürünü kullanılmaz.
 
+Bağlantı menüsündeki harita, komşuluk cihaz listesi, bağlantı ayrıntıları ve işlemleri cihaz envanterine aittir (`devices.discovery_scope_id` dolu). IPAM için ortak tabloda tutulan envanter dışı cihazlar bu görünümlere veya bağlantı kimliği eşlemesine katılmaz. Kaynak ve eşleşmiş uzak cihaz için aynı sınır API sorgularında, sayaçlarda ve işlemlerde uygulanır; serbest protokol gözlemleri envanterdeki kaynak cihazın kanıtı olarak kalır. Silinen komşuluklarda arşivlenmiş envanter cihazının geçmişi korunur; geri yüklemeden önce cihaz geri alınmalıdır.
+
 ## Süreçler
 
 Dağıtım tek servisli `netrix` Docker Compose stack'tir. `netrix-app` servisi yalnızca `netrix` container'ını oluşturur. Aşağıdaki adlar container değil, aynı container içinde Supervisor'ın yönettiği süreç adlarıdır. Harici MariaDB ve mevcut host Nginx bu uygulama stack'inin dışındadır. Container UID/GID 10001 ile çalışır; Redis yalnızca container loopback'ini dinler, `/data` kalıcı volume'dadır.

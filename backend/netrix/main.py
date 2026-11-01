@@ -633,6 +633,13 @@ def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_s
         raise HTTPException(404, "Kaynak bulunamadı")
     if resource in ("users", "audit") and user.role != "admin":
         raise HTTPException(403, "Yönetici yetkisi gerekli")
+    if resource == "links":
+        from .discovery.visibility import inventory_links
+
+        row = db.scalar(select(m.Link).where(m.Link.id == id, inventory_links(include_archived=True)))
+        if row is None:
+            raise HTTPException(404, "Bağlantı kaydı bulunamadı")
+        return svc.serialize(row)
     return svc.serialize(svc.get(db, svc.RESOURCES[resource][0], id))
 
 

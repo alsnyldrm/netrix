@@ -194,3 +194,17 @@ def make_vlan(**data):
     from netrix.models import VLAN
 
     return VLAN(**vlan_payload(data))
+
+
+def make_inventory_scope(db, vrf_id, cidr="192.0.2.0/24"):
+    """Persist explicit inventory ownership for topology fixtures."""
+    from netrix import models as m
+    from netrix.identity.security import encrypt
+
+    credential = m.Credential(name="Topology fixture SNMP", protocol="snmpv3", encrypted_secret=encrypt("{}"))
+    db.add(credential)
+    db.flush()
+    scope = m.Scope(name="Inventory VLAN", cidr=cidr, vrf_id=vrf_id, credential_id=credential.id, vlan_vid=10)
+    db.add(scope)
+    db.flush()
+    return scope

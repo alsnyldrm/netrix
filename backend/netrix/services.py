@@ -400,7 +400,9 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "links":
-        stmt = stmt.where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
+        from .discovery.visibility import inventory_links
+
+        stmt = stmt.where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False), inventory_links())
     if name == "devices":
         stmt = stmt.where(m.Device.archived.is_(False))
     if name == "interfaces":

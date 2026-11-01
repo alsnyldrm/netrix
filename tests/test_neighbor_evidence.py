@@ -1,3 +1,4 @@
+from conftest import make_inventory_scope
 from netrix.discovery.neighbors import parse_neighbors
 from pysnmp.proto.rfc1902 import OctetString
 
@@ -81,7 +82,8 @@ def test_fresh_snapshot_repairs_legacy_h3_keeps_history_and_manual_links(env):
         vrf = m.VRF(name="neighbors")
         db.add(vrf)
         db.flush()
-        device = m.Device(name="core", management_ip="192.0.2.1", vrf_id=vrf.id)
+        scope = make_inventory_scope(db, vrf.id)
+        device = m.Device(name="core", management_ip="192.0.2.1", vrf_id=vrf.id, discovery_scope_id=scope.id)
         db.add(device)
         db.flush()
         raw = bytes.fromhex("3821c73cb240").decode("latin1")

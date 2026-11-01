@@ -41,8 +41,11 @@ def confidence(link):
 
 def update_labels(db, id, payload, user):
     from .. import services as svc
+    from .visibility import inventory_links
 
-    link = db.scalar(select(m.Link).where(m.Link.id == id).with_for_update())
+    link = db.scalar(
+        select(m.Link).where(m.Link.id == id, inventory_links(include_archived=True)).with_for_update()
+    )
     if link is None:
         raise HTTPException(404, "Bağlantı kaydı bulunamadı")
     device = db.get(m.Device, link.device_id)
@@ -59,6 +62,7 @@ def update_labels(db, id, payload, user):
                     m.Device.vrf_id == device.vrf_id,
                     m.Device.id != device.id,
                     m.Device.archived.is_(False),
+                    m.Device.discovery_scope_id.is_not(None),
                 )
             )
         )

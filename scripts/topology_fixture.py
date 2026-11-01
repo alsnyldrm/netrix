@@ -14,6 +14,15 @@ with session_factory()() as db:
     vrf = m.VRF(name="Topology fixture")
     db.add(vrf)
     db.flush()
+    scope = m.Scope(
+        name="Topology inventory VLAN",
+        cidr="198.51.100.0/24",
+        vrf_id=vrf.id,
+        credential_id=db.scalar(select(m.Credential.id)),
+        vlan_vid=100,
+    )
+    db.add(scope)
+    db.flush()
     devices = []
     for i, (name, kind) in enumerate(
         [
@@ -24,7 +33,13 @@ with session_factory()() as db:
             ("Edge-02", "switch"),
         ]
     ):
-        device = m.Device(name=name, kind=kind, management_ip=f"198.51.100.{i + 1}", vrf_id=vrf.id)
+        device = m.Device(
+            name=name,
+            kind=kind,
+            management_ip=f"198.51.100.{i + 1}",
+            vrf_id=vrf.id,
+            discovery_scope_id=scope.id,
+        )
         db.add(device)
         db.flush()
         devices.append(device)
@@ -47,6 +62,19 @@ with session_factory()() as db:
             interface_name="C3",
             remote_port="UPLINK-49",
             source="cdp",
+        )
+    )
+    ipam = m.Device(name="IPAM-only server", kind="server", management_ip="198.51.100.99", vrf_id=vrf.id)
+    db.add(ipam)
+    db.flush()
+    db.add(
+        m.Link(
+            device_id=ipam.id,
+            remote_device_id=devices[1].id,
+            remote_name=devices[1].name,
+            interface_name="eth0",
+            remote_port="3",
+            source="lldp",
         )
     )
     db.commit()

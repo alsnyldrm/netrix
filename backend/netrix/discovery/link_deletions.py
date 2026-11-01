@@ -9,6 +9,7 @@ from .. import models as m
 from ..identity.security import audit
 from .neighbor_detail import mac
 from .neighbor_labels import neighbor_label
+from .visibility import inventory_links
 
 
 def observation(link):
@@ -124,7 +125,9 @@ def delete_link(db, id, user):
 
 def locked_selection(db, ids):
     ids = sorted(set(ids))
-    targets = list(db.scalars(select(m.Link).where(m.Link.id.in_(ids))))
+    targets = list(
+        db.scalars(select(m.Link).where(m.Link.id.in_(ids), inventory_links(include_archived=True)))
+    )
     if len(targets) != len(ids):
         raise HTTPException(404, "Seçilen kayıtlardan biri bulunamadı")
     # Use the same deterministic lock order as the worker and reload stale ORM state.

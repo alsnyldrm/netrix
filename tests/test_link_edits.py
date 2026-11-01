@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from conftest import make_inventory_scope
 from netrix import models as m
 from netrix.core import now
 from netrix.discovery.device_connections import device_connections
@@ -15,9 +16,10 @@ def link_record(env, admin_client):
         vrf = m.VRF(name="Edit labels")
         db.add(vrf)
         db.flush()
-        source = m.Device(name="Core", management_ip="192.0.2.1", vrf_id=vrf.id)
-        old = m.Device(name="Old", management_ip="192.0.2.2", vrf_id=vrf.id)
-        new = m.Device(name="New", management_ip="192.0.2.3", vrf_id=vrf.id)
+        scope = make_inventory_scope(db, vrf.id)
+        source = m.Device(name="Core", management_ip="192.0.2.1", vrf_id=vrf.id, discovery_scope_id=scope.id)
+        old = m.Device(name="Old", management_ip="192.0.2.2", vrf_id=vrf.id, discovery_scope_id=scope.id)
+        new = m.Device(name="New", management_ip="192.0.2.3", vrf_id=vrf.id, discovery_scope_id=scope.id)
         db.add_all([source, old, new])
         db.flush()
         link = m.Link(
@@ -156,7 +158,14 @@ def test_role_and_current_record_guards(admin_client, link_record, env):
 
 def test_duplicate_or_cross_vrf_name_is_not_a_device_match(admin_client, link_record, env):
     with env() as db:
-        db.add(m.Device(name="New", management_ip="192.0.2.4", vrf_id=link_record["vrf"]))
+        db.add(
+            m.Device(
+                name="New",
+                management_ip="192.0.2.4",
+                vrf_id=link_record["vrf"],
+                discovery_scope_id=db.get(m.Device, link_record["source"]).discovery_scope_id,
+            )
+        )
         other = m.VRF(name="Other")
         db.add(other)
         db.flush()

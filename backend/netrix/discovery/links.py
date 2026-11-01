@@ -41,6 +41,8 @@ def legacy_match(link, neighbor):
 
 
 def sync_links(db, device, collected):
+    if device.discovery_scope_id is None or device.archived:
+        return
     links = list(
         db.scalars(
             select(m.Link)
@@ -109,6 +111,7 @@ def sync_links(db, device, collected):
                     m.Device.vrf_id == device.vrf_id,
                     m.Device.id != device.id,
                     m.Device.archived.is_(False),
+                    m.Device.discovery_scope_id.is_not(None),
                     (
                         m.Device.management_ip.in_(advertised_addresses)
                         if advertised_addresses

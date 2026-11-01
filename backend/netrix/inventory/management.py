@@ -147,7 +147,7 @@ def query(
     if group_by not in ("", "device_name", "backup_group") or (group_by and resource != "snapshots"):
         raise HTTPException(422, "Geçersiz gruplama")
     stmt = select(model)
-    if resource == "devices":
+    if resource in ("devices", "topology-devices"):
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     cols = {
         c.key: getattr(model, c.key)
@@ -171,13 +171,15 @@ def query(
         }
         cols.update(snapshot_count=backups.c.snapshot_count, latest_snapshot_at=backups.c.latest_snapshot_at)
     if resource == "topology-devices":
+        from ..discovery.visibility import inventory_links
+
         neighbors = (
             select(
                 m.Link.device_id,
                 func.count(m.Link.id).label("neighbor_count"),
                 func.max(m.Link.last_seen_at).label("latest_neighbor_at"),
             )
-            .where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False))
+            .where(m.Link.is_current.is_(True), m.Link.auto_add_excluded.is_(False), inventory_links())
             .group_by(m.Link.device_id)
             .subquery()
         )
@@ -241,9 +243,12 @@ def query(
 
     if resource == "links":
         from ..discovery.link_edits import peer_column
+        from ..discovery.visibility import inventory_links
 
         remote = aliased(m.Device)
-        stmt = stmt.outerjoin(remote, peer_column() == remote.id)
+        stmt = stmt.outerjoin(remote, peer_column() == remote.id).where(
+            inventory_links(include_archived=deleted)
+        )
         if deleted:
             stmt = stmt.where(m.Link.auto_add_excluded.is_(True))
         else:

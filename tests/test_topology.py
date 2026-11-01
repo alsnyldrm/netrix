@@ -1,4 +1,5 @@
 import pytest
+from conftest import make_inventory_scope
 from netrix import models as m
 from netrix.discovery.neighbor_labels import neighbor_label
 from netrix.services import serialize
@@ -38,8 +39,11 @@ def test_manual_confirmation_is_idempotent_and_keeps_ports_unknown(env):
         vrf = m.VRF(name="test")
         db.add(vrf)
         db.flush()
-        local = m.Device(name="core", management_ip="192.0.2.2", vrf_id=vrf.id)
-        remote = m.Device(name="firewall", management_ip="192.0.2.1", vrf_id=vrf.id)
+        scope = make_inventory_scope(db, vrf.id)
+        local = m.Device(name="core", management_ip="192.0.2.2", vrf_id=vrf.id, discovery_scope_id=scope.id)
+        remote = m.Device(
+            name="firewall", management_ip="192.0.2.1", vrf_id=vrf.id, discovery_scope_id=scope.id
+        )
         db.add_all([local, remote])
         db.flush()
         link = confirm_link(db, local.id, remote.id)
@@ -64,7 +68,8 @@ def test_collection_reuses_legacy_binary_link(env):
         vrf = m.VRF(name="test")
         db.add(vrf)
         db.flush()
-        device = m.Device(name="core", management_ip="192.0.2.2", vrf_id=vrf.id)
+        scope = make_inventory_scope(db, vrf.id)
+        device = m.Device(name="core", management_ip="192.0.2.2", vrf_id=vrf.id, discovery_scope_id=scope.id)
         db.add(device)
         db.flush()
         job = m.Job(kind="identify", target_id=device.id)

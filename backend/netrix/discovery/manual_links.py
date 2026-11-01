@@ -11,6 +11,8 @@ def confirm_link(db, local_id, remote_id):
         raise ValueError("Bağlantı için aynı VRF içinde iki farklı cihaz gerekli")
     if local.archived or remote.archived:
         raise ValueError("Arşivlenmiş cihaz bağlanamaz")
+    if local.discovery_scope_id is None or remote.discovery_scope_id is None:
+        raise ValueError("Bağlantı için iki cihazın da cihaz envanterinde olması gerekli")
     existing = db.scalar(
         select(m.Link).where(
             m.Link.source == "manual", m.Link.device_id == local.id, m.Link.remote_device_id == remote.id

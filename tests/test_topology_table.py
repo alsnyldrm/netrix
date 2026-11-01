@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from conftest import make_inventory_scope
 from netrix import models as m
 
 
@@ -11,6 +12,7 @@ def links(env, admin_client):
         site = m.Site(name="Merkez", code="T")
         db.add_all([vrf, site])
         db.flush()
+        scope = make_inventory_scope(db, vrf.id)
         devices = [
             m.Device(
                 name=name,
@@ -19,6 +21,7 @@ def links(env, admin_client):
                 vendor="Aruba",
                 model="2930F",
                 vrf_id=vrf.id,
+                discovery_scope_id=scope.id,
                 site_id=site.id,
                 archived=i == 2,
             )
@@ -142,7 +145,14 @@ def test_topology_directory_counts_current_records_and_scopes_by_id(admin_client
 
     with env() as db:
         source = db.scalar(select(m.Device).where(m.Device.name == "Core A"))
-        db.add(m.Device(name="Core A", management_ip="192.0.2.99", vrf_id=source.vrf_id))
+        db.add(
+            m.Device(
+                name="Core A",
+                management_ip="192.0.2.99",
+                vrf_id=source.vrf_id,
+                discovery_scope_id=source.discovery_scope_id,
+            )
+        )
         db.commit()
     directory = admin_client.get("/api/v1/inventory/topology-devices").json()
     assert directory["total"] == 3

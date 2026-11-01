@@ -1,6 +1,7 @@
 """Synthetic variants of the reported AOS-S detail fields; no live device access."""
 
 import pytest
+from conftest import make_inventory_scope
 from netrix.discovery.aruba import read_neighbor_detail
 from netrix.discovery.neighbor_detail import enrich_neighbors, parse_detail, parse_root, parse_trunks
 from netrix.discovery.neighbors import parse_neighbors
@@ -138,8 +139,14 @@ def test_corrected_link_reuses_id_and_detail_ip_matches_manually_named_device(en
         vrf = m.VRF(name="detail")
         db.add(vrf)
         db.flush()
-        local = m.Device(name="edge", management_ip="192.0.2.20", vrf_id=vrf.id)
-        peer = m.Device(name="User managed core name", management_ip="192.0.2.21", vrf_id=vrf.id)
+        scope = make_inventory_scope(db, vrf.id)
+        local = m.Device(name="edge", management_ip="192.0.2.20", vrf_id=vrf.id, discovery_scope_id=scope.id)
+        peer = m.Device(
+            name="User managed core name",
+            management_ip="192.0.2.21",
+            vrf_id=vrf.id,
+            discovery_scope_id=scope.id,
+        )
         db.add_all([local, peer])
         db.flush()
         row = parse_detail(LLDP, "lldp")[0]

@@ -1,6 +1,7 @@
 """Device-oriented topology projections, without real network calls."""
 
 import pytest
+from conftest import make_inventory_scope
 from netrix import models as m
 from netrix.core import now
 from netrix.discovery.device_connections import device_connections
@@ -13,6 +14,7 @@ def network(env):
         vrf, other = m.VRF(name="main"), m.VRF(name="other")
         db.add_all([vrf, other, m.DeviceType(code="custom-core", name="Backbone")])
         db.flush()
+        scope = make_inventory_scope(db, vrf.id)
         devices = {}
         for i, (name, kind) in enumerate(
             [
@@ -24,7 +26,13 @@ def network(env):
                 ("isolated-b", "switch"),
             ]
         ):
-            d = m.Device(name=name, kind=kind, management_ip=f"192.0.2.{i + 1}", vrf_id=vrf.id)
+            d = m.Device(
+                name=name,
+                kind=kind,
+                management_ip=f"192.0.2.{i + 1}",
+                vrf_id=vrf.id,
+                discovery_scope_id=scope.id,
+            )
             db.add(d)
             db.flush()
             devices[name] = d.id
