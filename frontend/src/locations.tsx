@@ -1,3 +1,4 @@
+import { PatchPanels, PatchPorts, panelKind } from "./patch-panels";
 import React, { useEffect, useState } from "react";
 import {
   Plus,
@@ -497,6 +498,7 @@ function Rack({
   close: () => void;
 }) {
   const [data, setData] = useState<Row | null>(null);
+  const [patchPanel, setPatchPanel] = useState<Row | null>(null);
   const [placementSource, setPlacementSource] = useState("inventory");
   const [imageValues, setImageValues] = useState({ url: "", source: "" });
   const [accessory, setAccessory] = useState<Row>({ start_unit: 1, units: 1 });
@@ -559,6 +561,7 @@ function Rack({
   const placements: Row[] = [
     ...(data?.placements || []),
     ...(data?.accessories || []).map((a: Row) => ({ ...a, accessory: true })),
+    ...(data?.patch_panels || []).map((p: Row) => ({ ...p, panel: true })),
   ];
   return (
     <Dialog wide title={`${row.name} · ${row.units} U`} onClose={close}>
@@ -583,9 +586,11 @@ function Rack({
               const placement = placements.find(
                 (p) => p.start_unit + p.units - 1 === unit,
               );
-              const placementName = placement?.accessory
-                ? "Fırçalı organizer"
-                : placement?.device.name;
+              const placementName = placement?.panel
+                ? placement.name
+                : placement?.accessory
+                  ? "Fırçalı organizer"
+                  : placement?.device.name;
               const occupied = placements.some(
                 (p) => unit >= p.start_unit && unit < p.start_unit + p.units,
               );
@@ -601,7 +606,19 @@ function Rack({
                         className="rack-device"
                         style={{ height: `${placement.units * 80 - 4}px` }}
                       >
-                        {placement.accessory ? (
+                        {placement.panel ? (
+                          <button
+                            type="button"
+                            className="rack-patch-face"
+                            onClick={() => setPatchPanel(placement)}
+                            aria-label={`${placement.name} portlarını aç`}
+                          >
+                            <strong>{panelKind(placement.kind)}</strong>
+                            <span>
+                              {placement.port_count} port · Portları aç
+                            </span>
+                          </button>
+                        ) : placement.accessory ? (
                           <div
                             className="rack-organizer"
                             role="img"
@@ -623,7 +640,7 @@ function Rack({
                             }}
                           />
                         ) : null}
-                        {!placement.accessory && (
+                        {!placement.accessory && !placement.panel && (
                           <span className="rack-fallback">
                             {placement.image
                               ? "Görsel yüklenemedi"
@@ -642,7 +659,12 @@ function Rack({
                       <ArrowRight size={20} aria-hidden="true" />
                       <div>
                         <strong title={placementName}>{placementName}</strong>
-                        {placement.accessory ? (
+                        {placement.panel ? (
+                          <small>
+                            {panelKind(placement.kind)} · {placement.port_count}{" "}
+                            port
+                          </small>
+                        ) : placement.accessory ? (
                           <small>Yatay kablo düzenleyici · Şematik</small>
                         ) : (
                           <small
@@ -666,7 +688,7 @@ function Rack({
                           </a>
                         )}
                       </div>
-                      {user.role !== "viewer" && (
+                      {user.role !== "viewer" && !placement.panel && (
                         <div className="ipam-actions">
                           <button
                             className="icon-button"
@@ -732,6 +754,23 @@ function Rack({
             },
           )}
         </div>
+        <PatchPanels
+          cabinet={row}
+          panels={data?.patch_panels || []}
+          user={user}
+          saved={() => setRevision((v) => v + 1)}
+          open={setPatchPanel}
+        />
+        {patchPanel && (
+          <PatchPorts
+            cabinet={row}
+            panel={patchPanel}
+            devices={refs.devices || []}
+            user={user}
+            close={() => setPatchPanel(null)}
+            saved={() => setRevision((v) => v + 1)}
+          />
+        )}
         {user.role !== "viewer" && (
           <div className="rack-source">
             <Label name="Yerleşim kaynağı">

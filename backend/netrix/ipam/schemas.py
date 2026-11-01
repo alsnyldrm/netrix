@@ -83,6 +83,38 @@ class RackAccessoryInput(Input):
     units: int = Field(default=1, ge=1, le=60)
 
 
+class PatchPanelInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    kind: Literal["cat", "fiber"] = "cat"
+    start_unit: int = Field(ge=1, le=60)
+    units: int = Field(default=1, ge=1, le=60)
+    port_count: int = Field(default=24, ge=1, le=288)
+
+    @field_validator("name")
+    @classmethod
+    def trimmed_name(cls, value):
+        if not value.strip():
+            raise ValueError("Panel adı gerekli")
+        return value.strip()
+
+
+class PatchPortInput(Input):
+    number: str = Field(min_length=1, max_length=40)
+    device_id: str | None = None
+    interface_id: str | None = None
+    device_name: str = Field(default="", max_length=190)
+    port_name: str = Field(default="", max_length=120)
+    cable_model: Literal["", "Cat5", "Cat6", "Cat7", "OM3", "OM4", "Multimode MM", "Singlemode SM"] = ""
+
+    @field_validator("number", "device_name", "port_name")
+    @classmethod
+    def trimmed(cls, value, info):
+        value = value.strip()
+        if info.field_name == "number" and not value:
+            raise ValueError("Port numarası gerekli")
+        return value
+
+
 class ModelImageInput(Input):
     url: str = Field(max_length=500)
     source: str = Field(max_length=500)

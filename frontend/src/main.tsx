@@ -1,3 +1,4 @@
+import { DevicePatchInfo } from "./patch-panels";
 import { api, clearReadCache, useLiveQuery } from "./data";
 export { api } from "./data";
 import { JobDetails } from "./job-details";
@@ -3545,6 +3546,7 @@ function App() {
                 </dd>
               </div>
             </dl>
+            <DevicePatchInfo deviceId={detail.id} refresh={refresh} />
             <DeviceConnections
               key={`connections:${detail.id}`}
               deviceId={detail.id}

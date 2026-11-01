@@ -33,6 +33,7 @@ from .identity.security import (
     verify,
 )
 from .ipam.api import router as ipam_router
+from .ipam.patch_api import router as patch_router
 
 
 @asynccontextmanager
@@ -596,6 +597,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
 
 
 app.include_router(ipam_router)
+app.include_router(patch_router)
 
 
 @app.get(P + "/{resource}")

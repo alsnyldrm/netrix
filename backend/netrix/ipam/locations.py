@@ -113,7 +113,7 @@ def validate_location_relations(db, name, data, row_id=None):
             cabinet = db.scalar(select(m.Cabinet).where(m.Cabinet.id == row_id).with_for_update())
             cabinet.lock_version += 1
             db.flush()
-            for model in (m.RackPlacement, m.RackAccessory):
+            for model in (m.RackPlacement, m.RackAccessory, m.PatchPanel):
                 if db.scalar(
                     select(model.id)
                     .where(model.cabinet_id == row_id, model.start_unit + model.units - 1 > data["units"])

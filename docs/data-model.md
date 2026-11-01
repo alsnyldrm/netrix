@@ -151,3 +151,14 @@ Alembic `20261031_18`, `rack_accessories` tablosunu ekler: indeksli `cabinet_id`
 ## IPAM'dan ortak kabinet envanteri (31 Ekim 2026)
 
 `20261031_19` mevcut `device_types` kataloğuna yalnızca eksikse `storage` / Storage ve `san_switch` / SAN Switch değerlerini ekler; aynı kod veya adı olan kullanıcı kayıtlarını değiştirmez. Downgrade katalog verisini korur. Yeni tablo yoktur. IP'den kabinet yerleştirme, aynı `(vrf_id, management_ip)` tekilliğini ve mevcut `rack_placements` tablosunu kullanır. VRF/kabinet kilitleri, güncel kilitli okumalar ve geçici MariaDB eşzamanlılık hatasında bir işlem tekrarı yinelenen cihazları önler. Kabinet yerleşimi başarısızsa yeni cihaz oluşturma da geri alınır; IP'nin üst switch/port ilişkisi korunur.
+
+
+## Kabinet patch panelleri (1 Kasım 2026)
+
+Alembic `20261101_27`, `patch_panels` ve `patch_ports` tablolarını ekler. Panelin kabineti, adı, CAT/fiber türü, başlangıç U değeri, yüksekliği ve port sayısı saklanır. Port sırası sabittir; kullanıcı port numarasını ayrıca değiştirebilir. Panel adı kabinet içinde, port numarası ve sırası panel içinde tekildir. Kabinet kapasitesi ve cihaz/organizer/panel U çakışmaları aynı kabinet satır kilidi altında doğrulanır.
+
+Portlar ortak envanterdeki cihaz ve arayüze opsiyonel, indeksli FK ile bağlanır. Arayüzün seçilen cihaza ait olması servis tarafından doğrulanır. Manuel cihaz adı/IP ve port adı da saklanabilir. Manuel cihaz adı/IP yalnızca tek bir aktif envanter kaydıyla eşleşirse ilişkilendirilir; port adı bu cihazın arayüzlerinde aranır. Belirsiz adlar kesin ilişki oluşturmaz. Bu işlem cihaz veya arayüz oluşturmaz. Cihaz ayrıntısındaki “Patch bilgileri” aynı port kayıtlarından okunur.
+
+CAT portlarında Cat5/Cat6/Cat7; fiber portlarında OM3/OM4/Multimode MM/Singlemode SM seçilebilir. Bağlantılı veya özelleştirilmiş portları düşürecek port sayısı azaltımı engellenir. Panel silindiğinde portları CASCADE ile silinir; cihaz/arayüz silindiğinde FK SET NULL olur ve manuel ad kopyaları korunur. Zamanlar UTC, MariaDB üzerinde DATETIME(6) olarak saklanır.
+
+API: `/api/v1/ipam/cabinets/{cabinet_id}/patch-panels` panel ekler; `/{panel_id}` düzenler/siler, `/{panel_id}/ports` portları okur ve `/ports/{port_id}` bağlantıyı düzenler. `/api/v1/devices/{device_id}/patch-ports` cihazın kabinet/panel/port/kablo ilişkilerini döndürür. Okumalar oturum, yazmalar operator yetkisi gerektirir.

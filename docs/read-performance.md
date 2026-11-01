@@ -24,7 +24,7 @@ Bunlar kontrollü tarayıcı ölçümleridir; gerçek kullanıcı süresi ağ, v
 - Pano sayımları ve cihaz türleri iki sorguyla alınır; sayım için kayıt listeleri oluşturulmaz.
 - VLAN sıralaması ve sayfalaması veritabanında uygulanır.
 - Envanter ve genel konfigürasyon listeleri şifreli konfigürasyon içeriklerini okumaz. Kullanıcı/parola ve entegrasyonların ham kanıt alanları da liste sorgularına taşınmaz.
-- Keşif kapsamı erişim profilleri toplu yüklenir. Kabinet cihazları ve model görselleri toplu alınır; 20 cihazlı kabinet testi en fazla beş sorguyla tamamlanır.
+- Keşif kapsamı erişim profilleri toplu yüklenir. Kabinet cihazları ve model görselleri toplu alınır; 20 cihazlı kabinet testi patch panel metadatası dahil en fazla altı sorguyla tamamlanır.
 - IP ayrıntısının gözlemleri bağlantı seçeneklerinde tekrar sorgulanmaz; yalnızca ilgili VLAN kayıtları okunur.
 
 ## Doğrulama

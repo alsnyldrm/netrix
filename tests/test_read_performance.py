@@ -140,7 +140,7 @@ def test_rack_read_has_constant_query_count_and_correct_model_images(admin_clien
         assert all(
             row["image"]["url"].startswith("https://assets.ext.hpe.com/") for row in result["placements"]
         )
-        assert len(sql) <= 5, sql
+        assert len(sql) <= 6, sql
 
 
 def test_dashboard_aggregates_in_two_round_trips(admin_client, inventory, env):

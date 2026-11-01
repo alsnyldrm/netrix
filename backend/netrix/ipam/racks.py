@@ -71,6 +71,14 @@ def detail(db, id):
         **serialize(cabinet),
         "placements": placements,
         "accessories": [serialize(a) for a in accessories],
+        "patch_panels": [
+            serialize(p)
+            for p in db.scalars(
+                select(m.PatchPanel)
+                .where(m.PatchPanel.cabinet_id == id)
+                .order_by(m.PatchPanel.start_unit.desc())
+            )
+        ],
     }
 
 
@@ -83,13 +91,14 @@ def lock_cabinet(db, id):
     return row
 
 
-def check_space(db, cabinet, start, units, *, device_id=None, accessory_id=None):
+def check_space(db, cabinet, start, units, *, device_id=None, accessory_id=None, panel_id=None):
     end = start + units - 1
     if end > cabinet.units:
         raise HTTPException(422, "Yerleşim kabinet kapasitesini aşıyor")
     for model, excluded, column in (
         (m.RackPlacement, device_id, m.RackPlacement.device_id),
         (m.RackAccessory, accessory_id, m.RackAccessory.id),
+        (m.PatchPanel, panel_id, m.PatchPanel.id),
     ):
         stmt = select(model.id).where(
             model.cabinet_id == cabinet.id,
@@ -99,7 +108,9 @@ def check_space(db, cabinet, start, units, *, device_id=None, accessory_id=None)
         if excluded:
             stmt = stmt.where(column != excluded)
         if db.scalar(stmt.limit(1).with_for_update()):
-            raise HTTPException(409, "Seçilen U alanı başka bir cihaz veya organizer tarafından kullanılıyor")
+            raise HTTPException(
+                409, "Seçilen U alanı başka bir cihaz, organizer veya patch panel tarafından kullanılıyor"
+            )
 
 
 def place(db, id, payload, user):

@@ -119,6 +119,47 @@ class RackAccessory(Entity, Base):
     )
 
 
+class PatchPanel(Entity, Base):
+    __tablename__ = "patch_panels"
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(20))
+    start_unit: Mapped[int] = mapped_column(Integer)
+    units: Mapped[int] = mapped_column(Integer)
+    port_count: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (
+        UniqueConstraint("cabinet_id", "name", name="uq_patch_panel_name"),
+        CheckConstraint("kind in ('cat','fiber')", name="ck_patch_panel_kind"),
+        CheckConstraint(
+            "start_unit >= 1 AND units >= 1 AND start_unit + units - 1 <= 60", name="ck_patch_panel_position"
+        ),
+        CheckConstraint("port_count >= 1 AND port_count <= 288", name="ck_patch_panel_count"),
+    )
+
+
+class PatchPort(Entity, Base):
+    __tablename__ = "patch_ports"
+    panel_id: Mapped[str] = mapped_column(ForeignKey("patch_panels.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    number: Mapped[str] = mapped_column(String(40))
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), index=True)
+    interface_id: Mapped[str | None] = mapped_column(
+        ForeignKey("interfaces.id", ondelete="SET NULL"), index=True
+    )
+    device_name: Mapped[str] = mapped_column(String(190), default="")
+    port_name: Mapped[str] = mapped_column(String(120), default="")
+    cable_model: Mapped[str] = mapped_column(String(30), default="")
+    __table_args__ = (
+        UniqueConstraint("panel_id", "number", name="uq_patch_port_number"),
+        UniqueConstraint("panel_id", "position", name="uq_patch_port_position"),
+        CheckConstraint("position >= 1 AND position <= 288", name="ck_patch_port_position"),
+        CheckConstraint(
+            "cable_model in ('','Cat5','Cat6','Cat7','OM3','OM4','Multimode MM','Singlemode SM')",
+            name="ck_patch_cable_model",
+        ),
+    )
+
+
 class OperatingSystem(Entity, Base):
     __tablename__ = "operating_systems"
     name: Mapped[str] = mapped_column(String(190), unique=True)
