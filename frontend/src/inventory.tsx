@@ -1,3 +1,4 @@
+import { useLiveQuery } from "./data";
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Funnel,
@@ -551,10 +552,7 @@ export function InventoryTable({
     key: "",
     direction: "asc",
   });
-  const [data, setData] = useState<Row>({ items: [], total: 0, columns: [] });
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const loaded = useRef("");
   const [dialog, setDialog] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -600,54 +598,34 @@ export function InventoryTable({
   useEffect(() => {
     setSelected([]);
   }, [search, encoded, offset, deviceId, group, sort]);
-  useEffect(() => {
-    let active = true;
-    const qs = new URLSearchParams({
-      q: search,
-      filters: encoded,
-      offset: String(offset),
-      limit: "25",
-      group_by: group,
-      changed_only: String(purpose === "changes"),
-      archived: String(archive),
-      deleted: String(deletedLinks),
-      sort_by: sort.key,
-      sort_direction: sort.direction,
-    });
-    if (deviceId) qs.set("device_id", deviceId);
-    const key = qs.toString();
-    setLoading(loaded.current !== key);
-    api(`/inventory/${resource}?${qs}`)
-      .then((d) => {
-        if (active) {
-          setData(d);
-          if (offset && offset >= d.total)
-            setOffset(Math.max(0, Math.ceil(d.total / 25) - 1) * 25);
-          loaded.current = key;
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    resource,
-    deviceId,
+  const qs = new URLSearchParams({
+    q: search,
+    filters: encoded,
+    offset: String(offset),
+    limit: "25",
+    group_by: group,
+    changed_only: String(purpose === "changes"),
+    archived: String(archive),
+    deleted: String(deletedLinks),
+    sort_by: sort.key,
+    sort_direction: sort.direction,
+  });
+  if (deviceId) qs.set("device_id", deviceId);
+  const listing = useLiveQuery(
+    `/inventory/${resource}?${qs}`,
     refresh,
-    search,
-    encoded,
-    offset,
-    group,
-    archive,
-    deletedLinks,
-    sort,
-  ]);
+    undefined,
+    search ? 200 : 0,
+  );
+  const data: Row = listing.data || { items: [], total: 0, columns: [] };
+  const loading = listing.loading;
+  useEffect(() => {
+    if (listing.data && offset && offset >= listing.data.total)
+      setOffset(Math.max(0, Math.ceil(listing.data.total / 25) - 1) * 25);
+  }, [listing.data, offset]);
+  useEffect(() => {
+    setError(listing.error);
+  }, [listing.error]);
   const columns: Column[] = data.columns;
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";

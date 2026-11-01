@@ -257,13 +257,15 @@ def observations(db, rows):
     return result
 
 
-def enrich(db, rows, *, details=True):
+def enrich(db, rows, *, details=True, include_options=False):
     from .racks import address_cabinets
 
+    if not rows:
+        return []
     grouped = observations(db, rows)
     cabinets = address_cabinets(db, rows)
-    sites = {s.id: s.name for s in db.scalars(select(m.Site))}
-    prefixes = {p.id: p for p in db.scalars(select(m.VLAN))}
+    sites = dict(db.execute(select(m.Site.id, m.Site.name)).all())
+    prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
     result = []
 
     for row in rows:
@@ -316,6 +318,10 @@ def enrich(db, rows, *, details=True):
         item["stale"] = bool(obs and not recent)
         item["sources"] = sorted({o.source for o in obs})
         virtual = virtual_connections(obs)
+        if include_options:
+            from .jobs import connection_options
+
+            item.update(connection_options(db, row, obs=obs))
         if details:
             item["connections"] = []
         item.update(

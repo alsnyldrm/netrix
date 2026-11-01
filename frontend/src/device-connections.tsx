@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useLiveQuery } from "./data";
+import { useState } from "react";
 import { ArrowUpRight, PlugsConnected } from "@phosphor-icons/react";
-import { api, date } from "./main";
+import { date } from "./main";
 import "./device-connections.css";
 
 type Peer = { id: string; name: string; management_ip: string };
@@ -35,25 +36,13 @@ export function DeviceConnections({
   refresh: number;
   onDevice: (device: Peer) => void;
 }) {
-  const [items, setItems] = useState<Connection[] | null>(null);
-  const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
-  useEffect(() => {
-    let active = true;
-    api(`/devices/${deviceId}/connections`)
-      .then((data) => {
-        if (active) {
-          setItems(data.items);
-          setError("");
-        }
-      })
-      .catch((e: Error) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [deviceId, refresh, retry]);
+  const query = useLiveQuery<{ items: Connection[] }>(
+    `/devices/${deviceId}/connections`,
+    refresh + retry,
+  );
+  const items = query.data?.items || null;
+  const error = query.error;
   function cards(rows: Connection[]) {
     return (
       <ul className="connection-cards">

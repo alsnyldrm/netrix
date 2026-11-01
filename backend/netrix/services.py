@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import BigInteger, String, cast, delete, func, inspect, or_, select
+from sqlalchemy.orm import defer, selectinload
 
 from . import models as m
 from . import schemas as s
@@ -397,6 +398,12 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         raise HTTPException(404, "Kaynak bulunamadı")
     model = RESOURCES[name][0]
     stmt = select(model)
+    # These fields are never serialized in list responses. Avoid transferring
+    # encrypted configs and full source snapshots just to discard them in Python.
+    hidden = HIDDEN | ({"evidence"} if model is m.Integration else set())
+    stmt = stmt.options(*(defer(getattr(model, key)) for key in hidden if hasattr(model, key)))
+    if model is m.Scope:
+        stmt = stmt.options(selectinload(m.Scope.profiles))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "links":
@@ -433,14 +440,10 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         stmt = stmt.where(model.device_id == device_id)
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     if name == "vlans":
-        # CIDRs are stored as text. Sort numerically before pagination so that
-        # 10.2 precedes 10.10 and compressed IPv6 notation orders correctly.
-        def network_key(row):
-            return row.vid, row.domain, row.id
-
-        rows = sorted(db.scalars(stmt).all(), key=network_key)[offset : offset + limit]
+        stmt = stmt.order_by(m.VLAN.vid, m.VLAN.domain, m.VLAN.id)
     else:
-        rows = db.scalars(stmt.order_by(model.created_at.desc(), model.id).offset(offset).limit(limit)).all()
+        stmt = stmt.order_by(model.created_at.desc(), model.id)
+    rows = db.scalars(stmt.offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
     if name == "jobs":
         from .job_details import summaries
@@ -455,10 +458,13 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
 
         items = enrich(db, rows)
     if name == "snapshots":
-        bases = {
-            d.id: d.base_snapshot_id
-            for d in db.scalars(select(m.Device).where(m.Device.id.in_({r.device_id for r in rows})))
-        }
+        bases = dict(
+            db.execute(
+                select(m.Device.id, m.Device.base_snapshot_id).where(
+                    m.Device.id.in_({r.device_id for r in rows})
+                )
+            ).all()
+        )
         items = [dict(item, is_base=bases.get(item["device_id"]) == item["id"]) for item in items]
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 

@@ -7,7 +7,7 @@ from .. import models as m
 from .. import services as svc
 from ..core import db_session
 from ..identity.security import admin, audit, current_user, operator
-from . import jobs, read_cache, service, table
+from . import read_cache, service, table
 from .schemas import (
     AddressBulkInput,
     IntegrationInput,
@@ -104,8 +104,10 @@ def sync(id: str, user=Depends(admin), db=Depends(db_session)):
 
 @router.get("/ipam/addresses/{id}")
 def detail(id: str, user=Depends(current_user), db=Depends(db_session)):
-    row = svc.get(db, m.IPAddress, id)
-    return {**service.enrich(db, [row])[0], **jobs.connection_options(db, row)}
+    return read_cache.json_response(
+        ["address-detail", id],
+        lambda: service.enrich(db, [svc.get(db, m.IPAddress, id)], include_options=True)[0],
+    )
 
 
 @router.post("/ipam/addresses/bulk")

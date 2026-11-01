@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, String, and_, case, cast, func, inspect, or_, select
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, defer
 
 from .. import models as m
 from .. import schemas as s
@@ -146,7 +146,7 @@ def query(
     model = models[resource]
     if group_by not in ("", "device_name", "backup_group") or (group_by and resource != "snapshots"):
         raise HTTPException(422, "Geçersiz gruplama")
-    stmt = select(model)
+    stmt = select(model).options(*(defer(getattr(model, key)) for key in svc.HIDDEN if hasattr(model, key)))
     if resource in ("devices", "topology-devices"):
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     cols = {

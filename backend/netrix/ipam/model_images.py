@@ -2,7 +2,7 @@
 
 import re
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 
 from .. import models as m
 
@@ -33,6 +33,30 @@ def model_image(db, vendor, model):
     )
     if configured:
         return {"url": configured.url, "source": configured.source}
+    return fallback_image(vendor, model)
+
+
+def model_images(db, devices):
+    pairs = {(d.vendor.lower(), d.model.lower()) for d in devices}
+    configured = (
+        {
+            (row.vendor.lower(), row.model.lower()): {"url": row.url, "source": row.source}
+            for row in db.scalars(
+                select(m.ModelImage).where(
+                    tuple_(func.lower(m.ModelImage.vendor), func.lower(m.ModelImage.model)).in_(pairs)
+                )
+            )
+        }
+        if pairs
+        else {}
+    )
+    return {
+        d.id: configured.get((d.vendor.lower(), d.model.lower()), fallback_image(d.vendor, d.model))
+        for d in devices
+    }
+
+
+def fallback_image(vendor, model):
     if any(v in vendor.casefold() for v in ("hpe", "hp", "aruba")):
         match = re.search(r"\b(J[A-Z]?\d{3,4}A)\b", model.upper())
         if match:

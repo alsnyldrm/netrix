@@ -241,44 +241,39 @@ def password(
 
 @app.get(P + "/dashboard")
 def dashboard(user=Depends(current_user), db=Depends(db_session)):
-    counts = {
-        name: db.scalar(select(func.count()).select_from(model))
-        for name, model in [
-            ("devices", m.Device),
-            ("vlans", m.VLAN),
-            ("addresses", m.IPAddress),
-            ("snapshots", m.Snapshot),
-            ("sites", m.Site),
-        ]
-    }
-    counts["devices"] = db.scalar(
-        select(func.count())
-        .select_from(m.Device)
-        .where(m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None))
-    )
-    counts["reachable"] = db.scalar(
-        select(func.count())
-        .select_from(m.Device)
-        .where(m.Device.reachability == "reachable", m.Device.lifecycle_status == "active")
-    )
-    counts["active_devices"] = db.scalar(
-        select(func.count()).select_from(m.Device).where(m.Device.lifecycle_status == "active")
-    )
-    counts["firing_alerts"] = db.scalar(
-        select(func.count()).select_from(m.Alert).where(m.Alert.state == "firing")
-    )
-    counts["running_jobs"] = db.scalar(
-        select(func.count()).select_from(m.Job).where(m.Job.status.in_(["queued", "running"]))
-    )
-    counts["successful_discoveries"] = db.scalar(
-        select(func.count())
-        .select_from(m.Job)
-        .where(m.Job.kind == "discovery", m.Job.status.in_(["succeeded", "partial"]))
-    )
-    groups = db.execute(select(m.Device.kind, func.count()).group_by(m.Device.kind)).all()
+    from .ipam.read_cache import json_response
+
+    return json_response(["dashboard"], lambda: dashboard_data(db))
+
+
+def dashboard_data(db):
     from .configuration.baselines import pending_ids
 
-    counts["config_changes"] = len(list(db.scalars(pending_ids(db))))
+    def count(model, *conditions):
+        return select(func.count()).select_from(model).where(*conditions).scalar_subquery()
+
+    # Scalar aggregates travel in one round trip; counts never hydrate full rows.
+    aggregates = {
+        "devices": count(m.Device, m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None)),
+        "vlans": count(m.VLAN),
+        "addresses": count(m.IPAddress),
+        "snapshots": count(m.Snapshot),
+        "sites": count(m.Site),
+        "reachable": count(
+            m.Device, m.Device.reachability == "reachable", m.Device.lifecycle_status == "active"
+        ),
+        "active_devices": count(m.Device, m.Device.lifecycle_status == "active"),
+        "firing_alerts": count(m.Alert, m.Alert.state == "firing"),
+        "running_jobs": count(m.Job, m.Job.status.in_(["queued", "running"])),
+        "successful_discoveries": count(
+            m.Job, m.Job.kind == "discovery", m.Job.status.in_(["succeeded", "partial"])
+        ),
+        "config_changes": select(func.count()).select_from(pending_ids(db).subquery()).scalar_subquery(),
+    }
+    counts = dict(
+        db.execute(select(*(query.label(name) for name, query in aggregates.items()))).one()._mapping
+    )
+    groups = db.execute(select(m.Device.kind, func.count()).group_by(m.Device.kind)).all()
     return {
         "counts": counts,
         "device_kinds": [{"kind": kind, "count": count} for kind, count in groups],

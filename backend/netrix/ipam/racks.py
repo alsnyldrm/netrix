@@ -7,7 +7,7 @@ from sqlalchemy.exc import OperationalError
 from .. import models as m
 from ..identity.security import audit
 from ..services import get, publish, serialize
-from .model_images import model_image
+from .model_images import model_images
 
 
 def address_cabinets(db, rows):
@@ -35,9 +35,13 @@ def detail(db, id):
         .where(m.RackPlacement.cabinet_id == id)
         .order_by(m.RackPlacement.start_unit.desc())
     ).all()
+    devices = {
+        d.id: d for d in db.scalars(select(m.Device).where(m.Device.id.in_({r.device_id for r in rows})))
+    }
+    images = model_images(db, list(devices.values()))
     placements = []
     for row in rows:
-        device = get(db, m.Device, row.device_id)
+        device = devices[row.device_id]
         placements.append(
             {
                 **serialize(row),
@@ -55,7 +59,7 @@ def detail(db, id):
                         "archived",
                     )
                 },
-                "image": model_image(db, device.vendor, device.model),
+                "image": images[device.id],
             }
         )
     accessories = db.scalars(

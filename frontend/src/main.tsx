@@ -1,3 +1,5 @@
+import { api, clearReadCache, useLiveQuery } from "./data";
+export { api } from "./data";
 import { JobDetails } from "./job-details";
 import { DiscoveryScopeForm } from "./discovery-scope-form";
 import { DeviceConnections } from "./device-connections";
@@ -882,27 +884,6 @@ export const speed = (v: any) =>
         : v >= 1e3
           ? (v / 1e3).toFixed(1) + " Kbps"
           : Math.round(v) + " bps";
-export async function api(path: string, method = "GET", body?: any) {
-  const response = await fetch("/api/v1" + path, {
-    method,
-    headers: { "Content-Type": "application/json", "X-Netrix-Request": "1" },
-    credentials: "same-origin",
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (response.status === 204) return null;
-  const data = await response
-    .json()
-    .catch(() => ({ detail: "Sunucu yanıtı okunamadı" }));
-  if (!response.ok) {
-    if (response.status === 401 && !path.startsWith("/auth/"))
-      window.dispatchEvent(new Event("netrix:session-expired"));
-    const message = Array.isArray(data.detail)
-      ? data.detail.map((x: any) => x.loc.join(".") + ": " + x.msg).join(" · ")
-      : data.detail || "İşlem tamamlanamadı";
-    throw new Error(message);
-  }
-  return data;
-}
 export function Badge({
   value,
   tone,
@@ -2179,16 +2160,11 @@ function App() {
       PAGES.find((p) => p.key === (location.hash.slice(1) || "overview"))
         ?.group || "Genel bakış",
   );
-  const [refs, setRefs] = useState<Record<string, Row[]>>({});
-  const [dashboard, setDashboard] = useState<Row>({});
-  const [items, setItems] = useState<Row[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [query, setQuery] = useState("");
   const search = useDeferredValue(query);
   const [refresh, setRefresh] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const loadedQuery = useRef("");
+  const [referenceRefresh, setReferenceRefresh] = useState(0);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [connected, setConnected] = useState(false);
@@ -2215,7 +2191,10 @@ function App() {
   const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
   const page = PAGES.find((p) => p.key === current) || PAGES[0];
   useEffect(() => {
-    const expired = () => setUser(null);
+    const expired = () => {
+      clearReadCache();
+      setUser(null);
+    };
     window.addEventListener("netrix:session-expired", expired);
     return () => window.removeEventListener("netrix:session-expired", expired);
   }, []);
@@ -2230,7 +2209,10 @@ function App() {
       return () => clearTimeout(t);
     }
   }, [toast]);
-  const reload = useCallback(() => setRefresh((n) => n + 1), []);
+  const reload = useCallback(() => {
+    setRefresh((n) => n + 1);
+    setReferenceRefresh((n) => n + 1);
+  }, []);
   const navigate = useCallback((key: string) => {
     const p = PAGES.find((p) => p.key === key);
     if (!p) return;
@@ -2274,113 +2256,140 @@ function App() {
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
+  // Reference data belongs to the open screen/form, not every live event.
+  const referenceNames = new Set<string>();
+  const addReferences = (...names: string[]) =>
+    names.forEach((name) => referenceNames.add(name));
+  const relations: Record<string, string> = {
+    site_id: "sites",
+    vrf_id: "vrfs",
+    vlan_id: "vlans",
+    device_id: "devices",
+    interface_id: "interfaces",
+    actor_id: "users",
+  };
+  page.columns?.forEach(([key]) => {
+    if (relations[key]) addReferences(relations[key]);
+  });
+  for (const field of [...(page.fields || []), ...(form?.page.fields || [])]) {
+    if (field.ref) addReferences(field.ref);
+    if (field.suggestions) addReferences(field.suggestions);
+  }
+  if (["overview", "topology", "neighbors"].includes(page.key))
+    addReferences("devices", "links");
+  if (page.key === "overview") addReferences("credentials", "scopes", "events");
+  if (page.key === "vlans")
+    addReferences(
+      "institutions",
+      "sites",
+      "cabinets",
+      "operating-systems",
+      "vrfs",
+      "dns-servers",
+    );
+  if (page.key === "sites") addReferences("institutions", "sites");
+  if (page.key === "cabinets")
+    addReferences(
+      "institutions",
+      "sites",
+      "cabinets",
+      "devices",
+      "device-types",
+      "vlans",
+    );
+  if (page.key === "discovery" || form?.page.resource === "scopes")
+    addReferences("institutions", "sites", "vrfs", "credentials");
+  if (jobModal || configCompare || detail)
+    addReferences("devices", "sites", "vrfs");
+  if (user?.role !== "admin") referenceNames.delete("users");
+  const referencesKey = [...referenceNames].sort().join(",");
+  const referenceQuery = useLiveQuery<Record<string, Row[]>>(
+    user ? `references:${user.id}:${referencesKey}` : null,
+    referenceRefresh +
+      (["overview", "topology", "neighbors"].includes(page.key) ? refresh : 0),
+    async () =>
+      Object.fromEntries(
+        await Promise.all(
+          referencesKey
+            .split(",")
+            .filter(Boolean)
+            .map(async (name) => [
+              name,
+              name === "events"
+                ? (await api("/events?limit=4")).items
+                : await allRows("/" + name),
+            ]),
+        ),
+      ),
+  );
+  const referenceSnapshot = useRef<{
+    user?: string;
+    values: Record<string, Row[]>;
+  }>({ values: {} });
+  if (referenceSnapshot.current.user !== user?.id)
+    referenceSnapshot.current = { user: user?.id, values: {} };
+  if (referenceQuery.data)
+    referenceSnapshot.current.values = {
+      ...referenceSnapshot.current.values,
+      ...referenceQuery.data,
+    };
+  const refs = referenceSnapshot.current.values;
+  const dashboardQuery = useLiveQuery(user ? "/dashboard" : null, refresh);
+  const dashboard: Row = dashboardQuery.data || {};
+  const dedicated = [
+    "devices",
+    "interfaces",
+    "configuration",
+    "backup-changes",
+    "backup-compare",
+    "backup-settings",
+    "topology",
+    "neighbors",
+    "vlans",
+    "sites",
+    "cabinets",
+    "integrations",
+    "archive",
+    "deleted-links",
+  ].includes(page.key);
+  const tableQuery = useLiveQuery(
+    user && page.resource && !dedicated
+      ? "/" +
+          page.resource +
+          `?limit=25&offset=${offset}&q=${encodeURIComponent(search)}`
+      : null,
+    refresh,
+    undefined,
+    search ? 200 : 0,
+  );
+  const items: Row[] = tableQuery.data?.items || [];
+  const total = tableQuery.data?.total || 0;
+  const loading = tableQuery.loading;
   useEffect(() => {
-    if (!user) return;
-    let active = true;
-    const load = async () => {
-      try {
-        const d = await api("/dashboard");
-        if (active) setDashboard(d);
-        const names = [
-          "devices",
-          "institutions",
-          "sites",
-          "cabinets",
-          "operating-systems",
-          "device-types",
-          "vrfs",
-          "vlans",
-          "dns-servers",
-          "credentials",
-          "backup-groups",
-          "interfaces",
-          "scopes",
-          "links",
-          "events",
-          "jobs",
-          ...(user.role === "admin" ? ["users"] : []),
-        ];
-        const rows = await Promise.all(
-          names.map(async (name) => [
-            name,
-            [
-              "institutions",
-              "sites",
-              "cabinets",
-              "operating-systems",
-              "device-types",
-              "devices",
-              "links",
-              "scopes",
-              "dns-servers",
-            ].includes(name)
-              ? await allRows("/" + name)
-              : (await api("/" + name + "?limit=200")).items,
-          ]),
-        );
-        if (active) setRefs(Object.fromEntries(rows));
-      } catch (e: any) {
-        if (active) setError(e.message);
-      }
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, [user, refresh]);
-  useEffect(() => {
-    if (
-      !user ||
-      !page.resource ||
-      [
-        "devices",
-        "interfaces",
-        "configuration",
-        "topology",
-        "neighbors",
-        "vlans",
-      ].includes(page.key)
-    )
-      return;
-    let active = true;
-    const queryKey = JSON.stringify([user.id, page.resource, offset, search]);
-    // Live events and polling update rows in place without removing the table.
-    setLoading(loadedQuery.current !== queryKey);
-    api(
-      "/" +
-        page.resource +
-        `?limit=25&offset=${offset}&q=${encodeURIComponent(search)}`,
-    )
-      .then((d) => {
-        if (active) {
-          loadedQuery.current = queryKey;
-          setItems(d.items);
-          setTotal(d.total);
-          setError("");
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [user, page.resource, offset, search, refresh]);
+    const issue =
+      tableQuery.error || referenceQuery.error || dashboardQuery.error;
+    setError(issue);
+  }, [tableQuery.error, referenceQuery.error, dashboardQuery.error]);
   useEffect(() => {
     if (!user) return;
     let socket: WebSocket | undefined;
     let reconnect: ReturnType<typeof setTimeout>;
     let closed = false;
+    let liveTimer: ReturnType<typeof setTimeout> | undefined;
+    const liveRefresh = () => {
+      if (document.hidden || liveTimer) return;
+      liveTimer = setTimeout(() => {
+        liveTimer = undefined;
+        setRefresh((n) => n + 1);
+      }, 1500);
+    };
     const connect = () => {
       socket = new WebSocket(
         `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/v1/ws`,
       );
       socket.onopen = () => setConnected(true);
       socket.onmessage = (e) => {
-        if (JSON.parse(e.data).type === "refresh") reload();
+        if (JSON.parse(e.data).type === "refresh") liveRefresh();
       };
       socket.onclose = () => {
         setConnected(false);
@@ -2394,6 +2403,7 @@ function App() {
     return () => {
       closed = true;
       clearTimeout(reconnect);
+      clearTimeout(liveTimer);
       clearInterval(interval);
       socket?.close();
     };
@@ -2424,6 +2434,7 @@ function App() {
     try {
       await api("/auth/logout", "POST");
     } finally {
+      clearReadCache();
       setUser(null);
     }
   };

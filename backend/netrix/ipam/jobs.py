@@ -37,11 +37,19 @@ def validate_target(db, kind, id):
     return row
 
 
-def connection_options(db, row):
-    virtual = virtual_connections(observations(db, [row])[row.id])
+def connection_options(db, row, *, obs=None):
+    virtual = virtual_connections(obs if obs is not None else observations(db, [row])[row.id])
     integrations = []
     for candidate in virtual:
-        config = db.get(m.Integration, candidate["integration_id"]) if candidate["integration_id"] else None
+        config = (
+            db.execute(
+                select(m.Integration.name, m.Integration.enabled).where(
+                    m.Integration.id == candidate["integration_id"]
+                )
+            ).first()
+            if candidate["integration_id"]
+            else None
+        )
         if config and config.enabled:
             integrations.append({**candidate, "name": config.name})
     # A VM's access port is its virtual NIC backing, not every physical FDB hop.

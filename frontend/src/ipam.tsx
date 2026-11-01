@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useLiveQuery } from "./data";
+import React, { useEffect, useState } from "react";
 import {
   Info,
   ArrowLeft,
@@ -206,95 +207,80 @@ function VLANSettings({
 }
 
 function AddressDetail({ row, close }: { row: Row; close: () => void }) {
-  const [detail, setDetail] = useState<Row | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    api("/ipam/addresses/" + row.id)
-      .then((d) => {
-        if (active) {
-          setDetail(d);
-        }
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [row.id]);
+  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id);
+  const detail = query.data || row;
+  const error = query.error;
   return (
     <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} wide>
       <div className="ipam-form">
         <ErrorNote error={error} />
-        {detail ? (
-          <>
-            <dl className="ipam-summary">
-              {[
-                ["Hostname", detail.hostname],
-                ["MAC adresi", detail.mac_address],
-                ["Bağlı switch", detail.connected_device],
-                [
-                  "Port grubu / Sanal ağ",
-                  detail.connection_type === "vcenter" ? detail.network : "",
-                ],
-                ["Bağlı port", detail.connected_port],
-                ["İşletim sistemi", detail.operating_system],
-                ["Kabinet no", detail.cabinet],
-                ["Lokasyon", detail.location],
-                ["VM güç durumu", stateName(detail.power_state)],
-                ["Ping", stateName(detail.reachability)],
-                ["Son gözlem", date(detail.last_observed_at)],
-              ].map(([k, v]) => (
-                <div key={k}>
-                  <dt>{k}</dt>
-                  <dd>{v || "—"}</dd>
-                </div>
-              ))}
-            </dl>
-            <section className="ipam-section">
-              <h3>Kaynak gözlemleri</h3>
-              <div
-                className="table-scroll"
-                tabIndex={0}
-                role="region"
-                aria-label="IPAM kayıt tablosu"
-              >
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Kaynak</th>
-                      <th>Hostname / MAC</th>
-                      <th>İşletim sistemi / ağ</th>
-                      <th>Gözlem zamanı</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.observations.map((o: Row) => (
-                      <tr key={o.id}>
-                        <td>{sourceName(o.source)}</td>
-                        <td>
-                          {o.data.hostname || "—"}
-                          <small className="ipam-sub">
-                            {o.data.mac_address || "—"}
-                          </small>
-                        </td>
-                        <td>
-                          {o.data.operating_system ||
-                            o.data.network ||
-                            stateName(o.data.reachability)}
-                        </td>
-                        <td>{date(o.observed_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <>
+          <dl className="ipam-summary">
+            {[
+              ["Hostname", detail.hostname],
+              ["MAC adresi", detail.mac_address],
+              ["Bağlı switch", detail.connected_device],
+              [
+                "Port grubu / Sanal ağ",
+                detail.connection_type === "vcenter" ? detail.network : "",
+              ],
+              ["Bağlı port", detail.connected_port],
+              ["İşletim sistemi", detail.operating_system],
+              ["Kabinet no", detail.cabinet],
+              ["Lokasyon", detail.location],
+              ["VM güç durumu", stateName(detail.power_state)],
+              ["Ping", stateName(detail.reachability)],
+              ["Son gözlem", date(detail.last_observed_at)],
+            ].map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v || "—"}</dd>
               </div>
-            </section>
-          </>
-        ) : (
-          <p>IP ayrıntıları yükleniyor…</p>
-        )}
+            ))}
+          </dl>
+          <section className="ipam-section">
+            <h3>Kaynak gözlemleri</h3>
+            {query.loading && (
+              <p role="status">Kaynak gözlemleri yükleniyor…</p>
+            )}
+            <div
+              className="table-scroll"
+              tabIndex={0}
+              role="region"
+              aria-label="IPAM kayıt tablosu"
+            >
+              <table>
+                <thead>
+                  <tr>
+                    <th>Kaynak</th>
+                    <th>Hostname / MAC</th>
+                    <th>İşletim sistemi / ağ</th>
+                    <th>Gözlem zamanı</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detail.observations || []).map((o: Row) => (
+                    <tr key={o.id}>
+                      <td>{sourceName(o.source)}</td>
+                      <td>
+                        {o.data.hostname || "—"}
+                        <small className="ipam-sub">
+                          {o.data.mac_address || "—"}
+                        </small>
+                      </td>
+                      <td>
+                        {o.data.operating_system ||
+                          o.data.network ||
+                          stateName(o.data.reachability)}
+                      </td>
+                      <td>{date(o.observed_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
       </div>
     </Dialog>
   );
@@ -316,8 +302,6 @@ export function IPAMWorkspace({
   onSaved: () => void;
 }) {
   const [prefix, setVLAN] = useState<Row | null>(null);
-  const [rows, setRows] = useState<Row[]>([]);
-  const [total, setTotal] = useState("0");
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
@@ -326,15 +310,12 @@ export function IPAMWorkspace({
   const [settings, setSettings] = useState<Row | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [job, setJob] = useState<Row | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [registeredSearch, setRegisteredSearch] = useState(false);
   const [rules, setRules] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteVLANs, setDeleteVLANs] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const [columns, setColumns] = useState<{ key: string; label: string }[]>([]);
   const storageKey = `netrix.ipam.columns.${user.id}`;
   const defaults = [
     "address",
@@ -360,54 +341,34 @@ export function IPAMWorkspace({
   });
   const canWrite = user.role !== "viewer";
   const isBlocks = page === "vlans" && !prefix;
+  const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
+  const path = prefix
+    ? `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`
+    : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
+  const listing = useLiveQuery(path, refresh, undefined, query ? 200 : 0);
+  const rows: Row[] = listing.data?.items || [];
+  const total = String(listing.data?.total || 0);
+  const loaded = !listing.loading;
+  const registeredSearch = !!listing.data?.registered_search;
+  const columns: { key: string; label: string }[] = listing.data?.columns || [
+    { key: "address", label: "IP adresi" },
+    { key: "hostname", label: "Hostname" },
+    { key: "mac_address", label: "MAC adresi" },
+    { key: "connected_device", label: "Bağlı cihaz" },
+    { key: "connected_port", label: "Port" },
+    { key: "vlan", label: "VLAN" },
+    { key: "operating_system", label: "İşletim sistemi" },
+    { key: "cabinet", label: "Kabinet no" },
+    { key: "location", label: "Lokasyon" },
+    { key: "availability", label: "Durum" },
+  ];
   const visible = columns.filter((c) => shown.includes(c.key));
-  const previousQuery = useRef(query);
-  const previousScope = useRef("");
   useEffect(() => {
-    let active = true;
-    const scope = JSON.stringify([
-      page,
-      prefix?.id,
-      offset,
-      query,
-      activeOnly,
-      rules,
-    ]);
-    if (previousScope.current !== scope) setLoaded(false);
-    previousScope.current = scope;
-    const delay = previousQuery.current !== query ? 200 : 0;
-    previousQuery.current = query;
-    const timer = setTimeout(async () => {
-      try {
-        const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
-        const result = prefix
-          ? await api(
-              `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`,
-            )
-          : await api(
-              `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`,
-            );
-        if (active) {
-          setRows(result.items);
-          setTotal(String(result.total));
-          setColumns(result.columns || []);
-          if (result.vlan) setVLAN(result.vlan);
-          setRegisteredSearch(!!result.registered_search);
-          setError("");
-          setLoaded(true);
-        }
-      } catch (e: any) {
-        if (active) {
-          setError(e.message);
-          setLoaded(true);
-        }
-      }
-    }, delay);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [page, prefix?.id, offset, query, activeOnly, refresh, rules]);
+    if (listing.data?.vlan) setVLAN(listing.data.vlan);
+  }, [listing.data]);
+  useEffect(() => {
+    setError(listing.error);
+  }, [listing.error]);
   useEffect(() => {
     setSelected([]);
   }, [prefix?.id, query, rules, activeOnly]);
@@ -444,7 +405,6 @@ export function IPAMWorkspace({
   };
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
-    setRows([]);
     setOffset("0");
     setQuery("");
     setRules([]);
@@ -602,7 +562,7 @@ export function IPAMWorkspace({
                   ? "VLAN alanları"
                   : "IP adresleri"}
             </b>
-            <span className="count-pill">{total}</span>
+            <span className="count-pill">{loaded ? total : "…"}</span>
           </div>
           <div className="ipam-table-tools">
             <label className="search-box">
@@ -915,16 +875,18 @@ export function IPAMWorkspace({
         )}
         <div className="ipam-pagination">
           <span>
-            {BigInt(total) > 0n
-              ? `${BigInt(offset) + 1n}–${BigInt(offset) + BigInt(rows.length)} / ${total}`
-              : isBlocks
-                ? "0 ağ bloğu"
-                : "0 adres"}
+            {!loaded
+              ? "Yükleniyor…"
+              : BigInt(total) > 0n
+                ? `${BigInt(offset) + 1n}–${BigInt(offset) + BigInt(rows.length)} / ${total}`
+                : isBlocks
+                  ? "0 ağ bloğu"
+                  : "0 adres"}
           </span>
           <div className="ipam-actions">
             <button
               className="secondary"
-              disabled={offset === "0"}
+              disabled={!loaded || offset === "0"}
               onClick={() =>
                 setOffset(
                   String(BigInt(offset) > 100n ? BigInt(offset) - 100n : 0n),
@@ -935,7 +897,7 @@ export function IPAMWorkspace({
             </button>
             <button
               className="secondary"
-              disabled={BigInt(offset) + 100n >= BigInt(total)}
+              disabled={!loaded || BigInt(offset) + 100n >= BigInt(total)}
               onClick={() => setOffset(String(BigInt(offset) + 100n))}
             >
               {isBlocks ? "Sonraki" : "Sonraki 100 adres"}
@@ -991,9 +953,6 @@ export function IPAMWorkspace({
           refs={refs}
           close={() => setSettings(null)}
           saved={(updated) => {
-            setRows((items) =>
-              items.map((r) => (r.id === updated.id ? updated : r)),
-            );
             setVLAN((current) =>
               current?.id === updated.id ? updated : current,
             );
@@ -1175,7 +1134,10 @@ export function Integrations({
   refs: Record<string, Row[]>;
   onSaved: () => void;
 }) {
-  const [rows, setRows] = useState<Row[]>([]);
+  const listing = useLiveQuery<Row[]>("integrations:all", refresh, () =>
+    allRows("/integrations"),
+  );
+  const rows = listing.data || [];
   const [editing, setEditing] = useState<Row | null>(null);
   const [values, setValues] = useState<Row>(integrationDefaults);
   const [changeCredentials, setChangeCredentials] = useState(false);
@@ -1184,18 +1146,8 @@ export function Integrations({
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Row | null>(null);
   useEffect(() => {
-    let active = true;
-    allRows("/integrations")
-      .then((data) => {
-        if (active) setRows(data);
-      })
-      .catch((e) => {
-        if (active) setError(e.message);
-      });
-    return () => {
-      active = false;
-    };
-  }, [refresh]);
+    setError(listing.error);
+  }, [listing.error]);
   useEffect(() => {
     if (!job || !["queued", "running"].includes(job.status)) return;
     let active = true;
