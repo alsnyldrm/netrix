@@ -111,7 +111,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Switch 1", exact=True).click()
     expect(page.get_by_text("Base config", exact=True).first).to_be_visible()
     check("config-history")
-    page.locator(".backup-device-heading").get_by_role("button", name="Karşılaştır", exact=True).click()
+    page.locator(".page-actions").get_by_role("button", name="Karşılaştır", exact=True).click()
     page.get_by_role("dialog").get_by_role("button", name="Karşılaştır", exact=True).click()
     expect(page.locator(".config-editor")).to_have_count(2)
     check("config-popup")

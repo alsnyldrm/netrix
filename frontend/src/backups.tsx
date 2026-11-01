@@ -280,17 +280,23 @@ export function BackupWorkspace({
   refresh,
   user,
   onSaved,
+  onDeviceChange,
 }: {
   page: string;
   refresh: number;
   user: Row;
   onSaved: () => void;
+  onDeviceChange: (device: Row | null) => void;
 }) {
   const [device, setDevice] = useState<Row | null>(null);
   const [view, setView] = useState<Row | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    onDeviceChange(device);
+    return () => onDeviceChange(null);
+  }, [device, onDeviceChange]);
   useEffect(() => {
     heading.current?.focus();
   }, [device?.id]);
@@ -364,12 +370,6 @@ export function BackupWorkspace({
             </h2>
             <p>{device.management_ip}</p>
           </div>
-          <button
-            className="secondary"
-            onClick={() => setView({ kind: "compare", row: device })}
-          >
-            Karşılaştır
-          </button>
         </div>
       )}
       {page === "configuration" && !device ? (
@@ -401,7 +401,7 @@ export function BackupWorkspace({
       )}
       {view && (
         <Dialog
-          wide={view.kind === "diff" || view.kind === "compare"}
+          wide={view.kind === "diff"}
           title={
             (
               {
@@ -409,71 +409,66 @@ export function BackupWorkspace({
                 approve: "Konfigürasyon değişikliğini onayla",
                 delete: "Konfigürasyonu sil",
                 diff: "Base config / Son config",
-                compare: "Kayıtlı konfigürasyonları karşılaştır",
               } as Row
             )[view.kind] || "Cihaz konfigürasyonu"
           }
           onClose={() => setView(null)}
         >
-          {view.kind === "compare" ? (
-            <ConfigComparison sameDevice initialDevice={view.row} />
-          ) : (
-            <div className="backup-result">
-              <p>
-                <b>{view.row.device_name}</b> · {date(view.row.created_at)}
-              </p>
-              {["base", "approve", "delete"].includes(view.kind) ? (
-                <>
-                  <p>
-                    {view.kind === "base"
-                      ? "Bu dosya cihazın base config’i olacak. Değişiklikler bu dosyaya göre yeniden hesaplanacak."
-                      : view.kind === "approve"
-                        ? "Bu konfigürasyondaki farklar onaylanacak ve Değişenler listesinden kaldırılacak."
-                        : "Bu konfigürasyon dosyası kalıcı olarak silinecek."}
-                  </p>
-                  <div className="dialog-footer">
-                    <button className="secondary" onClick={() => setView(null)}>
-                      Vazgeç
-                    </button>
-                    <button
-                      className="primary"
-                      disabled={busy}
-                      onClick={async () => {
-                        setBusy(true);
-                        try {
-                          await api(
-                            `/snapshots/${view.row.id}${view.kind === "delete" ? "" : "/" + view.kind}`,
-                            view.kind === "delete" ? "DELETE" : "POST",
-                          );
-                          onSaved();
-                          setView(null);
-                        } catch (e: any) {
-                          setError(e.message);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {view.kind === "base"
-                        ? "Base config yap"
-                        : view.kind === "approve"
-                          ? "Onayla"
-                          : "Sil"}
-                    </button>
-                  </div>
-                </>
-              ) : view.result ? (
-                <ConfigEditors result={view.result} />
-              ) : (
-                <pre>{view.content}</pre>
-              )}
-              {error && (
-                <p className="error" role="alert">
-                  {error}
+          <div className="backup-result">
+            <p>
+              <b>{view.row.device_name}</b> · {date(view.row.created_at)}
+            </p>
+            {["base", "approve", "delete"].includes(view.kind) ? (
+              <>
+                <p>
+                  {view.kind === "base"
+                    ? "Bu dosya cihazın base config’i olacak. Değişiklikler bu dosyaya göre yeniden hesaplanacak."
+                    : view.kind === "approve"
+                      ? "Bu konfigürasyondaki farklar onaylanacak ve Değişenler listesinden kaldırılacak."
+                      : "Bu konfigürasyon dosyası kalıcı olarak silinecek."}
                 </p>
-              )}
-            </div>
-          )}
+                <div className="dialog-footer">
+                  <button className="secondary" onClick={() => setView(null)}>
+                    Vazgeç
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        await api(
+                          `/snapshots/${view.row.id}${view.kind === "delete" ? "" : "/" + view.kind}`,
+                          view.kind === "delete" ? "DELETE" : "POST",
+                        );
+                        onSaved();
+                        setView(null);
+                      } catch (e: any) {
+                        setError(e.message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    {view.kind === "base"
+                      ? "Base config yap"
+                      : view.kind === "approve"
+                        ? "Onayla"
+                        : "Sil"}
+                  </button>
+                </div>
+              </>
+            ) : view.result ? (
+              <ConfigEditors result={view.result} />
+            ) : (
+              <pre>{view.content}</pre>
+            )}
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+          </div>
         </Dialog>
       )}
     </>

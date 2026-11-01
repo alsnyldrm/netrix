@@ -2195,7 +2195,10 @@ function App() {
   const [commandQuery, setCommandQuery] = useState("");
   const [jobDetail, setJobDetail] = useState<Row | null>(null);
   const [jobModal, setJobModal] = useState(false);
-  const [configCompare, setConfigCompare] = useState(false);
+  const [configCompare, setConfigCompare] = useState<Row | null>(null);
+  const [configurationDevice, setConfigurationDevice] = useState<Row | null>(
+    null,
+  );
   const [jobKind, setJobKind] = useState("backup");
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
@@ -2586,10 +2589,10 @@ function App() {
       {configCompare && (
         <Dialog
           wide
-          title="Cihaz konfigürasyonlarını karşılaştır"
-          onClose={() => setConfigCompare(false)}
+          title="Kayıtlı konfigürasyonları karşılaştır"
+          onClose={() => setConfigCompare(null)}
         >
-          <ConfigComparison sameDevice />
+          <ConfigComparison sameDevice initialDevice={configCompare} />
         </Dialog>
       )}
       <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
@@ -2779,7 +2782,9 @@ function App() {
                   <p>{page.desc}</p>
                 </div>
                 {canWrite && (
-                  <div className="page-actions">
+                  <div
+                    className={`page-actions${page.key === "configuration" ? " configuration-actions" : ""}`}
+                  >
                     {page.fields &&
                       page.key !== "sites" &&
                       (isAdmin ||
@@ -2805,12 +2810,16 @@ function App() {
                           <Play size={16} />
                           Yedek al
                         </button>
-                        <button
-                          className="secondary"
-                          onClick={() => setConfigCompare(true)}
-                        >
-                          Karşılaştır
-                        </button>
+                        {configurationDevice && (
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              setConfigCompare(configurationDevice)
+                            }
+                          >
+                            Karşılaştır
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -2929,6 +2938,7 @@ function App() {
                 refresh={refresh}
                 user={user!}
                 onSaved={reload}
+                onDeviceChange={setConfigurationDevice}
               />
             ) : page.key === "topology" ? (
               <section className="panel topology-panel">

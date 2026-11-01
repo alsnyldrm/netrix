@@ -149,3 +149,11 @@ tr.base-config-row {
 .config-comparison summary {
   color: var(--accent);
 }
+
+@media (max-width: 640px) {
+  .page-actions.configuration-actions > button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+  }
+}
