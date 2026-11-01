@@ -40,15 +40,49 @@ with sync_playwright() as p:
     expect(page.get_by_role("columnheader", name="İşlemler", exact=True)).to_have_count(0)
     expect(page.get_by_role("button", name="Seçilenleri sil", exact=False)).to_have_count(0)
     expect(page.get_by_role("button", name="Kabinetleri aç", exact=True)).to_have_count(0)
-    search = page.get_by_label("Kabinet odalarında ara", exact=True)
+    search = page.get_by_label("Kat ve odalarda ara", exact=True)
+    table = page.get_by_role("region", name="Katlara göre kabinet tablosu", exact=True)
+    expect(table.get_by_role("columnheader")).to_have_text(
+        ["Kat", "Bölüm", "Oda ismi", "Lokasyon", "Kurum", "Kabinet sayısı"]
+    )
+    expect(table.locator("tbody")).to_have_count(3)
+    assert table.locator("tbody").evaluate_all("es=>es.map(e=>e.getAttribute('aria-label'))") == [
+        "Kat L-0",
+        "Kat L-2",
+        "Kat L-10",
+    ]
+    floor = table.locator('tbody[aria-label="Kat L-0"]')
+    expect(floor.get_by_role("rowheader", name="L-0", exact=True)).to_have_attribute("rowspan", "2")
+    assert floor.get_by_role("button").all_text_contents() == ["Sunucu Odası", "Arşiv Odası"]
+    check("floors")
+    search.fill("L-0 B")
+    expect(table.get_by_role("button", name="Arşiv Odası", exact=True)).to_be_visible()
+    expect(table.get_by_role("button", name="Sunucu Odası", exact=True)).to_have_count(0)
+    expect(table.get_by_role("rowheader", name="L-0", exact=True)).to_have_attribute("rowspan", "1")
     search.fill("sunucu kuzey")
     expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_be_visible()
     search.fill("eşleşmeyen oda")
     expect(page.get_by_role("button", name="Sunucu Odası", exact=True)).to_have_count(0)
-    expect(page.get_by_text("Arama veya filtrelere uygun oda yok.", exact=False)).to_be_visible()
+    expect(page.get_by_text("Arama veya filtrelere uygun kayıt yok.", exact=False)).to_be_visible()
     search.fill("")
     page.get_by_role("button", name="Filtreler", exact=True).click()
     filters = page.get_by_role("dialog").last
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    expect(filters.get_by_label("Koşul 1 alanı", exact=True).locator("option")).to_have_text(
+        ["Kat", "Bölüm", "Oda ismi", "Lokasyon", "Kurum", "Kabinet sayısı"]
+    )
+    filters.get_by_label("Koşul 1 işlemi", exact=True).select_option("eq")
+    filters.get_by_label("Koşul 1 değeri", exact=True).fill("L-0")
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 2 alanı", exact=True).select_option("department_name")
+    filters.get_by_label("Koşul 2 işlemi", exact=True).select_option("eq")
+    filters.get_by_label("Koşul 2 değeri", exact=True).fill("B")
+    filters.get_by_role("button", name="Filtreleri uygula", exact=True).click()
+    expect(table.get_by_role("button", name="Arşiv Odası", exact=True)).to_be_visible()
+    expect(table.get_by_role("row")).to_have_count(2)
+    page.get_by_role("button", name="Filtreler (2)", exact=True).click()
+    filters = page.get_by_role("dialog").last
+    filters.get_by_role("button", name="Temizle", exact=True).click()
     filters.get_by_role("button", name="Koşul ekle", exact=True).click()
     filters.get_by_label("Koşul 1 alanı", exact=True).select_option("institution_name")
     filters.get_by_label("Koşul 1 değeri", exact=True).fill("Fixture")
@@ -61,6 +95,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Filtreler (2)", exact=True).click()
     filters = page.get_by_role("dialog").last
     filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 3 alanı", exact=True).select_option("name")
     filters.get_by_label("Koşul 3 bağlantısı", exact=True).select_option("or")
     filters.get_by_label("Koşul 3 işlemi", exact=True).select_option("eq")
     filters.get_by_label("Koşul 3 değeri", exact=True).fill("Sunucu Odası")
@@ -111,5 +146,5 @@ with sync_playwright() as p:
     assert not errors, errors
     browser.close()
 print(
-    "PASS: room list without selection/actions/delete, text search, AND/OR and numeric filters, navigation, cabinet and room management, desktop/mobile, themes and accessibility"
+    "PASS: floor groups, natural floor and department order, six-column priority, floor/department search and filters, no root deletion, navigation, desktop/mobile, themes and accessibility"
 )

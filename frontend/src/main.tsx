@@ -325,7 +325,7 @@ export const PAGES: Page[] = [
   {
     key: "cabinets",
     title: "Kabinetler",
-    desc: "Odaların içindeki kabinetleri ve cihaz yerleşimlerini yönetin.",
+    desc: "Kabinetleri kat, bölüm ve oda sırasıyla yönetin.",
     group: "IP adres yönetimi",
     icon: HardDrives,
     resource: "cabinets",

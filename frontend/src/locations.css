@@ -365,3 +365,18 @@
     width: 100%;
   }
 }
+
+.cabinet-floor-table {
+  min-width: 900px;
+}
+.cabinet-floor-table .cabinet-floor-cell {
+  min-width: 100px;
+  vertical-align: top;
+  color: var(--accent);
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.cabinet-floor-table tbody + tbody tr:first-child > * {
+  border-top: 2px solid var(--border-strong);
+}

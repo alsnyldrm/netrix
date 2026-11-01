@@ -502,9 +502,11 @@ export function Cabinets({
     { field: string; op: string; value: string; join: string }[]
   >([]);
   const columns = [
+    { key: "floor_number", label: "Kat" },
+    { key: "department_name", label: "Bölüm" },
     { key: "name", label: "Oda ismi" },
-    { key: "institution_name", label: "Kurum" },
     { key: "location_name", label: "Lokasyon" },
+    { key: "institution_name", label: "Kurum" },
     { key: "cabinet_count", label: "Kabinet sayısı" },
   ];
   const normalize = (value: any) => String(value ?? "").toLocaleLowerCase("tr");
@@ -533,6 +535,8 @@ export function Cabinets({
   const filtered = groups
     .map((r): Row => ({
       ...r,
+      floor_number: r.floor_number?.trim() || "Kat belirtilmedi",
+      department_name: r.department_name?.trim() || "—",
       institution_name:
         refs.institutions?.find((i) => i.id === r.institution_id)?.name || "—",
       location_name: refs.sites?.find((s) => s.id === r.parent_id)?.name || "—",
@@ -574,6 +578,32 @@ export function Cabinets({
         }, undefined) ?? true
       );
     });
+  const collator = new Intl.Collator("tr", {
+    numeric: true,
+    sensitivity: "base",
+  });
+  filtered.sort((a, b) => {
+    for (const key of [
+      "floor_number",
+      "department_name",
+      "name",
+      "location_name",
+      "institution_name",
+      "id",
+    ]) {
+      const order = collator.compare(String(a[key]), String(b[key]));
+      if (order) return order;
+    }
+    return 0;
+  });
+  const floors = new Map<string, { name: string; rooms: Row[] }>();
+  for (const room of filtered) {
+    const key = normalize(room.floor_number);
+    if (!floors.has(key))
+      floors.set(key, { name: room.floor_number, rooms: [] });
+    floors.get(key)!.rooms.push(room);
+  }
+  const floorGroups = [...floors.values()];
   const rows = roomId ? roomCabinets : filtered;
   const remove = async (ids: string[]) => {
     if (
@@ -609,13 +639,22 @@ export function Cabinets({
             {roomId && (
               <button className="secondary" onClick={() => setRoomId(null)}>
                 <ArrowLeft size={17} aria-hidden="true" />
-                Odalar
+                Katlar
               </button>
             )}
             <b>
-              {roomId ? current?.name || "Odası seçilmemiş" : "Kabinet odaları"}
+              {roomId
+                ? current?.name || "Odası seçilmemiş"
+                : "Katlara göre kabinetler"}
             </b>
-            <span className="count-pill">{rows.length}</span>
+            <span
+              className="count-pill"
+              aria-label={
+                roomId ? `${rows.length} kabinet` : `${floorGroups.length} kat`
+              }
+            >
+              {roomId ? rows.length : floorGroups.length}
+            </span>
           </div>
           {!roomId && (
             <div className="room-list-controls">
@@ -623,8 +662,8 @@ export function Cabinets({
                 <MagnifyingGlass size={18} aria-hidden="true" />
                 <input
                   type="search"
-                  aria-label="Kabinet odalarında ara"
-                  placeholder="Oda, kurum, lokasyon ara…"
+                  aria-label="Kat ve odalarda ara"
+                  placeholder="Kat, bölüm, oda ara…"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
@@ -648,10 +687,12 @@ export function Cabinets({
         <div
           className="table-scroll"
           role="region"
-          aria-label={roomId ? "Kabinet tablosu" : "Oda tablosu"}
+          aria-label={
+            roomId ? "Kabinet tablosu" : "Katlara göre kabinet tablosu"
+          }
           tabIndex={0}
         >
-          <table>
+          <table className={roomId ? undefined : "cabinet-floor-table"}>
             <thead>
               <tr>
                 {roomId && user.role === "admin" && (
@@ -682,21 +723,21 @@ export function Cabinets({
                 )}
                 {(roomId
                   ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
-                  : ["Oda ismi", "Kurum", "Lokasyon", "Kabinet sayısı"]
+                  : columns.map((c) => c.label)
                 ).map((c) => (
                   <th key={c}>{c}</th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  {roomId && user.role === "admin" && (
-                    <td>
-                      {r.id !== "unassigned" && (
+            {roomId ? (
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    {user.role === "admin" && (
+                      <td>
                         <input
                           type="checkbox"
-                          aria-label={`${r.name} ${roomId ? "kabinetini" : "odasını"} seç`}
+                          aria-label={`${r.name} kabinetini seç`}
                           checked={picked.includes(r.id)}
                           onChange={(e) =>
                             setPicked(
@@ -706,34 +747,22 @@ export function Cabinets({
                             )
                           }
                         />
-                      )}
+                      </td>
+                    )}
+                    <td>
+                      <button
+                        className="text-button"
+                        onClick={() => setRack(r)}
+                      >
+                        <HardDrives size={19} aria-hidden="true" />
+                        {r.name}
+                      </button>
                     </td>
-                  )}
-                  <td>
-                    <button
-                      className="text-button"
-                      onClick={() => (roomId ? setRack(r) : setRoomId(r.id))}
-                    >
-                      <HardDrives size={19} aria-hidden="true" />
-                      {r.name}
-                    </button>
-                  </td>
-                  {roomId ? (
-                    <>
-                      <td>{r.units} U</td>
-                      <td>{r.description || "—"}</td>
-                    </>
-                  ) : (
-                    <>
-                      <td>{r.institution_name}</td>
-                      <td>{r.location_name}</td>
-                      <td>{r.cabinet_count}</td>
-                    </>
-                  )}
-                  {roomId && (
+                    <td>{r.units} U</td>
+                    <td>{r.description || "—"}</td>
                     <td>
                       <div className="ipam-actions">
-                        {roomId && user.role !== "viewer" && (
+                        {user.role !== "viewer" && (
                           <button
                             className="icon-button"
                             aria-label={`${r.name} düzenle`}
@@ -742,7 +771,7 @@ export function Cabinets({
                             <PencilSimple size={17} />
                           </button>
                         )}
-                        {user.role === "admin" && r.id !== "unassigned" && (
+                        {user.role === "admin" && (
                           <button
                             className="icon-button"
                             disabled={busy}
@@ -754,10 +783,44 @@ export function Cabinets({
                         )}
                       </div>
                     </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
+                  </tr>
+                ))}
+              </tbody>
+            ) : (
+              floorGroups.map((floor) => (
+                <tbody
+                  key={normalize(floor.name)}
+                  aria-label={`Kat ${floor.name}`}
+                >
+                  {floor.rooms.map((r, index) => (
+                    <tr key={r.id}>
+                      {index === 0 && (
+                        <th
+                          className="cabinet-floor-cell"
+                          scope="rowgroup"
+                          rowSpan={floor.rooms.length}
+                        >
+                          {floor.name}
+                        </th>
+                      )}
+                      <td>{r.department_name}</td>
+                      <td>
+                        <button
+                          className="text-button"
+                          onClick={() => setRoomId(r.id)}
+                        >
+                          <HardDrives size={19} aria-hidden="true" />
+                          {r.name}
+                        </button>
+                      </td>
+                      <td>{r.location_name}</td>
+                      <td>{r.institution_name}</td>
+                      <td>{r.cabinet_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))
+            )}
           </table>
         </div>
         {!rows.length && (
@@ -766,7 +829,7 @@ export function Cabinets({
               {roomId
                 ? "Bu odada henüz kabinet yok."
                 : groups.length
-                  ? "Arama veya filtrelere uygun oda yok. Arama ya da filtreleri değiştirin."
+                  ? "Arama veya filtrelere uygun kayıt yok. Arama ya da filtreleri değiştirin."
                   : "Henüz oda yok. Lokasyon menüsünden oda ekleyin."}
             </p>
           </div>
