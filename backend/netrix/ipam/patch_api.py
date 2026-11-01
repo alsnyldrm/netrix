@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
+from pydantic import Field
 
 from ..core import db_session
-from ..identity.security import current_user, operator
+from ..identity.security import admin, current_user, operator
+from ..schemas import Input
 from . import patch_panels as service
+from . import rooms
 from .schemas import PatchPanelInput, PatchPortInput
 
 router = APIRouter(prefix="/api/v1")
@@ -43,3 +46,17 @@ def save_port(
 @router.get("/devices/{id}/patch-ports")
 def device_ports(id: str, user=Depends(current_user), db=Depends(db_session)):
     return service.device_ports(db, id)
+
+
+class RoomSelection(Input):
+    ids: list[str] = Field(min_length=1, max_length=200)
+
+
+@router.post("/ipam/rooms/bulk-delete")
+def remove_rooms(payload: RoomSelection, user=Depends(admin), db=Depends(db_session)):
+    return rooms.remove(db, payload.ids, user, rooms=True)
+
+
+@router.post("/ipam/cabinets/bulk-delete")
+def remove_cabinets(payload: RoomSelection, user=Depends(admin), db=Depends(db_session)):
+    return rooms.remove(db, payload.ids, user)

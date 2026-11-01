@@ -49,6 +49,7 @@ LABELS = {
     "device_name": "Cihaz",
     "device_kind": "Cihaz türü",
     "site_name": "Lokasyon",
+    "cabinet_position": "Kabin no",
     "vrf_name": "VRF",
     "snmp_profile": "SNMP profili",
     "config_profile": "SSH / API profili",
@@ -209,6 +210,24 @@ def query(
     stmt = stmt.outerjoin(m.BackupGroup, m.Device.backup_group_id == m.BackupGroup.id)
     cols.update(site_name=m.Site.name, vrf_name=m.VRF.name, backup_group=m.BackupGroup.name)
     if resource == "devices":
+        room = aliased(m.Site)
+        stmt = (
+            stmt.outerjoin(m.RackPlacement, m.RackPlacement.device_id == m.Device.id)
+            .outerjoin(m.Cabinet, m.Cabinet.id == m.RackPlacement.cabinet_id)
+            .outerjoin(room, room.id == m.Cabinet.sub_site_id)
+        )
+        cols["cabinet_position"] = case(
+            (
+                m.RackPlacement.id.is_not(None),
+                func.coalesce(func.nullif(room.floor_number, ""), "—")
+                + "/"
+                + m.Cabinet.name
+                + "/"
+                + cast(m.RackPlacement.start_unit, String)
+                + "U",
+            ),
+            else_=None,
+        )
         snmp, config = aliased(m.Credential), aliased(m.Credential)
         stmt = stmt.outerjoin(snmp, m.Device.snmp_credential_id == snmp.id).outerjoin(
             config, m.Device.config_credential_id == config.id

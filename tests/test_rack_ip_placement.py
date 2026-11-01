@@ -3,11 +3,15 @@ from conftest import vlan_payload
 from netrix import models as m
 from netrix.ipam.service import observe
 from sqlalchemy import func, select
+from test_ipam_hierarchy import site as make_site
 
 
 def setup(c, institution, vrf):
     site = c.post("/api/v1/sites", json={"name": "Server room", "institution_id": institution["id"]}).json()
-    cabinet = c.post("/api/v1/cabinets", json={"name": "04", "site_id": site["id"], "units": 42}).json()
+    room = make_site(c, institution, name="Room", parent_id=site["id"])
+    cabinet = c.post(
+        "/api/v1/cabinets", json={"name": "04", "site_id": site["id"], "sub_site_id": room["id"], "units": 42}
+    ).json()
     prefix = c.post("/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": vrf})).json()
     return cabinet, prefix
 
@@ -76,7 +80,15 @@ def test_ipam_promotes_own_endpoint_and_reuses_central_inventory(
     assert c.post(base + "/placements/from-ip", json={**payload, "start_unit": 41}).status_code == 409
     placements = c.get(base).json()["placements"]
     assert next(p for p in placements if p["device_id"] == device_id)["start_unit"] == 3
-    other = c.post("/api/v1/cabinets", json={"name": "05", "site_id": cabinet["site_id"], "units": 42}).json()
+    other = c.post(
+        "/api/v1/cabinets",
+        json={
+            "name": "05",
+            "site_id": cabinet["site_id"],
+            "sub_site_id": cabinet["sub_site_id"],
+            "units": 42,
+        },
+    ).json()
     assert c.post(f"/api/v1/ipam/cabinets/{other['id']}/placements/from-ip", json=payload).status_code == 409
     with env() as db:
         db.get(m.Device, device_id).archived = True

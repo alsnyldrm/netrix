@@ -1,4 +1,5 @@
 import pytest
+from test_ipam_hierarchy import site as make_site
 
 
 @pytest.mark.parametrize("resource", ["cabinets", "operating-systems"])
@@ -10,7 +11,8 @@ def test_catalog_crud_validation_and_audit(admin_client, resource, institution):
         site = c.post(
             "/api/v1/sites", json={"name": "Campus", "code": "campus", "institution_id": institution["id"]}
         ).json()
-        extra = {"site_id": site["id"]}
+        room = make_site(c, institution, name="Room", parent_id=site["id"])
+        extra = {"site_id": site["id"], "sub_site_id": room["id"], "units": 42}
     assert c.post(url, json={"name": "  "}).status_code == 422
     response = c.post(url, json={"name": "K-01", "description": "Test", **extra})
     assert response.status_code == 201
@@ -30,8 +32,12 @@ def test_cabinet_shared_location_and_referenced_delete(admin_client, institution
     site = c.post(
         "/api/v1/sites", json={"name": "Campus", "code": "campus", "institution_id": institution["id"]}
     ).json()
+    room = make_site(c, institution, name="Room", parent_id=site["id"])
     assert c.post("/api/v1/cabinets", json={"name": "K-01", "site_id": "missing"}).status_code in (404, 422)
-    r = c.post("/api/v1/cabinets", json={"name": "K-01", "site_id": site["id"]})
+    r = c.post(
+        "/api/v1/cabinets",
+        json={"name": "K-01", "site_id": site["id"], "sub_site_id": room["id"], "units": 42},
+    )
     assert r.status_code == 201 and r.json()["site_id"] == site["id"]
     assert c.delete("/api/v1/sites/" + site["id"]).status_code == 409
 

@@ -81,6 +81,7 @@ const DEFAULTS: Record<string, string[]> = {
     "vendor",
     "model",
     "site_name",
+    "cabinet_position",
     "lifecycle_status",
   ],
   interfaces: [
@@ -565,7 +566,7 @@ export function InventoryTable({
   const archive = purpose === "archive";
   const deletedLinks = purpose === "deleted-links";
   const restorable = archive || deletedLinks;
-  const pref = `netrix-columns:${user.id}:${purpose}`;
+  const pref = `netrix-columns:${user.id}:${purpose}${purpose === "devices" ? ":rooms-v1" : ""}`;
   const [shown, setShown] = useState<string[]>(() => {
     try {
       const stored = JSON.parse(localStorage.getItem(pref) || "null");

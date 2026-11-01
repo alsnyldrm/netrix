@@ -29,6 +29,14 @@ class SiteInput(Input):
     code: str = Field(default="", max_length=40, pattern=r"^[A-Za-z0-9_-]*$")
     description: str = Field(default="", max_length=400)
     timezone: str = "Europe/Istanbul"
+    floor_number: str = Field(default="", max_length=40)
+    department_name: str = Field(default="", max_length=120)
+
+    @model_validator(mode="after")
+    def room_fields(self):
+        if self.parent_id and (not self.floor_number or not self.department_name):
+            raise ValueError("Oda için kat numarası ve bölüm adı zorunlu")
+        return self
 
     @field_validator("timezone")
     @classmethod
@@ -43,10 +51,10 @@ class SiteInput(Input):
 
 
 class CabinetInput(Input):
-    sub_site_id: str | None = None
-    units: int = Field(default=42, ge=1, le=60)
+    sub_site_id: str = Field(min_length=1, max_length=36)
+    units: int = Field(ge=1, le=60)
     name: str = Field(min_length=1, max_length=120)
-    site_id: str | None = None
+    site_id: str = Field(min_length=1, max_length=36)
     description: str = Field(default="", max_length=400)
 
 

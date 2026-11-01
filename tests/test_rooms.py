@@ -1,0 +1,103 @@
+"""Room requirements, cabinet groups, linked inventory position and atomic removals."""
+
+import json
+
+from conftest import make_vlan
+from netrix import models as m
+from sqlalchemy import select
+from test_ipam_hierarchy import site
+
+
+def test_room_required_fields_and_cabinet_room_number(admin_client, institution):
+    c = admin_client
+    root = site(c, institution)
+    room_data = {
+        "name": "Room",
+        "parent_id": root["id"],
+        "institution_id": institution["id"],
+        "floor_number": "L-0",
+        "department_name": "A",
+    }
+    for field in ("name", "floor_number", "department_name"):
+        assert c.post("/api/v1/sites", json={**room_data, field: "  "}).status_code == 422
+    room = c.post("/api/v1/sites", json=room_data).json()
+    other = site(c, institution, name="Room 2", parent_id=root["id"])
+    payload = {"name": "4", "site_id": root["id"], "sub_site_id": room["id"], "units": 42}
+    for field in ("name", "site_id", "sub_site_id", "units"):
+        assert (
+            c.post("/api/v1/cabinets", json={k: v for k, v in payload.items() if k != field}).status_code
+            == 422
+        )
+    assert c.post("/api/v1/cabinets", json=payload).status_code == 201
+    assert c.post("/api/v1/cabinets", json=payload).status_code == 409
+    assert c.post("/api/v1/cabinets", json={**payload, "sub_site_id": other["id"]}).status_code == 201
+    assert c.post("/api/v1/cabinets", json={**payload, "sub_site_id": root["id"]}).status_code == 422
+
+
+def test_room_bulk_delete_preserves_devices_addresses_and_other_rooms(
+    admin_client, institution, inventory, env
+):
+    c = admin_client
+    root = site(c, institution)
+    rooms = [site(c, institution, name=f"Room {n}", parent_id=root["id"]) for n in range(3)]
+    cabinets = [
+        c.post(
+            "/api/v1/cabinets", json={"name": "4", "site_id": root["id"], "sub_site_id": r["id"], "units": 42}
+        ).json()
+        for r in rooms
+    ]
+    with env() as db:
+        d = m.Device(
+            name="Rack server",
+            management_ip="192.0.2.80",
+            vrf_id=inventory["vrf"]["id"],
+            discovery_scope_id=inventory["scope"]["id"],
+        )
+        db.add(d)
+        db.flush()
+        db.add(m.RackPlacement(cabinet_id=cabinets[0]["id"], device_id=d.id, start_unit=13, units=1))
+        db.add(m.RackAccessory(cabinet_id=cabinets[1]["id"], start_unit=3, units=1))
+        panel = m.PatchPanel(
+            cabinet_id=cabinets[0]["id"], name="CAT", kind="cat", start_unit=1, units=1, port_count=1
+        )
+        db.add(panel)
+        db.flush()
+        db.add(m.PatchPort(panel_id=panel.id, position=1, number="1", device_id=d.id, device_name=d.name))
+        vlan = make_vlan(cidr="192.0.2.0/24", vrf_id=inventory["vrf"]["id"])
+        db.add(vlan)
+        db.flush()
+        ip = m.IPAddress(
+            vlan_id=vlan.id,
+            address="192.0.2.80",
+            vrf_id=inventory["vrf"]["id"],
+            institution_id=institution["id"],
+            site_id=root["id"],
+            sub_site_id=rooms[0]["id"],
+        )
+        db.add(ip)
+        db.commit()
+        device_id, ip_id = d.id, ip.id
+    listing = c.get("/api/v1/inventory/devices?q=Rack%20server").json()
+    assert listing["items"][0]["cabinet_position"] == "L-0/4/13U"
+    assert {"key": "cabinet_position", "label": "Kabin no"} in listing["columns"]
+    f = json.dumps([{"field": "cabinet_position", "op": "contains", "value": "L-0/4", "join": "and"}])
+    assert c.get("/api/v1/inventory/devices", params={"filters": f}).json()["total"] == 1
+    # Reject mixed primary locations/rooms before deleting anything.
+    assert (
+        c.post("/api/v1/ipam/rooms/bulk-delete", json={"ids": [rooms[0]["id"], root["id"]]}).status_code
+        == 422
+    )
+    assert c.get("/api/v1/cabinets").json()["total"] == 3
+    removed = c.post("/api/v1/ipam/rooms/bulk-delete", json={"ids": [r["id"] for r in rooms[:2]]})
+    assert removed.status_code == 200, removed.text
+    assert removed.json() == {"deleted": 2, "cabinets": 2}
+    with env() as db:
+        assert db.get(m.Device, device_id) is not None
+        assert db.get(m.IPAddress, ip_id).sub_site_id is None
+        assert not list(db.scalars(select(m.PatchPort)))
+        assert not list(db.scalars(select(m.RackPlacement)))
+        assert db.get(m.Site, rooms[2]["id"]) is not None
+        assert db.get(m.Cabinet, cabinets[2]["id"]) is not None
+        db.scalar(select(m.User)).role = "viewer"
+        db.commit()
+    assert c.post("/api/v1/ipam/cabinets/bulk-delete", json={"ids": [cabinets[2]["id"]]}).status_code == 403

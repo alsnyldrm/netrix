@@ -5,7 +5,14 @@ def test_ip_location_hierarchy_persistence_and_validation(admin_client, institut
     c = admin_client
     root = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
     child = c.post(
-        "/api/v1/sites", json={"name": "Room", "institution_id": institution["id"], "parent_id": root["id"]}
+        "/api/v1/sites",
+        json={
+            "name": "Room",
+            "institution_id": institution["id"],
+            "parent_id": root["id"],
+            "floor_number": "L-0",
+            "department_name": "A",
+        },
     ).json()
     other = c.post("/api/v1/institutions", json={"name": "Other", "code": "OTHER"}).json()
     prefix = c.post(

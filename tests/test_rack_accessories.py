@@ -1,11 +1,13 @@
 from netrix import models as m
 from sqlalchemy import func, select
+from test_ipam_hierarchy import site as make_site
 
 
 def test_organizer_crud_collision_capacity_and_scope(admin_client, institution, env):
     c = admin_client
     site = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
-    payload = {"name": "02", "site_id": site["id"], "units": 12}
+    room = make_site(c, institution, name="Room", parent_id=site["id"])
+    payload = {"name": "02", "site_id": site["id"], "sub_site_id": room["id"], "units": 12}
     cabinet = c.post("/api/v1/cabinets", json=payload).json()
     other = c.post("/api/v1/cabinets", json={**payload, "name": "03"}).json()
     with env() as db:

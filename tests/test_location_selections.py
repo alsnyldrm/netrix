@@ -31,6 +31,8 @@ def test_primary_location_rejects_children_on_create_and_edit(admin_client, inst
     root = site(admin_client, institution)
     child = site(admin_client, institution, name="Server room", parent_id=root["id"])
     data = payload(resource, inventory, institution, child["id"])
+    if resource == "cabinets":
+        data.update(sub_site_id=child["id"], units=42)
     if resource == "addresses":
         prefix = admin_client.post(
             "/api/v1/vlans", json=vlan_payload(payload("vlans", inventory, institution, root["id"]))
@@ -41,6 +43,8 @@ def test_primary_location_rejects_children_on_create_and_edit(admin_client, inst
     assert response.status_code == 422, response.text
     assert "ana lokasyon" in response.json()["detail"]
     data["site_id"] = root["id"]
+    if resource == "cabinets":
+        data.update(sub_site_id=child["id"], units=42)
     response = admin_client.post("/api/v1/" + resource, json=data)
     assert response.status_code == 201, response.text
     id = response.json()["id"]
@@ -71,6 +75,8 @@ def test_used_primary_location_cannot_become_child(admin_client, institution, in
             "code": root["code"],
             "institution_id": institution["id"],
             "parent_id": other["id"],
+            "floor_number": "L-0",
+            "department_name": "A",
         },
     )
     assert response.status_code == 409, response.text

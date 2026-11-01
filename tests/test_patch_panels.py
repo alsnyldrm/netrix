@@ -3,13 +3,17 @@
 import pytest
 from netrix import models as m
 from sqlalchemy import func, select
+from test_ipam_hierarchy import site as make_site
 
 
 @pytest.fixture
 def rack(admin_client, institution, inventory, env):
     c = admin_client
     site = c.post("/api/v1/sites", json={"name": "Patch Campus", "institution_id": institution["id"]}).json()
-    cabinet = c.post("/api/v1/cabinets", json={"name": "01", "site_id": site["id"], "units": 12}).json()
+    room = make_site(c, institution, name="Room", parent_id=site["id"])
+    cabinet = c.post(
+        "/api/v1/cabinets", json={"name": "01", "site_id": site["id"], "sub_site_id": room["id"], "units": 12}
+    ).json()
     with env() as db:
         devices = []
         for n in (1, 2):
@@ -51,7 +55,12 @@ def test_panel_lifecycle_collision_and_capacity(admin_client, rack):
     assert (
         c.put(
             "/api/v1/cabinets/" + cabinet["id"],
-            json={"name": "01", "site_id": cabinet["site_id"], "units": 9},
+            json={
+                "name": "01",
+                "site_id": cabinet["site_id"],
+                "sub_site_id": cabinet["sub_site_id"],
+                "units": 9,
+            },
         ).status_code
         == 409
     )

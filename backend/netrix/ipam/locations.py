@@ -14,9 +14,7 @@ def validate_location_relations(db, name, data, row_id=None):
     if data.get("site_id"):
         site = get(db, m.Site, data["site_id"])
         if site.parent_id:
-            raise HTTPException(
-                422, "Lokasyon alanında ana lokasyon seçin; alt lokasyon bu alanda kullanılamaz"
-            )
+            raise HTTPException(422, "Lokasyon alanında ana lokasyon seçin; oda bu alanda kullanılamaz")
 
     if name == "sites":
         institution = db.scalar(
@@ -28,18 +26,18 @@ def validate_location_relations(db, name, data, row_id=None):
         db.flush()
         parent = get(db, m.Site, data["parent_id"]) if data.get("parent_id") else None
         if parent and (parent.parent_id or parent.id == row_id or parent.institution_id != institution.id):
-            raise HTTPException(422, "Alt lokasyon aynı kurumdaki bir ana lokasyona bağlı olmalı")
+            raise HTTPException(422, "Oda aynı kurumdaki bir ana lokasyona bağlı olmalı")
         children = db.scalars(select(m.Site).where(m.Site.parent_id == row_id)).all() if row_id else []
         if children and (parent or any(c.institution_id != institution.id for c in children)):
             raise HTTPException(
-                409, "Alt lokasyonları bulunan kaydın hiyerarşisini değiştirmeden önce alt kayıtları taşıyın"
+                409, "Odaları bulunan kaydın hiyerarşisini değiştirmeden önce alt kayıtları taşıyın"
             )
         if row_id:
             existing = get(db, m.Site, row_id)
             if parent and not existing.parent_id:
                 for model in (m.Device, m.Scope, m.VLAN):
                     if db.scalar(select(model.id).where(model.site_id == row_id).limit(1)):
-                        raise HTTPException(409, "Kullanılan ana lokasyon alt lokasyona dönüştürülemez")
+                        raise HTTPException(409, "Kullanılan ana lokasyon odaya dönüştürülemez")
             if (parent.id if parent else None, institution.id) != (
                 existing.parent_id,
                 existing.institution_id,
@@ -50,11 +48,11 @@ def validate_location_relations(db, name, data, row_id=None):
             ):
                 raise HTTPException(409, "Önce bu lokasyonu kullanan IP adreslerini taşıyın")
             if parent and db.scalar(select(m.Cabinet.id).where(m.Cabinet.site_id == row_id).limit(1)):
-                raise HTTPException(409, "Kabinetlerin ana lokasyonu alt lokasyona dönüştürülemez")
+                raise HTTPException(409, "Kabinetlerin ana lokasyonu odaya dönüştürülemez")
             if data.get("parent_id") != existing.parent_id and db.scalar(
                 select(m.Cabinet.id).where(m.Cabinet.sub_site_id == row_id).limit(1)
             ):
-                raise HTTPException(409, "Önce bu alt lokasyona bağlı kabinetleri taşıyın")
+                raise HTTPException(409, "Önce bu odaya bağlı kabinetleri taşıyın")
             if institution.id != existing.institution_id and db.scalar(
                 select(m.VLAN.id)
                 .where(
@@ -90,7 +88,7 @@ def validate_location_relations(db, name, data, row_id=None):
         if site and (not institution or site.parent_id or site.institution_id != institution.id):
             raise HTTPException(422, "Lokasyon seçilen kurumun ana lokasyonu olmalı")
         if sub and (not site or sub.parent_id != site.id or sub.institution_id != institution.id):
-            raise HTTPException(422, "Alt lokasyon seçilen lokasyona ait olmalı")
+            raise HTTPException(422, "Oda seçilen lokasyona ait olmalı")
         if institution:
             data["location"] = sub.name if sub else site.name if site else ""
     if name == "vlans":
@@ -105,10 +103,9 @@ def validate_location_relations(db, name, data, row_id=None):
         site = get(db, m.Site, data["site_id"]) if data.get("site_id") else None
         if not site or site.parent_id:
             raise HTTPException(422, "Kabinet için ana lokasyon seçin")
-        if data.get("sub_site_id"):
-            sub = get(db, m.Site, data["sub_site_id"])
-            if sub.parent_id != site.id:
-                raise HTTPException(422, "Alt lokasyon seçilen lokasyona ait değil")
+        sub = db.scalar(select(m.Site).where(m.Site.id == data["sub_site_id"]).with_for_update())
+        if not sub or sub.parent_id != site.id:
+            raise HTTPException(422, "Oda seçilen lokasyona ait değil")
         if row_id:
             cabinet = db.scalar(select(m.Cabinet).where(m.Cabinet.id == row_id).with_for_update())
             cabinet.lock_version += 1

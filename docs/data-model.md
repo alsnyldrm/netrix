@@ -162,3 +162,13 @@ Portlar ortak envanterdeki cihaz ve arayüze opsiyonel, indeksli FK ile bağlan�
 CAT portlarında Cat5/Cat6/Cat7; fiber portlarında OM3/OM4/Multimode MM/Singlemode SM seçilebilir. Bağlantılı veya özelleştirilmiş portları düşürecek port sayısı azaltımı engellenir. Panel silindiğinde portları CASCADE ile silinir; cihaz/arayüz silindiğinde FK SET NULL olur ve manuel ad kopyaları korunur. Zamanlar UTC, MariaDB üzerinde DATETIME(6) olarak saklanır.
 
 API: `/api/v1/ipam/cabinets/{cabinet_id}/patch-panels` panel ekler; `/{panel_id}` düzenler/siler, `/{panel_id}/ports` portları okur ve `/ports/{port_id}` bağlantıyı düzenler. `/api/v1/devices/{device_id}/patch-ports` cihazın kabinet/panel/port/kablo ilişkilerini döndürür. Okumalar oturum, yazmalar operator yetkisi gerektirir.
+
+## Oda ve oda bazında kabinetler (1 Kasım 2026)
+
+Alembic `20261101_28`, `sites.floor_number` ve `sites.department_name` alanlarını ekler. `parent_id` bulunan kayıtlar arayüzde Oda olarak adlandırılır; oda adı, kat numarası ve bölüm adı yeni/düzenlenen odalarda zorunludur. Kurum → Lokasyon → Oda ilişkisi ve eski kimlikler/kodlar korunur. Önceden eksik alanlar uydurma değerlerle doldurulmaz.
+
+Kabinet yazımlarında numara, ana lokasyon, o lokasyona bağlı oda ve U kapasitesi zorunludur. Kabinet numarası artık oda içinde tekildir; farklı odalarda aynı numara kullanılabilir. Ana kabinet ekranı odaları kurum, lokasyon ve kabinet sayısıyla gruplar. Envanterdeki `cabinet_position`, ortak `rack_placements`/`cabinets`/oda ilişkilerinden aynı sorgudaki LEFT JOIN'lerle `kat/kabinet/U` biçiminde okunur; yeni envanter veya cihaz yazımı yapılmaz.
+
+`POST /api/v1/ipam/rooms/bulk-delete` ve `/ipam/cabinets/bulk-delete`, yönetici yetkisiyle atomik silme yapar. Oda silinmesi içindeki kabinetleri, kabinet silinmesi yerleşimleri/organizerleri/panelleri/patch portlarını kaldırır. Cihazlar ve IP adresleri korunur; silinen oda için IP oda bağlantısı temizlenir. Geçersiz veya ana lokasyon içeren oda seçimi işlem başlamadan reddedilir.
+
+Proje sahibinin mevcut Sunucu Odası için istediği L-0/A ve aktif kabinet ataması `scripts/assign_server_room.py` ile açıkça bir kez uygulanır; boş kuruluma oda/cihaz eklemez. Şema downgrade'i oda ayrıntısı veya odalar arasında tekrar eden kabinet numarası varken veri kaybını engeller.

@@ -69,6 +69,8 @@ class Site(Entity, Base):
     code: Mapped[str] = mapped_column(String(40), unique=True)
     description: Mapped[str] = mapped_column(String(400), default="")
     timezone: Mapped[str] = mapped_column(String(50), default="Europe/Istanbul")
+    floor_number: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    department_name: Mapped[str] = mapped_column(String(120), default="", server_default="")
 
 
 class Cabinet(Entity, Base):
@@ -76,8 +78,11 @@ class Cabinet(Entity, Base):
     sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
     units: Mapped[int] = mapped_column(Integer, default=42, server_default="42")
     lock_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    __table_args__ = (CheckConstraint("units >= 1 AND units <= 60", name="ck_cabinet_units"),)
-    name: Mapped[str] = mapped_column(String(120), unique=True)
+    __table_args__ = (
+        CheckConstraint("units >= 1 AND units <= 60", name="ck_cabinet_units"),
+        UniqueConstraint("sub_site_id", "name", name="uq_cabinet_room_number"),
+    )
+    name: Mapped[str] = mapped_column(String(120))
     site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     description: Mapped[str] = mapped_column(String(400), default="")
 

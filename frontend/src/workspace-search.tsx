@@ -29,7 +29,7 @@ const aliases: Record<string, string> = {
   vlans:
     "ayarlar vlan ipam ip bloğu subnet ping tarama keşif zamanlama dns eşik",
   integrations: "ayarlar entegrasyon vmware vcenter dhcp eşitleme",
-  sites: "ayarlar kurum kurumlar lokasyon alt lokasyon kampüs bina kat",
+  sites: "ayarlar kurum kurumlar lokasyon oda kampüs bina kat",
   "backup-settings": "ayarlar konfigürasyon yedekleme zamanlama saklama",
   "backup-groups": "ayarlar konfigürasyon yedek grubu gruplar",
   "device-types": "ayarlar cihaz türleri",

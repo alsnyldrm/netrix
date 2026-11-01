@@ -325,7 +325,7 @@ export const PAGES: Page[] = [
   {
     key: "cabinets",
     title: "Kabinetler",
-    desc: "Kabinet numaralarını ve bulundukları lokasyonları yönetin.",
+    desc: "Odaların içindeki kabinetleri ve cihaz yerleşimlerini yönetin.",
     group: "IP adres yönetimi",
     icon: HardDrives,
     resource: "cabinets",
@@ -337,7 +337,7 @@ export const PAGES: Page[] = [
     fields: [
       f("name", "Kabinet no", { required: true }),
       ref("site_id", "Lokasyon", "sites", true),
-      ref("sub_site_id", "Alt lokasyon", "sites"),
+      ref("sub_site_id", "Oda", "sites", true),
       f("units", "Kapasite (U)", {
         type: "number",
         default: 42,
@@ -747,7 +747,7 @@ export const ADDRESS_PAGE: Page = {
     }),
     ref("institution_id", "Kurum", "institutions"),
     ref("site_id", "Lokasyon", "sites"),
-    ref("sub_site_id", "Alt lokasyon", "sites"),
+    ref("sub_site_id", "Oda", "sites"),
     f("is_gateway", "Gateway olarak işaretle", {
       type: "checkbox",
       default: false,

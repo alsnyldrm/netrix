@@ -7,7 +7,15 @@ from sqlalchemy import select
 
 
 def site(c, institution, **kwargs):
-    r = c.post("/api/v1/sites", json={"name": "FBU-A", "institution_id": institution["id"], **kwargs})
+    r = c.post(
+        "/api/v1/sites",
+        json={
+            "name": "FBU-A",
+            "institution_id": institution["id"],
+            **({"floor_number": "L-0", "department_name": "A"} if kwargs.get("parent_id") else {}),
+            **kwargs,
+        },
+    )
     assert r.status_code == 201, r.text
     return r.json()
 

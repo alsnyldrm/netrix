@@ -4,6 +4,7 @@ from conftest import make_vlan, vlan_payload
 from netrix import models as m
 from netrix import services
 from netrix.ipam import read_cache
+from test_ipam_hierarchy import site as make_site
 
 
 def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
@@ -14,7 +15,8 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
     monkeypatch.setattr(read_cache, "_retry_after", 0)
     vrf = inventory["vrf"]["id"]
     site = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
-    cabinet_payload = {"name": "02", "site_id": site["id"], "units": 42}
+    room = make_site(c, institution, name="Room", parent_id=site["id"])
+    cabinet_payload = {"name": "02", "site_id": site["id"], "sub_site_id": room["id"], "units": 42}
     cabinet = c.post("/api/v1/cabinets", json=cabinet_payload).json()
     prefix = c.post("/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": vrf})).json()
     with env() as db:

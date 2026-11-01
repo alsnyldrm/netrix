@@ -37,6 +37,8 @@ export function Locations({ refs, user, onSaved }: Props) {
   const [parent, setParent] = useState<string | null>(null);
   const [form, setForm] = useState<Row | null>(null);
   const [error, setError] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  useEffect(() => setPicked([]), [parent, institution]);
   const canWrite = user.role !== "viewer";
   const institutions = refs.institutions || [],
     sites = refs.sites || [];
@@ -50,12 +52,16 @@ export function Locations({ refs, user, onSaved }: Props) {
   const remove = async (resource: string, row: Row) => {
     if (
       !window.confirm(
-        `${row.name} silinsin mi? Bağlı kayıtlar varsa silinemez.`,
+        row.parent_id
+          ? `${row.name} odası ve kabinetleri silinsin mi? Envanter cihazları ve IP adresleri korunur; yerleşim ve patch kayıtları kaldırılır.`
+          : `${row.name} silinsin mi? Bağlı kayıtlar varsa silinemez.`,
       )
     )
       return;
     try {
-      await api(`/${resource}/${row.id}`, "DELETE");
+      if (resource === "sites" && row.parent_id)
+        await api("/ipam/rooms/bulk-delete", "POST", { ids: [row.id] });
+      else await api(`/${resource}/${row.id}`, "DELETE");
       onSaved();
     } catch (e: any) {
       setError(e.message);
@@ -98,7 +104,7 @@ export function Locations({ refs, user, onSaved }: Props) {
               }
             >
               <Plus size={17} />
-              {parent ? "Alt lokasyon ekle" : "Yeni kayıt"}
+              {parent ? "Oda ekle" : "Yeni kayıt"}
             </button>
             {!parent && (
               <button
@@ -164,9 +170,34 @@ export function Locations({ refs, user, onSaved }: Props) {
         </section>
       )}
       <section className="panel table-panel">
-        <div className="toolbar">
-          <b>{parent ? "Alt lokasyonlar" : "Lokasyonlar"}</b>
-          <span className="count-pill">{children.length}</span>
+        <div className="toolbar room-cabinet-toolbar">
+          <div className="ipam-actions">
+            <b>{parent ? "Odalar" : "Lokasyonlar"}</b>
+            <span className="count-pill">{children.length}</span>
+          </div>
+          {parent && user.role === "admin" && (
+            <button
+              className="secondary danger"
+              disabled={!picked.length}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    `${picked.length} oda ve içindeki kabinetler silinsin mi? Kabinet yerleşimleri ve patch kayıtları kaldırılır; envanter cihazları ve IP adresleri korunur.`,
+                  )
+                )
+                  return;
+                try {
+                  await api("/ipam/rooms/bulk-delete", "POST", { ids: picked });
+                  setPicked([]);
+                  onSaved();
+                } catch (e: any) {
+                  setError(e.message);
+                }
+              }}
+            >
+              Seçilen odaları sil ({picked.length})
+            </button>
+          )}
         </div>
         <div
           className="table-scroll"
@@ -177,7 +208,30 @@ export function Locations({ refs, user, onSaved }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Lokasyon</th>
+                {parent && user.role === "admin" && (
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label="Tüm odaları seç"
+                      checked={
+                        children.length > 0 &&
+                        children.every((r) => picked.includes(r.id))
+                      }
+                      onChange={(e) =>
+                        setPicked(
+                          e.target.checked ? children.map((r) => r.id) : [],
+                        )
+                      }
+                    />
+                  </th>
+                )}
+                <th>{parent ? "Oda ismi" : "Lokasyon"}</th>
+                {parent && (
+                  <>
+                    <th>Kat numarası</th>
+                    <th>Bölüm adı</th>
+                  </>
+                )}
                 <th>Benzersiz kod</th>
                 {!parent && <th>Kurum</th>}
                 <th>Açıklama</th>
@@ -187,6 +241,22 @@ export function Locations({ refs, user, onSaved }: Props) {
             <tbody>
               {children.map((r) => (
                 <tr key={r.id}>
+                  {parent && user.role === "admin" && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`${r.name} odasını seç`}
+                        checked={picked.includes(r.id)}
+                        onChange={(e) =>
+                          setPicked(
+                            e.target.checked
+                              ? [...picked, r.id]
+                              : picked.filter((id) => id !== r.id),
+                          )
+                        }
+                      />
+                    </td>
+                  )}
                   <td>
                     {parent ? (
                       r.name
@@ -200,6 +270,12 @@ export function Locations({ refs, user, onSaved }: Props) {
                       </button>
                     )}
                   </td>
+                  {parent && (
+                    <>
+                      <td>{r.floor_number || "—"}</td>
+                      <td>{r.department_name || "—"}</td>
+                    </>
+                  )}
                   <td className="mono">{r.code}</td>
                   {!parent && (
                     <td>
@@ -237,7 +313,7 @@ export function Locations({ refs, user, onSaved }: Props) {
         </div>
         {!children.length && (
           <div className="empty-state">
-            <p>{parent ? "Henüz alt lokasyon yok." : "Henüz lokasyon yok."}</p>
+            <p>{parent ? "Henüz oda yok." : "Henüz lokasyon yok."}</p>
           </div>
         )}
       </section>
@@ -271,12 +347,14 @@ function LocationForm({
     parent_id: row.parent_id || null,
     description: row.description || "",
     timezone: row.timezone || "Europe/Istanbul",
+    floor_number: row.floor_number || "",
+    department_name: row.department_name || "",
   });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <Dialog
-      title={`${row.id ? "Düzenle" : "Yeni kayıt"} · ${institution ? "Kurum" : row.parent_id ? "Alt lokasyon" : "Lokasyon"}`}
+      title={`${row.id ? "Düzenle" : "Yeni kayıt"} · ${institution ? "Kurum" : row.parent_id ? "Oda" : "Lokasyon"}`}
       onClose={close}
     >
       <form
@@ -326,7 +404,15 @@ function LocationForm({
               </select>
             </Label>
           )}
-          <Label name={institution ? "Kurum adı" : "Lokasyon adı"}>
+          <Label
+            name={
+              institution
+                ? "Kurum adı"
+                : row.parent_id
+                  ? "Oda ismi *"
+                  : "Lokasyon adı"
+            }
+          >
             <input
               required
               maxLength={institution ? 190 : 120}
@@ -334,6 +420,30 @@ function LocationForm({
               onChange={(e) => setValues({ ...values, name: e.target.value })}
             />
           </Label>
+          {row.parent_id && (
+            <>
+              <Label name="Kat numarası *">
+                <input
+                  required
+                  maxLength={40}
+                  value={values.floor_number}
+                  onChange={(e) =>
+                    setValues({ ...values, floor_number: e.target.value })
+                  }
+                />
+              </Label>
+              <Label name="Bölüm adı *">
+                <input
+                  required
+                  maxLength={120}
+                  value={values.department_name}
+                  onChange={(e) =>
+                    setValues({ ...values, department_name: e.target.value })
+                  }
+                />
+              </Label>
+            </>
+          )}
           {(!row.parent_id || row.id) && (
             <Label name={institution ? "Kurum kodu" : "Benzersiz kod"}>
               <input
@@ -358,7 +468,7 @@ function LocationForm({
         </div>
         {row.parent_id && (
           <p className="ipam-hint">
-            Kod otomatik verilir; silinen alt lokasyonların ilk boş kodu yeniden
+            Kod otomatik verilir; silinen odaların ilk boş kodu yeniden
             kullanılır.
           </p>
         )}
@@ -380,8 +490,50 @@ export function Cabinets({
   onSaved,
   onEdit,
 }: Props & { onEdit: (row: Row) => void }) {
-  const [selected, setSelected] = useState<Row | null>(null);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [rack, setRack] = useState<Row | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => setPicked([]), [roomId]);
+  const rooms = (refs.sites || []).filter((r) => r.parent_id);
+  const cabinets = refs.cabinets || [];
+  const unassigned = cabinets.filter(
+    (c) => !rooms.some((r) => r.id === c.sub_site_id),
+  );
+  const groups = [
+    ...rooms,
+    ...(unassigned.length
+      ? [{ id: "unassigned", name: "Odası seçilmemiş" }]
+      : []),
+  ];
+  const current = rooms.find((r) => r.id === roomId);
+  const roomCabinets =
+    roomId === "unassigned"
+      ? unassigned
+      : cabinets.filter((c) => c.sub_site_id === roomId);
+  const rows = roomId ? roomCabinets : groups;
+  const remove = async (ids: string[]) => {
+    if (
+      !window.confirm(
+        `${ids.length} ${roomId ? "kabinet" : "oda ve içindeki kabinetler"} silinsin mi? Yerleşimler, organizerler ve patch kayıtları kaldırılır. Envanter cihazları ve IP adresleri korunur.`,
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/ipam/${roomId ? "cabinets" : "rooms"}/bulk-delete`, "POST", {
+        ids,
+      });
+      setPicked([]);
+      onSaved();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="ipam-workspace">
       {error && (
@@ -390,53 +542,144 @@ export function Cabinets({
         </div>
       )}
       <section className="panel table-panel">
-        <div className="toolbar">
-          <b>Kabinetler</b>
-          <span className="count-pill">{refs.cabinets?.length || 0}</span>
+        <div className="toolbar room-cabinet-toolbar">
+          <div className="ipam-actions">
+            {roomId && (
+              <button className="secondary" onClick={() => setRoomId(null)}>
+                <ArrowLeft size={17} aria-hidden="true" />
+                Odalar
+              </button>
+            )}
+            <b>
+              {roomId ? current?.name || "Odası seçilmemiş" : "Kabinet odaları"}
+            </b>
+            <span className="count-pill">{rows.length}</span>
+          </div>
+          {user.role === "admin" && (
+            <button
+              className="secondary danger"
+              disabled={!picked.length || busy}
+              onClick={() => remove(picked)}
+            >
+              Seçilenleri sil ({picked.length})
+            </button>
+          )}
         </div>
         <div
           className="table-scroll"
           role="region"
-          aria-label="Kabinet tablosu"
+          aria-label={roomId ? "Kabinet tablosu" : "Oda tablosu"}
           tabIndex={0}
         >
           <table>
             <thead>
               <tr>
-                {[
-                  "Kabinet no",
-                  "Lokasyon",
-                  "Alt lokasyon",
-                  "Kapasite",
-                  "İşlemler",
-                ].map((c) => (
+                {user.role === "admin" && (
+                  <th>
+                    <input
+                      type="checkbox"
+                      aria-label={
+                        roomId ? "Tüm kabinetleri seç" : "Tüm odaları seç"
+                      }
+                      checked={
+                        rows.length > 0 &&
+                        rows
+                          .filter((r) => r.id !== "unassigned")
+                          .every((r) => picked.includes(r.id)) &&
+                        picked.length > 0
+                      }
+                      onChange={(e) =>
+                        setPicked(
+                          e.target.checked
+                            ? rows
+                                .filter((r) => r.id !== "unassigned")
+                                .map((r) => r.id)
+                            : [],
+                        )
+                      }
+                    />
+                  </th>
+                )}
+                {(roomId
+                  ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
+                  : [
+                      "Oda ismi",
+                      "Kurum",
+                      "Lokasyon",
+                      "Kabinet sayısı",
+                      "İşlemler",
+                    ]
+                ).map((c) => (
                   <th key={c}>{c}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {(refs.cabinets || []).map((r) => (
+              {rows.map((r) => (
                 <tr key={r.id}>
+                  {user.role === "admin" && (
+                    <td>
+                      {r.id !== "unassigned" && (
+                        <input
+                          type="checkbox"
+                          aria-label={`${r.name} ${roomId ? "kabinetini" : "odasını"} seç`}
+                          checked={picked.includes(r.id)}
+                          onChange={(e) =>
+                            setPicked(
+                              e.target.checked
+                                ? [...picked, r.id]
+                                : picked.filter((id) => id !== r.id),
+                            )
+                          }
+                        />
+                      )}
+                    </td>
+                  )}
                   <td>
                     <button
                       className="text-button"
-                      onClick={() => setSelected(r)}
+                      onClick={() => (roomId ? setRack(r) : setRoomId(r.id))}
                     >
-                      <HardDrives size={19} />
+                      <HardDrives size={19} aria-hidden="true" />
                       {r.name}
                     </button>
                   </td>
-                  <td>
-                    {refs.sites?.find((s) => s.id === r.site_id)?.name || "—"}
-                  </td>
-                  <td>
-                    {refs.sites?.find((s) => s.id === r.sub_site_id)?.name ||
-                      "—"}
-                  </td>
-                  <td>{r.units} U</td>
+                  {roomId ? (
+                    <>
+                      <td>{r.units} U</td>
+                      <td>{r.description || "—"}</td>
+                    </>
+                  ) : (
+                    <>
+                      <td>
+                        {refs.institutions?.find(
+                          (i) => i.id === r.institution_id,
+                        )?.name || "—"}
+                      </td>
+                      <td>
+                        {refs.sites?.find((s) => s.id === r.parent_id)?.name ||
+                          "—"}
+                      </td>
+                      <td>
+                        {r.id === "unassigned"
+                          ? unassigned.length
+                          : cabinets.filter((c) => c.sub_site_id === r.id)
+                              .length}
+                      </td>
+                    </>
+                  )}
                   <td>
                     <div className="ipam-actions">
-                      {user.role !== "viewer" && (
+                      {!roomId && (
+                        <button
+                          className="secondary"
+                          onClick={() => setRoomId(r.id)}
+                          aria-label={`${r.name} kabinetlerini aç`}
+                        >
+                          Kabinetleri aç
+                        </button>
+                      )}
+                      {roomId && user.role !== "viewer" && (
                         <button
                           className="icon-button"
                           aria-label={`${r.name} düzenle`}
@@ -445,20 +688,12 @@ export function Cabinets({
                           <PencilSimple size={17} />
                         </button>
                       )}
-                      {user.role === "admin" && (
+                      {user.role === "admin" && r.id !== "unassigned" && (
                         <button
                           className="icon-button"
+                          disabled={busy}
                           aria-label={`${r.name} sil`}
-                          onClick={async () => {
-                            if (!window.confirm(`${r.name} silinsin mi?`))
-                              return;
-                            try {
-                              await api(`/cabinets/${r.id}`, "DELETE");
-                              onSaved();
-                            } catch (e: any) {
-                              setError(e.message);
-                            }
-                          }}
+                          onClick={() => remove([r.id])}
                         >
                           <Trash size={17} />
                         </button>
@@ -470,23 +705,23 @@ export function Cabinets({
             </tbody>
           </table>
         </div>
-        {!refs.cabinets?.length && (
+        {!rows.length && (
           <div className="empty-state">
-            <p>Henüz kabinet yok.</p>
+            <p>
+              {roomId
+                ? "Bu odada henüz kabinet yok."
+                : "Henüz oda yok. Lokasyon menüsünden oda ekleyin."}
+            </p>
           </div>
         )}
       </section>
-      {selected && (
-        <Rack
-          row={selected}
-          refs={refs}
-          user={user}
-          close={() => setSelected(null)}
-        />
+      {rack && (
+        <Rack row={rack} refs={refs} user={user} close={() => setRack(null)} />
       )}
     </div>
   );
 }
+
 function Rack({
   row,
   refs,
