@@ -3,32 +3,6 @@
   gap: 20px;
   min-width: 0;
 }
-.fw-tabs {
-  display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
-}
-.fw-tabs a {
-  flex: 0 0 auto;
-  min-height: 40px;
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-2);
-  font-weight: 500;
-  cursor: pointer;
-}
-.fw-tabs a[aria-current="page"] {
-  background: var(--accent-soft);
-  color: var(--accent-soft-text);
-  border-color: var(--border-strong);
-}
-.fw-tabs a:hover {
-  background: var(--surface-2);
-}
 .fw-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -342,9 +316,6 @@
   .fw-workspace {
     gap: 14px;
   }
-  .fw-tabs {
-    margin-right: -4px;
-  }
   .fw-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -406,11 +377,6 @@
   }
 }
 
-.fw-tabs a {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
 .fw-workspace td {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;

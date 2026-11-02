@@ -39,15 +39,34 @@ with sync_playwright() as p:
         )
         page.screenshot(path=f"artifacts/firmware-{name}.png", full_page=True)
 
-    tabs = ["devices", "images", "groups", "plans", "history", "service"]
+    tabs = {
+        "devices": "Cihazlar",
+        "images": "Firmware deposu",
+        "groups": "Gruplar",
+        "plans": "Güncelleme planları",
+        "history": "İşlem geçmişi",
+        "service": "Aktarım ve kurtarma",
+    }
+    firmware_menu = page.locator(".nav-group").filter(
+        has=page.get_by_role("button", name="Firmware", exact=True)
+    )
     for width, theme in ((1440, "light"), (1440, "dark"), (375, "light"), (375, "dark")):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
         page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
         for tab in tabs:
             start = time.perf_counter()
-            page.goto(BASE + "/#firmware-" + tab)
+            if width < 1024:
+                page.get_by_role("button", name="Menüyü aç", exact=True).click()
+            group_button = firmware_menu.get_by_role("button", name="Firmware", exact=True)
+            if group_button.get_attribute("aria-expanded") != "true":
+                group_button.click()
+            firmware_menu.get_by_role("button", name=tabs[tab], exact=True).click()
             page.wait_for_load_state("networkidle")
-            expect(page.locator(".fw-tabs [aria-current=page]")).to_be_visible()
+            expect(page.get_by_role("heading", name=tabs[tab], exact=True).first).to_be_visible()
+            expect(firmware_menu.locator('.nav-item[aria-current="page"]')).to_have_text(tabs[tab])
+            expect(page.locator("main nav")).to_have_count(0)
+            if width < 1024:
+                expect(page.locator(".sidebar")).not_to_be_visible()
             durations.append((time.perf_counter() - start) * 1000)
             check(f"{tab}-{width}-{theme}")
     page.set_viewport_size({"width": 1440, "height": 1000})

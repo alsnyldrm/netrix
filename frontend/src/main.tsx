@@ -3018,7 +3018,6 @@ function App() {
               >
                 <FirmwareWorkspace
                   tab={page.key.slice(9)}
-                  navigate={navigate}
                   user={user!}
                   refresh={refresh}
                 />

@@ -226,7 +226,7 @@ Bu bir pazarlama sayfası değildir: hero/CTA önerileri yerine operasyon panora
 
 - **Stil:** Teknik kobalt. Sakin, yoğun veri ekranlarına uygun; tek kobalt vurgu, durumlar yeşil/amber/kırmızı ve her zaman metin etiketiyle.
 - **Font:** IBM Plex Sans (arayüz) + IBM Plex Mono (IP, MAC, sayaç, kod). `@fontsource` ile self-hosted; CDN veya harici font isteği yoktur.
-- **Navigasyon:** Gruplu tek sidebar. Altı modül başlığı altında bütün sayfalar; masaüstünde ikon moduna daraltılabilir (tercih `localStorage` anahtarı `netrix-sidebar`), 1024 px altında kaydırmalı çekmece + karartma katmanı. Ctrl/⌘ K komut paleti korunur.
+- **Navigasyon:** Gruplu tek sidebar. Modül başlıkları altında bütün sayfalar; masaüstünde ikon moduna daraltılabilir (tercih `localStorage` anahtarı `netrix-sidebar`), 1024 px altında kaydırmalı çekmece + karartma katmanı. Ctrl/⌘ K komut paleti korunur. Bütün sayfa ve modül menüleri soldadır; içerikte veya üstte ikinci bir yatay sayfa menüsü oluşturulmaz. Üst çubuk mevcut konum bilgisini ve ortak araçları taşır.
 
 ### Renk token'ları (`frontend/src/style.css`)
 

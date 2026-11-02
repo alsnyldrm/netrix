@@ -16,7 +16,7 @@ import { Dialog, date } from "./main";
 import "./firmware.css";
 
 type Row = Record<string, any>;
-const TABS = [
+const SECTIONS = [
   ["devices", "Cihazlar"],
   ["images", "Firmware deposu"],
   ["groups", "Gruplar"],
@@ -1019,12 +1019,10 @@ function PlanDetail({
 
 export default function FirmwareWorkspace({
   tab,
-  navigate,
   user,
   refresh: externalRefresh,
 }: {
   tab: string;
-  navigate: (key: string) => void;
   user: Row;
   refresh: number;
 }) {
@@ -1077,23 +1075,6 @@ export default function FirmwareWorkspace({
   const rows = result.data?.items || [];
   return (
     <div className="fw-workspace" aria-busy={busy}>
-      <nav className="fw-tabs" aria-label="Firmware bölümleri">
-        {TABS.map(([key, title]) => (
-          <a
-            key={key}
-            href={"#firmware-" + key}
-            aria-current={tab === key ? "page" : undefined}
-            onClick={(e) => {
-              if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-                e.preventDefault();
-                navigate("firmware-" + key);
-              }
-            }}
-          >
-            {title}
-          </a>
-        ))}
-      </nav>
       <div className="fw-summary">
         <div>
           <span>Doğrulanmış dosya</span>
@@ -1119,11 +1100,11 @@ export default function FirmwareWorkspace({
       )}
       <section
         className="fw-panel"
-        aria-label={TABS.find(([key]) => key === tab)?.[1]}
+        aria-label={SECTIONS.find(([key]) => key === tab)?.[1]}
       >
         <div className="fw-toolbar">
           <div>
-            <h2>{TABS.find(([key]) => key === tab)?.[1]}</h2>
+            <h2>{SECTIONS.find(([key]) => key === tab)?.[1]}</h2>
             <p>
               {tab === "devices"
                 ? "Ortak envanterden, desteklenen cihazlar."
