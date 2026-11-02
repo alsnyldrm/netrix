@@ -1,5 +1,6 @@
 from types import SimpleNamespace as NS
 
+import pytest
 from netrix.ipam import vmware_hosts
 
 
@@ -97,3 +98,29 @@ def test_chassis_mac_and_port_mac_can_belong_to_different_host_cards():
     assert vmware_hosts.nic_for_neighbor(host, data)["device"] == "vmnic1"
     data["lldp"]["port_id"] = "00:11:22:33:44:99"
     assert vmware_hosts.nic_for_neighbor(host, data) is None
+
+
+def test_host_read_deadline_cancels_queued_network_hint_requests(monkeypatch):
+    from netrix.ipam import adapters
+
+    calls = []
+
+    class Pool:
+        def __init__(self, max_workers):
+            assert max_workers == 4
+
+        def submit(self, reader, host):
+            def result(timeout):
+                assert 0 < timeout <= 10
+                raise TimeoutError()
+
+            return NS(result=result)
+
+        def shutdown(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(adapters, "ThreadPoolExecutor", Pool)
+    monkeypatch.setattr(adapters.time, "monotonic", lambda: 5)
+    with pytest.raises(adapters.NetworkError, match="host read timeout"):
+        list(adapters.host_batches(range(100), lambda _: [], 15))
+    assert calls == [{"wait": True, "cancel_futures": True}]

@@ -163,6 +163,24 @@ def vm_records(vm_id, values, networks=None):
     return result
 
 
+def host_batches(hosts, reader, deadline):
+    """Cancel queued hints at the overall deadline; only four socket reads remain."""
+    pool = ThreadPoolExecutor(max_workers=4)
+    futures = []
+    try:
+        futures = [pool.submit(reader, host) for host in hosts]
+        for future in futures:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise NetworkError("vCenter host read timeout")
+            try:
+                yield future.result(timeout=remaining)
+            except TimeoutError:
+                raise NetworkError("vCenter host read timeout") from None
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+
 def vcenter_records(config, secret):
     from pyVim.connect import Disconnect
     from pyVmomi import vim, vmodl
@@ -295,13 +313,10 @@ def vcenter_records(config, secret):
         if len(hosts) > 4096:
             raise NetworkError("vCenter host limit exceeded")
         rows = []
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for batch in pool.map(host_rows, hosts):
-                if time.monotonic() > deadline:
-                    raise NetworkError("vCenter host read timeout")
-                rows.extend(batch)
-                if len(rows) > 100000:
-                    raise NetworkError("vCenter inventory limit exceeded")
+        for batch in host_batches(hosts, host_rows, deadline):
+            rows.extend(batch)
+            if len(rows) > 100000:
+                raise NetworkError("vCenter inventory limit exceeded")
         for obj, values in objects:
             if isinstance(obj, vim.VirtualMachine):
                 rows.extend(vm_records(obj._moId, values, networks))
