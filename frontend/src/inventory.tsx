@@ -841,7 +841,11 @@ export function InventoryTable({
         </p>
       )}
       <div className="table-scroll">
-        <table>
+        <table
+          className={
+            resource === "devices" ? "device-inventory-table" : undefined
+          }
+        >
           <thead>
             <tr>
               {selectRows && (

@@ -57,6 +57,14 @@
   align-items: center;
   gap: 8px;
 }
+/* Keep complete inventory values on one line; the table scrolls on narrow screens. */
+.device-inventory-table th,
+.device-inventory-table td {
+  white-space: nowrap;
+}
+.device-inventory-table .inventory-device-name {
+  flex-wrap: nowrap;
+}
 .gateway-device-row > td:first-child {
   box-shadow: inset 3px 0 var(--success);
 }
