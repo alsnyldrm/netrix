@@ -52,6 +52,7 @@ API dokümantasyonu `/api/v1/docs`, liveness `/api/v1/health/live`, DB/Redis rea
 
 - [VLAN ve IPAM entegrasyonları](docs/ipam-integrations.md)
 - [Base config ve değişiklik onayı](docs/configuration-baselines.md)
+- [Firmware dosyaları, gruplar, güncelleme ve kurtarma](docs/firmware-management.md)
 - [Çalışan mimari ve davranış sınırları](docs/architecture.md)
 - [İşletim, yedekleme ve geri yükleme](docs/operations.md)
 - [Doğrulama kayıtları](docs/verification.md)

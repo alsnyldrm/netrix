@@ -509,7 +509,16 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
             if job.status in ("failed", "cancelled"):
                 job.active_key, job.finished_at = None, now()
         db.flush()
-        eligible = [m.Job.status == "queued", m.Job.available_at <= now(), *lane]
+        eligible = [
+            m.Job.status == "queued",
+            m.Job.available_at <= now(),
+            *lane,
+            m.Job.target_id.not_in(
+                select(m.FirmwareTarget.active_device).where(
+                    m.FirmwareTarget.status == "running", m.FirmwareTarget.active_device.is_not(None)
+                )
+            ),
+        ]
         if exclude_kinds:
             eligible.append(m.Job.kind.not_in(exclude_kinds))
         if exclude_targets:
@@ -522,6 +531,19 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
             .limit(1)
         )
         if job:
+            # Both workers serialize on the same device before claiming work.
+            db.scalar(select(m.Device).where(m.Device.id == job.target_id).with_for_update())
+            # Current read closes the race with the dedicated firmware claimant.
+            if db.scalar(
+                select(m.FirmwareTarget.id)
+                .where(
+                    m.FirmwareTarget.active_device == job.target_id,
+                    m.FirmwareTarget.status == "running",
+                )
+                .with_for_update()
+            ):
+                db.commit()
+                return None
             job.status, job.heartbeat_at = "running", now()
             job.attempts += 1
             job.error = ""

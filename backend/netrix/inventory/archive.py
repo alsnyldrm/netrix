@@ -12,6 +12,9 @@ def purge_devices(db, rows, user):
     if any(not row.archived for row in rows):
         raise HTTPException(409, "Yalnızca arşivlenmiş cihazlar kalıcı silinebilir")
     ids = [row.id for row in rows]
+    if db.scalar(select(m.FirmwareTarget.id).where(m.FirmwareTarget.device_id.in_(ids)).limit(1)):
+        raise HTTPException(409, "Firmware işlem geçmişi olan cihaz kalıcı silinemez; geçmiş korunuyor")
+    db.execute(delete(m.FirmwareMember).where(m.FirmwareMember.device_id.in_(ids)))
     jobs = list(db.scalars(select(m.Job).where(m.Job.target_id.in_(ids)).with_for_update()))
     if any(job.status == "running" for job in jobs):
         raise HTTPException(

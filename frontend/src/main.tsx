@@ -96,6 +96,8 @@ import { BackupWorkspace, ConfigComparison } from "./backups";
 import { IPAMWorkspace, Integrations } from "./ipam";
 import { Locations, Cabinets } from "./locations";
 
+const FirmwareWorkspace = React.lazy(() => import("./firmware"));
+
 type Row = Record<string, any>;
 type Field = {
   key: string;
@@ -523,6 +525,48 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    key: "firmware-devices",
+    title: "Cihazlar",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
+    key: "firmware-images",
+    title: "Firmware deposu",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
+    key: "firmware-groups",
+    title: "Gruplar",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
+    key: "firmware-plans",
+    title: "Güncelleme planları",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
+    key: "firmware-history",
+    title: "İşlem geçmişi",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
+    key: "firmware-service",
+    title: "Aktarım ve kurtarma",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
     key: "configuration",
     title: "Cihaz Konfigürasyonları",
     desc: "Yedeklerini ve sürüm geçmişini görüntülemek için bir cihaz seçin.",
@@ -763,6 +807,7 @@ const GROUPS = [
   "Envanter",
   "Bağlantı",
   "IP adres yönetimi",
+  "Firmware",
   "Konfigürasyon",
   "Operasyon",
   "Yönetim",
@@ -864,6 +909,7 @@ const LABELS: Record<string, string> = {
   info: "Bilgi",
   discovery: "Keşif",
   backup: "Yedekleme",
+  firmware_backup: "Firmware öncesi yedek",
   compare: "Aktif config karşılaştırması",
   integration: "Entegrasyon eşitleme",
   ipam_ping: "IP durum kontrolü",
@@ -2966,6 +3012,17 @@ function App() {
                 onAdd={add}
                 onDevice={inspectDevice}
               />
+            ) : page.key.startsWith("firmware-") ? (
+              <React.Suspense
+                fallback={<p role="status">Firmware çalışma alanı açılıyor…</p>}
+              >
+                <FirmwareWorkspace
+                  tab={page.key.slice(9)}
+                  navigate={navigate}
+                  user={user!}
+                  refresh={refresh}
+                />
+              </React.Suspense>
             ) : page.key === "vlans" ? (
               <IPAMWorkspace
                 initialVLAN={shortcutVLAN}

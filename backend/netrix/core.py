@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     secure_cookies: bool = True
     known_hosts: str = "/run/secrets/known_hosts"
     setup_token: str = ""
+    firmware_directory: str = "/data/firmware"
+    firmware_advertise_host: str = ""
+    firmware_sftp_port: int = 2222
+    firmware_tftp_port: int = 1069
+    firmware_transfer_port_start: int = 20000
+    firmware_max_bytes: int = 2 * 1024 * 1024 * 1024
+    firmware_repository_bytes: int = 20 * 1024 * 1024 * 1024
 
 
 @lru_cache

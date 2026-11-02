@@ -40,6 +40,7 @@ FIELDS = {
     "snmp_port": "SNMP portu",
     "config_port": "SSH / HTTPS portu",
     "ssh_trust_host_key": "Anahtara güven",
+    "is_gateway": "Gateway",
     "config_path": "Konfigürasyon yolu",
     "identity_path": "Cihaz bilgisi yolu",
     "backup_interval": "Yedekleme aralığı",
@@ -172,7 +173,7 @@ def export_devices(db, ids, user, *, file_format="csv"):
         row = {key: getattr(device, key) for key in FIELDS}
         for key, model in REFERENCES.items():
             row[key] = refs[model].get(row[key], "")
-        for key in ("ssh_trust_host_key",):
+        for key in ("ssh_trust_host_key", "is_gateway"):
             row[key] = "true" if row[key] else "false"
         if device.snmp_credential_id:
             if snmp_versions.get(device.snmp_credential_id) == "snmpv2c":
@@ -287,7 +288,7 @@ def validate(db, raw):
                         ),
                         data[key],
                     )
-            for key in ("ssh_trust_host_key",):
+            for key in ("ssh_trust_host_key", "is_gateway"):
                 if key in data:
                     data[key] = {"evet": True, "etkin": True, "hayır": False, "kapalı": False}.get(
                         normalized(data[key]), data[key]

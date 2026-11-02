@@ -7,6 +7,8 @@ services:
     env_file: .env
     environment:
       NETRIX_REDIS_URL: redis://127.0.0.1:6379/0
+      NETRIX_FIRMWARE_ADVERTISE_HOST: ${NETRIX_FIRMWARE_ADVERTISE_HOST:-}
+      NETRIX_FIRMWARE_SFTP_PORT: ${NETRIX_FIRMWARE_SFTP_PORT:-2222}
     restart: unless-stopped
     stop_grace_period: 60s
     read_only: true
@@ -16,7 +18,11 @@ services:
       net.ipv4.ping_group_range: "10001 10001"
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    ports: ['127.0.0.1:${NETRIX_PORT:-8101}:8000']
+    ports:
+      - '127.0.0.1:${NETRIX_PORT:-8101}:8000'
+      - '${NETRIX_FIRMWARE_BIND_IP:-127.0.0.1}:${NETRIX_FIRMWARE_SFTP_PORT:-2222}:${NETRIX_FIRMWARE_SFTP_PORT:-2222}/tcp'
+      - '${NETRIX_FIRMWARE_BIND_IP:-127.0.0.1}:${NETRIX_FIRMWARE_TFTP_PUBLIC_PORT:-69}:1069/udp'
+      - '${NETRIX_FIRMWARE_BIND_IP:-127.0.0.1}:20000-20015:20000-20015/udp'
     volumes:
       - netrix-redis:/data
       - ./secrets/known_hosts:/run/secrets/known_hosts:ro

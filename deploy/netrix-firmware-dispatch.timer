@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh NETRIX firmware dispatch after Docker address changes
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=60s
+Unit=netrix-firmware-dispatch.service
+
+[Install]
+WantedBy=timers.target

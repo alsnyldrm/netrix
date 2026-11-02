@@ -20,6 +20,7 @@ from . import services as svc
 from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
+from .firmware.api import router as firmware_router
 from .identity.security import (
     DUMMY_HASH,
     admin,
@@ -40,6 +41,9 @@ from .ipam.patch_api import router as patch_router
 async def lifespan(app):
     if not settings().encryption_key or not settings().setup_token:
         raise RuntimeError("NETRIX_ENCRYPTION_KEY and NETRIX_SETUP_TOKEN are required")
+    from .firmware.service import cleanup_uploads
+
+    cleanup_uploads()
     yield
 
 
@@ -600,6 +604,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
     delete_snapshot(db, id, user)
 
 
+app.include_router(firmware_router)
 app.include_router(ipam_router)
 app.include_router(patch_router)
 

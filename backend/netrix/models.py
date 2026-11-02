@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Float,
@@ -430,6 +431,95 @@ class Job(Entity, Base):
     __table_args__ = (
         CheckConstraint(
             "status in ('queued','running','succeeded','partial','failed','cancelled')", name="ck_job_status"
+        ),
+    )
+
+
+class FirmwareImage(Entity, Base):
+    __tablename__ = "firmware_images"
+    name: Mapped[str] = mapped_column(String(120))
+    family: Mapped[str] = mapped_column(String(20), index=True)
+    version: Mapped[str] = mapped_column(String(120))
+    models: Mapped[list] = mapped_column(JSON)
+    original_name: Mapped[str] = mapped_column(String(160))
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    expected_sha256: Mapped[str] = mapped_column(String(64))
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="uploading", index=True)
+    uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    __table_args__ = (
+        CheckConstraint("family in ('aos_s','cx6100','hp1950')", name="ck_fw_image_family"),
+        CheckConstraint("status in ('uploading','ready')", name="ck_fw_image_status"),
+        CheckConstraint("size_bytes >= 0", name="ck_fw_image_size"),
+    )
+
+
+class FirmwareGroup(Entity, Base):
+    __tablename__ = "firmware_groups"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+
+
+class FirmwareMember(Base):
+    __tablename__ = "firmware_group_members"
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("firmware_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True, index=True)
+
+
+class FirmwarePlan(Entity, Base):
+    __tablename__ = "firmware_plans"
+    name: Mapped[str] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
+    mode: Mapped[str] = mapped_column(String(20), default="check")
+    steps: Mapped[list] = mapped_column(JSON)
+    concurrency: Mapped[int] = mapped_column(Integer, default=1)
+    available_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, index=True)
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    finished_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        CheckConstraint("concurrency between 1 and 4", name="ck_fw_plan_concurrency"),
+        CheckConstraint("mode in ('check','stage','upgrade','activate','verify')", name="ck_fw_plan_mode"),
+        CheckConstraint(
+            "status in ('draft','queued','running','paused','ready','succeeded','cancelled')",
+            name="ck_fw_plan_status",
+        ),
+    )
+
+
+class FirmwareTarget(Entity, Base):
+    __tablename__ = "firmware_targets"
+    plan_id: Mapped[str] = mapped_column(ForeignKey("firmware_plans.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    image_id: Mapped[str] = mapped_column(ForeignKey("firmware_images.id"), index=True)
+    stage: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    phase: Mapped[str] = mapped_column(String(30), default="waiting")
+    bank: Mapped[str] = mapped_column(String(12), default="auto")
+    previous_bank: Mapped[str] = mapped_column(String(12), default="")
+    previous_version: Mapped[str] = mapped_column(String(120), default="")
+    verified_version: Mapped[str] = mapped_column(String(120), default="")
+    snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("config_snapshots.id"))
+    active_device: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
+    heartbeat_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    error_code: Mapped[str] = mapped_column(String(40), default="")
+    error: Mapped[str] = mapped_column(String(400), default="")
+    transfer_username: Mapped[str | None] = mapped_column(String(60), unique=True, nullable=True)
+    transfer_secret_hash: Mapped[str] = mapped_column(String(64), default="")
+    transfer_name: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
+    transfer_expires_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    transfer_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    finished_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("plan_id", "device_id", name="uq_fw_plan_device"),
+        CheckConstraint("stage >= 0", name="ck_fw_target_stage"),
+        CheckConstraint(
+            "status in ('queued','running','checked','staged','succeeded','failed','attention','cancelled')",
+            name="ck_fw_target_status",
         ),
     )
 

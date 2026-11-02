@@ -47,6 +47,13 @@ def prune(db, device):
     if not count:
         return
     pinned = pinned_snapshots(db, device.id) | {device.base_snapshot_id}
+    pinned.update(
+        db.scalars(
+            select(m.FirmwareTarget.snapshot_id).where(
+                m.FirmwareTarget.device_id == device.id, m.FirmwareTarget.snapshot_id.is_not(None)
+            )
+        )
+    )
     rows = db.scalars(
         select(m.Snapshot)
         .where(m.Snapshot.device_id == device.id)

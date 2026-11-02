@@ -188,3 +188,9 @@ Kabinet yazımlarında numara, ana lokasyon, o lokasyona bağlı oda ve U kapasi
 `POST /api/v1/ipam/rooms/bulk-delete` ve `/ipam/cabinets/bulk-delete`, yönetici yetkisiyle atomik silme yapar. Oda silinmesi içindeki kabinetleri, kabinet silinmesi yerleşimleri/organizerleri/panelleri/patch portlarını kaldırır. Cihazlar ve IP adresleri korunur; silinen oda için IP oda bağlantısı temizlenir. Geçersiz veya ana lokasyon içeren oda seçimi işlem başlamadan reddedilir.
 
 Proje sahibinin mevcut Sunucu Odası için istediği L-0/A ve aktif kabinet ataması `scripts/assign_server_room.py` ile açıkça bir kez uygulanır; boş kuruluma oda/cihaz eklemez. Şema downgrade'i oda ayrıntısı veya odalar arasında tekrar eden kabinet numarası varken veri kaybını engeller.
+
+## Firmware — 2 Kasım 2026
+
+Alembic `20261102_32`, `firmware_images`, `firmware_groups`, `firmware_group_members`, `firmware_plans` ve `firmware_targets` tablolarını ekler. Cihazlar ortak `devices` kimliğini kullanır; yedekleme grupları ayrı kalır. Grup üyeliği bileşik PK, planda cihaz tekilliği UNIQUE, etkin cihaz rezervasyonu nullable UNIQUE, aile/durum/eşzamanlılık sınırları CHECK ve ilişkiler indeksli FK ile korunur. Planların adları, sırası, imajları ve üyeleri JSON snapshot'ıdır; dosyaların kendisi volume'dadır. Dosya hash'i, boyutu ve açık uyumluluk metadata'sı MariaDB'de tutulur.
+
+Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrulanmış sürüm, banka, korunan şifreli snapshot FK'si ve süreli aktarım erişimi ayrı alanlardır. Aktarım parolası API'ye dönmez; rastgele credential'ın yalnız hash'i saklanır. UTC `DATETIME(6)` kullanılır. Geçmişi olan cihaz/dosya/yedeğin kalıcı silinmesi engellenir; kayıt varken kayıplı downgrade reddedilir. Davranış ve sınırlar: [Firmware yönetimi](firmware-management.md).

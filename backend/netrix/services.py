@@ -614,6 +614,12 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
             )
             if not credential_id:
                 raise HTTPException(422, "Görev için erişim profili atanmalı")
+    if kind != "discovery" and db.scalar(
+        select(m.FirmwareTarget.id)
+        .where(m.FirmwareTarget.active_device == target_id, m.FirmwareTarget.status == "running")
+        .limit(1)
+    ):
+        raise HTTPException(409, "Cihazda firmware işlemi sürüyor; tamamlanmasını bekleyin")
     key = f"{kind}:{target_id}"
     # Serialize submitters on the target, including scheduled and API requests.
     current = db.scalar(

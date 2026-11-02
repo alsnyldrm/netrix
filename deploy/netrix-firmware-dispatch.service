@@ -1,0 +1,8 @@
+[Unit]
+Description=NETRIX firmware TFTP dispatch
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/netrix/scripts/firmware_tftp_dispatch.py --host 10.2.0.87

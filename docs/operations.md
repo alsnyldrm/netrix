@@ -14,7 +14,7 @@
 
 Cihaz bağlantısını denemek için **Envanter → Cihaz envanteri → satır sonundaki Test** yolunu kullanın. Pencerede yalnızca kayıtlı SNMPv3/SNMPv2c veya SSH/API profiline ait seçenekler etkin olur. Protokolü seçip **Test et** düğmesine basın; gerçek cihaz yanıtı, hata ve süre aynı pencerede görünür. Aktif cihazın yetkili kapsamda olması gerekir. SSH için güvenilir host anahtarı veya cihazda açık **Anahtara güven** ayarı; API için doğrulanabilir HTTPS sertifikası ve doğru REST cihaz bilgisi yolu gereklidir. Testi iptal edebilir veya pencereyi kapatıp sonucunu Görev merkezinden izleyebilirsiniz.
 
-`netrix` stack'inde yalnızca `netrix-app` servisi ve `netrix` container'ı vardır. API, Redis, worker ve zamanlayıcı aynı container içindedir. `docker compose up -d` container başlangıcında önce migration'ı çalıştırır. API/worker/scheduler migration başarılı olmadan başlamaz. Harici MariaDB kullanıcısının schema oluşturma/güncelleme ve uygulama tablolarında CRUD yetkisi gerekir. Redis dışarıya port açmaz. API yalnızca host loopback portunu açar.
+`netrix` stack'inde yalnızca `netrix-app` servisi ve `netrix` container'ı vardır. API, Redis, worker, zamanlayıcı, etkileşimli test ve firmware süreçleri aynı container içindedir. `docker compose up -d` container başlangıcında önce migration'ı çalıştırır. Süreçler migration başarılı olmadan başlamaz. Harici MariaDB kullanıcısının schema oluşturma/güncelleme ve uygulama tablolarında CRUD yetkisi gerekir. Redis dışarıya port açmaz. API yalnızca host loopback portunu açar. Firmware dosya servisleri cihazların erişeceği LAN IP'sinde yayımlanır; [protokoller, portlar ve kurtarma davranışı](firmware-management.md) ayrı belgelenmiştir.
 
 ```bash
 cd /opt/netrix
@@ -31,7 +31,7 @@ Nginx dosyasını kurduktan sonra `docker exec nginx nginx -t`, ancak başarıl�
 
 Stack sunucunun mevcut standalone Docker/Compose düzenini kullanır; Swarm etkinleştirilmez. Portainer dışında CLI ile kurulduğu için Portainer bunu `external` ve sınırlı yönetilebilir bir stack olarak gösterebilir ([Portainer açıklaması](https://docs.portainer.io/advanced/access-control)). Yetkili kaynak dosya `/opt/netrix/compose.yaml`'dır; değişiklikler buradan uygulanır.
 
-`docker compose restart netrix-app` bütün NETRIX süreçlerini birlikte yeniden başlatır. Tek bir sürece müdahale için `supervisorctl -c /app/deploy/supervisord.conf restart netrix-worker` komutunu container içinde çalıştırın. Redis volume'u `netrix_netrix-redis` olarak korunur; container kullanıcısı UID/GID 10001'dir. Eski ayrı Redis container'ından geçişte volume kapalıyken yedeklenip bu kullanıcıya atanır. `down -v` kalıcı Redis verisini siler; normal güncellemede kullanılmaz.
+`docker compose restart netrix-app` bütün NETRIX süreçlerini birlikte yeniden başlatır. Tek bir sürece müdahale için `supervisorctl -c /app/deploy/supervisord.conf restart netrix-worker` komutunu container içinde çalıştırın. Redis ve firmware dosyalarının volume'u `netrix_netrix-redis` olarak korunur; container kullanıcısı UID/GID 10001'dir. Eski ayrı Redis container'ından geçişte volume kapalıyken yedeklenip bu kullanıcıya atanır. `down -v` kalıcı Redis ve firmware dosyalarını siler; normal güncellemede kullanılmaz. Firmware yazımı veya yeniden başlatma sürerken container'ı yeniden başlatmayın; kesilen yazma işlemleri otomatik tekrarlanmaz ve müdahale bekler.
 
 ## Kullanım sırası
 
@@ -86,10 +86,10 @@ SQL dosyası 0600 oluşturulur; uygulama credential'ları ve config içerikleri 
 Geri yükleme mevcut tabloları değiştirebilir. Önce çalışan yedek alın; API/worker/scheduler'ı durdurun. Hedef DB adını açıkça belirtin:
 
 ```bash
-docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf stop netrix-scheduler netrix-worker netrix-api
+docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf stop netrix-scheduler netrix-worker netrix-tests netrix-firmware netrix-api
 python3 scripts/backup.py --restore --confirm-database netrix --output backups/netrix-YYYYMMDD.sql
 docker compose exec -T netrix-app alembic -c backend/alembic.ini upgrade head
-docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf start netrix-api netrix-worker netrix-scheduler
+docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf start netrix-api netrix-worker netrix-tests netrix-firmware netrix-scheduler
 ```
 
 Geri yükleme sırasında API/worker/zamanlayıcı kasıtlı olarak durduğundan container unhealthy görünür; işlem başarıyla tamamlanıp süreçler başlatılınca healthcheck tekrar geçer. Redis ve Supervisor çalışmayı sürdürür.
