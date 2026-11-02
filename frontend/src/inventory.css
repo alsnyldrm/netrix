@@ -57,13 +57,19 @@
   align-items: center;
   gap: 8px;
 }
-/* Keep complete inventory values on one line; the table scrolls on narrow screens. */
-.device-inventory-table th,
-.device-inventory-table td {
+/* Applies to every inventory record and every current or newly selected column. */
+.inventory-records-table th,
+.inventory-records-table td {
   white-space: nowrap;
 }
 .device-inventory-table .inventory-device-name {
+  flex-direction: column;
   flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 4px;
+}
+.device-inventory-table .inventory-device-name > .text-button {
+  padding-inline: 0;
 }
 .gateway-device-row > td:first-child {
   box-shadow: inset 3px 0 var(--success);
@@ -475,8 +481,9 @@
 }
 .edited-link-value {
   display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .link-delete-form {
