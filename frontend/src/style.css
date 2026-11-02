@@ -905,8 +905,6 @@ kbd {
 main {
   flex: 1;
   width: 100%;
-  max-width: 1480px;
-  margin: 0 auto;
   padding: 28px 24px 48px;
 }
 main:focus {
