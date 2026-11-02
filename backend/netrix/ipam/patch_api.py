@@ -1,14 +1,32 @@
 from fastapi import APIRouter, Depends
 from pydantic import Field
+from sqlalchemy import select
 
+from .. import models as m
 from ..core import db_session
 from ..identity.security import admin, current_user, operator
 from ..schemas import Input
+from ..services import get, serialize
 from . import patch_panels as service
 from . import rooms
 from .schemas import PatchPanelInput, PatchPortInput
 
 router = APIRouter(prefix="/api/v1")
+
+
+@router.get("/ipam/cabinets/{id}/patch-panels")
+def panels(id: str, user=Depends(current_user), db=Depends(db_session)):
+    get(db, m.Cabinet, id)
+    return {
+        "items": [
+            serialize(p)
+            for p in db.scalars(
+                select(m.PatchPanel)
+                .where(m.PatchPanel.cabinet_id == id)
+                .order_by(m.PatchPanel.start_unit.desc())
+            )
+        ]
+    }
 
 
 @router.post("/ipam/cabinets/{id}/patch-panels", status_code=201)

@@ -3,6 +3,7 @@ import { api, useLiveQuery } from "./data";
 import { Dialog } from "./main";
 import { allRows } from "./inventory";
 import "./patch-panels.css";
+import { ExternalEditor } from "./patch-external";
 
 type Row = Record<string, any>;
 export const panelKind = (kind: string) =>
@@ -272,37 +273,30 @@ export function PatchPanels({
   );
 }
 
-export function PatchPorts({
-  cabinet,
-  panel,
+function EndpointFields({
+  values,
+  setValues,
   devices,
-  user,
-  close,
-  saved,
+  readOnly,
+  prefix = "",
 }: {
-  cabinet: Row;
-  panel: Row;
+  values: Row;
+  setValues: (update: (row: Row) => Row) => void;
   devices: Row[];
-  user: Row;
-  close: () => void;
-  saved: () => void;
+  readOnly: boolean;
+  prefix?: string;
 }) {
-  const [refresh, setRefresh] = useState(0);
-  const editor = useRef<HTMLHeadingElement>(null);
-  const base = `/ipam/cabinets/${cabinet.id}/patch-panels/${panel.id}/ports`;
-  const listing = useLiveQuery(base, refresh);
-  const [selected, setSelected] = useState<Row | null>(null);
-  useEffect(() => {
-    editor.current?.focus();
-  }, [selected?.id]);
-  const [values, setValues] = useState<Row>({});
-  const [deviceMode, setDeviceMode] = useState("inventory");
-  const [portMode, setPortMode] = useState("inventory");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const user = { role: readOnly ? "viewer" : "operator" };
+  const label = (text: string) => (prefix ? `${prefix} · ${text}` : text);
+  const [deviceMode, setDeviceMode] = useState(
+    values.device_id || !values.device_name ? "inventory" : "manual",
+  );
+  const [portMode, setPortMode] = useState(
+    values.interface_id || !values.port_name ? "inventory" : "manual",
+  );
   const [search, setSearch] = useState("");
-  const [portSearch, setPortSearch] = useState("");
+  const set = (key: string, value: any) =>
+    setValues((v) => ({ ...v, [key]: value }));
   const interfaces = useLiveQuery<Row[]>(
     values.device_id ? `patch-interfaces:${values.device_id}` : null,
     0,
@@ -311,14 +305,242 @@ export function PatchPorts({
         `/inventory/interfaces?candidates=true&device_id=${encodeURIComponent(values.device_id)}`,
       ),
   );
+  return (
+    <div className="patch-endpoint-fields">
+      {interfaces.error && (
+        <p className="error patch-wide" role="alert">
+          {interfaces.error}
+        </p>
+      )}
+      <Field label={label("Cihaz girişi")}>
+        <select
+          disabled={user.role === "viewer"}
+          value={deviceMode}
+          onChange={(e) => {
+            setDeviceMode(e.target.value);
+            setValues((v) => ({
+              ...v,
+              device_id: "",
+              device_name: "",
+              interface_id: "",
+              port_name: "",
+            }));
+          }}
+        >
+          <option value="inventory">Envanterden seç</option>
+          <option value="manual">Manuel gir</option>
+        </select>
+      </Field>
+      {deviceMode === "inventory" ? (
+        <>
+          <Field label={label("Envanter cihazlarında ara")}>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </Field>
+          <Field label={label("Bağlı cihaz")}>
+            <select
+              disabled={user.role === "viewer"}
+              value={values.device_id || ""}
+              onChange={(e) =>
+                setValues((v) => ({
+                  ...v,
+                  device_id: e.target.value,
+                  interface_id: "",
+                  port_name: "",
+                }))
+              }
+            >
+              <option value="">Seçilmedi</option>
+              {values.device_id &&
+                !devices.some((d) => d.id === values.device_id) && (
+                  <option value={values.device_id}>
+                    {values.device_name || "Önceki cihaz"}
+                  </option>
+                )}
+              {devices
+                .filter(
+                  (d) =>
+                    d.id === values.device_id ||
+                    [d.name, d.management_ip]
+                      .join(" ")
+                      .toLocaleLowerCase("tr")
+                      .includes(search.toLocaleLowerCase("tr")),
+                )
+                .map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} · {d.management_ip}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        </>
+      ) : (
+        <Field label={label("Bağlı cihaz adı / IP")}>
+          <input
+            maxLength={190}
+            readOnly={user.role === "viewer"}
+            value={values.device_name || ""}
+            onChange={(e) => set("device_name", e.target.value)}
+          />
+        </Field>
+      )}
+      {deviceMode === "inventory" && (
+        <Field label={label("Cihaz portu girişi")}>
+          <select
+            disabled={user.role === "viewer"}
+            value={portMode}
+            onChange={(e) => {
+              setPortMode(e.target.value);
+              set("interface_id", "");
+              set("port_name", "");
+            }}
+          >
+            <option value="inventory">Envanterden seç</option>
+            <option value="manual">Manuel gir</option>
+          </select>
+        </Field>
+      )}
+      {deviceMode === "inventory" && portMode === "inventory" ? (
+        <Field label={label("Bağlı cihaz portu")}>
+          <select
+            disabled={
+              user.role === "viewer" || !values.device_id || interfaces.loading
+            }
+            value={values.interface_id || ""}
+            onChange={(e) => set("interface_id", e.target.value)}
+          >
+            <option value="">
+              {interfaces.loading ? "Portlar yükleniyor…" : "Seçilmedi"}
+            </option>
+            {values.interface_id &&
+              !interfaces.loading &&
+              !(interfaces.data || []).some(
+                (p) => p.id === values.interface_id && !p.is_deleted,
+              ) && (
+                <option value={values.interface_id}>
+                  {values.port_name || "Önceki port"}
+                </option>
+              )}
+            {(interfaces.data || [])
+              .filter((p) => !p.is_deleted)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+          </select>
+        </Field>
+      ) : (
+        <Field label={label("Bağlı cihaz portu (manuel)")}>
+          <input
+            maxLength={120}
+            readOnly={user.role === "viewer"}
+            value={values.port_name || ""}
+            onChange={(e) => set("port_name", e.target.value)}
+          />
+        </Field>
+      )}
+    </div>
+  );
+}
+
+const endpointValues = (row: Row) => ({
+  device_id: row.device_id || null,
+  interface_id: row.interface_id || null,
+  device_name: row.device_name || "",
+  port_name: row.port_name || "",
+});
+const externalValues = (row: Row | null) =>
+  row
+    ? Object.fromEntries(
+        [
+          "port_id",
+          "site_id",
+          "floor_number",
+          "department_name",
+          "room_name",
+          "cabinet_name",
+          "panel_name",
+          "panel_unit",
+          "port_number",
+          "device_id",
+          "interface_id",
+          "device_name",
+          "port_name",
+        ]
+          .filter((key) => row[key] !== undefined && row[key] !== "")
+          .map((key) => [key, row[key]]),
+      )
+    : null;
+const externalState = (state: string) =>
+  ({
+    connected: "Bağlı",
+    pending: "Karşı uç bekleniyor",
+    ambiguous: "Birden fazla eşleşme",
+    conflict: "Karşı bağlantıyı kontrol edin",
+  })[state] || "Kaydedilmedi";
+
+export function PatchPorts({
+  cabinet,
+  panel,
+  devices,
+  refs,
+  refresh: parentRefresh = 0,
+  user,
+  close,
+  saved,
+}: {
+  cabinet: Row;
+  panel: Row;
+  devices: Row[];
+  refs: Record<string, Row[]>;
+  refresh?: number;
+  user: Row;
+  close: () => void;
+  saved: () => void;
+}) {
+  const [refresh, setRefresh] = useState(0);
+  const editor = useRef<HTMLHeadingElement>(null);
+  const base = `/ipam/cabinets/${cabinet.id}/patch-panels/${panel.id}/ports`;
+  const listing = useLiveQuery(base, refresh + parentRefresh);
+  const [selected, setSelected] = useState<Row | null>(null);
+  useEffect(() => {
+    editor.current?.focus();
+  }, [selected?.id]);
+  const [values, setStoredValues] = useState<Row>({});
+  const dirty = useRef(false);
+  const setValues = (update: Row | ((previous: Row) => Row)) => {
+    dirty.current = true;
+    setStoredValues(update);
+  };
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [portSearch, setPortSearch] = useState("");
   const rows: Row[] = listing.data?.items || [];
+  useEffect(() => {
+    if (!dirty.current && selected) {
+      const fresh = listing.data?.items.find(
+        (port: Row) => port.id === selected.id,
+      );
+      if (fresh) {
+        setSelected(fresh);
+        setStoredValues(fresh);
+        setInternalOpen(!!(fresh.device_id || fresh.device_name));
+      }
+    }
+  }, [listing.data, selected?.id]);
   const choose = (port: Row) => {
     setSelected(port);
-    setValues(port);
+    dirty.current = false;
+    setStoredValues(port);
     setError("");
     setNotice("");
-    setDeviceMode(port.device_id || !port.device_name ? "inventory" : "manual");
-    setPortMode(port.interface_id || !port.port_name ? "inventory" : "manual");
+    setInternalOpen(!!(port.device_id || port.device_name));
   };
   const set = (key: string, value: any) =>
     setValues((v) => ({ ...v, [key]: value }));
@@ -333,9 +555,9 @@ export function PatchPorts({
           Kabinet {cabinet.name} · {panel.start_unit} U · {panel.port_count}{" "}
           port. Düzenlemek için port numarasına tıklayın.
         </p>
-        {(error || listing.error || interfaces.error) && (
+        {(error || listing.error) && (
           <div className="error" role="alert">
-            {error || listing.error || interfaces.error}
+            {error || listing.error}
           </div>
         )}
         {notice && <p role="status">{notice}</p>}
@@ -355,7 +577,15 @@ export function PatchPorts({
         >
           {rows
             .filter((p) =>
-              [p.number, p.device_name, p.port_name, cableLabel(p)]
+              [
+                p.number,
+                p.device_name,
+                p.port_name,
+                cableLabel(p),
+                p.external?.device_name,
+                p.external?.port_name,
+                p.external?.room_name,
+              ]
                 .join(" ")
                 .toLocaleLowerCase("tr")
                 .includes(portSearch.toLocaleLowerCase("tr")),
@@ -371,6 +601,16 @@ export function PatchPorts({
               >
                 <strong>{port.number}</strong>
                 <span>{port.device_name || "Boş"}</span>
+                {port.external && (
+                  <small>
+                    Dış:{" "}
+                    {port.external.device_name ||
+                      externalState(port.external_status)}
+                    {port.external.port_name
+                      ? ` / ${port.external.port_name}`
+                      : ""}
+                  </small>
+                )}
                 <small>
                   {port.port_name || "—"} ·{" "}
                   {cableLabel(port) || "Kablo seçilmedi"}
@@ -389,24 +629,13 @@ export function PatchPorts({
               try {
                 const updated = await api(`${base}/${selected.id}`, "PUT", {
                   number: values.number,
-                  device_id:
-                    deviceMode === "inventory"
-                      ? values.device_id || null
-                      : null,
-                  interface_id:
-                    deviceMode === "inventory" && portMode === "inventory"
-                      ? values.interface_id || null
-                      : null,
-                  device_name:
-                    deviceMode === "manual" ? values.device_name || "" : "",
-                  port_name:
-                    portMode === "manual" || deviceMode === "manual"
-                      ? values.port_name || ""
-                      : "",
+                  ...endpointValues(values),
+                  external: externalValues(values.external),
                   cable_model: values.cable_model || "",
                   fiber_mode: values.fiber_mode || "",
                 });
-                setValues(updated);
+                dirty.current = false;
+                setStoredValues(updated);
                 setSelected(updated);
                 setRefresh((v) => v + 1);
                 saved();
@@ -458,145 +687,129 @@ export function PatchPorts({
                 </select>
               </Field>
             )}
-            <Field label="Cihaz girişi">
-              <select
-                disabled={user.role === "viewer"}
-                value={deviceMode}
-                onChange={(e) => {
-                  setDeviceMode(e.target.value);
-                  setValues((v) => ({
-                    ...v,
-                    device_id: "",
-                    device_name: "",
-                    interface_id: "",
-                    port_name: "",
-                  }));
-                }}
-              >
-                <option value="inventory">Envanterden seç</option>
-                <option value="manual">Manuel gir</option>
-              </select>
-            </Field>
-            {deviceMode === "inventory" ? (
-              <>
-                <Field label="Envanter cihazlarında ara">
-                  <input
-                    type="search"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+            <fieldset
+              className="patch-side patch-wide"
+              aria-label="İç bağlantı"
+            >
+              <legend>
+                İç bağlantı <span>Ön port</span>
+              </legend>
+              {internalOpen ? (
+                <>
+                  <EndpointFields
+                    key={selected.id}
+                    values={values}
+                    setValues={setValues}
+                    devices={devices}
+                    readOnly={user.role === "viewer"}
                   />
-                </Field>
-                <Field label="Bağlı cihaz">
-                  <select
-                    disabled={user.role === "viewer"}
-                    value={values.device_id || ""}
-                    onChange={(e) =>
+                  {user.role !== "viewer" && (
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => {
+                        setValues((v) => ({ ...v, ...endpointValues({}) }));
+                        setInternalOpen(false);
+                      }}
+                    >
+                      İç bağlantıyı temizle
+                    </button>
+                  )}
+                </>
+              ) : user.role !== "viewer" ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setInternalOpen(true)}
+                >
+                  İç bağlantı ekle
+                </button>
+              ) : (
+                <p className="ipam-hint">İç bağlantı tanımlanmamış.</p>
+              )}
+            </fieldset>
+            <fieldset
+              className="patch-side patch-wide"
+              aria-label="Dış bağlantı"
+            >
+              <legend>
+                Dış bağlantı <span>Arka port</span>
+              </legend>
+              {values.external ? (
+                <>
+                  <p
+                    className="patch-link-status"
+                    data-status={values.external_status}
+                  >
+                    {externalState(values.external_status)}
+                  </p>
+                  <ExternalEditor
+                    key={`${selected.id}:${values.external_status || "new"}`}
+                    values={values.external}
+                    refs={refs}
+                    readOnly={user.role === "viewer"}
+                    setValues={(update) =>
                       setValues((v) => ({
                         ...v,
-                        device_id: e.target.value,
-                        interface_id: "",
-                        port_name: "",
+                        external: update(v.external || {}),
                       }))
                     }
-                  >
-                    <option value="">Seçilmedi</option>
-                    {values.device_id &&
-                      !devices.some((d) => d.id === values.device_id) && (
-                        <option value={values.device_id}>
-                          {values.device_name || "Önceki cihaz"}
-                        </option>
-                      )}
-                    {devices
-                      .filter(
-                        (d) =>
-                          d.id === values.device_id ||
-                          [d.name, d.management_ip]
-                            .join(" ")
-                            .toLocaleLowerCase("tr")
-                            .includes(search.toLocaleLowerCase("tr")),
-                      )
-                      .map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name} · {d.management_ip}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
-              </>
-            ) : (
-              <Field label="Bağlı cihaz adı / IP">
-                <input
-                  maxLength={190}
-                  readOnly={user.role === "viewer"}
-                  value={values.device_name || ""}
-                  onChange={(e) => set("device_name", e.target.value)}
-                />
-              </Field>
-            )}
-            {deviceMode === "inventory" && (
-              <Field label="Cihaz portu girişi">
-                <select
-                  disabled={user.role === "viewer"}
-                  value={portMode}
-                  onChange={(e) => {
-                    setPortMode(e.target.value);
-                    set("interface_id", "");
-                    set("port_name", "");
-                  }}
-                >
-                  <option value="inventory">Envanterden seç</option>
-                  <option value="manual">Manuel gir</option>
-                </select>
-              </Field>
-            )}
-            {deviceMode === "inventory" && portMode === "inventory" ? (
-              <Field label="Bağlı cihaz portu">
-                <select
-                  disabled={
-                    user.role === "viewer" ||
-                    !values.device_id ||
-                    interfaces.loading
+                  />
+                  <h4>Karşı portun iç bağlantısı</h4>
+                  <EndpointFields
+                    key={`${selected.id}:${values.external.port_id || "pending"}`}
+                    values={values.external}
+                    setValues={(update) =>
+                      setValues((v) => ({
+                        ...v,
+                        external: update(v.external || {}),
+                      }))
+                    }
+                    devices={devices}
+                    readOnly={user.role === "viewer"}
+                    prefix="Karşı uç"
+                  />
+                  {user.role !== "viewer" && (
+                    <button
+                      type="button"
+                      className="secondary danger"
+                      onClick={() =>
+                        setValues((v) => ({
+                          ...v,
+                          external: null,
+                          external_status: "",
+                        }))
+                      }
+                    >
+                      Dış bağlantıyı kaldır
+                    </button>
+                  )}
+                </>
+              ) : user.role !== "viewer" ? (
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() =>
+                    setValues((v) => ({
+                      ...v,
+                      external: { site_id: cabinet.site_id || "" },
+                      external_status: "",
+                    }))
                   }
-                  value={values.interface_id || ""}
-                  onChange={(e) => set("interface_id", e.target.value)}
                 >
-                  <option value="">
-                    {interfaces.loading ? "Portlar yükleniyor…" : "Seçilmedi"}
-                  </option>
-                  {values.interface_id &&
-                    !interfaces.loading &&
-                    !(interfaces.data || []).some(
-                      (p) => p.id === values.interface_id && !p.is_deleted,
-                    ) && (
-                      <option value={values.interface_id}>
-                        {values.port_name || "Önceki port"}
-                      </option>
-                    )}
-                  {(interfaces.data || [])
-                    .filter((p) => !p.is_deleted)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-            ) : (
-              <Field label="Bağlı cihaz portu (manuel)">
-                <input
-                  maxLength={120}
-                  readOnly={user.role === "viewer"}
-                  value={values.port_name || ""}
-                  onChange={(e) => set("port_name", e.target.value)}
-                />
-              </Field>
-            )}
+                  Dış bağlantı ekle
+                </button>
+              ) : (
+                <p className="ipam-hint">Dış bağlantı tanımlanmamış.</p>
+              )}
+              <p className="ipam-hint">
+                Karşı panelin iç ve geri dönüş bağlantısı kaydettiğinizde
+                otomatik güncellenir.
+              </p>
+            </fieldset>
             {user.role !== "viewer" && (
               <div className="ipam-actions patch-wide">
-                <button
-                  className="primary"
-                  disabled={busy || interfaces.loading}
-                >
+                <button className="primary" disabled={busy}>
                   {busy ? "Kaydediliyor…" : "Port bağlantısını kaydet"}
                 </button>
                 <button
@@ -612,6 +825,8 @@ export function PatchPorts({
                       port_name: "",
                       cable_model: "",
                       fiber_mode: "",
+                      external: null,
+                      external_status: "",
                     }))
                   }
                 >
@@ -665,6 +880,7 @@ export function DevicePatchInfo({
                   "Cihaz portu",
                   "Kablo modeli",
                   "Fiber türü",
+                  "Dış bağlantı",
                 ].map((c) => (
                   <th key={c}>{c}</th>
                 ))}
@@ -683,6 +899,32 @@ export function DevicePatchInfo({
                   <td>{r.port_name || "—"}</td>
                   <td>{r.cable_model || "—"}</td>
                   <td>{fiberModes[r.fiber_mode] || "—"}</td>
+                  <td>
+                    {r.external ? (
+                      <>
+                        {r.external.device_name ||
+                          externalState(r.external_status)}
+                        {r.external.port_name
+                          ? ` / ${r.external.port_name}`
+                          : ""}
+                        <small className="ipam-sub">
+                          {[
+                            r.external.site_name,
+                            r.external.floor_number,
+                            r.external.department_name,
+                            r.external.room_name,
+                            r.external.cabinet_name,
+                            r.external.panel_name,
+                            r.external.port_number,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ")}
+                        </small>
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

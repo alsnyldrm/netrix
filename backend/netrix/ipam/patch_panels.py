@@ -1,12 +1,13 @@
 """Manual passive cabling records and reverse inventory references; no network I/O."""
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import aliased
 
 from .. import models as m
 from ..identity.security import audit
 from ..services import get, publish, serialize
+from . import patch_links
 from .racks import check_space, lock_cabinet
 
 CABLES = {"cat": {"Cat5", "Cat6", "Cat7"}, "fiber": {"OM3", "OM4"}}
@@ -26,6 +27,7 @@ def panel_in(db, cabinet_id, panel_id, *, lock=False):
 
 
 def save_panel(db, cabinet_id, payload, user, panel_id=None):
+    patch_links.lock(db)
     cabinet = lock_cabinet(db, cabinet_id)
     panel = panel_in(db, cabinet_id, panel_id, lock=True) if panel_id else m.PatchPanel(cabinet_id=cabinet_id)
     check_space(db, cabinet, payload.start_unit, payload.units, panel_id=panel_id)
@@ -38,6 +40,8 @@ def save_panel(db, cabinet_id, payload, user, panel_id=None):
         raise HTTPException(409, "Bu kabinette aynı adlı patch panel var")
     ports = list(db.scalars(select(m.PatchPort).where(m.PatchPort.panel_id == panel_id))) if panel_id else []
     for port in ports:
+        if panel.kind != payload.kind and (port.peer_port_id or port.external_data):
+            raise HTTPException(409, "Panel türünü değiştirmeden önce dış bağlantılarını kaldırın")
         if (port.cable_model and port.cable_model not in CABLES[payload.kind]) or (
             port.fiber_mode and payload.kind != "fiber"
         ):
@@ -47,6 +51,8 @@ def save_panel(db, cabinet_id, payload, user, panel_id=None):
             or port.port_name
             or port.cable_model
             or port.fiber_mode
+            or port.peer_port_id
+            or port.external_data
             or port.number != str(port.position)
         ):
             raise HTTPException(
@@ -73,6 +79,8 @@ def save_panel(db, cabinet_id, payload, user, panel_id=None):
         cabinet_id,
         f"{panel.name}: {panel.start_unit} U, {panel.port_count} port",
     )
+    db.flush()
+    patch_links.reconcile(db)
     db.commit()
     publish()
     return serialize(panel)
@@ -100,16 +108,20 @@ def ports(db, cabinet_id, panel_id):
     panel = panel_in(db, cabinet_id, panel_id)
     return {
         "panel": serialize(panel),
-        "items": [
-            port_item(r)
-            for r in db.execute(
-                port_query().where(m.PatchPort.panel_id == panel_id).order_by(m.PatchPort.position)
-            )
-        ],
+        "items": patch_links.enrich(
+            db,
+            [
+                port_item(r)
+                for r in db.execute(
+                    port_query().where(m.PatchPort.panel_id == panel_id).order_by(m.PatchPort.position)
+                )
+            ],
+        ),
     }
 
 
 def save_port(db, cabinet_id, panel_id, port_id, payload, user):
+    patch_links.lock(db)
     lock_cabinet(db, cabinet_id)
     panel = panel_in(db, cabinet_id, panel_id, lock=True)
     port = db.scalar(
@@ -133,48 +145,17 @@ def save_port(db, cabinet_id, panel_id, port_id, payload, user):
         .limit(1)
     ):
         raise HTTPException(409, "Bu panelde aynı port numarası var")
-    device = get(db, m.Device, payload.device_id) if payload.device_id else None
-    if not device and payload.device_name:
-        matches = list(
-            db.scalars(
-                select(m.Device)
-                .where(
-                    m.Device.archived.is_(False),
-                    m.Device.discovery_scope_id.is_not(None),
-                    or_(
-                        func.lower(m.Device.name) == payload.device_name.lower(),
-                        m.Device.management_ip == payload.device_name,
-                    ),
-                )
-                .limit(2)
-            )
-        )
-        if len(matches) == 1:
-            device = matches[0]
-    if device and (device.archived or not device.discovery_scope_id):
-        raise HTTPException(422, "Aktif cihaz envanterinden bir cihaz seçin")
-    interface = get(db, m.Interface, payload.interface_id) if payload.interface_id else None
-    if interface and (not device or interface.device_id != device.id or interface.is_deleted):
-        raise HTTPException(422, "Port seçilen cihaza ait ve aktif olmalı")
-    if device and not interface and payload.port_name:
-        interface = db.scalar(
-            select(m.Interface)
-            .where(
-                m.Interface.device_id == device.id,
-                m.Interface.is_deleted.is_(False),
-                func.lower(m.Interface.name) == payload.port_name.lower(),
-            )
-            .limit(1)
-        )
-    if (interface or payload.port_name) and not (device or payload.device_name):
-        raise HTTPException(422, "Port bilgisi için bağlı cihazı da girin")
+    endpoint = patch_links.endpoint(db, payload)
     port.number = payload.number
-    port.device_id = device.id if device else None
-    port.interface_id = interface.id if interface else None
-    port.device_name = device.name if device else payload.device_name
-    port.port_name = interface.name if interface else payload.port_name
+    for key, value in endpoint.items():
+        setattr(port, key, value)
     port.cable_model = payload.cable_model
     port.fiber_mode = payload.fiber_mode
+    db.flush()
+    if "external" in payload.model_fields_set:
+        patch_links.update_external(db, port, payload.external)
+    patch_links.refresh_pair(db, port)
+    patch_links.reconcile(db)
     audit(
         db,
         user,
@@ -185,12 +166,18 @@ def save_port(db, cabinet_id, panel_id, port_id, payload, user):
     )
     db.commit()
     publish()
-    return port_item(db.execute(port_query().where(m.PatchPort.id == port_id)).one())
+    return patch_links.enrich(
+        db, [port_item(db.execute(port_query().where(m.PatchPort.id == port_id)).one())]
+    )[0]
 
 
 def remove_panel(db, cabinet_id, panel_id, user):
+    patch_links.lock(db)
     lock_cabinet(db, cabinet_id)
     panel = panel_in(db, cabinet_id, panel_id, lock=True)
+    patch_links.before_delete(
+        db, list(db.scalars(select(m.PatchPort.id).where(m.PatchPort.panel_id == panel_id)))
+    )
     db.execute(delete(m.PatchPort).where(m.PatchPort.panel_id == panel_id))
     db.delete(panel)
     audit(
@@ -220,6 +207,8 @@ def device_ports(db, device_id):
         if rows
         else {}
     )
+    enriched = patch_links.enrich(db, [serialize(p) for p, _, _ in rows])
+    external = {item["id"]: item for item in enriched}
     return {
         "items": [
             {
@@ -235,6 +224,8 @@ def device_ports(db, device_id):
                 "port_name": interfaces.get(p.interface_id, p.port_name),
                 "cable_model": p.cable_model,
                 "fiber_mode": p.fiber_mode,
+                "external": external[p.id]["external"],
+                "external_status": external[p.id]["external_status"],
             }
             for p, panel, c in rows
         ]

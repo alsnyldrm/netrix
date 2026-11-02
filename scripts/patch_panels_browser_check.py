@@ -45,6 +45,7 @@ with sync_playwright() as p:
     rack.get_by_role("button", name="Patch panel ekle", exact=True).click()
     ports = page.get_by_role("dialog").last
     ports.get_by_role("button", name="Port 1 · Boş", exact=True).click()
+    ports.get_by_role("button", name="İç bağlantı ekle", exact=True).click()
     ports.get_by_label("Port numarası", exact=True).fill("C-01")
     ports.get_by_label("Bağlı cihaz", exact=True).select_option(label="Switch 1 · 198.51.100.1")
     expect(ports.get_by_label("Bağlı cihaz portu", exact=True)).to_be_enabled()
@@ -57,6 +58,7 @@ with sync_playwright() as p:
     expect(ports.get_by_role("status")).to_have_text("Port C-01 kaydedildi.")
     check("cat-port")
     ports.get_by_role("button", name="Port 2 · Boş", exact=True).click()
+    ports.get_by_role("button", name="İç bağlantı ekle", exact=True).click()
     ports.get_by_label("Cihaz girişi", exact=True).select_option("manual")
     ports.get_by_label("Bağlı cihaz adı / IP", exact=True).fill("External storage")
     ports.get_by_label("Bağlı cihaz portu (manuel)", exact=True).fill("eth1")
@@ -72,6 +74,7 @@ with sync_playwright() as p:
     rack.get_by_role("button", name="Patch panel ekle", exact=True).click()
     ports = page.get_by_role("dialog").last
     ports.get_by_role("button", name="Port 1 · Boş", exact=True).click()
+    ports.get_by_role("button", name="İç bağlantı ekle", exact=True).click()
     options = ports.get_by_label("Kablo modeli", exact=True).locator("option").all_text_contents()
     assert set(options) == {"Seçilmedi", "OM3", "OM4"}
     assert ports.get_by_label("Fiber türü", exact=True).locator("option").all_text_contents() == [
@@ -88,6 +91,7 @@ with sync_playwright() as p:
     expect(ports.get_by_role("status")).to_have_text("Port 1 kaydedildi.")
     check("fiber-port")
     ports.get_by_role("button", name="Port 2 · Boş", exact=True).click()
+    ports.get_by_role("button", name="İç bağlantı ekle", exact=True).click()
     ports.get_by_role("button", name="Port 1 · Switch 2 · B2", exact=True).click()
     expect(ports.get_by_label("Kablo modeli", exact=True)).to_have_value("OM4")
     expect(ports.get_by_label("Fiber türü", exact=True)).to_have_value("multimode")

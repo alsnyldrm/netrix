@@ -98,12 +98,49 @@ class PatchPanelInput(Input):
         return value.strip()
 
 
-class PatchPortInput(Input):
-    number: str = Field(min_length=1, max_length=40)
+class PatchEndpointInput(Input):
     device_id: str | None = None
     interface_id: str | None = None
     device_name: str = Field(default="", max_length=190)
     port_name: str = Field(default="", max_length=120)
+
+    @field_validator("device_name", "port_name")
+    @classmethod
+    def endpoint_trimmed(cls, value):
+        return value.strip()
+
+
+class PatchExternalInput(PatchEndpointInput):
+    port_id: str | None = Field(default=None, max_length=36)
+    site_id: str | None = Field(default=None, max_length=36)
+    floor_number: str = Field(default="", max_length=40)
+    department_name: str = Field(default="", max_length=120)
+    room_name: str = Field(default="", max_length=120)
+    cabinet_name: str = Field(default="", max_length=120)
+    panel_name: str = Field(default="", max_length=120)
+    panel_unit: int | None = Field(default=None, ge=1, le=60)
+    port_number: str = Field(default="", max_length=40)
+
+    @model_validator(mode="after")
+    def target(self):
+        if not self.port_id and not all(
+            (
+                self.site_id,
+                self.floor_number,
+                self.department_name,
+                self.room_name,
+                self.cabinet_name,
+                self.panel_name,
+                self.port_number,
+            )
+        ):
+            raise ValueError("Karşı uç için lokasyon, kat, bölüm, oda, kabinet, panel ve port gerekli")
+        return self
+
+
+class PatchPortInput(PatchEndpointInput):
+    number: str = Field(min_length=1, max_length=40)
+    external: PatchExternalInput | None = None
     cable_model: Literal["", "Cat5", "Cat6", "Cat7", "OM3", "OM4", "Multimode MM", "Singlemode SM"] = ""
     fiber_mode: Literal["", "multimode", "singlemode"] = ""
 

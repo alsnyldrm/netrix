@@ -6,9 +6,11 @@ from sqlalchemy import delete, select, update
 from .. import models as m
 from ..identity.security import audit
 from ..services import publish
+from . import patch_links
 
 
 def remove(db, ids, user, *, rooms=False):
+    patch_links.lock(db)
     ids = sorted(set(ids))
     if rooms:
         rows = list(
@@ -35,6 +37,9 @@ def remove(db, ids, user, *, rooms=False):
         cabinets = rows
     cabinet_ids = [c.id for c in cabinets]
     panels = select(m.PatchPanel.id).where(m.PatchPanel.cabinet_id.in_(cabinet_ids))
+    patch_links.before_delete(
+        db, list(db.scalars(select(m.PatchPort.id).where(m.PatchPort.panel_id.in_(panels))))
+    )
     db.execute(delete(m.PatchPort).where(m.PatchPort.panel_id.in_(panels)))
     for model in (m.PatchPanel, m.RackAccessory, m.RackPlacement):
         db.execute(delete(model).where(model.cabinet_id.in_(cabinet_ids)))

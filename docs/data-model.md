@@ -169,6 +169,16 @@ CAT portlarında Cat5/Cat6/Cat7; fiber portlarında OM3/OM4 kablo modeli ve Mult
 
 API: `/api/v1/ipam/cabinets/{cabinet_id}/patch-panels` panel ekler; `/{panel_id}` düzenler/siler, `/{panel_id}/ports` portları okur ve `/ports/{port_id}` bağlantıyı düzenler. `/api/v1/devices/{device_id}/patch-ports` cihazın kabinet/panel/port/kablo ilişkilerini döndürür. Okumalar oturum, yazmalar operator yetkisi gerektirir.
 
+## İç ve dış patch bağlantıları (2 Kasım 2026)
+
+`20261102_31`, `patch_ports.peer_port_id` için kendine referans veren nullable FK (`SET NULL`) ve tekil kısıt ile `external_data` JSON alanını ekler. Mevcut cihaz/arayüz ve manuel ad alanları **İç bağlantı / Ön port** olarak korunur; eski kayıtlar değiştirilmez. **Dış bağlantı / Arka port**, iki portun karşılıklı `peer_port_id` ilişkisiyle gösterilir. Bir portun yalnızca bir dış bağlantısı olabilir; kendisine ve farklı CAT/fiber türüne bağlanma servis tarafından reddedilir.
+
+Dış uç kaydedildiğinde boş karşı portun iç cihaz/port bilgisi ve karşı porttan geri dönüş bağlantısı aynı transaction içinde tamamlanır. Mevcut farklı bir iç bağlantı veya kullanılan/bekleyen dış bağlantı sessizce değiştirilmez. `patch-cabling` durum satırındaki yazma kilidi ve gerçek sürüm artışı, karşılıklı kayıtları ve oda/kabinet/panel yapısal değişikliklerini sıralar; Galera sertifikasyonuna katılır. Ağ sorgusu yapılmaz; envanter cihazı veya arayüz oluşturulmaz.
+
+Eksik uçlar, ana lokasyon kimliği + kat + bölüm + oda + kabinet + panel + port numarası ve isteğe bağlı panel U bilgisiyle JSON içinde bekler. Hedef kayıt oluşturma, yeniden adlandırma veya port artırma işlemleri, bekleyen hedefleri toplu olarak yeniden eşleştirir. Yalnızca tekil tam eşleşme bağlanır; belirsiz veya dolu hedefler beklemeye devam eder. Bağlı uçlar FK ile takip edilir; ad değişiklikleri görünümü bozmaz. GET okumaları yazma yapmaz ve karşı uç verileri liste başına tek toplu sorguyla okunur.
+
+Dış bağlantıyı kaldırmak iki taraftaki arka bağlantıyı kaldırır, ön cihaz/port bilgilerini korur. Karşı panel/oda/kabinet silindiğinde sağ kalan uç güncel konum bilgisiyle beklemeye döner; aynı konum yeniden oluşturulursa tekrar eşleşir. Yeni dış bağlantı veya bekleyen hedef varken kayıplı downgrade engellenir. Cihaz ayrıntısındaki Patch bilgileri aynı ilişkiyi gösterir; açık port ekranı canlı yenilenirken kaydedilmemiş kullanıcı düzenlemeleri korunur.
+
 ## Oda ve oda bazında kabinetler (1 Kasım 2026)
 
 Alembic `20261101_28`, `sites.floor_number` ve `sites.department_name` alanlarını ekler. `parent_id` bulunan kayıtlar arayüzde Oda olarak adlandırılır; oda adı, kat numarası ve bölüm adı yeni/düzenlenen odalarda zorunludur. Kurum → Lokasyon → Oda ilişkisi ve eski kimlikler/kodlar korunur. Önceden eksik alanlar uydurma değerlerle doldurulmaz.

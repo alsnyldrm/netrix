@@ -155,7 +155,12 @@ class PatchPort(Entity, Base):
     port_name: Mapped[str] = mapped_column(String(120), default="")
     cable_model: Mapped[str] = mapped_column(String(30), default="")
     fiber_mode: Mapped[str] = mapped_column(String(12), default="", server_default="")
+    peer_port_id: Mapped[str | None] = mapped_column(
+        ForeignKey("patch_ports.id", name="fk_patch_peer_port", ondelete="SET NULL"), nullable=True
+    )
+    external_data: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     __table_args__ = (
+        UniqueConstraint("peer_port_id", name="uq_patch_peer_port"),
         UniqueConstraint("panel_id", "number", name="uq_patch_port_number"),
         UniqueConstraint("panel_id", "position", name="uq_patch_port_position"),
         CheckConstraint("position >= 1 AND position <= 288", name="ck_patch_port_position"),

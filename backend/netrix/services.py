@@ -252,6 +252,10 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         raise HTTPException(405, "Kullanıcı parolası için parola değiştirme işlemini kullanın")
     value = schema.model_validate(payload)
     data = value.model_dump()
+    if name in ("sites", "cabinets"):
+        from .ipam import patch_links
+
+        patch_links.lock(db)
     if name == "devices" and row_id:
         row = db.scalar(
             select(model)
@@ -338,6 +342,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         setattr(row, key, val)
     db.add(row)
     db.flush()
+    if name in ("sites", "cabinets"):
+        patch_links.reconcile(db)
     if scope_profiles is not None:
         db.execute(delete(m.ScopeCredential).where(m.ScopeCredential.scope_id == row.id))
         db.add_all(

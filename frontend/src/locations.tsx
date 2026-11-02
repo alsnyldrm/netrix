@@ -490,6 +490,7 @@ function LocationForm({
 }
 export function Cabinets({
   refs,
+  refresh,
   roomId,
   onRoomChange: setRoomId,
   user,
@@ -920,7 +921,13 @@ export function Cabinets({
         />
       )}
       {rack && (
-        <Rack row={rack} refs={refs} user={user} close={() => setRack(null)} />
+        <Rack
+          row={rack}
+          refs={refs}
+          refresh={refresh}
+          user={user}
+          close={() => setRack(null)}
+        />
       )}
     </div>
   );
@@ -990,11 +997,13 @@ function CabinetLocationTable({
 function Rack({
   row,
   refs,
+  refresh,
   user,
   close,
 }: {
   row: Row;
   refs: Record<string, Row[]>;
+  refresh: number;
   user: Row;
   close: () => void;
 }) {
@@ -1038,7 +1047,10 @@ function Rack({
       active = false;
     };
   }, [choice.device_id]);
-  const rackQuery = useLiveQuery<Row>(`/ipam/cabinets/${row.id}`, revision);
+  const rackQuery = useLiveQuery<Row>(
+    `/ipam/cabinets/${row.id}`,
+    revision + refresh,
+  );
   useEffect(() => {
     if (rackQuery.data) setData(rackQuery.data);
     if (rackQuery.error) setError(rackQuery.error);
@@ -1257,6 +1269,8 @@ function Rack({
         {patchPanel && (
           <PatchPorts
             cabinet={row}
+            refs={refs}
+            refresh={revision + refresh}
             panel={patchPanel}
             devices={refs.devices || []}
             user={user}
