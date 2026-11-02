@@ -65,6 +65,33 @@ with session_factory()() as db:
                 operating_system="VMware ESXi 8.0",
             ),
         )
+    arp["40.192.0.2.22"] = "00:11:22:00:00:22"
+    observe(db, vlan, "192.0.2.22", "dns", vlan.dns_server_id, {"hostname": "physical-host.example.test"})
+    observe(db, vlan, "192.0.2.22", "icmp", vlan.id, {"reachability": "reachable"})
+    for port, suffix in (("A7", 1), ("B7", 2)):
+        neighbors[switches[0].id].append(
+            dict(
+                interface_name=port,
+                remote_name="physical-host",
+                remote_port=f"eth{suffix}",
+                source="lldp+cdp",
+                evidence={
+                    "lldp": {
+                        "chassis_subtype": 4,
+                        "chassis_id": "00:55:66:00:00:01",
+                        "port_subtype": 3,
+                        "port_id": f"00 55 66 00 00 {suffix + 1:02x}",
+                        "transport": "ssh_detail",
+                    },
+                    "cdp": {
+                        "device_id": "00:55:66:00:00:01",
+                        "management_address": "192.0.2.22",
+                        "port_id": f"eth{suffix}",
+                        "transport": "ssh_detail",
+                    },
+                },
+            )
+        )
     for switch in switches:
         ns = neighbors[switch.id]
         db.add(

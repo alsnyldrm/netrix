@@ -40,6 +40,7 @@ const sourceName = (v: string) =>
     "vcenter_host+neighbors": "VMware host + komşuluk",
     "vcenter_host+lldp": "VMware host + LLDP",
     "vcenter_host+cdp": "VMware host + CDP",
+    ipam_ssh_neighbors: "Komşuluklar · SSH LLDP/CDP",
   })[v] || v;
 const stateName = (v: string) =>
   ({
@@ -277,11 +278,12 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
               </div>
             ))}
           </dl>
-          {detail.host_nics?.length > 0 && (
+          {detail.physical_nics?.length > 0 && (
             <section className="ipam-section" aria-labelledby="host-nics-title">
               <h3 id="host-nics-title">Fiziksel ağ kartları</h3>
               <p className="ipam-hint">
-                {detail.vmware_host?.hostname} · VMware host
+                {detail.vmware_host?.hostname || detail.hostname} ·{" "}
+                {detail.vmware_host ? "VMware host" : "Güncel komşuluk"}
               </p>
               <div
                 className="table-scroll"
@@ -306,7 +308,7 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.host_nics.map((nic: Row) => {
+                    {detail.physical_nics.map((nic: Row) => {
                       const connections = detail.connection_ambiguous
                         ? []
                         : (detail.connections || []).filter(

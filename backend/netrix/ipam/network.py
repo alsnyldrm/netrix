@@ -7,13 +7,38 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..discovery.protocols import NetworkError
+from ..discovery.neighbor_detail import AOS_SWITCH, enrich_neighbors
+from ..discovery.protocols import NetworkError, fetch_neighbor_detail
 from ..identity.security import secret_data
 from ..services import get
 from .connections import network_device
 
 
-async def refresh(job_id, collector):
+def detail_profile(db, device):
+    profile = (
+        db.get(m.Credential, device.config_credential_id)
+        if device.adapter in AOS_SWITCH and device.config_credential_id
+        else None
+    )
+    return profile if profile and profile.protocol == "ssh" else None
+
+
+def read_context(device, profile, ssh):
+    return [
+        device.management_ip,
+        device.snmp_port,
+        device.vrf_id,
+        profile.id,
+        profile.updated_at.isoformat(),
+        device.adapter,
+        device.config_port,
+        device.ssh_trust_host_key,
+        ssh.id if ssh else None,
+        ssh.updated_at.isoformat() if ssh else None,
+    ]
+
+
+async def refresh(job_id, collector, *, detail_reader=None):
     from ..worker import Cancelled
 
     with session_factory()() as db:
@@ -29,7 +54,14 @@ async def refresh(job_id, collector):
                     m.Device.lifecycle_status == "active",
                     m.Device.snmp_credential_id.is_not(None),
                 )
-                .order_by(m.Device.id)
+                # Read identity gateways and detailed protocol sources early.
+                # Resolution still considers every source, never this order.
+                .order_by(
+                    m.Device.is_gateway.desc(),
+                    m.Device.adapter.in_(AOS_SWITCH).desc(),
+                    m.Device.management_ip,
+                    m.Device.id,
+                )
             )
         )
         ids = [d.id for d in devices if network_device(d)]
@@ -45,14 +77,8 @@ async def refresh(job_id, collector):
                 if device.archived or not device.discovery_scope_id or device.lifecycle_status != "active":
                     return False
                 profile = get(db, m.Credential, device.snmp_credential_id)
-                version = (
-                    device.management_ip,
-                    device.snmp_port,
-                    device.vrf_id,
-                    profile.id,
-                    profile.updated_at,
-                )
-                context = [*version[:-1], version[-1].isoformat()]
+                ssh = detail_profile(db, device)
+                context = read_context(device, profile, ssh)
                 completed = db.scalar(
                     select(m.Observation).where(
                         m.Observation.job_id == job.id,
@@ -65,6 +91,7 @@ async def refresh(job_id, collector):
                 if (
                     completed
                     and not completed.evidence.get("failed")
+                    and not completed.evidence.get("neighbor_detail_failed")
                     and completed.created_at >= now() - lifetime
                 ):
                     previous = completed.evidence.get("read_context")
@@ -73,15 +100,25 @@ async def refresh(job_id, collector):
                     compatible = (
                         previous == context
                         if previous
-                        else completed.created_at >= max(device.updated_at, profile.updated_at)
+                        else completed.created_at
+                        >= max(device.updated_at, profile.updated_at, *([ssh.updated_at] if ssh else []))
                     )
                     if compatible:
                         return True
                 secret = secret_data(profile)
+                ssh_secret = secret_data(ssh) if ssh else None
             try:
                 async with asyncio.timeout(185):
                     data = await collector.ipam(device.management_ip, device.snmp_port, secret)
-                success = True
+                    if ssh_secret:
+                        try:
+                            detail = await (detail_reader or fetch_neighbor_detail)(device, ssh_secret)
+                            data = enrich_neighbors(data, detail)
+                        except Exception as exc:
+                            # Optional SSH must not discard valid SNMP facts or
+                            # leak raw authentication/CLI errors. Cancellation propagates.
+                            data["neighbor_detail_failed"] = type(exc).__name__
+                success = not data.get("neighbor_detail_failed")
             except (TimeoutError, OSError, NetworkError) as exc:
                 # No raw protocol errors or credentials in persisted/public data.
                 data = {"failed": True, "error_class": type(exc).__name__}
@@ -94,14 +131,7 @@ async def refresh(job_id, collector):
                 profile = db.get(m.Credential, current.snmp_credential_id)
                 if (
                     not profile
-                    or version
-                    != (
-                        current.management_ip,
-                        current.snmp_port,
-                        current.vrf_id,
-                        profile.id,
-                        profile.updated_at,
-                    )
+                    or context != read_context(current, profile, detail_profile(db, current))
                     or current.archived
                     or not current.discovery_scope_id
                     or current.lifecycle_status != "active"

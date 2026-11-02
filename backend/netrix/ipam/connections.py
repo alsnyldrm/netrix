@@ -239,6 +239,8 @@ class Evidence:
             self.excluded_raw_neighbors[id] = excluded_rows
 
     def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway", host=None):
+        from .protocol_peers import peer as protocol_peer
+
         lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
         cutoff = self.at - lifetime
         snapshots = {
@@ -302,6 +304,14 @@ class Evidence:
                 continue
             up = {v.get("name") for v in p["interfaces"].values() if v.get("oper_status") == "up"}
             raw = self.raw_neighbors.get(id, [])
+            raw = [
+                *raw,
+                *(
+                    n
+                    for n in self.excluded_raw_neighbors.get(id, [])
+                    if protocol_peer(n.get("evidence") or {}, row.address)
+                ),
+            ]
             if host:
                 from .vmware_hosts import nic_for_neighbor
 
@@ -354,6 +364,7 @@ class Evidence:
             from .vmware_hosts import nic_for_neighbor
 
             nic = nic_for_neighbor(host, data)
+            peer = protocol_peer(data, row.address)
             address_match = any(
                 ip((data.get(protocol) or {}).get("management_address")) == row.address
                 for protocol in ("lldp", "cdp")
@@ -378,18 +389,25 @@ class Evidence:
                 "device_name": self.devices[id].name,
                 "port": port,
                 "aggregate": aggregate,
-                "source": "vcenter_host+neighbors" if nic else "neighbors",
+                "source": "vcenter_host+neighbors" if nic else "ipam_ssh_neighbors" if peer else "neighbors",
                 "observed_at": when.isoformat(),
                 "evidence_id": proof_id,
-                "endpoint_identity": host["identity"] if nic else uuid,
-                "nic": nic["device"] if nic else "",
-                "mac_address": nic["mac_address"] if nic else "",
+                "endpoint_identity": host["identity"] if nic else peer["identity"] if peer else uuid,
+                "nic": nic["device"] if nic else peer["nic"] if peer else "",
+                "mac_address": nic["mac_address"] if nic else peer["mac_address"] if peer else "",
                 "confidence": 0.95,
             }
             if candidate["endpoint_identity"]:
                 identities[candidate["endpoint_identity"]].append(candidate)
-            if nic or address_match or (len(macs) == 1 and advertised & macs):
-                if not nic and address_match and len(macs) == 1 and advertised and not advertised & macs:
+            if nic or peer or address_match or (len(macs) == 1 and advertised & macs):
+                if (
+                    not nic
+                    and not peer
+                    and address_match
+                    and len(macs) == 1
+                    and advertised
+                    and not advertised & macs
+                ):
                     conflicting_identities.append(candidate["endpoint_identity"])
                     continue
                 # A known infrastructure peer is transit unless its advertised IP

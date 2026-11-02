@@ -16,7 +16,7 @@ from ..services import get, in_scope, lock_vrf, publish, serialize
 
 
 def normalized_mac(value):
-    compact = re.sub(r"[:.\-]", "", value or "").lower()
+    compact = re.sub(r"[\s:.\-]", "", value or "").lower()
     # DHCP may prefix an Ethernet hardware identifier with 01.
     if len(compact) == 14 and compact.startswith("01"):
         compact = compact[2:]
@@ -407,6 +407,16 @@ def enrich(db, rows, *, details=True, include_options=False):
         if vm_mac:
             physical = network_evidence.resolve(row, vlan, identity_mac=vm_mac, identity_source="vcenter")
         item.update(physical)
+        if details:
+            if host:
+                item["physical_nics"] = item["host_nics"]
+            else:
+                nics = {
+                    c["mac_address"]: {"device": c["nic"], "mac_address": c["mac_address"], "link_up": True}
+                    for c in physical["connections"]
+                    if c.get("nic") and c.get("mac_address") and not physical["connection_ambiguous"]
+                }
+                item["physical_nics"] = list(nics.values())
         vm_owners = {
             (o.data.get("integration_id", o.source_key), o.data.get("vm_id")) for o in vm_observations
         }

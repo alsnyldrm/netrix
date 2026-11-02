@@ -54,6 +54,28 @@ with sync_playwright() as p:
             )
             page.screenshot(path=f"/tmp/netrix-host-nics-{width}-{theme}.png")
             page.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.get_by_placeholder("Tüm alanlarda ara…").fill("physical-host")
+    physical = page.get_by_role("row").filter(
+        has=page.get_by_role("checkbox", name="192.0.2.22 seç", exact=True)
+    )
+    expect(physical.get_by_role("cell", name="A7 / B7", exact=True)).to_be_visible()
+    physical.get_by_role("button", name="192.0.2.22 IP ayrıntıları", exact=True).click()
+    table = page.get_by_role("region", name="Fiziksel ağ kartları tablosu", exact=True)
+    expect(table.get_by_role("row")).to_have_count(3)
+    expect(table).to_contain_text("00:55:66:00:00:02")
+    expect(table).to_contain_text("00:55:66:00:00:03")
+    for width, height in ((1440, 1000), (375, 812)):
+        for theme in ("light", "dark"):
+            page.set_viewport_size({"width": width, "height": height})
+            page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+            table.scroll_into_view_if_needed()
+            assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth")
+            assert page.get_by_role("dialog").evaluate("e=>e.scrollWidth<=e.clientWidth")
+            reports[f"ssh-{width}-{theme}"] = page.evaluate(
+                "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}})).violations.map(v=>v.id)"
+            )
+            page.screenshot(path=f"/tmp/netrix-ssh-peer-{width}-{theme}.png")
     assert not errors and not any(reports.values()), (errors, reports)
     print(json.dumps({"host_nics": "PASS", "paired_switch_ports": "PASS", "axe": reports, "errors": errors}))
     browser.close()

@@ -88,7 +88,15 @@ def parse_detail(output, protocol):
         if protocol == "lldp":
             evidence = {
                 "chassis_id": mac(fields.get("ChassisId")) or fields.get("ChassisId", ""),
-                "chassis_subtype": 4 if fields.get("ChassisType") == "mac-address" else None,
+                "chassis_subtype": {
+                    "mac-address": 4,
+                    "local": 7,
+                    "interface-name": 6,
+                    "network-address": 5,
+                    "chassis-component": 1,
+                    "interface-alias": 2,
+                    "port-component": 3,
+                }.get(fields.get("ChassisType")),
                 "system_name": fields.get("SysName", ""),
                 "port_subtype": {"local": 7, "interface-name": 5, "mac-address": 3}.get(
                     fields.get("PortType")
