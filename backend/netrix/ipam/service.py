@@ -279,7 +279,11 @@ def normalized_hostname(value):
 def hostname_vm_records(records, hostname, address, gateway_mac=""):
     """Select one proven VM/NIC, never the first card or a similar short name."""
     name = normalized_hostname(hostname)
-    matches = [d for d in records if name and normalized_hostname(d.get("hostname")) == name]
+    matches = [
+        d
+        for d in records
+        if d.get("record_type") != "host" and name and normalized_hostname(d.get("hostname")) == name
+    ]
     owners = {(d.get("integration_id", ""), d.get("vm_id")) for d in matches}
     if len(owners) != 1 or not next(iter(owners))[1]:
         return []
@@ -308,6 +312,7 @@ def vmware_observations(obs, hostname, address, physical):
         o
         for o in obs
         if o.source == "vcenter"
+        and o.data.get("record_type") != "host"
         and o.observed_at >= now() - timedelta(hours=24)
         and o.data.get("present", True)
     ]
@@ -378,6 +383,26 @@ def enrich(db, rows, *, details=True, include_options=False):
         vlan = prefixes[row.vlan_id]
         physical = network_evidence.resolve(row, vlan)
         item["hostname"] = dns_hostname(recent, vlan)
+        from .vmware_hosts import select_host
+
+        host = (
+            select_host(
+                obs,
+                row.address,
+                physical["mac_address"],
+                at=network_evidence.at,
+                lifetime=timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400))),
+            )
+            if not physical["mac_conflict"]
+            else None
+        )
+        if host:
+            physical = network_evidence.resolve(row, vlan, host=host)
+            if details:
+                item["host_nics"] = host.get("physical_nics", [])
+            item["vmware_host"] = {
+                k: host.get(k) for k in ("host_id", "host_uuid", "hostname", "vmkernel_device")
+            }
         vm_observations, vm_mac = vmware_observations(obs, item["hostname"], row.address, physical)
         if vm_mac:
             physical = network_evidence.resolve(row, vlan, identity_mac=vm_mac, identity_source="vcenter")
@@ -390,6 +415,8 @@ def enrich(db, rows, *, details=True, include_options=False):
             if len(vm_owners) <= 1 and not item["mac_conflict"]
             else ""
         )
+        if host and not vm_observations:
+            item["operating_system"] = host.get("operating_system", "")
         item["field_sources"] = {
             "hostname": "dns" if item["hostname"] else "",
             "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",

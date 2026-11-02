@@ -370,11 +370,22 @@ async def integration(job_id, collector=None):
                         "matched_by": "gateway_mac",
                     }
             for entry in records:
+                if entry.get("record_type") == "host":
+                    continue
                 mac = normalized_mac(entry.get("mac_address"))
                 mac_owners.setdefault(mac, set()).add((entry["vm_id"], entry["nic_key"]))
                 named_records.setdefault(normalized_hostname(entry.get("hostname")), []).append(entry)
         for entry in records:
             prefix = vlan_for(db, entry["address"], prefixes) if entry.get("address") else None
+            if current.kind == "vcenter" and entry.get("record_type") == "host":
+                key = current.id + ":host:" + entry["host_id"] + ":" + entry["vmkernel_device"]
+                data = {k: v for k, v in entry.items() if k != "address"}
+                data["integration_id"] = current.id
+                observed = observe(db, prefix, entry["address"], "vcenter", key, data) if prefix else None
+                if observed:
+                    seen.add((observed.id, key))
+                    count += 1
+                continue
             key = current.id + (
                 ":" + entry["vm_id"] + ":" + entry["nic_key"] if current.kind == "vcenter" else ""
             )

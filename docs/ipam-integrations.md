@@ -30,6 +30,18 @@ VMware sanal makinesi olduğu güncel eşleşmeyle doğrulanan IP adreslerinde K
 
 IP ayrıntıları kaynak, cihaz, port/MAC, gözlem zamanı ve belirsizlik nedenini gösterir. HTTP sorgusu ağ işlemi yapmaz; ilgili cihazlar ve son gözlemler toplu okunur. Yetkilendirilmiş yanıtların kısa süreli önbelleği değişiklik bildirimleriyle geçersiz kılınır.
 
+### Güncel komşuluk ve fiziksel VMware hostları — 2 Kasım 2026
+
+Proje sahibinin güncel talebiyle IPAM'ın kendi son `ipam_network` okumasındaki LLDP/CDP satırları da doğrudan bağlantı kanıtıdır. Kaynak switch aynı VRF'de aktif envanter cihazı olmalı; yerel port güncel arayüz tablosunda açık ve adı çözülmüş olmalıdır. Eski Komşuluklar kaydının güncellenmesini beklemez. Daha yeni boş veya başarısız okuma eski pozitif IPAM verisini geçersiz kılar. Komşuluklar tablosuna kayıt eklenmez, eski kayıtların tarihleri veya dışlama işaretleri değiştirilmez. Normal ham eşleşmeler mevcut kullanıcı dışlamalarını korur.
+
+VMware entegrasyonu VM kayıtlarından ayrı `record_type=host` gözlemleri toplar: ESXi host kimliği/UUID'si, VMkernel IP/MAC'i, fiziksel NIC adları/MAC'leri/link durumları ve `QueryNetworkHint` LLDP/CDP bilgileri. Host IP'si VMkernel adresiyle ve varsa gateway MAC'iyle doğrulanır. Birden fazla host/integration aynı IP'yi sahiplenirse seçim yapılmaz. Hostlar `Sanal` olarak işaretlenmez; hostname DNS'den, IP'nin MAC'i mevcut alan sözleşmesinden gelir. Fiziksel NIC MAC'leri ayrı gösterilir.
+
+NIC sahipliği doğrulanan hostun farklı kartları, aynı veya farklı switchlerdeki portlarıyla birlikte gösterilir. Hostun kendi VMkernel → standard/distributed switch → uplink ilişkisi ayrıca saklanır; diğer host ağları ayrıntıda belirtilir. NIC MAC'i veya tanımlı chassis kimliği + NIC adı olmayan görünen hostname benzerliği kanıt değildir. Bağımsız, güncel VMware switch ipuçları envanter switchinin yönetim IP'si ve güncel port adı/ifIndex ile doğrulanır; sayısal LLDP port ID'si doğrudan port etiketi yapılmaz. Yeni VMware veya VMware + güncel IPAM protokol kanıtı, geçmişte dışlanmış Komşuluklar satırından bağımsız olarak IPAM'da kullanılabilir; bu işlem silinen komşuluğu geri getirmez. FDB'de çok MAC bulunması tek başına hypervisor bağlantısı sayılmaz.
+
+Aynı fiziksel NIC için iki farklı switch/port kanıtı veya farklı host sahipliği çakışma olarak gösterilir. VMware dışındaki çoklu NIC'ler, IP/MAC ile doğrulanan ortak tipli LLDP chassis UUID/MAC kimliğiyle gruplanabilir. Salt okunur IP listesi/ayrıntı sorguları yeni ağ isteği ya da envanter/topoloji yazımı yapmaz. Kaynaklar worker'da sınırlı eşzamanlılıkla okunur; fiziksel host bilgileri sonraki başarılı tam entegrasyon okumasında kaybolursa emekliye ayrılır.
+
+Regresyonlar: `test_ipam_host_connections.py`, `test_vmware_host_adapter.py`; gerçek backend ile masaüstü/mobil ve açık/koyu tema doğrulaması: `scripts/ipam_host_browser_check.py`. API alanları mevcut JSON gözlemlerindedir; yeni tablo veya migration gerekmez. VMware API sözleşmesi: [PhysicalNicHintInfo](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.host.PhysicalNic.NetworkHint.html), [HostVirtualNicSpec](https://developer.broadcom.com/xapis/vsphere-web-services-api/latest/vim.host.VirtualNic.Specification.html).
+
 Protokol temelleri: [IP-MIB (RFC 4293)](https://www.rfc-editor.org/rfc/rfc4293.html), [Q-BRIDGE-MIB (RFC 4363)](https://www.rfc-editor.org/rfc/rfc4363.html). Davranış testleri: `test_ipam_source_contract.py`, `test_ipam_vmware_mac.py`, `test_ipam_network_worker.py`, `test_connection_inventory_boundary.py`.
 
 ## VLAN ve zamanlama

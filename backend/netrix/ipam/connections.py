@@ -180,6 +180,9 @@ class Evidence:
             if network_device(d)
         }
         self.snapshots = {}
+        self.raw_neighbors = {}
+        self.excluded_raw_neighbors = {}
+        self.exclusions = defaultdict(list)
         if not self.devices:
             self.links = []
             return
@@ -213,8 +216,29 @@ class Evidence:
                 )
             )
         )
+        from ..discovery.link_deletions import matches as excluded_match
 
-    def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway"):
+        for link in db.scalars(
+            select(m.Link).where(m.Link.device_id.in_(self.devices), m.Link.auto_add_excluded.is_(True))
+        ):
+            self.exclusions[(link.device_id, link.interface_name)].append(link)
+        for id, (obs, projected) in self.snapshots.items():
+            accepted = []
+            excluded_rows = []
+            for raw in projected["evidence"].get("neighbors", []):
+                neighbor = {"remote_name": "", "remote_port": "", "source": "lldp", **raw}
+                port = neighbor.get("interface_name")
+                if not port:
+                    continue
+                excluded = self.exclusions[(id, port)]
+                if any(excluded_match(link, neighbor) for link in excluded):
+                    excluded_rows.append(neighbor)
+                    continue
+                accepted.append(neighbor)
+            self.raw_neighbors[id] = accepted
+            self.excluded_raw_neighbors[id] = excluded_rows
+
+    def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway", host=None):
         lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
         cutoff = self.at - lifetime
         snapshots = {
@@ -252,6 +276,17 @@ class Evidence:
                 or link.last_seen_at < cutoff
             ):
                 continue
+            snapshot = snapshots.get(link.device_id)
+            if snapshot and snapshot[0].created_at >= link.last_seen_at:
+                data = snapshot[1]["evidence"]
+                complete = set(data.get("neighbor_protocols_complete") or [])
+                if data.get("failed"):
+                    continue
+                if set(link.source.split("+")) <= complete:
+                    from ..discovery.links import legacy_match
+
+                    if not any(legacy_match(link, n) for n in self.raw_neighbors.get(link.device_id, [])):
+                        continue
             links.append(
                 (
                     link.device_id,
@@ -262,6 +297,29 @@ class Evidence:
                     link.id,
                 )
             )
+        for id, (obs, p) in snapshots.items():
+            if p["evidence"].get("failed"):
+                continue
+            up = {v.get("name") for v in p["interfaces"].values() if v.get("oper_status") == "up"}
+            raw = self.raw_neighbors.get(id, [])
+            if host:
+                from .vmware_hosts import nic_for_neighbor
+
+                # Fresh protocol evidence plus authenticated VMware NIC ownership
+                # is independent of historical directory visibility. No link is restored.
+                raw = [
+                    *raw,
+                    *(
+                        n
+                        for n in self.excluded_raw_neighbors.get(id, [])
+                        if nic_for_neighbor(host, n.get("evidence") or {})
+                    ),
+                ]
+            for neighbor in raw:
+                port = neighbor["interface_name"]
+                if port not in up:
+                    continue
+                links.append((id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id))
         candidates = {}
         blocked = set()
         for id, (_, p) in snapshots.items():
@@ -272,9 +330,15 @@ class Evidence:
                 ):
                     if port:
                         blocked.add((id, port))
+        # Directory uplinks remain conservative blockers even if their direct
+        # identity was superseded by a newer snapshot.
+        for link in self.links:
+            if link.last_seen_at and link.last_seen_at >= cutoff:
+                blocked.add((link.device_id, link.interface_name))
         identities = defaultdict(list)
         direct = []
         identity_conflict = False
+        conflicting_identities = []
         for id, port, remote, data, when, proof_id in links:
             if not port:
                 continue
@@ -287,6 +351,9 @@ class Evidence:
                 normalized_mac(lldp.get("chassis_id")) if lldp.get("chassis_subtype") == 4 else "",
                 normalized_mac(lldp.get("port_id")) if lldp.get("port_subtype") == 3 else "",
             } - {""}
+            from .vmware_hosts import nic_for_neighbor
+
+            nic = nic_for_neighbor(host, data)
             address_match = any(
                 ip((data.get(protocol) or {}).get("management_address")) == row.address
                 for protocol in ("lldp", "cdp")
@@ -302,27 +369,41 @@ class Evidence:
                     uuid = str(UUID(lldp.get("chassis_id", "")))
             except (ValueError, TypeError, AttributeError):
                 pass
+            if not uuid and lldp.get("chassis_subtype") == 4:
+                chassis_mac = normalized_mac(lldp.get("chassis_id"))
+                if chassis_mac and chassis_mac in macs:
+                    uuid = "lldp-mac:" + chassis_mac
             candidate = {
                 "device_id": id,
                 "device_name": self.devices[id].name,
                 "port": port,
                 "aggregate": aggregate,
-                "source": "neighbors",
+                "source": "vcenter_host+neighbors" if nic else "neighbors",
                 "observed_at": when.isoformat(),
                 "evidence_id": proof_id,
-                "endpoint_identity": uuid,
+                "endpoint_identity": host["identity"] if nic else uuid,
+                "nic": nic["device"] if nic else "",
+                "mac_address": nic["mac_address"] if nic else "",
                 "confidence": 0.95,
             }
-            if uuid:
-                identities[uuid].append(candidate)
-            if address_match or (len(macs) == 1 and advertised & macs):
-                if address_match and len(macs) == 1 and advertised and not advertised & macs:
-                    identity_conflict = True
+            if candidate["endpoint_identity"]:
+                identities[candidate["endpoint_identity"]].append(candidate)
+            if nic or address_match or (len(macs) == 1 and advertised & macs):
+                if not nic and address_match and len(macs) == 1 and advertised and not advertised & macs:
+                    conflicting_identities.append(candidate["endpoint_identity"])
                     continue
                 # A known infrastructure peer is transit unless its advertised IP
                 # is the requested IP itself.
                 if remote not in self.devices or address_match:
                     direct.append(candidate)
+        proven_identities = {c["endpoint_identity"] for c in direct} - {None}
+        identity_conflict = any(not key or key not in proven_identities for key in conflicting_identities)
+        if host:
+            from .host_links import hint_candidates
+
+            for candidate in hint_candidates(self, host, row, snapshots):
+                direct.append(candidate)
+                identities[host["identity"]].append(candidate)
         for candidate in direct:
             group = (
                 identities[candidate["endpoint_identity"]] if candidate["endpoint_identity"] else [candidate]
@@ -358,11 +439,16 @@ class Evidence:
         values = sorted(candidates.values(), key=lambda c: (c["device_name"], c["port"]))
         identities = {c["endpoint_identity"] for c in values}
         aggregates = {(c["device_id"], c["aggregate"]) for c in values}
+        nic_locations = defaultdict(set)
+        for candidate in values:
+            if candidate.get("nic"):
+                nic_locations[candidate["nic"]].add((candidate["device_id"], candidate["port"]))
+        nic_conflict = any(len(ports) > 1 for ports in nic_locations.values())
         grouped = len(values) > 1 and (
             (len(identities) == 1 and None not in identities)
             or (len(aggregates) == 1 and values[0]["aggregate"])
         )
-        ambiguous = identity_conflict or len(macs) > 1 or (len(values) > 1 and not grouped)
+        ambiguous = nic_conflict or identity_conflict or len(macs) > 1 or (len(values) > 1 and not grouped)
         accepted = values if not ambiguous else []
         groups = {}
         for c in accepted:
@@ -371,10 +457,12 @@ class Evidence:
             )
             group["ports"].append(c["port"])
         for g in groups.values():
-            g["port_label"] = " / ".join(g["ports"])
+            g["port_label"] = (" - " if host else " / ").join(g["ports"])
         reason = (
             "Çelişkili gateway MAC kayıtları"
             if len(macs) > 1
+            else "Aynı VMware NIC için birden fazla fiziksel port kanıtı"
+            if nic_conflict
             else "Gateway ve komşuluk kimliği çelişiyor"
             if identity_conflict
             else "Birden fazla bağımsız bağlantı adayı"

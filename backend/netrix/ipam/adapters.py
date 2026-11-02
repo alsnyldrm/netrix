@@ -6,6 +6,7 @@ import ipaddress
 import json
 import ssl
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 
 from ..discovery.protocols import NetworkError
@@ -214,7 +215,21 @@ def vcenter_records(config, secret):
                     pathSet=["name", "config.key", "config.distributedVirtualSwitch"],
                 ),
                 vmodl.query.PropertyCollector.PropertySpec(
-                    type=vim.HostSystem, all=False, pathSet=["name", "config.network.portgroup"]
+                    type=vim.HostSystem,
+                    all=False,
+                    pathSet=[
+                        "name",
+                        "config.network.portgroup",
+                        "config.network.pnic",
+                        "config.network.vnic",
+                        "config.network.vswitch",
+                        "config.network.proxySwitch",
+                        "hardware.systemInfo.uuid",
+                        "config.product.fullName",
+                        "runtime.powerState",
+                        "runtime.connectionState",
+                        "configManager.networkSystem",
+                    ],
                 ),
             ],
         )
@@ -262,7 +277,31 @@ def vcenter_records(config, secret):
                         for pg in values.get("config.network.portgroup") or []
                     },
                 }
+        from . import vmware_hosts
+
+        def host_rows(item):
+            obj, values = item
+            system = values.get("configManager.networkSystem")
+            hints = {}
+            if system and values.get("runtime.connectionState", "connected") == "connected":
+                try:
+                    hints = vmware_hosts.hints(system.QueryNetworkHint())
+                except (vmodl.MethodFault, OSError):
+                    # Host ownership remains valid; never reuse old physical hints.
+                    hints = {}
+            return vmware_hosts.records(obj._moId, values, hints)
+
+        hosts = [(obj, values) for obj, values in objects if isinstance(obj, vim.HostSystem)]
+        if len(hosts) > 4096:
+            raise NetworkError("vCenter host limit exceeded")
         rows = []
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for batch in pool.map(host_rows, hosts):
+                if time.monotonic() > deadline:
+                    raise NetworkError("vCenter host read timeout")
+                rows.extend(batch)
+                if len(rows) > 100000:
+                    raise NetworkError("vCenter inventory limit exceeded")
         for obj, values in objects:
             if isinstance(obj, vim.VirtualMachine):
                 rows.extend(vm_records(obj._moId, values, networks))

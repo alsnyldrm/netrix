@@ -37,6 +37,9 @@ const sourceName = (v: string) =>
     neighbors: "Komşuluklar",
     "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
     "vcenter+vlan_fdb": "VMware + switch MAC tablosu",
+    "vcenter_host+neighbors": "VMware host + komşuluk",
+    "vcenter_host+lldp": "VMware host + LLDP",
+    "vcenter_host+cdp": "VMware host + CDP",
   })[v] || v;
 const stateName = (v: string) =>
   ({
@@ -256,7 +259,10 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                     : "Bağlantı kanıtı yok"),
               ],
               ["Lokasyon", detail.location],
-              ["VM güç durumu", stateName(detail.power_state)],
+              [
+                detail.vmware_host ? "Host güç durumu" : "VM güç durumu",
+                stateName(detail.power_state),
+              ],
               ["Ping", stateName(detail.reachability)],
               ["Son gözlem", date(detail.last_observed_at)],
             ].map(([k, v, source]) => (
@@ -271,6 +277,71 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
               </div>
             ))}
           </dl>
+          {detail.host_nics?.length > 0 && (
+            <section className="ipam-section" aria-labelledby="host-nics-title">
+              <h3 id="host-nics-title">Fiziksel ağ kartları</h3>
+              <p className="ipam-hint">
+                {detail.vmware_host?.hostname} · VMware host
+              </p>
+              <div
+                className="table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Fiziksel ağ kartları tablosu"
+              >
+                <table>
+                  <thead>
+                    <tr>
+                      {[
+                        "Ağ kartı",
+                        "MAC adresi",
+                        "Bağlantı",
+                        "Switch",
+                        "Port",
+                      ].map((label) => (
+                        <th key={label} scope="col">
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.host_nics.map((nic: Row) => {
+                      const connections = detail.connection_ambiguous
+                        ? []
+                        : (detail.connections || []).filter(
+                            (c: Row) => c.nic === nic.device,
+                          );
+                      return (
+                        <tr key={nic.device}>
+                          <td>{nic.device}</td>
+                          <td>{nic.mac_address || "—"}</td>
+                          <td>
+                            {nic.link_up ? "Bağlı" : "Bağlı değil"}
+                            {nic.carries_ip === false && (
+                              <small className="ipam-sub">Diğer ağ</small>
+                            )}
+                          </td>
+                          <td>
+                            {connections.length
+                              ? connections
+                                  .map((c: Row) => c.device_name)
+                                  .join(" / ")
+                              : "—"}
+                          </td>
+                          <td>
+                            {connections.length
+                              ? connections.map((c: Row) => c.port).join(" / ")
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
           <section className="ipam-section ipam-rack-location">
             <h3>Kabinet yerleşimi</h3>
             {detail.cabinet === "Sanal" ? (
