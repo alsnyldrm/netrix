@@ -85,7 +85,6 @@ with sync_playwright() as p:
         "groups": "Gruplar",
         "plans": "Güncelleme planları",
         "history": "İşlem geçmişi",
-        "service": "Aktarım ve kurtarma",
     }
     firmware_menu = page.locator(".nav-group").filter(
         has=page.get_by_role("button", name="Firmware", exact=True)
@@ -100,6 +99,7 @@ with sync_playwright() as p:
             group_button = firmware_menu.get_by_role("button", name="Firmware", exact=True)
             if group_button.get_attribute("aria-expanded") != "true":
                 group_button.click()
+            expect(firmware_menu.locator(".nav-item")).to_have_text(list(tabs.values()))
             firmware_menu.get_by_role("button", name=tabs[tab], exact=True).click()
             page.wait_for_load_state("networkidle")
             expect(page.get_by_role("heading", name=tabs[tab], exact=True).first).to_be_visible()

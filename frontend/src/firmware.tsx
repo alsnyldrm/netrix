@@ -24,7 +24,6 @@ const SECTIONS = [
   ["groups", "Gruplar"],
   ["plans", "Güncelleme planları"],
   ["history", "İşlem geçmişi"],
-  ["service", "Aktarım ve kurtarma"],
 ];
 const FAMILIES: Row = {
   aos_s: "ArubaOS-Switch · 5400/2920/2930",
@@ -1356,13 +1355,14 @@ export default function FirmwareWorkspace({
     write = admin || user.role === "operator";
   const search = useDeferredValue(q);
   const overview = useLiveQuery<Row>("/firmware/overview", refresh);
-  const endpoint = ["service", "history"].includes(tab)
-    ? null
-    : tab === "groups"
-      ? "/firmware/groups"
-      : tab === "plans"
-        ? `/firmware/plans?limit=30&offset=${offset}`
-        : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}`;
+  const endpoint =
+    tab === "history"
+      ? null
+      : tab === "groups"
+        ? "/firmware/groups"
+        : tab === "plans"
+          ? `/firmware/plans?limit=30&offset=${offset}`
+          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}`;
   const result = useLiveQuery<Row>(endpoint, refresh, undefined, q ? 200 : 0);
   useEffect(() => {
     setOffset(0);
@@ -1430,11 +1430,7 @@ export default function FirmwareWorkspace({
                   ? "Grupları rol ve ihtiyacınıza göre siz tanımlayın."
                   : tab === "images"
                     ? "Uyumlu modelleri ve bütünlüğü doğrulanmış imajlar."
-                    : tab === "plans"
-                      ? "Ön kontrol, hazırlama ve etkinleştirmeyi sıraya koyun."
-                      : tab === "history"
-                        ? "Tamamlanmış ve durdurulmuş işlemlerin kalıcı kaydı."
-                        : "Cihaz bağlantıları ve kurtarma davranışı."}
+                    : "Ön kontrol, hazırlama ve etkinleştirmeyi sıraya koyun."}
             </p>
           </div>
           <div className="fw-toolbar-actions">
@@ -1483,86 +1479,7 @@ export default function FirmwareWorkspace({
             Kayıtlar okunuyor…
           </p>
         )}
-        {tab === "service" ? (
-          <div className="fw-service">
-            <div className="fw-note">
-              <ShieldCheck size={24} aria-hidden="true" />
-              <div>
-                <b>
-                  {overview.data?.service.configured
-                    ? "Dosya sunucusu yapılandırıldı"
-                    : "Dosya sunucusu adresi bekleniyor"}
-                </b>
-                <p>
-                  {overview.data?.service.host ||
-                    "Sunucu adresi yapılandırılmamış"}{" "}
-                  · SCP / SFTP {overview.data?.service.sftp_port || 2222} · TFTP
-                  69
-                </p>
-                <p>
-                  Dosya erişimi yalnız çalışan işlemin hedef IP’sine, süreli ve
-                  salt okunur verilir.
-                </p>
-              </div>
-            </div>
-            <div
-              className="fw-table-scroll"
-              tabIndex={0}
-              role="region"
-              aria-label="Firmware tablosu"
-            >
-              <table className="fw-table fw-service-table">
-                <thead>
-                  <tr>
-                    <th>Cihaz ailesi</th>
-                    <th>Komut bağlantısı</th>
-                    <th>Dosya yolu</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>5400 / 2920 / 2930</td>
-                    <td>SSH</td>
-                    <td>
-                      SFTP ile cihazın kullanılmayan yazılım alanına gönderilir.
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>6100</td>
-                    <td>SSH</td>
-                    <td>Cihaz süreli SCP hesabıyla dosyayı çeker.</td>
-                  </tr>
-                  <tr>
-                    <td>HP 1950</td>
-                    <td>SSH</td>
-                    <td>
-                      Cihaz TFTP ile .ipe paketini çeker; sonraki açılış
-                      hazırlanır.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <h3>Kurtarma ve doğrulama</h3>
-            <p>
-              Her yazma öncesinde şifreli konfigürasyon yedeği alınır. Önceki
-              sürüm ve yazılım alanı işlem ayrıntısında tutulur. Eski sürüme
-              dönüş, sürümle uyumlu konfigürasyon ve üretici yönergesiyle
-              planlanmalıdır.
-            </p>
-            <p>
-              Bağlantı yazma veya yeniden başlatma sırasında kesilirse komut
-              otomatik tekrarlanmaz. Plan bekler; işlem ayrıntısından salt
-              okunur sürüm doğrulaması başlatabilirsiniz. Ulaşılamayan cihaz
-              için konsol erişimi gerekebilir.
-            </p>
-            <p>
-              Stack/VSF aynı yönetim hedefi üzerinden ele alınır. Üyeleri farklı
-              gruplarda ayrı cihazlar gibi çalıştırmayın. Kesintisiz güncelleme
-              taahhüdü yoktur.
-            </p>
-          </div>
-        ) : !result.loading && !rows.length ? (
+        {!result.loading && !rows.length ? (
           <Empty
             text={
               tab === "groups"

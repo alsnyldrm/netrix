@@ -586,13 +586,6 @@ export const PAGES: Page[] = [
     icon: HardDrives,
   },
   {
-    key: "firmware-service",
-    title: "Aktarım ve kurtarma",
-    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
-    group: "Firmware",
-    icon: HardDrives,
-  },
-  {
     key: "configuration",
     title: "Cihaz Konfigürasyonları",
     desc: "Yedeklerini ve sürüm geçmişini görüntülemek için bir cihaz seçin.",

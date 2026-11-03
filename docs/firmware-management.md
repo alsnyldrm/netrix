@@ -1,6 +1,6 @@
 # Firmware yönetimi
 
-NETRIX'in **Firmware** bölümü sol menüde **IP adres yönetimi** bölümünün hemen altındadır. Cihazlar, Firmware deposu, Gruplar, Güncelleme planları, İşlem geçmişi ve Aktarım ve kurtarma ekranlarını kapsar. Cihaz envanteri ortaktır; firmware grupları yedekleme gruplarından bağımsızdır. Kurulum boş başlar; örnek cihaz, imaj, grup veya başarılı işlem eklenmez.
+NETRIX'in **Firmware** bölümü sol menüde **IP adres yönetimi** bölümünün hemen altındadır. Cihazlar, Firmware deposu, Gruplar, Güncelleme planları ve İşlem geçmişi ekranlarını kapsar. Aktarım ve kurtarma bilgi menüsü kullanıcının 3 Kasım 2026 talebiyle kaldırılmıştır; dosya aktarım motoru ve plan ayrıntılarındaki doğrulama/kurtarma işlemleri devam eder. Cihaz envanteri ortaktır; firmware grupları yedekleme gruplarından bağımsızdır. Kurulum boş başlar; örnek cihaz, imaj, grup veya başarılı işlem eklenmez.
 
 ## Kapsam ve protokoller
 
