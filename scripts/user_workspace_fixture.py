@@ -14,7 +14,7 @@ os.environ.update(
     NETRIX_DATABASE_URL="sqlite+pysqlite:///" + str(Path(fixture.name) / "test.db"),
     NETRIX_ENCRYPTION_KEY=Fernet.generate_key().decode(),
     NETRIX_SETUP_TOKEN="workspace-browser-setup-token",
-    NETRIX_PUBLIC_URL="http://127.0.0.1:8241",
+    NETRIX_PUBLIC_URL=os.environ.get("NETRIX_BROWSER_URL", "http://127.0.0.1:8241"),
     NETRIX_SECURE_COOKIES="false",
 )
 from netrix import main, services  # noqa: E402

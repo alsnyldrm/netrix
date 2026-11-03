@@ -43,6 +43,12 @@ Sol alttaki kullanıcı adının altındaki **Profil** menüsü hesap bilgileri,
 
 Renk sistemi kaynakları: [Radix renk ölçeği rolleri](https://www.radix-ui.com/colors/docs/palette-composition/understanding-the-scale), [Material renk rolleri](https://m3.material.io/styles/color/the-color-system). Tasarım uygulaması UI UX Pro Max ile yapıldı; harici tema kütüphanesi, ağdan font, yeni runtime bağımlılığı veya ağır arka plan efekti eklenmedi.
 
+## Uygulama yazı tipi
+
+**Profil → Yazı tipi**, tema varsayılanına ek olarak IBM Plex Sans, Inter, Source Sans 3, Roboto, Open Sans, Noto Sans, Fira Sans, Work Sans, Public Sans, Manrope, DM Sans, Plus Jakarta Sans, Libre Franklin, Nunito Sans ve Lexend sunar. Örnek alan Türkçe karakterleri, farklı metin ağırlıklarını ve rakamları gösterir. Seçim `ui_font` alanıyla mevcut kullanıcı tercih JSON’unda saklanır; yeni tablo veya migration gerekmez. Eski kayıtlar `theme` varsayılanıyla mevcut tema yazılarını kullanır. Açık font seçimi bütün temalarda arayüz yazılarına uygulanır; IP/kod için monospace ve bağımsız SSH terminal görünümü korunur. Hesap değiştirme varsayılanı yeniden uygular.
+
+Fontlar sürümleri sabitlenmiş Fontsource paketlerinden derlemeye alınır; tarayıcı yalnız kullanılan yüzleri NETRIX alan adından yükler. OFL 1.1 telif ve lisans bildirimleri `/fonts/licenses/` altında dağıtılır. `scripts/application_fonts_browser_check.py`, 15 fontun yerel dosyadan gerçekten yüklenmesini, Türkçe karakterler için normal/orta/yarı kalın/kalın yüzleri, tema/palet ve yenileme sonrası kalıcılığı, hesap ayrımını ve masaüstü/mobil hizalama ile erişilebilirliği denetler.
+
 ## Şema ve doğrulama
 
 Alembic `20261103_34` çalışma alanı tablolarını ekler. `20261103_36`, eski etkin gruplarda yönetici tarafından açıkça yetkilendirilmiş kullanıcılara SSH rolünü aktarır, grup yetki sütununu ve grup-kullanıcı tablosunu kaldırır; cihaz üyelikleri, sahiplik ve şifreli bilgiler korunur. Önceki cihaz bazlı kapsam yeni bağımsız rol ile envanter kapsamına genişler. Atanmış SSH rolleri varken revision 35’e downgrade reddedilir. Kayıtlı çalışma alanı veya grup varken downgrade veri kaybına karşı reddedilir. Önce kayıtlar açıkça kaldırılmalıdır.

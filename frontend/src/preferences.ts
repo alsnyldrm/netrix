@@ -1,3 +1,6 @@
+import { applyApplicationFont } from "./application-fonts";
+import type { ApplicationFont } from "./application-fonts";
+
 export type TerminalAppearance = {
   font: "ubuntu" | "plex" | "system";
   font_size: number;
@@ -15,6 +18,7 @@ export const defaultTerminalAppearance: TerminalAppearance = {
   commands_collapsed: false,
 };
 export type Preferences = {
+  ui_font: ApplicationFont;
   palette: string;
   design: string;
   timezone: string;
@@ -24,6 +28,7 @@ export type Preferences = {
   terminal: TerminalAppearance;
 };
 export const defaultPreferences: Preferences = {
+  ui_font: "theme",
   palette: "cobalt",
   design: "atlas",
   timezone: "Europe/Istanbul",
@@ -38,6 +43,7 @@ export function applyPreferences(value: Preferences) {
   value.terminal = { ...defaultTerminalAppearance, ...value.terminal };
   active = value;
   const root = document.documentElement;
+  applyApplicationFont(value.ui_font);
   root.dataset.palette = value.palette;
   root.dataset.design = value.design;
   root.dataset.compact = String(value.features.includes("compact_tables"));

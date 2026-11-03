@@ -14,6 +14,7 @@ import {
   Trash,
   MagnifyingGlass,
   ShieldCheck,
+  TextAa,
 } from "@phosphor-icons/react";
 import { Filters } from "./inventory";
 import { api, useLiveQuery } from "./data";
@@ -27,6 +28,8 @@ import type { Preferences } from "./preferences";
 import "./user-workspace.css";
 import { applicationThemes, colorPalettes } from "./appearance";
 import { canSSH } from "./permissions";
+import { applicationFonts } from "./application-fonts";
+import type { ApplicationFont } from "./application-fonts";
 type Row = Record<string, any>;
 export function Profile({
   user,
@@ -72,6 +75,7 @@ export function Profile({
     ["account", "Hesabım", UserCircle],
     ["design", "Tema", SquaresFour],
     ["palette", "Renk paleti", Palette],
+    ["font", "Yazı tipi", TextAa],
     ["region", "Tarih, saat ve bölge", Clock],
     ["features", "Özellikler", SlidersHorizontal],
     ["ssh", "SSH Bağlantısı", Key],
@@ -213,6 +217,66 @@ export function Profile({
                   </button>
                 ))}
               </div>
+            </>
+          )}
+          {tab === "font" && (
+            <>
+              <h3>Uygulama yazı tipi</h3>
+              <p className="muted" id="application-font-help">
+                Menüler, başlıklar, tablolar ve formlar için 15 kurumsal yazı
+                tipinden birini seçin. Seçiminiz hesabınıza kaydedilir ve tüm
+                temalarda uygulanır.
+              </p>
+              <label className="application-font-picker">
+                Yazı tipi
+                <select
+                  name="ui-font"
+                  value={values.ui_font}
+                  disabled={busy}
+                  aria-describedby="application-font-help"
+                  onChange={(e) =>
+                    void save({
+                      ...values,
+                      ui_font: e.target.value as ApplicationFont,
+                    })
+                  }
+                >
+                  <option value="theme">Tema varsayılanı</option>
+                  {applicationFonts.map((font) => (
+                    <option key={font.id} value={font.id}>
+                      {font.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <section
+                className="application-font-preview"
+                aria-label="Yazı tipi önizlemesi"
+              >
+                <span className="eyebrow">
+                  {applicationFonts.find((font) => font.id === values.ui_font)
+                    ?.name || "Tema varsayılanı"}
+                </span>
+                <h4>Ağınızın tamamı, tek çalışma alanı.</h4>
+                <p>
+                  Cihaz envanteri, bağlantılar ve ağ yönetimi. Çç Ğğ Iı İi Öö Şş
+                  Üü.
+                </p>
+                <dl className="application-font-samples">
+                  <div>
+                    <dt>Envanter</dt>
+                    <dd>Cihaz yönetimi</dd>
+                  </div>
+                  <div>
+                    <dt>Durum</dt>
+                    <dd>Bağlantı etkin</dd>
+                  </div>
+                  <div>
+                    <dt>Rakamlar</dt>
+                    <dd>0123456789</dd>
+                  </div>
+                </dl>
+              </section>
             </>
           )}
           {tab === "region" && (

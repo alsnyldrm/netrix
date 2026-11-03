@@ -118,7 +118,7 @@ def test_preferences_single_row_validation_and_saved_commands(admin_client, env)
 
 
 def test_terminal_preferences_preserve_workspace_and_validate_bounds(admin_client, env):
-    original = {"palette": "amber", "design": "focus", "timezone": "UTC", "features": []}
+    original = {"palette": "amber", "design": "focus", "timezone": "UTC", "features": [], "ui_font": "inter"}
     assert admin_client.put("/api/v1/access/preferences", json=original).status_code == 200
     defaults = admin_client.get("/api/v1/access/preferences").json()["terminal"]
     assert defaults["font"] == "ubuntu" and defaults["background"] == "#300a24"
@@ -709,6 +709,7 @@ def test_appearance_defaults_and_isolation(admin_client, target, env):
         db.add(m.UserWorkspace(user_id=owner.id, preferences={"palette": "amber", "timezone": "UTC"}))
         db.commit()
     assert admin_client.get("/api/v1/access/preferences").json()["design"] == "atlas"
+    assert admin_client.get("/api/v1/access/preferences").json()["ui_font"] == "theme"
     for design in ("atlas", "orbit", "terminal", "panorama", "focus"):
         result = admin_client.put("/api/v1/access/preferences", json={"design": design, "palette": "amber"})
         assert result.status_code == 200 and result.json()["design"] == design
@@ -724,6 +725,48 @@ def test_appearance_defaults_and_isolation(admin_client, target, env):
     )
     prefs = admin_client.get("/api/v1/access/preferences").json()
     assert prefs["palette"] == "cobalt" and prefs["design"] == "atlas"
+    assert prefs["ui_font"] == "theme"
+
+
+def test_application_fonts_persist_validate_and_remain_personal(admin_client, target, env):
+    original = admin_client.get("/api/v1/access/preferences").json()
+    for font in (
+        "ibm-plex-sans",
+        "inter",
+        "source-sans-3",
+        "roboto",
+        "open-sans",
+        "noto-sans",
+        "fira-sans",
+        "work-sans",
+        "public-sans",
+        "manrope",
+        "dm-sans",
+        "plus-jakarta-sans",
+        "libre-franklin",
+        "nunito-sans",
+        "lexend",
+        "theme",
+    ):
+        expected = {**original, "ui_font": font}
+        result = admin_client.put("/api/v1/access/preferences", json=expected)
+        assert result.status_code == 200
+        assert admin_client.get("/api/v1/access/preferences").json() == expected
+    expected = {**original, "ui_font": "inter"}
+    admin_client.put("/api/v1/access/preferences", json=expected)
+    for invalid in ("unknown", "url(https://untrusted.test/font.woff2)", "Inter;display:none", None):
+        assert (
+            admin_client.put("/api/v1/access/preferences", json={**original, "ui_font": invalid}).status_code
+            == 422
+        )
+    assert admin_client.get("/api/v1/access/preferences").json() == expected
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.UserWorkspace)) == 1
+    admin_client.post("/api/v1/auth/logout")
+    admin_client.post(
+        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
+    )
+    assert admin_client.get("/api/v1/access/preferences").json()["ui_font"] == "theme"
 
 
 def test_batch_tab_draft_is_encrypted_bounded_and_never_executes(admin_client, target, env, monkeypatch):

@@ -20,6 +20,24 @@ class TerminalAppearance(Input):
 
 
 class Preferences(Input):
+    ui_font: Literal[
+        "theme",
+        "ibm-plex-sans",
+        "inter",
+        "source-sans-3",
+        "roboto",
+        "open-sans",
+        "noto-sans",
+        "fira-sans",
+        "work-sans",
+        "public-sans",
+        "manrope",
+        "dm-sans",
+        "plus-jakarta-sans",
+        "libre-franklin",
+        "nunito-sans",
+        "lexend",
+    ] = "theme"
     palette: Literal[
         "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo"
     ] = "cobalt"
