@@ -1,0 +1,429 @@
+.ssh-launch-cell {
+  width: 52px;
+  text-align: center;
+}
+.ssh-launch-cell .icon-button {
+  color: var(--accent);
+}
+.ssh-dialog {
+  padding: 0;
+  width: min(1180px, calc(100vw - 48px));
+  height: min(740px, calc(100dvh - 72px));
+  max-width: none;
+  max-height: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.ssh-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.ssh-dialog::backdrop {
+  background: var(--scrim);
+}
+.ssh-dialog.ssh-full {
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+.ssh-header {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.ssh-heading {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.ssh-heading > svg {
+  color: var(--accent);
+  flex: none;
+}
+.ssh-heading h2 {
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ssh-heading .mono {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+.ssh-window-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.ssh-window-actions button {
+  width: 36px;
+  height: 36px;
+}
+.ssh-state {
+  font-size: 0.75rem;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.state-connected,
+.state-succeeded {
+  color: var(--success);
+}
+.state-failed,
+.state-cancelled {
+  color: var(--danger);
+}
+.state-running,
+.state-queued,
+.state-reconnecting {
+  color: var(--warning);
+}
+.ssh-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.ssh-body.with-commands {
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+.ssh-terminal {
+  min-width: 0;
+  min-height: 0;
+  background: #0b1220;
+  padding: 12px;
+  overflow: hidden;
+}
+.ssh-terminal .xterm {
+  height: 100%;
+}
+.ssh-commands {
+  border-left: 1px solid var(--border);
+  padding: 16px;
+  overflow: auto;
+  min-width: 0;
+}
+.ssh-commands-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ssh-commands h3 {
+  font-size: 0.9rem;
+}
+.ssh-commands form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ssh-commands label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+.ssh-commands textarea {
+  font-family: var(--font-mono);
+}
+.ssh-command-list {
+  display: grid;
+  gap: 8px;
+}
+.ssh-command-list > div {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ssh-command-list button {
+  min-height: 38px;
+}
+.ssh-command-run {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  padding: 8px;
+  text-align: left;
+  background: var(--surface-2);
+}
+.ssh-command-run span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ssh-command-run svg {
+  flex: none;
+  color: var(--accent);
+}
+.ssh-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--text-2);
+  flex: none;
+}
+.ssh-error {
+  padding: 10px 16px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  flex: none;
+  font-size: 0.85rem;
+}
+.ssh-dock {
+  position: fixed;
+  z-index: 45;
+  bottom: 12px;
+  left: calc(var(--sidebar-w) + 20px);
+  right: 20px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  overflow-x: auto;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+}
+.ssh-dock > span {
+  color: var(--text-2);
+  font-size: 0.75rem;
+  padding: 0 4px;
+  flex: none;
+}
+.ssh-dock > div {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  flex: none;
+  background: var(--surface-2);
+}
+.ssh-dock button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+}
+.ssh-dock button:first-child span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+.app-shell:has(.ssh-dock) .workspace {
+  padding-bottom: 90px;
+}
+.collapsed .ssh-dock {
+  left: 100px;
+}
+.ssh-batch {
+  padding: 20px 24px;
+}
+.ssh-batch > p {
+  margin-bottom: 16px;
+  color: var(--text-2);
+}
+.ssh-batch form > label {
+  display: grid;
+  gap: 6px;
+}
+.ssh-batch textarea {
+  font-family: var(--font-mono);
+}
+.batch-submit {
+  display: flex;
+  gap: 16px;
+  align-items: end;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+.batch-submit label {
+  display: grid;
+  gap: 6px;
+  max-width: 230px;
+}
+.batch-summary {
+  padding: 12px 0;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+.batch-results {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  height: 300px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.batch-results > nav {
+  overflow: auto;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+}
+.batch-results nav button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.batch-results nav button.selected {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 var(--accent);
+}
+.batch-results nav b {
+  font-size: 0.85rem;
+}
+.batch-results nav small {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+.batch-results > section {
+  overflow: auto;
+  padding: 16px;
+  min-width: 0;
+}
+.batch-results h3 {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+.batch-results pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.standalone-terminal {
+  padding: 24px;
+}
+.standalone-terminal h1 {
+  font-size: 1.25rem;
+  margin-bottom: 16px;
+}
+@media (max-width: 1023px) {
+  .ssh-dock,
+  .collapsed .ssh-dock {
+    left: 12px;
+    right: 12px;
+  }
+}
+@media (max-width: 650px) {
+  .ssh-dialog {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  .ssh-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .ssh-heading {
+    flex: 1;
+  }
+  .ssh-heading > div {
+    min-width: 0;
+  }
+  .ssh-heading h2 {
+    max-width: 190px;
+  }
+  .ssh-window-actions {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px solid var(--border);
+    padding-top: 4px;
+  }
+  .ssh-window-actions button {
+    width: 40px;
+    height: 40px;
+  }
+  .ssh-body.with-commands {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 1fr) auto;
+  }
+  .ssh-commands {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding: 12px;
+    max-height: 210px;
+  }
+  .ssh-command-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ssh-terminal {
+    padding: 8px;
+  }
+  .ssh-footer {
+    font-size: 0.65rem;
+    padding: 8px;
+    gap: 8px;
+  }
+  .ssh-batch {
+    padding: 16px;
+  }
+  .batch-submit {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .batch-submit label {
+    max-width: none;
+  }
+  .batch-results {
+    grid-template-columns: 1fr;
+    grid-template-rows: 130px minmax(150px, 1fr);
+    height: 330px;
+  }
+  .batch-results > nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .batch-results nav button {
+    grid-template-columns: 1fr auto;
+  }
+  .batch-results nav button small {
+    grid-row: 2;
+  }
+  .batch-results nav button .ssh-state {
+    grid-column: 2;
+    grid-row: 1/3;
+    align-self: center;
+  }
+}
+.dialog .ssh-batch form {
+  padding: 0;
+}
+.ssh-dialog,
+.ssh-dock,
+.batch-results > nav,
+.group-device-list {
+  overscroll-behavior: contain;
+}

@@ -8,6 +8,8 @@ RUN npm run build
 FROM redis:8.2.2-bookworm AS redis
 
 FROM python:3.13.7-slim-bookworm
+ARG NETRIX_REVISION=development
+LABEL org.opencontainers.image.revision=$NETRIX_REVISION
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/backend
 WORKDIR /app
 COPY requirements.txt requirements.lock ./

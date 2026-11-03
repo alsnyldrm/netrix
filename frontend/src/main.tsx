@@ -1,3 +1,10 @@
+import { Profile, SSHSettings, AccessGroups } from "./user-workspace";
+import { SSHWorkspace } from "./ssh-workspace";
+import {
+  applyPreferences,
+  defaultPreferences,
+  formatDate,
+} from "./preferences";
 import { DevicePatchInfo } from "./patch-panels";
 import {
   api,
@@ -152,6 +159,20 @@ export const PAGES: Page[] = [
     desc: "Ağınızdaki her bağlantı, tek bir bakışta.",
     group: "Genel bakış",
     icon: SquaresFour,
+  },
+  {
+    key: "ssh-settings",
+    title: "SSH Bağlantısı",
+    desc: "Cihaz bağlantılarınız için kişisel SSH hesabınız.",
+    group: "Cihaz yetkisi",
+    icon: Key,
+  },
+  {
+    key: "access-groups",
+    title: "Cihaz grupları",
+    desc: "Cihaz grupları ve kullanıcı bazında SSH erişimi.",
+    group: "Cihaz yetkisi",
+    icon: ShieldCheck,
   },
   {
     key: "devices",
@@ -817,6 +838,7 @@ const GROUPS = [
   "Firmware",
   "Konfigürasyon",
   "Operasyon",
+  "Cihaz yetkisi",
   "Yönetim",
 ];
 type Theme = "light" | "dark";
@@ -936,15 +958,7 @@ const LABELS: Record<string, string> = {
   admin: "Yönetici",
 };
 export const tag = (v: string) => LABELS[v] || v;
-export const date = (v: any) =>
-  v
-    ? new Date(v).toLocaleString("tr-TR", {
-        day: "2-digit",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "—";
+export const date = formatDate;
 export const speed = (v: any) =>
   v == null
     ? "—"
@@ -1854,13 +1868,7 @@ function Overview({
         </div>
         <div className="day-marker">
           <Clock size={18} />
-          <span>
-            {new Date().toLocaleDateString("tr-TR", {
-              weekday: "long",
-              day: "numeric",
-              month: "long",
-            })}
-          </span>
+          <span>{formatDate(new Date(), true)}</span>
         </div>
       </div>
       <div className="metrics">
@@ -2382,6 +2390,10 @@ function Settings({
   );
 }
 function App() {
+  const terminalId = /^\/terminal\/([a-f0-9-]{36})$/.exec(
+    location.pathname,
+  )?.[1];
+  const [profileOpen, setProfileOpen] = useState(false);
   const [user, setUser] = useState<Row | null>(null);
   const [boot, setBoot] = useState(true);
   const [current, setCurrent] = useState(
@@ -2439,6 +2451,24 @@ function App() {
     window.addEventListener("netrix:session-expired", expired);
     return () => window.removeEventListener("netrix:session-expired", expired);
   }, []);
+  useEffect(() => {
+    applyPreferences(defaultPreferences);
+    if (!user) return;
+    let active = true;
+    api("/access/preferences")
+      .then((value) => {
+        if (active) {
+          applyPreferences(value);
+          setRefresh((n) => n + 1);
+        }
+      })
+      .catch((e) => {
+        if (active) setToast(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
   const canWrite = user?.role === "admin" || user?.role === "operator";
   const isAdmin = user?.role === "admin";
   const notify = useCallback((message: string) => {
@@ -2564,7 +2594,7 @@ function App() {
   if (user?.role !== "admin") referenceNames.delete("users");
   const referencesKey = [...referenceNames].sort().join(",");
   const referenceQuery = useLiveQuery<Record<string, Row[]>>(
-    user ? `references:${user.id}:${referencesKey}` : null,
+    user && !terminalId ? `references:${user.id}:${referencesKey}` : null,
     referenceRefresh +
       (["overview", "topology", "neighbors"].includes(page.key) ? refresh : 0),
     async () =>
@@ -2594,7 +2624,10 @@ function App() {
       ...referenceQuery.data,
     };
   const refs = referenceSnapshot.current.values;
-  const dashboardQuery = useLiveQuery(user ? "/dashboard" : null, refresh);
+  const dashboardQuery = useLiveQuery(
+    user && !terminalId ? "/dashboard" : null,
+    refresh,
+  );
   const dashboard: Row = dashboardQuery.data || {};
   const dedicated = [
     "devices",
@@ -2631,7 +2664,7 @@ function App() {
     setError(issue);
   }, [tableQuery.error, referenceQuery.error, dashboardQuery.error]);
   useEffect(() => {
-    if (!user) return;
+    if (!user || terminalId) return;
     let socket: WebSocket | undefined;
     let reconnect: ReturnType<typeof setTimeout>;
     let closed = false;
@@ -2824,6 +2857,8 @@ function App() {
         }}
       />
     );
+  if (terminalId)
+    return <SSHWorkspace key={user.id} standaloneId={terminalId} />;
   return (
     <div
       className={
@@ -2948,6 +2983,17 @@ function App() {
           <span className="sidebar-user-text">
             <b>{user.display_name}</b>
             <small>{tag(user.role)}</small>
+            <button
+              className="text-button sidebar-profile"
+              onClick={() => {
+                setProfileOpen(true);
+                setDrawer(false);
+              }}
+              aria-label="Profil"
+            >
+              <GearSix size={15} />
+              Profil
+            </button>
           </span>
           <button
             className="icon-button"
@@ -3091,7 +3137,11 @@ function App() {
                 </button>
               </div>
             )}
-            {page.key === "overview" ? (
+            {page.key === "ssh-settings" ? (
+              <SSHSettings />
+            ) : page.key === "access-groups" ? (
+              <AccessGroups user={user} />
+            ) : page.key === "overview" ? (
               <Overview
                 dashboard={dashboard}
                 refs={refs}
@@ -3646,6 +3696,14 @@ function App() {
           </div>
         </main>
       </div>
+      <SSHWorkspace key={user.id} />
+      {profileOpen && (
+        <Profile
+          user={user}
+          onClose={() => setProfileOpen(false)}
+          onChanged={() => setRefresh((n) => n + 1)}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <Info size={20} />

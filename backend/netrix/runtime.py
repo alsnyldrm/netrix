@@ -18,6 +18,7 @@ PROCESSES = {
     "netrix-scheduler",
     "netrix-tests",
     "netrix-firmware",
+    "netrix-ssh",
 }
 
 
@@ -64,6 +65,10 @@ def health():
         age = (datetime.now(UTC) - datetime.fromisoformat(value)).total_seconds()
         if not -5 <= age < 90:
             raise RuntimeError("A NETRIX process heartbeat is stale")
+
+    stamp = redis_client().get("netrix:ssh:heartbeat")
+    if not stamp or datetime.now(UTC).timestamp() - float(stamp) > 30:
+        raise RuntimeError("SSH worker heartbeat is stale")
 
 
 def main():

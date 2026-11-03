@@ -613,3 +613,32 @@ class SystemState(Base):
     __tablename__ = "system_state"
     key: Mapped[str] = mapped_column(String(40), primary_key=True)
     value: Mapped[str] = mapped_column(String(100))
+
+
+class UserWorkspace(Base):
+    __tablename__ = "user_workspaces"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    preferences: Mapped[dict] = mapped_column(JSON, default=dict)
+    encrypted_ssh: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_commands: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AccessGroup(Entity, Base):
+    __tablename__ = "access_groups"
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(String(400), default="")
+    ssh_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_access_group_owner_name"),)
+
+
+class AccessGroupDevice(Base):
+    __tablename__ = "access_group_devices"
+    group_id: Mapped[str] = mapped_column(ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True)
+
+
+class AccessGroupUser(Base):
+    __tablename__ = "access_group_users"
+    group_id: Mapped[str] = mapped_column(ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True)

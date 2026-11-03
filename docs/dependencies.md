@@ -53,6 +53,8 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 | @fontsource/ibm-plex-mono | 5.3.0 | OFL-1.1 |
 | @fontsource/ibm-plex-sans | 5.3.0 | OFL-1.1 |
 | @phosphor-icons/react | 2.1.10 | MIT |
+| @xterm/xterm | 6.0.0 | MIT |
+| @xterm/addon-fit | 0.11.0 | MIT |
 | react | 19.3.1 | MIT |
 | react-dom | 19.3.1 | MIT |
 | @types/react | 19.3.0 | MIT |
@@ -79,3 +81,5 @@ XLSX içe/dışa aktarımı openpyxl ile yapılır; defusedxml XML entity saldı
 Yeni doğrudan bağımlılıklar: `pyvmomi==9.1.1.0` (Apache-2.0, vSphere Web Services), `pywinrm==0.5.0` (MIT, Windows DHCP WinRM), `dnspython==2.9.1` (ISC, seçilen DNS sunucusundan PTR). Yeni dolaylı paketler: requests 2.34.2 (Apache-2.0), requests-ntlm 1.3.0 (ISC), pyspnego 0.12.4 (MIT), xmltodict 1.0.4 (MIT), charset-normalizer 3.5.2 (MIT), urllib3 2.8.0 (MIT). Sürümler lock dosyasına eklendi; dağıtım metadata/lisansları kurulu wheel’lerden kontrol edildi. Paketler değiştirilmedi ve lisans bildirimleri image içinde korunur.
 
 Debian `iputils-ping` (BSD-3-Clause/GPL-2.0-or-later, paket copyright dosyası image içinde) ICMP için kullanılır. Ping binary’sinin `cap_net_raw` dosya capability’si imajda kaldırılır. `net.ipv4.ping_group_range=10001 10001` yalnız NETRIX kullanıcısına ping datagram soketi açma izni verir; `cap_drop: ALL` ve `no-new-privileges` korunur.
+
+SSH terminali için xterm.js ve boyutlandırma eklentisi değiştirilmeden kullanılır; sürümler `package-lock.json` içinde sabittir ve iki paketin MIT bildirimleri `frontend/public/third-party-notices.txt` içinde dağıtılır. Terminal ilk açılışta yerel paketten yüklenir; CDN, URL veya sistem panosu eklentisi yoktur. [Terminal güvenlik rehberi](https://xtermjs.org/docs/guides/security/) ve [AsyncSSH API](https://asyncssh.readthedocs.io/en/latest/api.html) uygulanmıştır.

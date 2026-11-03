@@ -61,9 +61,17 @@ def test_container_health_requires_all_processes_and_fresh_heartbeats(monkeypatc
     body = b'{"status":"unavailable"}' if fault == "database" else b'{"status":"ok"}'
     monkeypatch.setattr(runtime.urllib.request, "urlopen", lambda *args, **kwargs: io.BytesIO(body))
     timestamp = datetime.now(UTC) - timedelta(seconds=100 if fault == "stale" else 0)
-    monkeypatch.setattr(core, "redis_client", lambda: SimpleNamespace(
-        get=lambda key: None if fault == "missing" else timestamp.isoformat(),
-    ))
+    monkeypatch.setattr(
+        core,
+        "redis_client",
+        lambda: SimpleNamespace(
+            get=lambda key: (
+                None
+                if fault == "missing"
+                else (str(timestamp.timestamp()) if key == "netrix:ssh:heartbeat" else timestamp.isoformat())
+            ),
+        ),
+    )
     if fault:
         with pytest.raises(RuntimeError):
             runtime.health()

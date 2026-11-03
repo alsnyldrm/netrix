@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from . import models as m
 from . import schemas as s
 from . import services as svc
+from .access.api import router as access_router
 from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
@@ -604,6 +605,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
     delete_snapshot(db, id, user)
 
 
+app.include_router(access_router)
 app.include_router(firmware_router)
 app.include_router(ipam_router)
 app.include_router(patch_router)

@@ -201,3 +201,9 @@ Ekran, cihaza henüz bağlanılmadığını, SSH okumasını, iptali ve nihai so
 Doğrulama: `tests/test_interactive_comparison.py` uzun keşif sürerken bir saniye içinde başlayan sahte okuma, aynı isteğin tekrar güvenliği, farklı yedeği mevcut işin üzerine yazmama, dolu/kapalı hizmette kuyruk bırakmama, zaman aşımında tekrar etmeme ve iki saniye içinde çalışan okumanın iptalini sınar. Altı test geçti; mevcut etkileşimli dispatch, FortiOS, yedek biçim ve envanter testleri de geçti. `scripts/backup_comparison_browser_check.py` 1440/açık ve 375/koyu ekranlarda bekliyor/çalışıyor/iptal/hata/başarı durumlarını, hizalamayı ve Axe A/AA kontrollerini geçti.
 
 Canlı teşhiste kullanıcı karşılaştırması 129 saniyedir `queued`, deneme sayısı sıfırdı; normal worker 13 dakikayı aşan keşifteydi. Kullanıcının zaten başlattığı iş mevcut etkileşimli çalıştırıcıya taşınınca tek SSH denemesinde başarıyla sonuçlandı. Konfigürasyon ve sırlar teşhis çıktısına yazılmadı.
+
+## Kişisel SSH çalışma alanı
+
+Aynı `netrix-app` container içinde `netrix-ssh` süreci çalışır; ek servis/container veya yayımlanan SSH portu yoktur. İstemci HTTPS WebSocket kullanır, worker cihazın kayıtlı IP'sine ve kişisel profildeki porta bağlanır. Mevcut Nginx `/` konumundaki WebSocket Upgrade başlıkları ve 90 saniye proxy timeout'u korunur; uygulama en fazla 10 saniyede durum paketi gönderir. `python -m netrix.runtime health` SSH worker sürecini ve 30 saniyeden yeni heartbeat'ini de gerektirir.
+
+Migration `20261103_34` dört küçük yetki/çalışma alanı tablosu ekler. Mevcut kullanıcı/cihaz profilleri taşınmaz ve kendiliğinden cihaz bağlantısı kurulmaz. Kullanıcı önce Cihaz yetkisi → SSH Bağlantısı altında kendi hesabını kaydeder; yönetici gruptan erişim atar. Uygulama yöneticisi uygun envanter cihazlarına doğrudan erişebilir. Terminal ve toplu sonuçlar MariaDB'ye yazılmaz. [Kullanım, sınırlar ve geri dönüş](ssh-workspace.md).

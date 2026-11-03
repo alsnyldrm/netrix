@@ -1,7 +1,9 @@
+import { openSSH, sendBulkCommand } from "./ssh-workspace";
 import { useLiveQuery } from "./data";
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Funnel,
+  TerminalWindow,
   Columns,
   Trash,
   PencilSimple,
@@ -666,8 +668,9 @@ export function InventoryTable({
         (writable && onEdit) ||
         (user.role === "admin" && onDelete),
       ));
+  const sshActions = resource === "devices" && purpose === "devices";
   const selectRows =
-    writable &&
+    (writable || sshActions) &&
     (!archive || user.role === "admin") &&
     purpose !== "interface-devices" &&
     (["devices", "interfaces"].includes(resource) ||
@@ -789,6 +792,19 @@ export function InventoryTable({
           className={`inventory-selection${archive ? " archive-selection" : ""}`}
         >
           <b role="status">{selected.length} kayıt seçildi</b>
+          {sshActions && (
+            <button
+              className="secondary"
+              onClick={() =>
+                sendBulkCommand(
+                  data.items.filter((r: Row) => selected.includes(r.id)),
+                )
+              }
+            >
+              <TerminalWindow size={16} />
+              Toplu komut gönder
+            </button>
+          )}
           {restorable ? (
             <button
               className="secondary"
@@ -798,7 +814,7 @@ export function InventoryTable({
               <ArrowCounterClockwise size={16} />
               {archive ? "Toplu geri yükle" : "Geri yükle"}
             </button>
-          ) : resource === "devices" ? (
+          ) : resource === "devices" && writable ? (
             <button className="secondary" onClick={() => setDialog("bulk")}>
               <PencilSimple size={16} />
               {purpose === "backup-settings"
@@ -850,6 +866,11 @@ export function InventoryTable({
         >
           <thead>
             <tr>
+              {sshActions && (
+                <th className="ssh-launch-cell" aria-label="SSH bağlantısı">
+                  <TerminalWindow size={18} aria-hidden="true" />
+                </th>
+              )}
               {selectRows && (
                 <th className="selection-cell">
                   <label
@@ -938,7 +959,8 @@ export function InventoryTable({
                         colSpan={
                           visible.length +
                           (hasActions ? 1 : 0) +
-                          (selectRows ? 1 : 0)
+                          (selectRows ? 1 : 0) +
+                          (sshActions ? 1 : 0)
                         }
                       >
                         {row[group] || "Grupsuz"}
@@ -954,6 +976,23 @@ export function InventoryTable({
                         : undefined
                   }
                 >
+                  {sshActions && (
+                    <td className="ssh-launch-cell">
+                      <button
+                        className="icon-button"
+                        aria-label={`${row.name} SSH bağlantısı`}
+                        title="SSH bağlantısı"
+                        disabled={
+                          !["active", "maintenance"].includes(
+                            row.lifecycle_status,
+                          )
+                        }
+                        onClick={() => openSSH(row)}
+                      >
+                        <TerminalWindow size={19} />
+                      </button>
+                    </td>
+                  )}
                   {selectRows && (
                     <td className="selection-cell">
                       <label
