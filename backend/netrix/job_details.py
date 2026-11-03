@@ -8,6 +8,10 @@ from . import models as m
 from .core import now
 
 DESCRIPTIONS = {
+    "ipam_address_scan": (
+        "Tek IP taraması",
+        "Yalnızca seçilen IP adresinin ping, DNS ve kaynak eşleştirmelerini günceller. Diğer IP kayıtlarını ve VLAN zamanlamasını değiştirmez.",
+    ),
     "discovery": (
         "SNMP ağ keşfi",
         "Seçilen ağ kapsamındaki IP adreslerine SNMP ile bağlanır. Yanıt veren cihazların adını, modelini, portlarını ve LLDP/CDP komşularını okuyarak yalnızca cihaz envanterini günceller.",
@@ -56,6 +60,8 @@ DESCRIPTIONS = {
 
 
 def target_model(kind):
+    if kind == "ipam_address_scan":
+        return m.IPAddress
     if kind == "discovery":
         return m.Scope
     if kind in ("ipam_ping", "ipam_discover"):
@@ -134,7 +140,7 @@ def details(db, job):
     else:
         paragraphs.append("Görev tamamlanamadı.")
     result = job.result or {}
-    if job.kind in ("discovery", "ipam_ping", "ipam_discover") and "reachable" in result:
+    if job.kind in ("discovery", "ipam_ping", "ipam_discover", "ipam_address_scan") and "reachable" in result:
         paragraphs.append(
             f"Yanıt veren: {result['reachable']}. Yanıt alınamayan: {result.get('unresponsive', result.get('no_reply', 0))}."
         )
@@ -142,7 +148,7 @@ def details(db, job):
         paragraphs.append(
             f"Okunan kayıt: {result.get('observed', 0)}. İşlenen IP kaydı: {result['imported']}."
         )
-    if job.kind == "ipam_discover" and result.get("network"):
+    if job.kind in ("ipam_discover", "ipam_address_scan") and result.get("network"):
         network = result["network"]
         paragraphs.append(
             f"Gateway/switch kaynakları: {network['read']} okundu, {network['failed']} okunamadı."

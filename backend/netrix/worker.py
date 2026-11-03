@@ -644,7 +644,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
             elif kind == MAC_KIND and result.get("failed"):
                 job.status = "partial" if result.get("read") else "failed"
                 job.error = "Bazı switch MAC kaynakları okunamadı; kaynak ve SNMP profillerini kontrol edin."
-            elif kind == "ipam_discover" and (
+            elif kind in ("ipam_discover", "ipam_address_scan") and (
                 (result.get("network") or {}).get("failed") or result.get("source_failed")
             ):
                 job.status = "partial"
@@ -745,10 +745,13 @@ async def worker_loop():
                 while (
                     not stop and sum(kind != "ipam_ping" for kind, _ in tasks.values()) < BACKGROUND_CAPACITY
                 ):
-                    scans = sum(kind in ("discovery", "ipam_discover") for kind, _ in tasks.values())
+                    scans = sum(
+                        kind in ("discovery", "ipam_discover", "ipam_address_scan")
+                        for kind, _ in tasks.values()
+                    )
                     job_id = claim(
                         interactive=False,
-                        exclude_kinds=("ipam_ping", "discovery", "ipam_discover")
+                        exclude_kinds=("ipam_ping", "discovery", "ipam_discover", "ipam_address_scan")
                         if scans >= DISCOVERY_CAPACITY
                         else ("ipam_ping",),
                         exclude_targets=tuple(

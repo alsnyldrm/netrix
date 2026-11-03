@@ -1,4 +1,4 @@
-import { hasAdminAccess } from "./permissions";
+import { hasAdminAccess, canOperate } from "./permissions";
 import { useLiveQuery } from "./data";
 import React, { useEffect, useState } from "react";
 import {
@@ -226,17 +226,115 @@ function useIPAMUpdates(vlanId?: string) {
   return revision;
 }
 
-function AddressDetail({ row, close }: { row: Row; close: () => void }) {
+function AddressDetail({
+  row,
+  close,
+  user,
+}: {
+  row: Row;
+  close: () => void;
+  user: Row;
+}) {
+  const [scanRevision, setScanRevision] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [scanError, setScanError] = useState("");
   const ipamRevision = useIPAMUpdates(row.vlan_id);
-  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id, ipamRevision);
+  const query = useLiveQuery<Row>(
+    "/ipam/addresses/" + row.id,
+    ipamRevision + scanRevision,
+  );
+  const scan = useLiveQuery<Row | null>(
+    "/ipam/addresses/" + row.id + "/scan",
+    ipamRevision + scanRevision,
+  );
+  const job = scan.data;
+  const running = job && ["queued", "running"].includes(job.status);
+  useEffect(() => {
+    if (!running) return;
+    const timer = setTimeout(() => setScanRevision((n) => n + 1), 2000);
+    return () => clearTimeout(timer);
+  }, [running, scanRevision]);
   const detail = query.data || row;
-  const error = query.error;
+  const error = scanError || query.error || scan.error;
   const manual = manualConnection(detail);
   const location = detail.rack_location || detail.manual_location;
   return (
     <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} wide>
       <div className="ipam-form">
         <ErrorNote error={error} />
+        <div className="ipam-address-scan">
+          <div role="status">
+            {job ? (
+              <>
+                <Badge value={job.status} />
+                <span>
+                  {job.error ||
+                    (job.status === "cancelled"
+                      ? "IP taraması iptal edildi"
+                      : job.status === "failed"
+                        ? "IP taraması tamamlanamadı"
+                        : "") ||
+                    (
+                      {
+                        addresses: "IP ve DNS kontrol ediliyor",
+                        network: "Switch ve gateway kanıtları okunuyor",
+                        dhcp: "DHCP bilgisi kontrol ediliyor",
+                        vmware: "VMware bilgisi kontrol ediliyor",
+                        complete: "IP bilgileri güncellendi",
+                      } as Row
+                    )[job.result?.scan_phase] ||
+                    "IP taraması kuyruğa alındı"}
+                </span>
+              </>
+            ) : (
+              <span>Yalnız bu IP’nin bilgileri güncellenir.</span>
+            )}
+          </div>
+          {canOperate(user) && (
+            <div className="ipam-address-scan-buttons">
+              {running && (
+                <button
+                  className="secondary"
+                  disabled={busy || job.cancel_requested}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api("/jobs/" + job.id + "/cancel", "POST");
+                      setScanRevision((n) => n + 1);
+                    } catch (e: any) {
+                      setScanError(e.message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  İptal et
+                </button>
+              )}
+              <button
+                className="secondary"
+                aria-label={`${row.address} için tara`}
+                disabled={busy || !!running || scan.loading}
+                aria-busy={busy || !!running}
+                onClick={async () => {
+                  setBusy(true);
+                  setScanError("");
+                  try {
+                    await api("/ipam/addresses/" + row.id + "/scan", "POST");
+                    setScanRevision((n) => n + 1);
+                  } catch (e: any) {
+                    setScanError(e.message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <Broadcast size={16} aria-hidden="true" />
+                {busy || running ? "Taranıyor…" : "Tara"}
+              </button>
+            </div>
+          )}
+        </div>
         <>
           <dl className="ipam-summary">
             {[
@@ -739,12 +837,14 @@ export function IPAMWorkspace({
     } as Row
   )[job?.result?.scan_phase];
   const scanOrigin =
-    ({
-      schedule: "Zamanlanmış tarama",
-      manual: job?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
-      vlan_create: "Yeni VLAN’ın ilk taraması",
-      ping_timer: "Periyodik ping",
-    } as Row)[job?.result?.ipam_origin] || "Tarama kaynağı bilinmiyor";
+    (
+      {
+        schedule: "Zamanlanmış tarama",
+        manual: job?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
+        vlan_create: "Yeni VLAN’ın ilk taraması",
+        ping_timer: "Periyodik ping",
+      } as Row
+    )[job?.result?.ipam_origin] || "Tarama kaynağı bilinmiyor";
   const selectionDone = () => {
     setSelected([]);
     setBulkOpen(false);
@@ -1366,7 +1466,9 @@ export function IPAMWorkspace({
           }}
         />
       )}
-      {detail && <AddressDetail row={detail} close={() => setDetail(null)} />}
+      {detail && (
+        <AddressDetail row={detail} close={() => setDetail(null)} user={user} />
+      )}
     </div>
   );
 }

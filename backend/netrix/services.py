@@ -659,10 +659,19 @@ def enqueue(db, kind, target_id, user=None, *, commit=True, ipam_origin=None):
         validate_target(db, kind, target_id)
     existing = db.scalar(select(m.Job).where(m.Job.active_key == key))
     if existing:
+        if kind == "ipam_address_scan" and existing.result.get("address_scope") != [
+            target.address,
+            target.vrf_id,
+            target.vlan_id,
+        ]:
+            raise HTTPException(409, "IP adresi değişti; önce mevcut taramanın durmasını bekleyin")
         return existing
     job = m.Job(kind=kind, target_id=target_id, active_key=key, requested_by=user.id if user else None)
     if kind in KINDS:
         job.result = {"ipam_origin": ipam_origin}
+        if kind == "ipam_address_scan":
+            job.total = 1
+            job.result = {**job.result, "address_scope": [target.address, target.vrf_id, target.vlan_id]}
     db.add(job)
     db.flush()
     audit(db, user, "enqueue", "jobs", job.id, f"{kind} görevi kuyruğa alındı")

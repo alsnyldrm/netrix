@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import time
 from contextlib import aclosing
@@ -26,7 +27,7 @@ from .service import (
     vmware_observations,
 )
 
-KINDS = ("ipam_ping", "ipam_discover", "integration")
+KINDS = ("ipam_ping", "ipam_discover", "ipam_address_scan", "integration")
 SCAN_BATCH_SIZE = 32
 SOURCE_WAIT_SECONDS = 900
 
@@ -141,7 +142,26 @@ async def complete_dns(job_id, started_at):
 
 
 def validate_target(db, kind, id):
-    if kind == "integration":
+    if kind == "ipam_address_scan":
+        row = get(db, m.IPAddress, id)
+        vlan = get(db, m.VLAN, row.vlan_id)
+        scope = scan_boundary(db, vlan)
+        if row.vrf_id != vlan.vrf_id or not in_scope(row.address, scope):
+            raise HTTPException(422, "IP adresi VLAN kapsamının dışında")
+        ip, network = ipaddress.ip_address(row.address), ipaddress.ip_network(vlan.cidr)
+        if (
+            ip.is_multicast
+            or ip.is_link_local
+            or ip.is_loopback
+            or ip.is_unspecified
+            or (
+                network.version == 4
+                and network.prefixlen < 31
+                and ip in (network.network_address, network.broadcast_address)
+            )
+        ):
+            raise HTTPException(422, "Bu adres taranabilir bir uç IP adresi değil")
+    elif kind == "integration":
         row = get(db, m.Integration, id)
         if row.kind not in ("vcenter", "windows_dhcp"):
             raise HTTPException(422, "Yalnızca DHCP ve VMware entegrasyonları desteklenir")
@@ -518,6 +538,10 @@ async def integration(job_id, collector=None):
 
 
 async def execute(job_id, kind, collector):
+    if kind == "ipam_address_scan":
+        from .address_scan import execute as scan_address
+
+        return await scan_address(job_id, collector)
     if kind == "integration":
         return await integration(job_id, collector)
     return await scan(job_id, collector)

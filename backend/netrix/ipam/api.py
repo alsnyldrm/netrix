@@ -139,6 +139,23 @@ def detail(id: str, request: Request, user=Depends(current_user), db=Depends(db_
     )
 
 
+@router.post("/ipam/addresses/{id}/scan", status_code=202)
+def scan_address(id: str, user=Depends(operator), db=Depends(db_session)):
+    return svc.serialize(svc.enqueue(db, "ipam_address_scan", id, user, ipam_origin="manual"))
+
+
+@router.get("/ipam/addresses/{id}/scan")
+def address_scan_status(id: str, user=Depends(current_user), db=Depends(db_session)):
+    svc.get(db, m.IPAddress, id)
+    job = db.scalar(
+        select(m.Job)
+        .where(m.Job.target_id == id, m.Job.kind == "ipam_address_scan")
+        .order_by(m.Job.created_at.desc(), m.Job.id.desc())
+        .limit(1)
+    )
+    return svc.serialize(job) if job else None
+
+
 @router.post("/ipam/addresses/bulk")
 def address_bulk(payload: AddressBulkInput, user=Depends(operator), db=Depends(db_session)):
     return table.bulk(db, payload, user)
