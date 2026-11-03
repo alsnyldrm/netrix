@@ -1,4 +1,4 @@
-"""Hostname-verified VMware MAC priority without mixing NIC or port identities."""
+"""Verified VMware IP/NIC identity supplies coherent display fields."""
 
 import json
 from datetime import timedelta
@@ -279,12 +279,15 @@ def test_direct_guest_ip_selects_its_card_in_multi_nic_vm(network):
 
 
 @pytest.mark.asyncio
-async def test_future_vmware_snapshot_supplies_mac_with_different_dns_name(network, monkeypatch):
+@pytest.mark.parametrize("dns_name", ["dns.example", ""])
+async def test_future_vmware_snapshot_supplies_mac_with_different_dns_name(network, monkeypatch, dns_name):
     from sqlalchemy import delete
 
     sf, _, _, ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        if not dns_name:
+            db.execute(delete(m.IPObservation).where(m.IPObservation.source == "dns"))
         config = m.Integration(
             name="VC",
             kind="vcenter",
@@ -303,11 +306,101 @@ async def test_future_vmware_snapshot_supplies_mac_with_different_dns_name(netwo
     monkeypatch.setattr(adapters, "vcenter_records", lambda *_: records)
     await jobs.integration(job_id)
     item = read(network)
-    assert item["hostname"] == "dns.example" and item["mac_address"] == VM_MAC
+    assert item["hostname"] == (dns_name or "VM-INVENTORY-NAME") and item["mac_address"] == VM_MAC
     assert item["connected_device"] == "VM-DS" and item["connected_port"] == "89"
     records.clear()
     await jobs.integration(job_id)
     assert read(network)["mac_address"] == ""
+    assert read(network)["hostname"] == dns_name
+
+
+@pytest.mark.parametrize("dns_state", ["absent", "negative", "expired"])
+def test_proven_vmware_name_fills_missing_dns_in_list_detail_search_and_filter(
+    network, admin_client, dns_state
+):
+    from sqlalchemy import delete, select
+
+    sf, vlan_id, row_id, ids = network
+    with sf() as db:
+        db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
+        dns = db.scalar(select(m.IPObservation).where(m.IPObservation.source == "dns"))
+        if dns_state == "absent":
+            db.delete(dns)
+        elif dns_state == "negative":
+            dns.data = {"hostname": "", "present": False}
+        else:
+            dns.observed_at = now() - timedelta(hours=25)
+        add_vm(
+            db,
+            vlan,
+            row,
+            hostname="SV-CN-02-02.fbu.edu.tr",
+            guest_address=row.address,
+            operating_system="Windows Server 2025",
+        )
+        db.commit()
+    detail = admin_client.get(f"/api/v1/ipam/addresses/{row_id}").json()
+    expected = {
+        "hostname": "SV-CN-02-02.fbu.edu.tr",
+        "mac_address": VM_MAC,
+        "operating_system": "Windows Server 2025",
+    }
+    assert all(detail[key] == value for key, value in expected.items())
+    assert detail["field_sources"] == {key: "vcenter" for key in expected}
+    assert detail["managed"]["hostname"] == ""
+    for params in (
+        {"q": expected["hostname"]},
+        {"filters": json.dumps([{"field": "hostname", "op": "eq", "value": expected["hostname"]}])},
+    ):
+        listed = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params=params).json()
+        assert len(listed["items"]) == 1
+        assert all(listed["items"][0][key] == value for key, value in expected.items())
+    with sf() as db:
+        row = db.get(m.IPAddress, row_id)
+        row.hostname = "manual.example"
+        db.commit()
+        item = service.enrich(db, [row])[0]
+        assert item["hostname"] == "manual.example" and item["field_sources"]["hostname"] == "manual"
+        row.hostname = ""
+        service.observe(
+            db, db.get(m.VLAN, vlan_id), row.address, "dns", "system", {"hostname": "restored.example"}
+        )
+        db.commit()
+        item = service.enrich(db, [row])[0]
+        assert item["hostname"] == "restored.example" and item["field_sources"]["hostname"] == "dns"
+
+
+@pytest.mark.parametrize(
+    "fault", ["inferred", "duplicate", "stale", "gone", "gateway_conflict", "name_conflict"]
+)
+def test_missing_dns_does_not_allow_unproven_or_conflicting_vmware_name(network, fault):
+    from sqlalchemy import delete, select
+
+    sf, vlan_id, row_id, ids = network
+    with sf() as db:
+        if fault != "gateway_conflict":
+            db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        db.execute(delete(m.IPObservation).where(m.IPObservation.source == "dns"))
+        row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
+        data = record(hostname="VM-NAME", guest_address=row.address, integration_id="vc")
+        data.pop("address")
+        if fault == "inferred":
+            data.update(guest_address="192.0.2.11", matched_by="dhcp_mac")
+        elif fault == "gone":
+            data["present"] = False
+        service.observe(db, vlan, row.address, "vcenter", "vc:first", data)
+        if fault in ("duplicate", "name_conflict"):
+            second = {**data, "hostname": "OTHER-NAME"}
+            if fault == "duplicate":
+                second["vm_id"] = "vm-2"
+            service.observe(db, vlan, row.address, "vcenter", "vc:second", second)
+        if fault == "stale":
+            db.scalar(select(m.IPObservation).where(m.IPObservation.source == "vcenter")).observed_at = (
+                now() - timedelta(hours=25)
+            )
+        db.commit()
+    assert read(network)["hostname"] == ""
 
 
 def test_switch_fdb_is_resolved_using_selected_vm_mac(network):

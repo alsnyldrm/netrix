@@ -876,7 +876,7 @@ export function IPAMWorkspace({
                 : "Görev merkezinden de izleyebilirsiniz.")}
             {job.result?.matching && (
               <small className="ipam-sub">
-                {job.result.matching.hostname} DNS ·{" "}
+                {job.result.matching.hostname} hostname ·{" "}
                 {job.result.matching.mac_address} MAC ·{" "}
                 {job.result.matching.connected_port} cihaz/port ·{" "}
                 {job.result.matching.operating_system} VMware işletim sistemi

@@ -470,14 +470,23 @@ def enrich(db, rows, *, details=True, include_options=False):
         )
         if host and not vm_observations:
             item["operating_system"] = host.get("operating_system", "")
+        hostname_source = "dns" if item["hostname"] else ""
+        if not item["hostname"] and vm_mac and not item["mac_conflict"]:
+            names = {}
+            for observation in vm_observations:
+                name = (observation.data.get("hostname") or "").strip().rstrip(".")
+                if name:
+                    names.setdefault(normalized_hostname(name), name)
+            if len(names) == 1:
+                item["hostname"] = next(iter(names.values()))
+                hostname_source = "vcenter"
         item["field_sources"] = {
-            "hostname": "dns" if item["hostname"] else "",
+            "hostname": hostname_source,
             "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",
             "operating_system": "vcenter" if item["operating_system"] else "",
         }
         item["automatic_mac_address"] = item["mac_address"]
-        # A manual display override is not DNS identity evidence. Apply it only
-        # after VMware NIC/MAC selection has used the actual DNS observation.
+        # Apply managed overrides after identity selection; a display name is not DNS proof.
         for field in ("hostname", "operating_system", "mac_address"):
             if value := item["managed"][field].strip():
                 item[field] = value

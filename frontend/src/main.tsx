@@ -808,7 +808,7 @@ export const ADDRESS_PAGE: Page = {
     ref("vrf_id", "VRF", "vrfs", true),
     ref("vlan_id", "VLAN", "vlans", true),
     f("hostname", "Hostname", {
-      hint: "Manuel değer önceliklidir. Boş bırakırsanız DNS bilgisi gösterilir.",
+      hint: "Manuel değer önceliklidir. Boşsa DNS adı, DNS adı yoksa doğrulanmış VMware adı gösterilir.",
     }),
     f("mac_address", "MAC adresi", {
       hint: "Manuel değer önceliklidir. Boş bırakırsanız otomatik MAC gösterilir.",
