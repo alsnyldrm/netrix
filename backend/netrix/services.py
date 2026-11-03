@@ -278,6 +278,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         not row_id or row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]
     )
     if name == "addresses" and row_id:
+        if "mac_address" not in value.model_fields_set:
+            data["mac_address"] = row.mac_address
         hierarchy = {"institution_id", "site_id", "sub_site_id"}
         if not hierarchy.intersection(value.model_fields_set) and data["location"] == row.location:
             # Older clients may update another field without knowing the hierarchy.
@@ -308,7 +310,7 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
     if name == "addresses" and row_id:
         changes = {
             key: {"previous": getattr(row, key), "current": data[key]}
-            for key in ("address", "hostname", "status", "interface_id")
+            for key in ("address", "hostname", "mac_address", "status", "interface_id")
             if getattr(row, key) != data[key]
         }
         if changes:

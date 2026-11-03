@@ -291,6 +291,14 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                   {source && (
                     <small className="ipam-sub">{sourceName(source)}</small>
                   )}
+                  {k === "MAC adresi" &&
+                    source === "manual" &&
+                    detail.automatic_mac_address &&
+                    detail.automatic_mac_address !== detail.mac_address && (
+                      <small className="ipam-sub">
+                        Otomatik MAC: {detail.automatic_mac_address}
+                      </small>
+                    )}
                 </dd>
               </div>
             ))}
@@ -608,6 +616,7 @@ export function IPAMWorkspace({
       const saved = (event as CustomEvent<Row>).detail;
       const fields = [
         saved.hostname && "hostname",
+        saved.mac_address && "mac_address",
         saved.operating_system && "operating_system",
         saved.cabinet && "cabinet",
         (saved.site_id || saved.sub_site_id || saved.location) && "location",
@@ -1345,7 +1354,9 @@ function IPBulkEditor({
   const [enabled, setEnabled] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const fields = ADDRESS_PAGE.fields!.filter((f) => f.key !== "address");
+  const fields = ADDRESS_PAGE.fields!.filter(
+    (f) => !["address", "mac_address"].includes(f.key),
+  );
   return (
     <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close}>
       <form

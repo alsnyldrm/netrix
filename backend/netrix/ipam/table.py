@@ -215,7 +215,7 @@ def bulk(db, payload, user):
             audit(db, user, "delete", "addresses", row.id, f"IP kaydı silindi: {row.address}")
             db.delete(row)
     else:
-        allowed = set(s.IPInput.model_fields) - {"address"}
+        allowed = set(s.IPInput.model_fields) - {"address", "mac_address"}
         if not payload.changes or set(payload.changes) - allowed:
             raise HTTPException(422, "IP ve MAC değiştirilemez; düzenlenecek alanları seçin")
         for row in rows:

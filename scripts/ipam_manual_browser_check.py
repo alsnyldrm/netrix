@@ -82,6 +82,17 @@ with sync_playwright() as p:
     page.get_by_role("listbox").get_by_role("option").click()
     expect(cabinet).to_have_value("FBU-F / L-1/B/Elektrik Odası / Kabin 02")
     expect(cabinet).to_have_attribute("aria-expanded", "false")
+    mac = dialog.get_by_role("textbox", name="MAC adresi", exact=True)
+    expect(mac).to_have_value("")
+    mac.fill("not-a-mac")
+    with page.expect_response(
+        lambda r: r.request.method == "PUT" and "/api/v1/addresses/" in r.url
+    ) as invalid:
+        dialog.get_by_role("button", name="Kaydı kaydet", exact=True).click()
+    assert invalid.value.status == 422
+    expect(dialog.get_by_role("alert")).to_contain_text("Geçerli bir MAC adresi")
+    mac.fill("02-AA-BB-CC-DD-EE")
+    expect(dialog.get_by_role("alert")).to_have_count(0)
     dialog.get_by_role("textbox", name="Hostname", exact=True).fill("CHANGED-FW-11")
     dialog.get_by_role("combobox", name="İşletim sistemi", exact=True).select_option("Linux")
 
@@ -108,11 +119,12 @@ with sync_playwright() as p:
                     room,
                     dialog.get_by_role("combobox", name="İşletim sistemi", exact=True),
                     dialog.locator(".checkbox-control"),
+                    mac,
                 ]
                 heights = [control.bounding_box()["height"] for control in controls]
                 assert all(abs(height - 40) < 1 for height in heights), (width, theme, heights)
                 if width == 1440:
-                    assert abs(boxes[0]["y"] - boxes[1]["y"]) < 1
+                    assert abs(mac.bounding_box()["y"] - boxes[1]["y"]) < 1
                 page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
                 violations = page.evaluate(
                     "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))"
@@ -134,10 +146,12 @@ with sync_playwright() as p:
     assert response.value.ok, response.value.text()
     payload = response.value.request.post_data_json
     assert payload["cabinet"] == "02" and payload["operating_system"] == "Linux"
+    assert response.value.json()["mac_address"] == "02:aa:bb:cc:dd:ee"
     row_id = response.value.json()["id"]
     expect(page.get_by_role("cell", name="CHANGED-FW-11", exact=True)).to_be_visible()
     expect(page.get_by_role("columnheader", name="İşletim sistemi", exact=True)).to_be_visible()
     expect(page.get_by_role("cell", name="Linux", exact=True)).to_be_visible()
+    expect(page.get_by_role("cell", name="02:aa:bb:cc:dd:ee", exact=True)).to_be_visible()
     page.get_by_role("button", name="192.0.2.11", exact=True).click()
     saved_location = page.get_by_role("dialog").get_by_role("table", name="Kabinet yerleşimi", exact=True)
     expect(saved_location.get_by_role("row").nth(1).get_by_role("cell")).to_have_text(
@@ -151,6 +165,8 @@ with sync_playwright() as p:
     expect(room).to_have_value("L-1/B/Elektrik Odası")
     expect(cabinet).to_have_value("FBU-F / L-1/B/Elektrik Odası / Kabin 02")
     expect(interface.locator("option:checked")).to_have_text("1/1/7")
+    expect(mac).to_have_value("02:aa:bb:cc:dd:ee")
+    mac.fill("")
     # Clearing manual data restores DNS, while saving an untouched edit must not pin it.
     dialog.get_by_role("textbox", name="Hostname", exact=True).fill("")
     dialog.get_by_role("combobox", name="İşletim sistemi", exact=True).select_option("")
@@ -162,6 +178,7 @@ with sync_playwright() as p:
     expect(dialog).not_to_be_visible()
     item = page.request.get(BASE + f"/api/v1/ipam/addresses/{row_id}").json()
     assert item["managed"]["hostname"] == "" and item["hostname"] == "dns-11.example.test"
+    assert item["managed"]["mac_address"] == item["mac_address"] == ""
     # The shared room picker also works in new-cabinet forms, including required validation.
     page.goto(BASE + "/#cabinets")
     page.get_by_role("button", name="Yeni kayıt", exact=True).click()

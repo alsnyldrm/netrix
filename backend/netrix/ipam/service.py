@@ -376,7 +376,9 @@ def enrich(db, rows, *, details=True, include_options=False):
 
     for row in rows:
         item = serialize(row)
-        item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
+        item["managed"] = {
+            k: item[k] for k in ("hostname", "mac_address", "operating_system", "location", "cabinet")
+        }
         item["manual_location"] = manual_location(row, sites)
         item["manual_connection"] = manual_connections.get(row.id)
         item["rack_location"] = locations.get(row.id)
@@ -458,9 +460,10 @@ def enrich(db, rows, *, details=True, include_options=False):
             "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",
             "operating_system": "vcenter" if item["operating_system"] else "",
         }
+        item["automatic_mac_address"] = item["mac_address"]
         # A manual display override is not DNS identity evidence. Apply it only
         # after VMware NIC/MAC selection has used the actual DNS observation.
-        for field in ("hostname", "operating_system"):
+        for field in ("hostname", "operating_system", "mac_address"):
             if value := item["managed"][field].strip():
                 item[field] = value
                 item["field_sources"][field] = "manual"

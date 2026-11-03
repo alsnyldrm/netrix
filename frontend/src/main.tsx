@@ -807,6 +807,9 @@ export const ADDRESS_PAGE: Page = {
     f("hostname", "Hostname", {
       hint: "Manuel değer önceliklidir. Boş bırakırsanız DNS bilgisi gösterilir.",
     }),
+    f("mac_address", "MAC adresi", {
+      hint: "Manuel değer önceliklidir. Boş bırakırsanız otomatik MAC gösterilir.",
+    }),
     f("operating_system", "İşletim sistemi", {
       suggestions: "operating-systems",
       hint: "Manuel değer önceliklidir. Boş bırakırsanız VMware bilgisi gösterilir.",
@@ -1372,7 +1375,9 @@ function GenericResourceForm({
         (row?.connection_type === "vcenter" || row?.rack_position)
           ? (row.managed?.cabinet ?? "")
           : page.key === "addresses" &&
-              ["hostname", "operating_system"].includes(field.key)
+              ["hostname", "operating_system", "mac_address"].includes(
+                field.key,
+              )
             ? (row?.managed?.[field.key] ?? row?.[field.key])
             : row?.[field.key]) ??
           field.default ??
@@ -1753,6 +1758,15 @@ function GenericResourceForm({
                       aria-describedby={
                         field.hint ? `hint-${field.key}` : undefined
                       }
+                      placeholder={
+                        page.key === "addresses" && field.key === "mac_address"
+                          ? row?.automatic_mac_address || "00:11:22:33:44:55"
+                          : undefined
+                      }
+                      spellCheck={
+                        field.key === "mac_address" ? false : undefined
+                      }
+                      maxLength={field.key === "mac_address" ? 40 : undefined}
                       list={
                         field.suggestions
                           ? `suggestions-${field.key}`
@@ -1764,11 +1778,16 @@ function GenericResourceForm({
                         field.type === "password" ? "new-password" : "off"
                       }
                       value={values[field.key] ?? ""}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        if (
+                          page.key === "addresses" &&
+                          field.key === "mac_address"
+                        )
+                          setError("");
                         setValues(
                           dependentChange(values, field.key, e.target.value),
-                        )
-                      }
+                        );
+                      }}
                     />
                   )}
                 </>

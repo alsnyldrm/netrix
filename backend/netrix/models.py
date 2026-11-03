@@ -402,6 +402,7 @@ class IPAddress(Entity, Base):
     vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
     interface_id: Mapped[str | None] = mapped_column(ForeignKey("interfaces.id"), nullable=True, index=True)
     hostname: Mapped[str] = mapped_column(String(190), default="")
+    mac_address: Mapped[str] = mapped_column(String(17), default="", server_default="")
     operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")
     cabinet: Mapped[str] = mapped_column(String(120), default="", server_default="")
     location: Mapped[str] = mapped_column(String(190), default="", server_default="")

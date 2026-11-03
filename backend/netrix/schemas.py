@@ -1,4 +1,5 @@
 import ipaddress
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -164,6 +165,7 @@ class IPInput(Input):
     vlan_id: str
     interface_id: str | None = None
     hostname: str = Field(default="", max_length=190)
+    mac_address: str = Field(default="", max_length=40)
     operating_system: str = Field(default="", max_length=190)
     cabinet: str = Field(default="", max_length=120)
     location: str = Field(default="", max_length=190)
@@ -174,6 +176,24 @@ class IPInput(Input):
     @classmethod
     def ip(cls, value):
         return str(ipaddress.ip_address(value))
+
+    @field_validator("mac_address")
+    @classmethod
+    def mac(cls, value):
+        if not value:
+            return ""
+        forms = (
+            r"(?:[0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}",
+            r"(?:[0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}",
+            r"(?:[0-9a-fA-F]{4}\.){2}[0-9a-fA-F]{4}",
+            r"[0-9a-fA-F]{12}",
+        )
+        if not any(re.fullmatch(form, value) for form in forms):
+            raise ValueError("Geçerli bir MAC adresi girin (örnek: 00:11:22:33:44:55)")
+        compact = re.sub(r"[:.\-]", "", value).lower()
+        if compact == "000000000000" or int(compact[:2], 16) & 1:
+            raise ValueError("Geçerli bir unicast MAC adresi girin")
+        return ":".join(compact[i : i + 2] for i in range(0, 12, 2))
 
 
 class ScopeInput(Input):
