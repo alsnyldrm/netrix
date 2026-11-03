@@ -8,6 +8,8 @@ Periyodik ping varsayılan 30 saniyedir (VLAN ayarından 10–86.400 saniye); ku
 
 Ping bildirimi `ipam_ping`, kaynak güncellemesi `ipam_update`/VLAN kimliği taşır. Açık IPAM listesi ve ayrıntısı yalnız kendi DB yanıtını yeniler; oda/cihaz referanslarını yeniden toplamaz. Görünür sayfada 10 saniyelik DB yenilemesi kopuk WebSocket için yedektir; geri dönüldüğünde DB yanıtı hemen okunur. Bu GET istekleri gerçek kaynak veya ping isteği değildir.
 
+Tarayıcı veya üst araç çubuğundan yenileme, mevcut son tarama işini kimliği/oluşturulma zamanı/ilerlemesiyle tekrar gösterir; yeni iş oluşturmaz. İlerleme alanı aynı işin `ipam_origin` kaydını **Zamanlanmış tarama**, **Manuel tarama/ping** veya **Yeni VLAN’ın ilk taraması** olarak ve kuyruğa alınma saatiyle gösterir. Eski kökensiz kayıtlar tahmin edilmez. Ek zamanlama/başlatma isteği veya grup sorgusu yapılmaz. Regresyonlar: `test_refresh_restores_same_scan_without_requeue`, `scripts/ipam_refresh_browser_check.py`.
+
 Ping işleri arka planda yürütülür; manuel ve periyodik `ipam_ping` kayıtları Görev merkezi listesine, arama sonuçlarına, sayfalama toplamına ve çalışan görev sayacına dahil edilmez. Mevcut ping geçmişi de görünmez. Worker durumları ve canlı IPAM bildirimleri korunur; tam tarama ve diğer görevler listelenmeye devam eder.
 
 ### Tarama sürerken tamamlanan sonuçlar

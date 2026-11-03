@@ -32,6 +32,46 @@ def test_repeated_reads_do_not_add_jobs_after_initial_scan(admin_client, invento
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind.in_(jobs.KINDS))) == 1
 
 
+@pytest.mark.parametrize("status", ["queued", "running", "partial"])
+@pytest.mark.parametrize("origin", ["manual", "schedule", "vlan_create"])
+def test_refresh_restores_same_scan_without_requeue(
+    admin_client, inventory, env, monkeypatch, status, origin
+):
+    vlan = prefix(admin_client, inventory)
+    id = vlan["scan"]["job_id"]
+    with env() as db:
+        job = db.get(m.Job, id)
+        job.status = status
+        job.result = {"ipam_origin": origin, "scan_phase": "addresses"}
+        job.progress, job.total = 50, 254
+        if status == "partial":
+            job.active_key = None
+        db.commit()
+        created = job.created_at
+        count = db.scalar(select(func.count()).select_from(m.Job))
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Refreshing a scan must neither enqueue nor collect sources")
+
+    monkeypatch.setattr(services, "enqueue", forbidden)
+    for name in ("ping", "reverse_dns", "vcenter_records", "windows_dhcp"):
+        monkeypatch.setattr(adapters, name, forbidden)
+    for _ in range(3):
+        assert admin_client.get("/api/v1/vlans").status_code == 200
+        assert admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/addresses").status_code == 200
+        restored = admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/scan").json()
+        assert (restored["id"], restored["status"], restored["progress"], restored["total"]) == (
+            id,
+            status,
+            50,
+            254,
+        )
+        assert restored["result"]["ipam_origin"] == origin
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.Job)) == count
+        assert db.get(m.Job, id).created_at == created
+
+
 @pytest.mark.parametrize("role", ["super_admin", "admin", "operator"])
 def test_manual_vlan_actions_are_queued_once_but_independent_sync_is_blocked(
     admin_client, inventory, env, role

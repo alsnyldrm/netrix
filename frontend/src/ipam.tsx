@@ -738,6 +738,13 @@ export function IPAMWorkspace({
       complete: "Kaynak okumaları ve eşleştirme tamamlandı",
     } as Row
   )[job?.result?.scan_phase];
+  const scanOrigin =
+    ({
+      schedule: "Zamanlanmış tarama",
+      manual: job?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
+      vlan_create: "Yeni VLAN’ın ilk taraması",
+      ping_timer: "Periyodik ping",
+    } as Row)[job?.result?.ipam_origin] || "Tarama kaynağı bilinmiyor";
   const selectionDone = () => {
     setSelected([]);
     setBulkOpen(false);
@@ -921,6 +928,10 @@ export function IPAMWorkspace({
               (job.status === "succeeded"
                 ? "İşlem tamamlandı."
                 : "Görev merkezinden de izleyebilirsiniz.")}
+            <small className="ipam-sub ipam-job-origin">
+              {scanOrigin} · Kuyruğa alınma:{" "}
+              <time dateTime={job.created_at}>{date(job.created_at)}</time>
+            </small>
             {job.result?.matching && (
               <small className="ipam-sub">
                 {job.result.matching.hostname} hostname ·{" "}

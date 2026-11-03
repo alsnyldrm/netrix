@@ -55,6 +55,19 @@ def fake_scan_result(hostname: str):
     return result
 
 
+@main.app.post("/fixture/scan-finish")
+def fake_scan_finish():
+    with session_factory()() as db:
+        job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover", m.Job.status == "running"))
+        assert job
+        job.status, job.active_key = "succeeded", None
+        job.result = {**job.result, "scan_phase": "complete"}
+        db.commit()
+        result = {"job_id": job.id, "vlan_id": job.target_id}
+    services.publish(ipam_vlan=result["vlan_id"])
+    return result
+
+
 if __name__ == "__main__":
     import uvicorn
 
