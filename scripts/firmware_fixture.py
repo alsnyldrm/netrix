@@ -139,4 +139,68 @@ with session_factory()() as db:
             )
         )
     db.commit()
+
+    # New transcript examples are confined to this disposable DB and never sent to devices.
+    from netrix.firmware.history import add_event
+
+    extra_devices = list(
+        db.scalars(
+            select(m.Device)
+            .where(m.Device.name.in_(("Fixture 0000", "Fixture 0001")))
+            .order_by(m.Device.name)
+        )
+    )
+    transcript_plan = m.FirmwarePlan(
+        name="Fixture transcript operation",
+        status="paused",
+        mode="upgrade",
+        requested_by=user.id,
+        steps=[
+            {"group_name": "Erişim switchleri", "version": image.version, "count": 2},
+            {"group_name": "Yönetim switchleri", "version": image.version, "count": 1},
+        ],
+    )
+    db.add(transcript_plan)
+    db.flush()
+    for n, fixture_device in enumerate([device, *extra_devices]):
+        target = m.FirmwareTarget(
+            plan_id=transcript_plan.id,
+            device_id=fixture_device.id,
+            image_id=image.id,
+            stage=0 if n < 2 else 1,
+            status="succeeded" if n == 0 else "attention" if n == 1 else "queued",
+            phase="verifying" if n == 0 else "transferring" if n == 1 else "waiting",
+            bank="primary",
+            previous_bank="secondary",
+            previous_version="PL.10.17.1030",
+            verified_version=image.version if n == 0 else "",
+            error_code="image" if n == 1 else "",
+            error="İmaj hedef yazılım alanında doğrulanamadı." if n == 1 else "",
+            transfer_bytes=image.size_bytes if n == 0 else 1024**2,
+            evidence={
+                "device_name": fixture_device.name,
+                "management_ip": fixture_device.management_ip,
+                "expected_version": image.version,
+                "protocol": "scp",
+                "history_version": 1,
+            },
+        )
+        db.add(target)
+        db.flush()
+        if n == 2:
+            continue
+        for step in range(45 if n == 0 else 2):
+            add_event(
+                db,
+                target,
+                kind="command",
+                title="Cihaz sorgusu",
+                status="succeeded" if n == 0 else "failed",
+                command="show version" if step == 0 else "show images",
+                response="Version : PL.10.18.1010\nActive Image : primary\n<device-output>\npassword fixture-output-secret\n"
+                + ("response-line\n" * 1300 if step == 1 else "Fixture response"),
+                finished=True,
+            )
+    db.commit()
+
 app = main.app

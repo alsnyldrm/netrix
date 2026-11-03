@@ -15,6 +15,7 @@ import {
 import { api, clearReadCache, useLiveQuery } from "./data";
 import { Dialog, date } from "./main";
 import "./firmware.css";
+import FirmwareHistory from "./firmware-history";
 
 type Row = Record<string, any>;
 const SECTIONS = [
@@ -1355,14 +1356,13 @@ export default function FirmwareWorkspace({
     write = admin || user.role === "operator";
   const search = useDeferredValue(q);
   const overview = useLiveQuery<Row>("/firmware/overview", refresh);
-  const endpoint =
-    tab === "service"
-      ? null
-      : tab === "groups"
-        ? "/firmware/groups"
-        : tab === "plans" || tab === "history"
-          ? `/firmware/plans?limit=30&offset=${offset}&history=${tab === "history"}`
-          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}`;
+  const endpoint = ["service", "history"].includes(tab)
+    ? null
+    : tab === "groups"
+      ? "/firmware/groups"
+      : tab === "plans"
+        ? `/firmware/plans?limit=30&offset=${offset}`
+        : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}`;
   const result = useLiveQuery<Row>(endpoint, refresh, undefined, q ? 200 : 0);
   useEffect(() => {
     setOffset(0);
@@ -1390,6 +1390,7 @@ export default function FirmwareWorkspace({
     }
   };
   const rows = result.data?.items || [];
+  if (tab === "history") return <FirmwareHistory refresh={refresh} />;
   return (
     <div className="fw-workspace" aria-busy={busy}>
       <div className="fw-summary">
@@ -1775,7 +1776,7 @@ export default function FirmwareWorkspace({
             offset={offset}
             total={result.data.total}
             onChange={setOffset}
-            size={["plans", "history"].includes(tab) ? 30 : 50}
+            size={tab === "plans" ? 30 : 50}
           />
         )}
       </section>

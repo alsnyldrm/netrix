@@ -7,6 +7,7 @@ import re
 import secrets
 import shutil
 import time
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -16,7 +17,7 @@ from .. import models as m
 from ..core import db_session, now, settings
 from ..identity.security import admin, audit, current_user, operator
 from ..services import get, publish, serialize
-from . import grouping
+from . import grouping, history
 from .service import (
     GroupInput,
     ImageInput,
@@ -387,6 +388,14 @@ def cancel(id: str, db=Depends(db_session), user=Depends(admin)):
         elif target.status not in ("succeeded", "attention"):
             target.status, target.active_device = "cancelled", None
             target.transfer_expires_at = now()
+        history.add_event(
+            db,
+            target,
+            kind="phase",
+            title="Yönetici sonraki işlemleri durdurdu",
+            response="Devam eden dosya yazımı kesilmedi; sonraki işler durduruldu.",
+            finished=True,
+        )
     if not running:
         row.status, row.finished_at = "cancelled", now()
     audit(
@@ -414,6 +423,9 @@ def activate(id: str, db=Depends(db_session), user=Depends(admin)):
             raise HTTPException(409, "Tüm hedefler hazırlanmış olmalı")
         validate_device(db, get(db, m.Device, target.device_id), get(db, m.FirmwareImage, target.image_id))
         target.status = "queued"
+        history.add_event(
+            db, target, kind="phase", title="Yönetici hazır imajı etkinleştirmeyi onayladı", finished=True
+        )
     row.mode, row.status, row.available_at = "activate", "queued", now()
     audit(db, user, "activate", "firmware_plans", id, "Hazırlanmış firmware için yeniden başlatma onaylandı")
     db.commit()
@@ -432,6 +444,9 @@ def retry(id: str, db=Depends(db_session), user=Depends(admin)):
     for target in targets:
         if target.status == "failed":
             target.status, target.error, target.error_code = "queued", "", ""
+            history.add_event(
+                db, target, kind="phase", title="Yönetici güvenli hedefi yeniden kuyruğa aldı", finished=True
+            )
     row.status = "queued"
     audit(
         db, user, "retry", "firmware_plans", id, "Yazma başlamamış firmware hedefleri yeniden kuyruğa alındı"
@@ -465,6 +480,9 @@ def verify(id: str, db=Depends(db_session), user=Depends(admin)):
             },
         }
     target.status, target.phase = "queued", "reconcile"
+    history.add_event(
+        db, target, kind="phase", title="Yönetici salt okunur sürüm doğrulaması istedi", finished=True
+    )
     if plan.status != "cancelled":
         plan.status = "paused"
     audit(
@@ -487,6 +505,14 @@ def release(id: str, payload: RecoveryInput, db=Depends(db_session), user=Depend
     target.error_code = "manual_recovery"
     target.error = "Yönetici cihazın kurtarıldığını doğruladı; firmware kurulumu başarılı sayılmadı."
     target.transfer_expires_at = now()
+    history.add_event(
+        db,
+        target,
+        kind="result",
+        title="Manuel kurtarma yönetici tarafından doğrulandı",
+        response=target.error,
+        finished=True,
+    )
     audit(
         db,
         user,
@@ -498,3 +524,44 @@ def release(id: str, payload: RecoveryInput, db=Depends(db_session), user=Depend
     db.commit()
     publish()
     return target_view(target)
+
+
+@router.get("/history")
+def execution_history(
+    q: str = Query("", max_length=120),
+    status: Literal["", "queued", "running", "paused", "ready", "succeeded", "cancelled"] = "",
+    mode: Literal["", "check", "stage", "upgrade", "activate", "verify"] = "",
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    db=Depends(db_session),
+    user=Depends(current_user),
+):
+    return history.listing(db, q, status, mode, limit, offset)
+
+
+@router.get("/history/targets/{id}")
+def execution_transcript(
+    id: str,
+    limit: int = Query(40, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db=Depends(db_session),
+    user=Depends(current_user),
+):
+    return history.transcript(db, id, limit, offset)
+
+
+@router.get("/history/{id}")
+def execution_operation(id: str, db=Depends(db_session), user=Depends(current_user)):
+    return history.operation(db, id)
+
+
+@router.get("/history/{id}/targets")
+def execution_targets(
+    id: str,
+    stage: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db=Depends(db_session),
+    user=Depends(current_user),
+):
+    return history.targets(db, id, stage, limit, offset)

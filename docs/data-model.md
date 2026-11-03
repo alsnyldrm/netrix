@@ -207,3 +207,8 @@ Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrul
 ## Kişisel SSH ve görünüm tercihleri (3 Kasım 2026)
 
 `20261103_40`: `user_ssh_profiles(owner_id,name,encrypted_ssh)` kullanıcıya ait adlandırılmış hesapları tutar. `access_groups.ssh_profile_id` grubun bağlantı hesabını seçer; `(ssh_profile_id,owner_id)` bileşik FK başka kullanıcının hesabına atamayı engeller. `access_group_devices.owner_id` grup sahibiyle bileşik FK üzerinden eşleşir ve `UNIQUE(owner_id,device_id)` bir cihazın aynı kullanıcının birden çok grubunda bulunmasını engeller. Envanter cihazı çoğaltılmaz. Eski `user_workspaces.encrypted_ssh` kopyalanıp kaldırılır; tercih JSON'u ve hazır komutlar korunur. Beş tasarım teması ve on renk paleti aynı kullanıcı tercih JSON'unda sabit değerlerle tutulur; görünüm için yeni tablo açılmaz.
+
+
+### Firmware işlem adımları
+
+`firmware_events` (`20261103_42`) cihaz hedefinin gerçek komut/yanıt ve aşama/aktarım/yedek/sonuç kayıtlarını tutar. `target_id` → `firmware_targets.id` bağlantısı, otomatik artan BigInteger kimlik ve `(target_id,id)` sıralama indeksi vardır. Başlangıç/bitiş UTC zamanları, adım türü/aşaması, durum, güvenli komut ve yanıt ile kısaltma bilgisi saklanır. Parola, süreli erişim bilgileri ve konfigürasyon sırları kayıttan önce maskelenir; konfigürasyon içeriği bu tabloya taşınmaz. Bu tablo önceki işlemlerin kaydedilmemiş yanıtlarını varsayarak doldurulmaz.

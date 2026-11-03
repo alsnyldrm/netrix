@@ -19,7 +19,7 @@ from ..core import now, redis_client, session_factory, settings
 from ..discovery.protocols import fetch_config
 from ..identity.security import encrypt, secret_data
 from ..services import publish
-from . import adapters, transfers
+from . import adapters, history, transfers
 from .service import connection_stamp, image_path, service_info, transfer_protocol, validate_device
 
 log = logging.getLogger("netrix.firmware")
@@ -30,9 +30,13 @@ verified_images = {}
 def set_phase(id, phase, **values):
     with session_factory()() as db:
         row = db.get(m.FirmwareTarget, id)
+        previous = row.phase
         row.phase, row.heartbeat_at = phase, now()
+        if previous != phase or phase == "preflight" and not row.evidence.get("history_version"):
+            row.evidence = {**row.evidence, "history_version": 1}
+            history.add_event(db, row, kind="phase", title=history.PHASES.get(phase, phase), finished=True)
         for key, value in values.items():
-            setattr(row, key, value)
+            setattr(row, key, {**value, "history_version": 1} if key == "evidence" else value)
         db.commit()
     publish()
 
@@ -104,18 +108,28 @@ async def backup(id, device, secret):
         if not current.base_snapshot_id:
             current.base_snapshot_id = snapshot.id
         current.last_backup_at, target.snapshot_id = now(), snapshot.id
+        history.add_event(
+            db,
+            target,
+            kind="backup",
+            title="Konfigürasyon yedeği güvenle saklandı",
+            status="succeeded",
+            response=f"Yedek kaydı: {snapshot.id}\nBoyut: {snapshot.size_bytes} bayt\nİçerik şifreli saklanır; komut geçmişine eklenmez.",
+            finished=True,
+        )
         db.commit()
         return snapshot.id
 
 
-async def verify_running(id, device, secret, image, bank, *, wait=True):
+async def verify_running(id, device, secret, image, bank, *, wait=True, recorder=None):
     deadline = time.monotonic() + (1200 if wait else 60)
     stable, version = 0, ""
     if wait:
         await asyncio.sleep(12)
     while time.monotonic() < deadline:
         try:
-            async with adapters.connect(device, secret) as (_, cli):
+            options = {"recorder": recorder} if recorder else {}
+            async with adapters.connect(device, secret, **options) as (_, cli):
                 data = await adapters.inspect(cli, device)
             version = data["version"]
             if adapters.matches_version(image.version, version) and (
@@ -140,8 +154,12 @@ async def execute(id):
     mutated = False
     try:
         target, plan, device, image, secret = load(id)
+        recorder = history.Recorder(id, (secret.get("password", ""), secret.get("username", "")))
         if target.phase == "reconcile":
-            version = await verify_running(id, device, secret, image, target.bank, wait=False)
+            await recorder.note("Sonuç yeniden doğrulanıyor", kind="phase")
+            version = await verify_running(
+                id, device, secret, image, target.bank, wait=False, recorder=recorder
+            )
             finish(id, "succeeded", verified_version=version)
             return
         if check_cancelled(id):
@@ -153,7 +171,10 @@ async def execute(id):
             raise ValueError("transfer_service")
         key = transfers.host_key()
         fingerprints = (key.get_fingerprint("sha256"), key.get_fingerprint("md5"))
-        async with adapters.connect(device, secret, key_fingerprints=fingerprints) as (connection, cli):
+        async with adapters.connect(device, secret, key_fingerprints=fingerprints, recorder=recorder) as (
+            connection,
+            cli,
+        ):
             live = await adapters.inspect(cli, device)
             if (
                 image.family == "aos_s"
@@ -241,6 +262,16 @@ async def execute(id):
                         await adapters.enable_sftp(cli)
                         await adapters.probe_sftp(connection)
                     username, password, filename = transfers.grant(id, transfer_protocol(image.family))
+                    recorder.secrets.extend((username, password, filename))
+                    await recorder.note(
+                        "Dosya aktarımı başladı",
+                        f"Yöntem: {transfer_protocol(image.family)}\nDosya: {image.original_name}\nBoyut: {image.size_bytes} bayt\nHedef yazılım alanı: {bank}\n"
+                        + (
+                            f"SFTP ile /os/{bank} yoluna yazılıyor."
+                            if image.family == "aos_s"
+                            else "Cihaz dosyayı NETRIX sunucusundan çekiyor."
+                        ),
+                    )
                     last = 0.0
 
                     def progress(size):
@@ -269,6 +300,22 @@ async def execute(id):
                         "transfer_reused": reused,
                     }
                     row.transfer_bytes = 0 if reused else image.size_bytes
+                    history.add_event(
+                        db,
+                        row,
+                        kind="transfer",
+                        title="Mevcut imaj yeniden kullanıldı"
+                        if reused
+                        else "İmaj hedef yazılım alanında doğrulandı",
+                        status="succeeded",
+                        response=f"Dosya: {image.original_name}\nSürüm: {image.version}\nYazılım alanı: {bank}\nAktarılan: {row.transfer_bytes} bayt"
+                        + (
+                            "\nMevcut imajın sürümü ve SHA-256 değeri eşleşti; tekrar gönderilmedi."
+                            if reused
+                            else ""
+                        ),
+                        finished=True,
+                    )
                     db.commit()
                 if plan.mode == "stage" or check_cancelled(id):
                     finish(id, "staged")
@@ -278,7 +325,7 @@ async def execute(id):
             mutated = True
             await adapters.activate(cli, device, bank)
         set_phase(id, "verifying")
-        version = await verify_running(id, device, secret, image, bank)
+        version = await verify_running(id, device, secret, image, bank, recorder=recorder)
         finish(id, "succeeded", verified_version=version)
     except asyncio.CancelledError:
         finish(id, "attention" if mutated else "failed", error_code="interrupted")
@@ -334,6 +381,24 @@ def finish(id, status, *, error_code="", verified_version=""):
         row.status, row.error_code = status, error_code
         row.error = FAILURE_MESSAGES.get(error_code, adapters.ERRORS.get(error_code, ""))
         row.verified_version, row.finished_at = verified_version, now()
+        history.add_event(
+            db,
+            row,
+            kind="result",
+            title=history.RESULTS.get(status, status),
+            status="failed"
+            if error_code
+            else "succeeded"
+            if status in ("succeeded", "checked", "staged")
+            else "info",
+            response=row.error
+            or (
+                f"Çalışan sürüm: {verified_version}"
+                if verified_version
+                else history.RESULTS.get(status, status)
+            ),
+            finished=True,
+        )
         if status in ("succeeded", "checked", "cancelled", "failed"):
             row.active_device = None
         if status == "succeeded":

@@ -104,10 +104,11 @@ def cx_image_matches(text, bank, image):
 
 
 class CLI:
-    def __init__(self, process, adapter, *, key_fingerprints=()):
+    def __init__(self, process, adapter, *, key_fingerprints=(), recorder=None):
         self.process, self.adapter = process, adapter
         self.prompt = None
         self.fingerprints = key_fingerprints
+        self.recorder, self.last_output, self.interactions = recorder, "", []
 
     async def read(self, *, action="read", password=None, timeout=60, disconnect=False):
         output, used, supplied = "", 0, False
@@ -127,6 +128,7 @@ class CLI:
                 if len(output) > 8 * 1024 * 1024:
                     raise FirmwareError("prompt")
                 clean = terminal_text(output)
+                self.last_output = clean
                 tail = clean[used:]
                 if not self.prompt and re.search(r"press any key to continue", tail, re.I):
                     self.process.stdin.write(" ")
@@ -136,6 +138,7 @@ class CLI:
                     if action != "transfer" or not password or supplied:
                         raise FirmwareError("unexpected_prompt")
                     self.process.stdin.write(password + "\n")
+                    self.interactions.append("Süreli aktarım parolası gönderildi; değer gizlendi.")
                     supplied, used = True, len(clean)
                     continue
                 if (
@@ -145,6 +148,7 @@ class CLI:
                     if action != "transfer" or not any(f in tail for f in self.fingerprints):
                         raise FirmwareError("source_key")
                     self.process.stdin.write("yes\n")
+                    self.interactions.append("Dosya sunucusunun eşleşen SSH anahtarı onaylandı.")
                     used = len(clean)
                     continue
                 if re.search(r"(?i)(?:\[(?:y/n|yes/no)\]|\((?:y/n|yes/no)\)|continue\s*\?).*[:?]?\s*$", tail):
@@ -153,7 +157,9 @@ class CLI:
                         tail,
                     ):
                         raise FirmwareError("unexpected_prompt")
-                    self.process.stdin.write("n\n" if re.search(r"(?i)delete.*\.ipe", tail) else "y\n")
+                    answer = "n" if re.search(r"(?i)delete.*\.ipe", tail) else "y"
+                    self.process.stdin.write(answer + "\n")
+                    self.interactions.append("Cihaz onayına yanıt: " + answer)
                     used = len(clean)
                     continue
                 if action in ("boot", "save") and re.search(
@@ -177,12 +183,33 @@ class CLI:
                     return content
 
     async def command(self, command, **kwargs):
-        self.process.stdin.write(command + "\n")
-        return await self.read(**kwargs)
+        event = await self.recorder.begin(command, kwargs.get("action", "read")) if self.recorder else None
+        self.last_output, self.interactions = "", []
+        try:
+            self.process.stdin.write(command + "\n")
+            output = await self.read(**kwargs)
+        except BaseException as exc:
+            if self.recorder:
+                await self.recorder.end(
+                    event,
+                    self.last_output + "\n" + "\n".join(self.interactions),
+                    "sent"
+                    if kwargs.get("disconnect")
+                    and isinstance(exc, (asyncssh.ConnectionLost, asyncssh.DisconnectError, BrokenPipeError))
+                    else "failed",
+                )
+            raise
+        if self.recorder:
+            await self.recorder.end(
+                event,
+                output + "\n" + "\n".join(self.interactions),
+                "sent" if kwargs.get("disconnect") else "succeeded",
+            )
+        return output
 
 
 @asynccontextmanager
-async def connect(device, secret, *, key_fingerprints=()):
+async def connect(device, secret, *, key_fingerprints=(), recorder=None):
     async with asyncssh.connect(
         device.management_ip,
         port=device.config_port,
@@ -198,7 +225,7 @@ async def connect(device, secret, *, key_fingerprints=()):
         async with connection.create_process(
             term_type="vt100", term_size=(200, 40), stderr=asyncssh.STDOUT
         ) as process:
-            cli = CLI(process, device.adapter, key_fingerprints=key_fingerprints)
+            cli = CLI(process, device.adapter, key_fingerprints=key_fingerprints, recorder=recorder)
             await cli.read()
             if device.adapter != "hp_1950":
                 await cli.command("no page")
@@ -297,10 +324,8 @@ async def probe_sftp(connection):
 
 async def enable_sftp(cli):
     # Only a plan carrying explicit permission may change this device setting.
-    cli.process.stdin.write("configure terminal\n")
     cli.prompt = None
-    await cli.read()
+    await cli.command("configure terminal")
     await cli.command("ip ssh filetransfer", action="save")
-    cli.process.stdin.write("exit\n")
     cli.prompt = None
-    await cli.read()
+    await cli.command("exit")

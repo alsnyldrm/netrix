@@ -532,6 +532,7 @@ class FirmwarePlan(Entity, Base):
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     finished_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
+        Index("ix_fw_plan_history_order", "created_at", "id"),
         CheckConstraint("concurrency between 1 and 4", name="ck_fw_plan_concurrency"),
         CheckConstraint("mode in ('check','stage','upgrade','activate','verify')", name="ck_fw_plan_mode"),
         CheckConstraint(
@@ -571,6 +572,30 @@ class FirmwareTarget(Entity, Base):
         CheckConstraint(
             "status in ('queued','running','checked','staged','succeeded','failed','attention','cancelled')",
             name="ck_fw_target_status",
+        ),
+    )
+
+
+class FirmwareEvent(Base):
+    __tablename__ = "firmware_events"
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True
+    )
+    created_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    updated_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, onupdate=now)
+    target_id: Mapped[str] = mapped_column(ForeignKey("firmware_targets.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(20))
+    phase: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="info")
+    command: Mapped[str] = mapped_column(Text, default="")
+    response: Mapped[str] = mapped_column(Text, default="")
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)
+    finished_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        Index("ix_fw_event_target_order", "target_id", "id"),
+        CheckConstraint(
+            "status in ('info','started','succeeded','failed','sent')", name="ck_fw_event_status"
         ),
     )
 

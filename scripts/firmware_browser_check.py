@@ -115,7 +115,14 @@ with sync_playwright() as p:
                     name="Fixture paused plan" if tab == "plans" else "Fixture history plan",
                     exact=True,
                 ).click()
-                expect(page.get_by_role("dialog").locator("tbody tr")).to_have_count(1)
+                if tab == "plans":
+                    expect(page.get_by_role("dialog").locator("tbody tr")).to_have_count(1)
+                else:
+                    page.get_by_role("dialog").locator(".fw-history-group > summary").first.click()
+                    page.get_by_role("dialog").locator(".fw-history-device > summary").first.click()
+                    expect(page.get_by_role("dialog").locator(".fw-history-warning")).to_contain_text(
+                        "Bu eski işlemde"
+                    )
                 check(f"{tab}-detail-{width}-{theme}")
                 page.keyboard.press("Escape")
     page.set_viewport_size({"width": 1440, "height": 1000})

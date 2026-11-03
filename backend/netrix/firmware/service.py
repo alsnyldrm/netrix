@@ -153,6 +153,7 @@ def new_plan(db, payload, user):
                     image_id=image.id,
                     stage=index,
                     evidence={
+                        "history_version": 1,
                         "connection_stamp": connection_stamp(device, profile),
                         "device_name": device.name,
                         "management_ip": device.management_ip,

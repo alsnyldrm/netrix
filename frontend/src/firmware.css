@@ -614,3 +614,356 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Execution history: operation, group and device share explicit alignment axes. */
+.fw-history-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.fw-history-filters label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+}
+.fw-history-filters input,
+.fw-history-filters select {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+}
+.fw-history-operations {
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px;
+}
+.fw-history-operation {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  min-width: 0;
+}
+.fw-history-operation-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.fw-history-open {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 40px;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 650;
+}
+.fw-history-open span {
+  overflow-wrap: anywhere;
+}
+.fw-history-open svg {
+  flex-shrink: 0;
+}
+.fw-history-open:hover span {
+  text-decoration: underline;
+}
+.fw-history-operation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.fw-history-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.fw-history-counts span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.fw-history-counts b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.fw-history-detail {
+  padding: 24px;
+  min-width: 0;
+}
+.fw-history-guide {
+  margin: 16px 0 24px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.fw-history-groups {
+  display: grid;
+  gap: 16px;
+}
+.fw-history-group,
+.fw-history-device {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.fw-history-group > summary,
+.fw-history-device > summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  list-style: none;
+  cursor: pointer;
+  min-height: 64px;
+}
+.fw-history-group > summary::-webkit-details-marker,
+.fw-history-device > summary::-webkit-details-marker {
+  display: none;
+}
+.fw-history-group > summary:hover,
+.fw-history-device > summary:hover {
+  background: var(--surface-2);
+}
+.fw-history-caret {
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+.fw-history-group[open] > summary .fw-history-caret,
+.fw-history-device[open] > summary .fw-history-caret {
+  transform: rotate(90deg);
+}
+.fw-history-name {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.fw-history-name b {
+  line-height: 1.5;
+}
+.fw-history-name small {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.fw-history-devices {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding: 16px;
+}
+.fw-history-transcript {
+  border-top: 1px solid var(--border);
+  padding: 20px;
+}
+.fw-history-metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  margin: 0 0 24px;
+}
+.fw-history-metadata > div {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+.fw-history-metadata dt {
+  color: var(--text-2);
+  font-size: 13px;
+}
+.fw-history-metadata dd {
+  margin: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.fw-history-metadata-wide {
+  grid-column: 1 / -1;
+}
+.fw-history-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+  counter-reset: firmware-event;
+}
+.fw-history-event {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 16px;
+  min-width: 0;
+  counter-increment: firmware-event;
+}
+.fw-history-event-failed {
+  border-left-color: var(--danger);
+}
+.fw-history-event-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+.fw-history-event-heading > div {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.fw-history-event-heading b {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.fw-history-event-heading b::before {
+  content: counter(firmware-event) ". ";
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.fw-history-event-heading small,
+.fw-history-event-heading time,
+.fw-history-event-state {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.fw-history-event-heading time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.fw-history-event-state {
+  display: block;
+  margin-top: 10px;
+}
+.fw-history-command {
+  margin-top: 16px;
+}
+.fw-history-command > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.fw-history-command pre,
+.fw-history-output pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.fw-history-output {
+  margin-top: 12px;
+}
+.fw-history-output > summary {
+  min-height: 40px;
+  display: list-item;
+  align-content: center;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.fw-history-note {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+.fw-history-warning,
+.fw-history-failure {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--warning);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.fw-history-failure {
+  color: var(--danger);
+  border-left-color: var(--danger);
+}
+.fw-history-event .fw-history-warning {
+  margin: 12px 0 0;
+}
+.fw-history-loading {
+  padding: 16px;
+}
+.fw-history-detail .fw-pager {
+  padding: 16px 0 0;
+}
+@media (max-width: 600px) {
+  .fw-history-filters {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 16px;
+  }
+  .fw-history-operations,
+  .fw-history-detail {
+    padding: 16px;
+  }
+  .fw-history-operation-heading {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .fw-history-operation-meta {
+    align-items: start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .fw-history-group > summary,
+  .fw-history-device > summary {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px;
+  }
+  .fw-history-name {
+    flex-basis: calc(100% - 32px);
+  }
+  .fw-history-group > summary > .fw-history-counts,
+  .fw-history-device > summary > .fw-state {
+    margin-left: 26px;
+  }
+  .fw-history-devices {
+    padding: 8px;
+  }
+  .fw-history-transcript {
+    padding: 12px;
+  }
+  .fw-history-metadata {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .fw-history-event {
+    padding: 12px;
+  }
+  .fw-history-event-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+}
