@@ -1,7 +1,8 @@
 """Read-only IPAM attachment resolution. Never imports devices or mutates topology."""
 
 import ipaddress
-from collections import defaultdict
+import threading
+from collections import OrderedDict, defaultdict, namedtuple
 from datetime import timedelta
 from uuid import UUID
 
@@ -164,6 +165,40 @@ def gateway_interfaces(tables, network):
     return attached
 
 
+Snapshot = namedtuple("Snapshot", "id created_at")
+# Raw switch/gateway tables are large (MBs per device). Every write goes through
+# the ORM, which bumps updated_at, so (id, updated_at) identifies the content and
+# only new or rewritten snapshots are read and projected again.
+_projections = OrderedDict()
+_projections_lock = threading.Lock()
+PROJECTION_CACHE_LIMIT = 1024
+
+
+def projections(db, rows):
+    keys = {row.id: (row.id, row.updated_at) for row in rows}
+    with _projections_lock:
+        found = {id: _projections[key] for id, key in keys.items() if key in _projections}
+    missing = [id for id in keys if id not in found]
+    for start in range(0, len(missing), 50):
+        for row in db.execute(
+            select(m.Observation.id, m.Observation.updated_at, m.Observation.evidence).where(
+                m.Observation.id.in_(missing[start : start + 50])
+            )
+        ):
+            projected = project(row.evidence or {})
+            found[row.id] = projected
+            if (row.id, row.updated_at) == keys[row.id]:
+                with _projections_lock:
+                    _projections[keys[row.id]] = projected
+    with _projections_lock:
+        for key in keys.values():
+            if key in _projections:
+                _projections.move_to_end(key)
+        while len(_projections) > PROJECTION_CACHE_LIMIT:
+            _projections.popitem(last=False)
+    return [(row, found[row.id]) for row in rows if row.id in found]
+
+
 class Evidence:
     def __init__(self, db, vrfs):
         self.at = now()
@@ -201,11 +236,23 @@ class Evidence:
             .where(m.Observation.device_id.in_(self.devices), m.Observation.source == "ipam_network")
             .subquery()
         )
-        for obs in db.scalars(
-            select(m.Observation).join(ranked, ranked.c.id == m.Observation.id).where(ranked.c.position == 1)
-        ):
-            if obs.address == self.devices[obs.device_id].management_ip:
-                self.snapshots[obs.device_id] = (obs, project(obs.evidence))
+        latest = [
+            row
+            for row in db.execute(
+                select(
+                    m.Observation.id,
+                    m.Observation.device_id,
+                    m.Observation.address,
+                    m.Observation.created_at,
+                    m.Observation.updated_at,
+                )
+                .join(ranked, ranked.c.id == m.Observation.id)
+                .where(ranked.c.position == 1)
+            )
+            if row.address == self.devices[row.device_id].management_ip
+        ]
+        for row, projected in projections(db, latest):
+            self.snapshots[row.device_id] = (Snapshot(row.id, row.created_at), projected)
         self.links = list(
             db.scalars(
                 select(m.Link).where(

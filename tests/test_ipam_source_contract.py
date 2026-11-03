@@ -538,3 +538,26 @@ def test_fortigate_prefix_pointer_and_subdivision_prove_gateway_attachment():
     assert gateway_interfaces(pointer, ipaddress.ip_network("10.5.0.0/24")) == set()
     assert ipv4_value(OctetString(b"\x0a\x05\x00\x01")) == "10.5.0.1"
     assert ipv4_value(OctetString(b"bad")) == ""
+
+
+def test_snapshot_projection_is_reused_until_the_observation_is_rewritten(network, monkeypatch):
+    from netrix.ipam import connections
+    from sqlalchemy import select
+
+    sf, vlan_id, _, _ = network
+    projected = []
+    original = connections.project
+    monkeypatch.setattr(connections, "project", lambda e: projected.append(1) or original(e))
+    connections._projections.clear()
+    first = read(network)
+    assert first["connected_port"] == "Gi1/0/1" and len(projected) == 3
+    assert read(network)["connected_port"] == "Gi1/0/1" and len(projected) == 3
+    with sf() as db:
+        access = db.scalar(select(m.Device).where(m.Device.name == "Access"))
+        obs = db.scalar(select(m.Observation).where(m.Observation.device_id == access.id))
+        obs.evidence = {
+            **obs.evidence,
+            "interfaces": [{"if_index": 101, "name": "Gi1/0/1", "oper_status": "down"}],
+        }
+        db.commit()
+    assert read(network)["connected_port"] == "" and len(projected) == 4
