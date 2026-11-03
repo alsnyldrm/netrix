@@ -80,28 +80,6 @@
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
-.sidebar-profile {
-  align-self: flex-start;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  font-size: 0.8rem;
-}
-.collapsed .sidebar-user-text:has(.sidebar-profile) {
-  display: flex;
-}
-.collapsed .sidebar-user-text > b,
-.collapsed .sidebar-user-text > small {
-  display: none;
-}
-.collapsed .sidebar-profile {
-  font-size: 0;
-}
-.collapsed .sidebar-user {
-  flex-wrap: wrap;
-  justify-content: center;
-}
 .profile-layout {
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);

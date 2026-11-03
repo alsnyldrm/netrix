@@ -2983,26 +2983,30 @@ function App() {
           <span className="sidebar-user-text">
             <b>{user.display_name}</b>
             <small>{tag(user.role)}</small>
+          </span>
+          <div className="sidebar-user-actions">
             <button
-              className="text-button sidebar-profile"
+              className="sidebar-user-action sidebar-profile"
               onClick={() => {
                 setProfileOpen(true);
                 setDrawer(false);
               }}
               aria-label="Profil"
+              title="Profil"
             >
-              <GearSix size={15} />
-              Profil
+              <GearSix size={18} aria-hidden="true" />
+              <span>Profil</span>
             </button>
-          </span>
-          <button
-            className="icon-button"
-            onClick={logout}
-            aria-label="Güvenli çıkış"
-            title="Güvenli çıkış"
-          >
-            <SignOut size={18} />
-          </button>
+            <button
+              className="sidebar-user-action"
+              onClick={logout}
+              aria-label="Güvenli çıkış"
+              title="Güvenli çıkış"
+            >
+              <SignOut size={18} aria-hidden="true" />
+              <span>Çıkış</span>
+            </button>
+          </div>
         </div>
       </aside>
       <div
