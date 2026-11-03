@@ -4,6 +4,7 @@ import ipaddress
 import threading
 from collections import OrderedDict, defaultdict, namedtuple
 from datetime import timedelta
+from functools import lru_cache
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -33,11 +34,34 @@ def integer(value):
         return None
 
 
-def ip(value):
+@lru_cache(maxsize=65536)
+def _ip(value):
     try:
         return str(ipaddress.ip_address(value))
     except (ValueError, TypeError):
         return None
+
+
+def ip(value):
+    # Neighbor addresses are re-read for every IPAM row; parse each value once.
+    try:
+        return _ip(value)
+    except TypeError:
+        return _ip.__wrapped__(value)
+
+
+@lru_cache(maxsize=65536)
+def _mac(value):
+    from .service import normalized_mac
+
+    return normalized_mac(value)
+
+
+def lldp_mac(value):
+    try:
+        return _mac(value)
+    except TypeError:
+        return _mac.__wrapped__(value)
 
 
 def bindings(tables, unsupported):
@@ -115,6 +139,9 @@ def project(evidence):
         "tables": tables,
         "unsupported": unsupported,
         "interfaces": interfaces,
+        "names": {p.get("name") for p in interfaces.values()},
+        "up": {p.get("name") for p in interfaces.values() if p.get("oper_status") == "up"},
+        "down": {p.get("name") for p in interfaces.values() if p.get("oper_status") == "down"},
         "evidence": evidence,
     }
 
@@ -215,6 +242,7 @@ class Evidence:
             if network_device(d)
         }
         self.snapshots = {}
+        self.attached = {}
         self.raw_neighbors = {}
         self.excluded_raw_neighbors = {}
         self.exclusions = defaultdict(list)
@@ -287,6 +315,7 @@ class Evidence:
 
     def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway", host=None):
         from .protocol_peers import peer as protocol_peer
+        from .vmware_hosts import nic_for_neighbor
 
         lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
         cutoff = self.at - lifetime
@@ -303,7 +332,9 @@ class Evidence:
             # A management host's ARP cache is not a gateway source.
             if device.kind not in ("router", "firewall") and str(p["evidence"].get("ip_forwarding")) != "1":
                 continue
-            attached = gateway_interfaces(p["tables"], network)
+            if (id, network) not in self.attached:
+                self.attached[(id, network)] = gateway_interfaces(p["tables"], network)
+            attached = self.attached[(id, network)]
             for mac, index in p["bindings"].get(row.address, ()):
                 if index in attached:
                     gateway.append(
@@ -349,7 +380,7 @@ class Evidence:
         for id, (obs, p) in snapshots.items():
             if p["evidence"].get("failed"):
                 continue
-            up = {v.get("name") for v in p["interfaces"].values() if v.get("oper_status") == "up"}
+            up = p["up"]
             raw = self.raw_neighbors.get(id, [])
             raw = [
                 *raw,
@@ -360,8 +391,6 @@ class Evidence:
                 ),
             ]
             if host:
-                from .vmware_hosts import nic_for_neighbor
-
                 # Fresh protocol evidence plus authenticated VMware NIC ownership
                 # is independent of historical directory visibility. No link is restored.
                 raw = [
@@ -402,14 +431,10 @@ class Evidence:
             aggregate = (data.get("local_aggregate") or {}).get("name")
             blocked.update((id, p) for p in (port, aggregate) if p)
             lldp = data.get("lldp") or {}
-            from .service import normalized_mac
-
             advertised = {
-                normalized_mac(lldp.get("chassis_id")) if lldp.get("chassis_subtype") == 4 else "",
-                normalized_mac(lldp.get("port_id")) if lldp.get("port_subtype") == 3 else "",
+                lldp_mac(lldp.get("chassis_id")) if lldp.get("chassis_subtype") == 4 else "",
+                lldp_mac(lldp.get("port_id")) if lldp.get("port_subtype") == 3 else "",
             } - {""}
-            from .vmware_hosts import nic_for_neighbor
-
             nic = nic_for_neighbor(host, data)
             peer = protocol_peer(data, row.address)
             address_match = any(
@@ -417,10 +442,8 @@ class Evidence:
                 for protocol in ("lldp", "cdp")
             )
             snapshot = snapshots.get(id)
-            if snapshot and snapshot[0].created_at >= when:
-                interfaces = snapshot[1]["interfaces"].values()
-                if any(p.get("name") == port and p.get("oper_status") == "down" for p in interfaces):
-                    continue
+            if snapshot and snapshot[0].created_at >= when and port in snapshot[1]["down"]:
+                continue
             uuid = None
             try:
                 if lldp.get("chassis_subtype") == 7:
@@ -428,7 +451,7 @@ class Evidence:
             except (ValueError, TypeError, AttributeError):
                 pass
             if not uuid and lldp.get("chassis_subtype") == 4:
-                chassis_mac = normalized_mac(lldp.get("chassis_id"))
+                chassis_mac = lldp_mac(lldp.get("chassis_id"))
                 if chassis_mac and chassis_mac in macs:
                     uuid = "lldp-mac:" + chassis_mac
             candidate = {
@@ -480,8 +503,7 @@ class Evidence:
             for id, (obs, p) in snapshots.items():
                 if not p["evidence"].get("neighbor_protocols_complete"):
                     continue
-                names = {p.get("name") for p in p["interfaces"].values()}
-                if any(n.get("interface_name") not in names for n in p["evidence"].get("neighbors", [])):
+                if any(n.get("interface_name") not in p["names"] for n in p["evidence"].get("neighbors", [])):
                     # An unresolved LLDP local port could be the FDB uplink.
                     # Do not infer an edge until every advertised port is mapped.
                     continue
