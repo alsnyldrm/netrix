@@ -72,34 +72,37 @@
 .fw-table-scroll {
   overflow-x: auto;
 }
-.fw-workspace table {
+.fw-table {
   width: 100%;
+  min-width: 760px;
   border-collapse: collapse;
   text-align: left;
 }
-.fw-workspace th {
+.fw-table th {
   color: var(--text-2);
   font-size: 12px;
   font-weight: 500;
   background: var(--surface-2);
   white-space: nowrap;
 }
-.fw-workspace th,
-.fw-workspace td {
+.fw-table th,
+.fw-table td {
   padding: 13px 20px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
-.fw-workspace td {
+.fw-table td {
   font-size: 13px;
+  vertical-align: top;
+  line-height: 1.5;
 }
-.fw-workspace td small {
+.fw-table td small {
   display: block;
   margin-top: 4px;
   color: var(--text-2);
   font-size: 12px;
 }
-.fw-workspace td p {
+.fw-table td p {
   margin: 0;
   max-width: 32ch;
 }
@@ -122,13 +125,43 @@
 }
 .fw-cell-primary {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-start;
   min-height: 36px;
-  padding: 0;
+  padding: 8px 0 0;
   font-size: 14px;
   line-height: 1.5;
   text-align: left;
+}
+.fw-cell-primary:has(> .fw-state) {
+  padding-top: 5px;
+}
+.fw-table .text-button {
+  justify-content: flex-start;
+  padding-inline: 0;
+  text-align: left;
+  line-height: 1.5;
+}
+.fw-cell-primary > .text-button {
+  min-height: 0;
+  font-size: inherit;
+}
+.fw-targets-table {
+  min-width: 860px;
+  table-layout: fixed;
+}
+.fw-targets-table th:nth-child(1),
+.fw-targets-table th:nth-child(2),
+.fw-targets-table th:nth-child(3) {
+  width: 21%;
+}
+.fw-result-actions {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+.fw-service-table {
+  min-width: 660px;
 }
 .fw-cell-stack > small {
   margin-top: 0;
@@ -208,14 +241,31 @@
 .fw-form {
   display: grid;
   gap: 16px;
-  padding: 24px;
+  padding: 22px;
   min-width: 0;
+}
+.dialog form.fw-form {
+  padding: 22px;
+}
+.fw-workspace .dialog-header {
+  padding-inline: 22px;
 }
 .fw-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
+}
+.fw-fields > label {
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  align-content: start;
+}
+.fw-fields > label > :is(input, select, textarea) {
+  grid-row: 2;
+}
+.fw-fields > label > small {
+  grid-row: 3;
 }
 .fw-form label {
   display: grid;
@@ -358,6 +408,21 @@
 .fw-plan-link {
   font-weight: 600;
 }
+.fw-metadata {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr);
+  gap: 12px 16px;
+  margin: 0;
+  align-items: baseline;
+}
+.fw-metadata dt {
+  color: var(--text-2);
+}
+.fw-metadata dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .fw-error-text {
   color: var(--danger);
 }
@@ -401,12 +466,16 @@
   .fw-fields {
     grid-template-columns: minmax(0, 1fr);
   }
-  .fw-form {
+  .fw-form,
+  .dialog form.fw-form {
     padding: 16px;
     gap: 14px;
   }
-  .fw-workspace th,
-  .fw-workspace td {
+  .fw-workspace .dialog-header {
+    padding-inline: 16px;
+  }
+  .fw-table th,
+  .fw-table td {
     padding: 12px 16px;
   }
   .fw-form-actions {
@@ -432,9 +501,16 @@
   .fw-service {
     padding: 16px;
   }
+  .fw-metadata {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .fw-metadata dd + dt {
+    margin-top: 12px;
+  }
 }
 
-.fw-workspace td {
+.fw-table td {
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }

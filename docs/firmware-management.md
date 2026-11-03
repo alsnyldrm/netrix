@@ -34,10 +34,10 @@ Plan taslaktır; oluşturmak cihaz işlemi başlatmaz. Yönetici **Başlat** ile
 
 - **Yalnız ön kontrol:** SSH erişimi, dosya bütünlüğü, kayıtlı model uyumu, çalışan sürüm ve imaj alanı okunur. Firmware yazılmaz; ayrı bir aktarım/etkinleştirme planı gerekir.
 - **Aktar ve açılışa hazırla:** Ön kontrol → şifreli konfigürasyon yedeği → aktarım/yazım doğrulaması. Yeniden başlatılmaz. HP 1950'nin bu komutu sonraki açılış imajını da değiştirir.
-- **Aktar ve yeniden başlat:** Önceki aşamalar → yeniden başlatma → çalışan hedef sürümü ve banka doğrulaması. Ardışık iki başarılı SSH okuması beklenir; ping tek başına başarı sayılmaz.
+- **Aktar ve yeniden başlat:** Önceki aşamalar → yeniden başlatma → çalışan hedef sürümü ve yazılım alanı doğrulaması. Ardışık iki başarılı SSH okuması beklenir; ping tek başına başarı sayılmaz.
 - Hazırlanmış plan **Yeniden başlat ve etkinleştir** ile ayrı onaydan sonra çalışır.
 
-AOS-S'de SFTP dönüşü flash yazımının bitmesi sayılmaz. Aktarımdan önceki olay kayıtlarıyla karşılaştırılarak yeni banka güncelleme olayı ve doğru `show flash` sürümü beklenir. Primary/secondary seçimi çalışan bankanın tersidir; bilinmeyen bankanın üzerine yazılmaz. 1950 main/current/backup kavramları primary/secondary gibi sunulmaz. BootROM nedeniyle yeniden başlatma birden fazla kez gerçekleşebilir; sürüm doğrulama 20 dakikaya kadar bekler.
+AOS-S'de SFTP dönüşü flash yazımının bitmesi sayılmaz. Aktarımdan önceki olay kayıtlarıyla karşılaştırılarak yazılım alanının güncellendiğini gösteren yeni olay ve doğru `show flash` sürümü beklenir. Primary/secondary seçimi çalışan yazılım alanının tersidir; bilinmeyen yazılım alanının üzerine yazılmaz. 1950 main/current/backup kavramları primary/secondary gibi sunulmaz. BootROM nedeniyle yeniden başlatma birden fazla kez gerçekleşebilir; sürüm doğrulama 20 dakikaya kadar bekler.
 
 Aynı cihazı iki firmware planı kullanamaz. Mevcut normal worker cihazda firmware çalışırken yeni cihaz işi almaz; daha önce başlamış cihaz işi firmware başlamadan beklenir. Keşif sonuçları IPAM'a aktarılmaz; firmware kapsamı envanter keşif CIDR yetkisine bağlanmaz. Aktif envanter kaydı ve geçerli SSH profili gerekir.
 
@@ -72,6 +72,15 @@ Nginx'te yalnız NETRIX imaj aktarım yolunun gövde sınırı 2 GiB'ye yükselt
 
 ## CX 6100 aktarım düzeltmesi — 3 Kasım 2026
 
-PL.10.17.1030 çalışan bir 6100, CLI yardımında SFTP listelenmesine rağmen gerçek firmware indirmesini `Download failed with exit code 1: Unsupported protocol` ile reddetti (cihaz olayları 4413/4403). Salt okunur `show images` ve `show boot-history` kontrolünde eski çalışan sürüm, aktif banka ve önceki primary imajı korundu; yeni bir reboot yoktu. Bu adaptör artık SSH ile `copy scp://... {primary|secondary} vrf default` kullanır. Bu bulgu bütün CX sürümlerinin SFTP desteklemediği anlamına gelmez. Cihaz HTTPS'i açılmaz ve şifresiz protokole otomatik geçilmez.
+PL.10.17.1030 çalışan bir 6100, CLI yardımında SFTP listelenmesine rağmen gerçek firmware indirmesini `Download failed with exit code 1: Unsupported protocol` ile reddetti (cihaz olayları 4413/4403). Salt okunur `show images` ve `show boot-history` kontrolünde eski çalışan sürüm, aktif yazılım alanı ve önceki primary imajı korundu; yeni bir reboot yoktu. Bu adaptör artık SSH ile `copy scp://... {primary|secondary} vrf default` kullanır. Bu bulgu bütün CX sürümlerinin SFTP desteklemediği anlamına gelmez. Cihaz HTTPS'i açılmaz ve şifresiz protokole otomatik geçilmez.
 
 SCP kaynağı, mevcut geçici kullanıcı/parola hash'i, hedef cihaz IP'si, süre ve tek dosya sınırlarını kullanır. Aynı sunucunun SFTP alt sistemi AOS-S akışı ve SSH istemci uyumluluğu için korunur. Gerçek döngüsel SCP/SFTP testinde ikili dosya eşitliği, upload/shell/silme/yol aşımı reddi ayrıca doğrulanır.
+
+
+## CX doğrulaması ve Firmware hizalaması — 3 Kasım 2026
+
+SCP aktarımı sonrası cihazın 4401 olayı primary alanında PL.10.18.1010 kurulumunu doğrularken tek seferlik anlık okuma hata verdi. Sonraki salt okunur okumada sürüm ve SHA-256 depo dosyasıyla eşleşti; çalışan secondary sürüm değişmedi ve cihaz yeniden başlamadı. CX adaptörü aktarım komutunu yinelemeden `show images` okumasını en fazla 60 saniye, iki saniyelik aralıklarla yeniler. Doğru alanın tam sürümü ve SHA-256 değeri birlikte eşleşmeden yeniden başlatmaya geçilmez. Eski hata anındaki ham çıktı saklanmadığından ilk okumanın içeriği geriye dönük olarak belirlenemedi.
+
+Arayüzde primary/secondary bölümleri **yazılım alanı** olarak adlandırılır. Altı Firmware ekranının tabloları ortak hücre başlangıçları, satır üst hizaları ve bağlantı girintilerini kullanır. Form etiketleri ve kontroller aynı sütun ekseninde kalır; dar ekranlarda tablolar kendi alanında yatay kaydırılır. Dolu plan ve geçmiş tabloları, hata ayrıntıları ve formlar masaüstü/mobil, açık/koyu tema ile ölçülür. UI UX Pro Max UX verisindeki tablo taşması ve metin yeniden akışı önerileri uygulandı; React veri aramasında hizalamaya özgü doğrulanmış eşleşme bulunamadığından uygulamanın mevcut CSS grid/flex düzeni esas alındı.
+
+Bu düzeltmenin doğrulaması: firmware, adaptör, Aruba terminali ve sürüm ayrıştırma testlerinden **94 test geçti**. 375, 768, 1024 ve 1440 px genişliklerde açık/koyu tema dahil **77 tarayıcı görünümü** hizalama, taşma ve Axe kontrollerini geçti. Python Ruff, frontend TypeScript/Vite derlemesi ve Prettier kontrolü başarılıdır. Bu ölçümler geçici test verisi üzerinde yapılır; gerçek cihazda yeniden başlatma testi yürütülmemiştir.

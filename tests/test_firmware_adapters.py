@@ -27,6 +27,24 @@ class Terminal:
         return await self.queue.get()
 
 
+@pytest.mark.parametrize(
+    "bank,version,digest,expected",
+    [
+        ("primary", "PL.10.18.1010", "a" * 64, True),
+        ("primary", "PL.10.18.1010", "b" * 64, False),
+        ("primary", "PL.10.17.1030", "a" * 64, False),
+        ("secondary", "PL.10.18.1010", "a" * 64, False),
+        ("secondary", "PL.10.17.1030", "b" * 64, True),
+    ],
+)
+def test_cx_checks_version_and_sha_in_same_software_area(bank, version, digest, expected):
+    output = "AOS-CX Primary Image\n-----\nVersion : PL.10.18.1010\nSHA-256 : " + "a" * 64
+    output += "\nAOS-CX Secondary Image\n-----\nVersion : PL.10.17.1030\nSHA-256 : " + "b" * 64
+    assert (
+        adapters.cx_image_matches(output, bank, SimpleNamespace(version=version, sha256=digest)) is expected
+    )
+
+
 @pytest.mark.asyncio
 async def test_cx_transfer_pins_source_host_key_and_sends_password_only_to_password_prompt():
     key = "SHA256:source-fixture-key"
@@ -154,6 +172,65 @@ async def test_cx_uses_scp_pull_default_vrf_and_verifies_exact_target_bank(monke
     assert calls[0][1]["password"] == "temporary"
     assert calls[1][0] == "show images"
     settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_cx_polls_readback_without_repeating_successful_transfer(monkeypatch, tmp_path):
+    """A completed native copy can precede the image metadata readback refresh."""
+    calls = []
+    reads = 0
+
+    class CLI:
+        async def command(self, value, **kwargs):
+            nonlocal reads
+            calls.append(value)
+            if value != "show images":
+                return "Verifying and writing system firmware... Success"
+            reads += 1
+            version = "PL.10.13.1005" if reads < 3 else "PL.10.18.1010"
+            return f"AOS-CX Primary Image\n-----\nVersion : {version}\nAOS-CX Secondary Image\nVersion : PL.10.17.1030"
+
+    async def sleep(*args):
+        pass
+
+    monkeypatch.setattr(adapters.asyncio, "sleep", sleep)
+    await adapters.stage(
+        None,
+        CLI(),
+        SimpleNamespace(adapter="aruba_6100"),
+        SimpleNamespace(version="PL.10.18.1010"),
+        "primary",
+        tmp_path / "unused",
+        {"username": "fw_temp", "password": "temporary", "filename": "fixture.swi"},
+    )
+    assert reads == 3
+    assert sum(command.startswith("copy ") for command in calls) == 1
+    assert not any("boot" in command for command in calls)
+
+
+@pytest.mark.asyncio
+async def test_cx_readback_timeout_never_accepts_image_in_other_area(monkeypatch, tmp_path):
+    calls = []
+    timeout = asyncio.timeout
+    monkeypatch.setattr(adapters.asyncio, "timeout", lambda _: timeout(0.01))
+
+    class CLI:
+        async def command(self, value, **kwargs):
+            calls.append(value)
+            return "AOS-CX Primary Image\nVersion : PL.10.13.1005\nAOS-CX Secondary Image\nVersion : PL.10.18.1010"
+
+    with pytest.raises(adapters.FirmwareError) as failure:
+        await adapters.stage(
+            None,
+            CLI(),
+            SimpleNamespace(adapter="aruba_6100"),
+            SimpleNamespace(version="PL.10.18.1010"),
+            "primary",
+            tmp_path / "unused",
+            {"username": "fw_temp", "password": "temporary", "filename": "fixture.swi"},
+        )
+    assert failure.value.code == "image"
+    assert sum(command.startswith("copy ") for command in calls) == 1
 
 
 @pytest.mark.asyncio

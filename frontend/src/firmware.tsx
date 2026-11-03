@@ -71,6 +71,26 @@ function State({ value }: { value: string }) {
     </span>
   );
 }
+function Cell({
+  children,
+  detail,
+  mono = false,
+}: {
+  children: React.ReactNode;
+  detail?: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <td>
+      <div className="fw-cell-stack">
+        <div className={"fw-cell-primary" + (mono ? " mono" : "")}>
+          {children}
+        </div>
+        {detail}
+      </div>
+    </td>
+  );
+}
 function Empty({ text }: { text: string }) {
   return (
     <div className="fw-empty">
@@ -815,7 +835,7 @@ function PlanDetail({
               role="region"
               aria-label="Firmware tablosu"
             >
-              <table>
+              <table className="fw-table fw-targets-table">
                 <thead>
                   <tr>
                     <th>Cihaz</th>
@@ -827,61 +847,86 @@ function PlanDetail({
                 <tbody>
                   {p.targets.map((t: Row) => (
                     <tr key={t.id}>
-                      <td>
+                      <Cell
+                        detail={
+                          <small>
+                            {t.evidence.management_ip} · Aşama {t.stage + 1}
+                          </small>
+                        }
+                      >
                         <b>{t.evidence.device_name}</b>
-                        <small>
-                          {t.evidence.management_ip} · Aşama {t.stage + 1}
-                        </small>
-                      </td>
-                      <td>
+                      </Cell>
+                      <Cell
+                        detail={
+                          <small>
+                            {t.status === "staged"
+                              ? "Yeniden başlatma bekliyor"
+                              : PHASE[t.phase] || t.phase}
+                          </small>
+                        }
+                      >
                         <State value={t.status} />
-                        <small>{PHASE[t.phase] || t.phase}</small>
-                      </td>
-                      <td>
+                      </Cell>
+                      <Cell
+                        detail={
+                          <>
+                            <small>Hedef: {t.evidence.expected_version}</small>
+                            <small>
+                              {t.bank === "auto"
+                                ? "Yazılım alanı ön kontrolde seçilir"
+                                : `Yazılım alanı: ${t.previous_bank} → ${t.bank}`}
+                            </small>
+                          </>
+                        }
+                      >
                         <span>
                           {t.previous_version || "Ön kontrol bekliyor"}
                         </span>
-                        <small>Hedef: {t.evidence.expected_version}</small>
-                        <small>
-                          {t.bank === "auto"
-                            ? "İmaj alanı ön kontrolde seçilir"
-                            : `${t.previous_bank} → ${t.bank}`}
-                        </small>
-                      </td>
+                      </Cell>
                       <td>
-                        {t.error ? (
-                          <p className="fw-error-text">{t.error}</p>
-                        ) : t.verified_version ? (
-                          <span>Çalışan: {t.verified_version}</span>
-                        ) : t.transfer_bytes ? (
-                          <span>{bytes(t.transfer_bytes)} aktarıldı</span>
-                        ) : (
-                          "—"
-                        )}
-                        {t.snapshot_id && (
-                          <small>Konfigürasyon yedeği korumada</small>
-                        )}
-                        {admin && t.status === "attention" && (
-                          <div className="fw-row-actions">
-                            <button
-                              className="text-button"
-                              disabled={busy}
-                              onClick={() => mutate(`/targets/${t.id}/verify`)}
-                            >
-                              Sürümü yeniden doğrula
-                            </button>
-                            <button
-                              className="text-button"
-                              disabled={busy}
-                              onClick={() => {
-                                setRecovery(t);
-                                setRecoveryName("");
-                              }}
-                            >
-                              Manuel kurtarmayı tamamla
-                            </button>
+                        <div className="fw-cell-stack">
+                          <div className="fw-cell-primary">
+                            {t.error ? (
+                              <p className="fw-error-text">{t.error}</p>
+                            ) : t.status === "staged" ? (
+                              <span>
+                                Hedef firmware yazılım alanında hazır.
+                              </span>
+                            ) : t.verified_version ? (
+                              <span>Çalışan: {t.verified_version}</span>
+                            ) : t.transfer_bytes ? (
+                              <span>{bytes(t.transfer_bytes)} aktarıldı</span>
+                            ) : (
+                              "—"
+                            )}
                           </div>
-                        )}
+                          {t.snapshot_id && (
+                            <small>Konfigürasyon yedeği korumada</small>
+                          )}
+                          {admin && t.status === "attention" && (
+                            <div className="fw-row-actions fw-result-actions">
+                              <button
+                                className="text-button"
+                                disabled={busy}
+                                onClick={() =>
+                                  mutate(`/targets/${t.id}/verify`)
+                                }
+                              >
+                                Sonucu yeniden doğrula
+                              </button>
+                              <button
+                                className="text-button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setRecovery(t);
+                                  setRecoveryName("");
+                                }}
+                              >
+                                Manuel kurtarmayı tamamla
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1194,7 +1239,7 @@ export default function FirmwareWorkspace({
               role="region"
               aria-label="Firmware tablosu"
             >
-              <table>
+              <table className="fw-table fw-service-table">
                 <thead>
                   <tr>
                     <th>Cihaz ailesi</th>
@@ -1206,7 +1251,9 @@ export default function FirmwareWorkspace({
                   <tr>
                     <td>5400 / 2920 / 2930</td>
                     <td>SSH</td>
-                    <td>SFTP ile cihazın boş imaj bankasına gönderilir.</td>
+                    <td>
+                      SFTP ile cihazın kullanılmayan yazılım alanına gönderilir.
+                    </td>
                   </tr>
                   <tr>
                     <td>6100</td>
@@ -1227,8 +1274,8 @@ export default function FirmwareWorkspace({
             <h3>Kurtarma ve doğrulama</h3>
             <p>
               Her yazma öncesinde şifreli konfigürasyon yedeği alınır. Önceki
-              sürüm ve imaj alanı işlem ayrıntısında tutulur. Eski sürüme dönüş,
-              sürümle uyumlu konfigürasyon ve üretici yönergesiyle
+              sürüm ve yazılım alanı işlem ayrıntısında tutulur. Eski sürüme
+              dönüş, sürümle uyumlu konfigürasyon ve üretici yönergesiyle
               planlanmalıdır.
             </p>
             <p>
@@ -1262,7 +1309,11 @@ export default function FirmwareWorkspace({
             role="region"
             aria-label="Firmware tablosu"
           >
-            <table className={tab === "images" ? "fw-images-table" : undefined}>
+            <table
+              className={
+                "fw-table fw-" + (tab === "history" ? "plans" : tab) + "-table"
+              }
+            >
               <thead>
                 <tr>
                   {(tab === "devices"
@@ -1282,18 +1333,16 @@ export default function FirmwareWorkspace({
                   <tr key={r.id}>
                     {tab === "devices" ? (
                       <>
-                        <td>
+                        <Cell detail={<small>{r.management_ip}</small>}>
                           <b>{r.name}</b>
-                          <small>{r.management_ip}</small>
-                        </td>
-                        <td>
+                        </Cell>
+                        <Cell detail={<small>{FAMILIES[r.family]}</small>}>
                           {r.model || "—"}
-                          <small>{FAMILIES[r.family]}</small>
-                        </td>
-                        <td className="mono">
+                        </Cell>
+                        <Cell mono>
                           {r.software_version || "Henüz okunmadı"}
-                        </td>
-                        <td>SSH + {r.protocol.toUpperCase()}</td>
+                        </Cell>
+                        <Cell>SSH + {r.protocol.toUpperCase()}</Cell>
                       </>
                     ) : tab === "images" ? (
                       <>
@@ -1370,11 +1419,11 @@ export default function FirmwareWorkspace({
                       </>
                     ) : tab === "groups" ? (
                       <>
-                        <td>
+                        <Cell>
                           <b>{r.name}</b>
-                        </td>
-                        <td>{r.description || "—"}</td>
-                        <td>{r.device_count} cihaz</td>
+                        </Cell>
+                        <Cell>{r.description || "—"}</Cell>
+                        <Cell>{r.device_count} cihaz</Cell>
                         <td>
                           <div className="fw-row-actions">
                             {write && (
@@ -1409,31 +1458,39 @@ export default function FirmwareWorkspace({
                       </>
                     ) : (
                       <>
-                        <td>
+                        <Cell
+                          detail={
+                            <small>
+                              {Object.values(r.counts as Row).reduce(
+                                (a: number, n: any) => a + Number(n),
+                                0,
+                              )}{" "}
+                              cihaz
+                            </small>
+                          }
+                        >
                           <button
                             className="text-button fw-plan-link"
                             onClick={() => setDetail(r.id)}
                           >
                             {r.name}
                           </button>
-                          <small>
-                            {Object.values(r.counts as Row).reduce(
-                              (a: number, n: any) => a + Number(n),
-                              0,
-                            )}{" "}
-                            cihaz
-                          </small>
-                        </td>
-                        <td>
+                        </Cell>
+                        <Cell
+                          detail={
+                            <small>
+                              {r.steps
+                                .map((s: Row) => s.group_name)
+                                .join(" → ")}
+                            </small>
+                          }
+                        >
                           {MODES[r.mode]}
-                          <small>
-                            {r.steps.map((s: Row) => s.group_name).join(" → ")}
-                          </small>
-                        </td>
-                        <td>
+                        </Cell>
+                        <Cell>
                           <State value={r.status} />
-                        </td>
-                        <td>{date(r.available_at)}</td>
+                        </Cell>
+                        <Cell>{date(r.available_at)}</Cell>
                       </>
                     )}
                   </tr>
@@ -1457,7 +1514,7 @@ export default function FirmwareWorkspace({
           onClose={() => setModal(null)}
         >
           <div className="fw-form">
-            <dl>
+            <dl className="fw-metadata">
               <dt>Cihaz ailesi</dt>
               <dd>{FAMILIES[modal.row!.family]}</dd>
               <dt>Sürüm / modeller</dt>

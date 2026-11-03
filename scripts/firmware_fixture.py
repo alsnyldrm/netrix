@@ -19,7 +19,7 @@ os.environ.update(
 )
 from netrix import main, services  # noqa: E402
 from netrix import models as m  # noqa: E402
-from netrix.core import Base, engine, session_factory  # noqa: E402
+from netrix.core import Base, engine, now, session_factory  # noqa: E402
 from netrix.identity.security import encrypt, hasher  # noqa: E402
 
 
@@ -83,6 +83,59 @@ with session_factory()() as db:
                 kind="switch",
                 config_credential_id=profile.id,
                 software_version="PL.10.17.1030" if n == 999 else "WC.16.10.0025",
+            )
+        )
+    db.flush()
+    # Populated tables exercise alignment, wrapping and recovery actions. These
+    # records live only in the disposable fixture DB; no worker is started.
+    from sqlalchemy import select
+
+    device = db.scalar(select(m.Device).where(m.Device.name == "Fixture 0999"))
+    user = db.scalar(select(m.User))
+    image = m.FirmwareImage(
+        name="Fixture firmware",
+        family="cx6100",
+        version="PL.10.18.1010",
+        models=["JL675A"],
+        original_name="fixture.swi",
+        expected_sha256="a" * 64,
+        sha256="a" * 64,
+        status="ready",
+        size_bytes=285115183,
+    )
+    group = m.FirmwareGroup(name="Fixture group", description="Fixture alignment sample")
+    db.add_all([image, group])
+    db.flush()
+    db.add(m.FirmwareMember(group_id=group.id, device_id=device.id))
+    for status, name in (("paused", "Fixture paused plan"), ("cancelled", "Fixture history plan")):
+        plan = m.FirmwarePlan(
+            name=name,
+            status=status,
+            mode="upgrade",
+            requested_by=user.id,
+            steps=[{"group_name": group.name, "version": image.version, "count": 1}],
+        )
+        db.add(plan)
+        db.flush()
+        db.add(
+            m.FirmwareTarget(
+                plan_id=plan.id,
+                device_id=device.id,
+                image_id=image.id,
+                stage=0,
+                status="attention" if status == "paused" else "cancelled",
+                phase="transferring",
+                bank="primary",
+                previous_bank="secondary",
+                previous_version="PL.10.17.1030",
+                error_code="image",
+                error="Firmware hedef yazılım alanında doğrulanamadı. Sonucu yeniden doğrulayın.",
+                evidence={
+                    "device_name": device.name,
+                    "management_ip": device.management_ip,
+                    "expected_version": image.version,
+                },
+                finished_at=now(),
             )
         )
     db.commit()

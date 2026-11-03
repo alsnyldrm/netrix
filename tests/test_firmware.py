@@ -428,6 +428,19 @@ def test_failed_reconciliation_preserves_original_transfer_error(fw, legacy_erro
         assert row.active_device and db.get(m.FirmwarePlan, plan["id"]).status == "paused"
 
 
+def test_historical_image_error_uses_current_software_area_terminology(fw):
+    plan = make_plan(fw)
+    with fw["sf"]() as db:
+        row = db.scalar(select(m.FirmwareTarget).where(m.FirmwareTarget.plan_id == plan["id"]))
+        row.error_code, row.error = "image", "İmajın hedef bankaya yazıldığı doğrulanamadı."
+        target_id = row.id
+        db.commit()
+    response = fw["client"].get("/api/v1/firmware/plans/" + plan["id"])
+    target = next(t for t in response.json()["targets"] if t["id"] == target_id)
+    assert target["error"] == adapters.ERRORS["image"]
+    assert "banka" not in target["error"]
+
+
 def test_viewer_cannot_upload_create_groups_or_start_firmware(fw):
     c = fw["client"]
     with fw["sf"]() as db:

@@ -14,6 +14,7 @@ from .. import models as m
 from ..core import now, settings
 from ..identity.security import audit
 from ..services import get, publish, serialize
+from .adapters import ERRORS
 
 FAMILIES = {"aruba_5400": "aos_s", "aruba_2900": "aos_s", "aruba_6100": "cx6100", "hp_1950": "hp1950"}
 BUSY = ("running", "staged", "attention")
@@ -236,6 +237,9 @@ def _start_plan(db, plan, user):
 
 def target_view(row):
     data = serialize(row)
+    # Render current terminology for historical records without rewriting them.
+    if row.error_code in ERRORS:
+        data["error"] = ERRORS[row.error_code]
     for key in (
         "transfer_username",
         "transfer_secret_hash",

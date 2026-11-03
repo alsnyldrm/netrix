@@ -34,6 +34,44 @@ with sync_playwright() as p:
 
     def check(name):
         assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth"), name
+        # Check the actual text origin, not only the cell border. Link padding
+        # used to shift names away from their heading and secondary line.
+        alignment = page.locator(".fw-table").evaluate_all("""tables => tables.flatMap(table => {
+          const failures = [];
+          const headers = [...table.querySelectorAll('thead th')];
+          for (const row of table.querySelectorAll('tbody tr')) {
+            const origins = [];
+            [...row.cells].forEach((cell, i) => {
+              const primary = cell.querySelector('.fw-cell-primary');
+              if (!primary) return;
+              const r = primary.getBoundingClientRect();
+              origins.push(r.y);
+              const h = headers[i].getBoundingClientRect();
+              const inset = parseFloat(getComputedStyle(headers[i]).paddingLeft);
+              if (Math.abs(r.x - h.x - inset) > 1) failures.push('column ' + i);
+              for (const child of primary.querySelectorAll('.text-button')) {
+                if (Math.abs(child.getBoundingClientRect().x - r.x) > 1 || parseFloat(getComputedStyle(child).paddingLeft) !== 0) failures.push('link inset');
+              }
+              for (const small of cell.querySelectorAll('.fw-cell-stack > small')) {
+                if (Math.abs(small.getBoundingClientRect().x - r.x) > 1) failures.push('secondary line');
+              }
+            });
+            if (origins.length && Math.max(...origins) - Math.min(...origins) > 1) failures.push('row top');
+          }
+          return failures;
+        })""")
+        assert not alignment, (name, alignment)
+        fields = page.locator(".fw-fields").evaluate_all("""groups => groups.flatMap(group => {
+          const controls = [...group.children].filter(e => e.matches('label')).map(label => label.querySelector('input,select,textarea')).filter(Boolean);
+          const failures = [];
+          for (let i = 1; i < controls.length; i++) {
+            const a = controls[i-1].getBoundingClientRect(), b = controls[i].getBoundingClientRect();
+            if (b.x > a.x + 1 && Math.abs(b.y - a.y) > 1) failures.push('field row');
+            if (b.x > a.x + 1 && Math.abs(b.height - a.height) > 1) failures.push('field height');
+          }
+          return failures;
+        })""")
+        assert not fields, (name, fields)
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
         reports[name] = page.evaluate(
             "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))"
@@ -51,7 +89,7 @@ with sync_playwright() as p:
     firmware_menu = page.locator(".nav-group").filter(
         has=page.get_by_role("button", name="Firmware", exact=True)
     )
-    for width, theme in ((1440, "light"), (1440, "dark"), (375, "light"), (375, "dark")):
+    for width, theme in ((width, theme) for width in (1440, 1024, 768, 375) for theme in ("light", "dark")):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
         page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
         for tab in tabs:
@@ -70,6 +108,15 @@ with sync_playwright() as p:
                 expect(page.locator(".sidebar")).not_to_be_visible()
             durations.append((time.perf_counter() - start) * 1000)
             check(f"{tab}-{width}-{theme}")
+            if tab in ("plans", "history"):
+                page.get_by_role(
+                    "button",
+                    name="Fixture paused plan" if tab == "plans" else "Fixture history plan",
+                    exact=True,
+                ).click()
+                expect(page.get_by_role("dialog").locator("tbody tr")).to_have_count(1)
+                check(f"{tab}-detail-{width}-{theme}")
+                page.keyboard.press("Escape")
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.goto(BASE + "/#firmware-images")
     page.get_by_role("button", name="Dosya yükle", exact=True).click()

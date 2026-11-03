@@ -16,8 +16,8 @@ ERRORS = {
     "cli": "Cihaz komutu reddetti. Model, sürüm ve yönetici yetkisini kontrol edin.",
     "prompt": "Cihazın komut istemi doğrulanamadı.",
     "version": "Çalışan yazılım sürümü kesin olarak okunamadı.",
-    "bank": "Çalışan imaj alanı okunamadı; üzerine yazma engellendi.",
-    "image": "İmajın hedef bankaya yazıldığı doğrulanamadı.",
+    "bank": "Çalışan yazılım alanı okunamadı; üzerine yazma engellendi.",
+    "image": "Firmware hedef yazılım alanında doğrulanamadı. Sonucu yeniden doğrulayın.",
     "transfer_protocol": "Cihaz dosya aktarım protokolünü reddetti (Unsupported protocol). Aktarım yöntemi kontrol edilmeli.",
     "source_key": "Dosya sunucusunun SSH anahtarı doğrulanamadı.",
     "unexpected_prompt": "Cihaz beklenmeyen bir onay istedi; işlem durduruldu.",
@@ -84,6 +84,23 @@ def bank_contains(text, bank, expected):
             for token in re.findall(r"[A-Z]{1,4}\.\d+(?:\.\d+){2,}", section[1], re.I)
         )
     return False
+
+
+def cx_image_matches(text, bank, image):
+    """Match the requested area's version and, when available, its file digest."""
+    if not bank_contains(text, bank, image.version):
+        return False
+    expected = getattr(image, "sha256", "")
+    if not expected:
+        return True
+    section = re.search(
+        r"(?ims)^\s*(?:AOS-CX\s+)?"
+        + re.escape(bank)
+        + r"\s+Image[^\n]*\n(.*?)(?=^\s*(?:AOS-CX\s+)?(?:Primary|Secondary)\s+Image|\Z)",
+        text,
+    )
+    digest = re.search(r"(?im)^\s*SHA-256\s*:\s*([a-f0-9]{64})\s*$", section[1]) if section else None
+    return bool(digest and digest[1].lower() == expected.lower())
 
 
 class CLI:
@@ -232,8 +249,16 @@ async def stage(connection, cli, device, image, bank, path, source, progress=Non
     elif device.adapter == "aruba_6100":
         command = f"copy scp://{source['username']}@{settings().firmware_advertise_host}:{settings().firmware_sftp_port}/{source['filename']} {bank} vrf default"
         await cli.command(command, action="transfer", password=source["password"], timeout=1800)
-        if not bank_contains(await cli.command("show images"), bank, image.version):
-            raise FirmwareError("image")
+        # The native copy's completion and the show-images metadata can become
+        # visible separately. Retry only readback; never repeat the flash write.
+        try:
+            async with asyncio.timeout(60):
+                while True:
+                    if cx_image_matches(await cli.command("show images"), bank, image):
+                        return
+                    await asyncio.sleep(2)
+        except TimeoutError:
+            raise FirmwareError("image") from None
     else:
         await cli.command(
             f"upgrade {settings().firmware_advertise_host} runtime file {source['filename']}",
