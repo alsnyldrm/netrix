@@ -1,3 +1,17 @@
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("/fonts/ubuntu-mono/UbuntuMono-R.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Ubuntu Mono";
+  src: url("/fonts/ubuntu-mono/UbuntuMono-B.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
 .ssh-launch-cell {
   width: 52px;
   text-align: center;
@@ -95,12 +109,16 @@
   min-height: 0;
 }
 .ssh-body.with-commands {
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr) 8px clamp(
+      240px,
+      var(--ssh-commands-width, 300px),
+      52%
+    );
 }
 .ssh-terminal {
   min-width: 0;
   min-height: 0;
-  background: #0b1220;
+  background: #300a24;
   padding: 12px;
   overflow: hidden;
 }
@@ -108,13 +126,14 @@
   height: 100%;
 }
 .ssh-commands {
-  border-left: 1px solid var(--border);
+  height: 100%;
   padding: 16px;
   overflow: auto;
   min-width: 0;
 }
 .ssh-commands-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
@@ -141,22 +160,29 @@
   gap: 8px;
 }
 .ssh-command-list > div {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px 40px;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
 }
 .ssh-command-list button {
-  min-height: 38px;
+  min-height: 44px;
+  height: 44px;
+  border-radius: 0;
+}
+.ssh-command-list > div > .icon-button {
+  border-left: 1px solid var(--border);
+  width: 40px;
 }
 .ssh-command-run {
-  flex: 1;
+  justify-content: flex-start;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   border: 0;
-  padding: 8px;
+  padding: 8px 12px;
   text-align: left;
   background: var(--surface-2);
 }
@@ -366,18 +392,36 @@
     width: 40px;
     height: 40px;
   }
-  .ssh-body.with-commands {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 1fr) auto;
+  .ssh-body.with-commands,
+  .ssh-body.with-commands.commands-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(140px, 1fr) auto;
+  }
+  .ssh-command-separator {
+    display: none;
+  }
+  .ssh-command-panel {
+    max-height: min(280px, 34dvh);
+  }
+  .ssh-command-rail {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    justify-content: flex-end;
+  }
+  .ssh-command-rail > button {
+    transform: rotate(90deg);
+  }
+  .ssh-panel-resize-button {
+    display: none;
   }
   .ssh-commands {
     border-left: 0;
     border-top: 1px solid var(--border);
     padding: 12px;
-    max-height: 210px;
+    max-height: none;
   }
   .ssh-command-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
   .ssh-terminal {
     padding: 8px;
@@ -426,4 +470,145 @@
 .batch-results > nav,
 .group-device-list {
   overscroll-behavior: contain;
+}
+
+.ssh-body.with-commands.commands-collapsed {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+.commands-collapsed .ssh-command-separator {
+  display: none;
+}
+.ssh-command-panel {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.ssh-command-panel[hidden] {
+  display: none;
+}
+.ssh-command-separator {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--surface-2);
+  border-inline: 1px solid var(--border);
+}
+.ssh-command-separator::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 20px);
+  height: 40px;
+  width: 2px;
+  left: 2px;
+  border-radius: 2px;
+  background: var(--border-strong);
+}
+.ssh-command-separator:hover::after,
+.ssh-command-separator:focus-visible::after {
+  background: var(--accent);
+}
+.ssh-command-rail {
+  display: flex;
+  align-items: flex-start;
+  border-left: 1px solid var(--border);
+}
+.ssh-command-tools {
+  display: flex;
+  gap: 0;
+  align-items: center;
+}
+.ssh-command-tools .icon-button {
+  width: 28px;
+  height: 36px;
+}
+.ssh-commands-head h3 {
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.ssh-command-form-actions {
+  display: grid;
+  gap: 8px;
+}
+.ssh-command-form-actions > button {
+  width: 100%;
+}
+.ssh-appearance-panel {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  flex: none;
+  max-height: 45dvh;
+  overflow: auto;
+}
+.ssh-appearance-fields {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.5fr) repeat(3, minmax(100px, 1fr));
+  gap: 12px;
+}
+.ssh-appearance-fields label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.8rem;
+  min-width: 0;
+}
+.ssh-appearance-fields :is(select, input) {
+  height: 40px;
+  width: 100%;
+  min-width: 0;
+}
+.ssh-appearance-fields input[type="color"] {
+  padding: 4px;
+  cursor: pointer;
+}
+.ssh-appearance-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.ssh-appearance-actions > span {
+  color: var(--text-2);
+  margin-right: auto;
+  font-size: 0.75rem;
+}
+.ssh-appearance-actions > button {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+/* The terminal is a fixed cell grid; application typography and native carets must not leak into it. */
+.ssh-terminal .xterm-helper-textarea {
+  caret-color: transparent;
+}
+.ssh-terminal .xterm-rows {
+  font-variant-ligatures: none;
+}
+@media (max-width: 650px) {
+  .ssh-body.with-commands.commands-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ssh-appearance-panel {
+    padding: 12px;
+  }
+  .ssh-appearance-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ssh-appearance-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .ssh-appearance-actions > span {
+    grid-column: 1 / -1;
+  }
+  .ssh-appearance-actions > button {
+    font-size: 0.75rem;
+    padding: 8px;
+  }
+  .ssh-command-tools .icon-button {
+    width: 40px;
+    height: 40px;
+  }
+  .ssh-command-rail {
+    border-left: 0;
+  }
 }

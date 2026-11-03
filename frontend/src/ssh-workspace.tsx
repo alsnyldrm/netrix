@@ -11,10 +11,20 @@ import {
   Play,
   Stop,
   ArrowClockwise,
+  PencilSimple,
+  TextAa,
+  CaretLeft,
+  CaretRight,
 } from "@phosphor-icons/react";
 import { api } from "./data";
 import { Dialog } from "./main";
-import { currentPreferences } from "./preferences";
+import {
+  applyPreferences,
+  currentPreferences,
+  defaultTerminalAppearance,
+} from "./preferences";
+import type { TerminalAppearance } from "./preferences";
+import "@fontsource/ibm-plex-mono/700.css";
 import "./ssh-workspace.css";
 type Row = Record<string, any>;
 type Session = {
@@ -44,19 +54,64 @@ const states: Record<string, string> = {
   reconnecting: "Yeniden bağlanılıyor",
 };
 
+const terminalFonts = {
+  ubuntu: '"Ubuntu Mono", monospace',
+  plex: '"IBM Plex Mono", monospace',
+  system: 'ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
+};
+function terminalOptions(value: TerminalAppearance) {
+  const rgb = value.background
+    .slice(1)
+    .match(/../g)!
+    .map((c) => parseInt(c, 16) / 255);
+  const luminance = rgb
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
+  const light = luminance < 0.179;
+  const foreground = light ? "#ffffff" : "#000000";
+  return {
+    fontSize: value.font_size,
+    fontWeight: value.font_weight,
+    fontWeightBold: 700 as const,
+    fontFamily: terminalFonts[value.font],
+    cursorBlink: false,
+    cursorStyle: "block" as const,
+    cursorInactiveStyle: "outline" as const,
+    theme: {
+      background: value.background,
+      foreground,
+      cursor: foreground,
+      cursorAccent: value.background,
+      selectionBackground: light ? "#ffffff" : "#000000",
+      selectionForeground: value.background,
+    },
+  };
+}
+async function loadTerminalFont(value: TerminalAppearance) {
+  if (value.font !== "system")
+    await document.fonts.load(
+      `${value.font_weight} ${value.font_size}px ${terminalFonts[value.font].split(",")[0]}`,
+    );
+}
+
 function Terminal({
   id,
   hidden,
   sendRef,
   onStatus,
+  appearance,
 }: {
   id: string;
+  appearance: TerminalAppearance;
   hidden: boolean;
   sendRef: React.MutableRefObject<((data: string) => void) | null>;
   onStatus: (state: string, error?: string) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const resize = useRef<(() => void) | null>(null);
+  const readyAppearance = useRef(appearance);
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
   const statusCallback = useRef(onStatus);
   statusCallback.current = onStatus;
   useEffect(() => {
@@ -66,25 +121,23 @@ function Terminal({
     let observer: ResizeObserver | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
+    let frame = 0;
+    let fontFrame = 0;
+    let appliedFont = "";
+    let lastCols = 0,
+      lastRows = 0;
     Promise.all([
       import("@xterm/xterm"),
       import("@xterm/addon-fit"),
       import("@xterm/xterm/css/xterm.css"),
+      loadTerminalFont(appearanceRef.current),
     ])
       .then(([{ Terminal }, { FitAddon }]) => {
         if (disposed || !host.current) return;
         terminal = new Terminal({
-          cursorBlink: true,
+          ...terminalOptions(appearanceRef.current),
           scrollback: 1000,
-          fontFamily: '"IBM Plex Mono", monospace',
-          fontSize: 13,
           allowProposedApi: false,
-          theme: {
-            background: "#0b1220",
-            foreground: "#e2e8f0",
-            cursor: "#93c5fd",
-            selectionBackground: "#31415f",
-          },
           screenReaderMode: true,
           allowTransparency: false,
         });
@@ -93,29 +146,89 @@ function Terminal({
         terminal.open(host.current);
         // Terminal text is never inserted as HTML; clipboard and URL addons are deliberately absent.
         const fitVisible = () => {
-          if (
-            host.current &&
-            host.current.clientWidth &&
-            host.current.clientHeight
-          ) {
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => {
+            if (
+              disposed ||
+              !host.current?.getClientRects().length ||
+              !host.current.clientWidth ||
+              !host.current.clientHeight
+            )
+              return;
+            const value = readyAppearance.current;
+            const signature = JSON.stringify([
+              value.font,
+              value.font_size,
+              value.font_weight,
+              value.background,
+            ]);
+            if (appliedFont !== signature) {
+              appliedFont = signature;
+              terminal!.options = terminalOptions(value);
+              // Xterm 6 can cache the previous used font size while styles settle.
+              // Wait for the measuring span, then invalidate via the equivalent
+              // public weight option. No private renderer API or buffer reset.
+              cancelAnimationFrame(fontFrame);
+              let checks = 0;
+              const settleFont = () => {
+                if (disposed) return;
+                if (!host.current?.getClientRects().length) {
+                  appliedFont = "";
+                  return;
+                }
+                const measure = host.current.querySelector(
+                  ".xterm-char-measure-element",
+                );
+                const measuredFont = measure && getComputedStyle(measure);
+                const primaryFont = (family: string) =>
+                  family
+                    .split(",")[0]
+                    .replace(/["']/g, "")
+                    .trim()
+                    .toLowerCase();
+                if (
+                  measuredFont &&
+                  (measuredFont.fontSize !== `${value.font_size}px` ||
+                    primaryFont(measuredFont.fontFamily) !==
+                      primaryFont(terminalFonts[value.font])) &&
+                  checks++ < 120
+                ) {
+                  fontFrame = requestAnimationFrame(settleFont);
+                  return;
+                }
+                terminal!.options.fontWeight =
+                  value.font_weight === 700 ? "bold" : "normal";
+                fitVisible();
+              };
+              fontFrame = requestAnimationFrame(settleFont);
+              return;
+            }
             fit.fit();
-            if (socket?.readyState === WebSocket.OPEN)
+            if (
+              socket?.readyState === WebSocket.OPEN &&
+              (terminal!.cols !== lastCols || terminal!.rows !== lastRows)
+            ) {
+              lastCols = terminal!.cols;
+              lastRows = terminal!.rows;
               socket.send(
                 JSON.stringify({
                   type: "resize",
-                  cols: terminal!.cols,
-                  rows: terminal!.rows,
+                  cols: lastCols,
+                  rows: lastRows,
                 }),
               );
-          }
+            }
+          });
         };
         resize.current = fitVisible;
         observer = new ResizeObserver(fitVisible);
         observer.observe(host.current);
         fitVisible();
         sendRef.current = (data) => {
-          if (socket?.readyState === WebSocket.OPEN)
+          if (socket?.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "input", data }));
+            terminal?.focus();
+          }
         };
         terminal.onData((data) => sendRef.current?.(data));
         const connect = () => {
@@ -125,6 +238,8 @@ function Terminal({
           );
           socket.onopen = () => {
             attempts = 0;
+            lastCols = 0;
+            lastRows = 0;
             terminal?.reset();
             fitVisible();
             terminal?.focus();
@@ -165,6 +280,8 @@ function Terminal({
       disposed = true;
       clearTimeout(retry);
       observer?.disconnect();
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(fontFrame);
       socket?.close();
       terminal?.dispose();
       resize.current = null;
@@ -172,20 +289,53 @@ function Terminal({
     };
   }, [id, sendRef]);
   useEffect(() => {
+    let active = true;
+    void loadTerminalFont(appearance)
+      .then(() => {
+        if (active) {
+          readyAppearance.current = appearance;
+          resize.current?.();
+        }
+      })
+      .catch(() =>
+        statusCallback.current("failed", "Terminal yazı tipi yüklenemedi."),
+      );
+    return () => {
+      active = false;
+    };
+  }, [
+    appearance.font,
+    appearance.font_size,
+    appearance.font_weight,
+    appearance.background,
+  ]);
+  useEffect(() => {
     if (!hidden) requestAnimationFrame(() => resize.current?.());
   }, [hidden]);
-  return <div className="ssh-terminal" ref={host} aria-label="SSH terminali" />;
+  return (
+    <div
+      className="ssh-terminal"
+      style={{ background: appearance.background }}
+      ref={host}
+      aria-label="SSH terminali"
+    />
+  );
 }
 
 function SavedCommands({
   send,
   enabled,
+  onCollapse,
+  onResize,
 }: {
   send: (value: string) => void;
   enabled: boolean;
+  onCollapse: () => void;
+  onResize: (delta: number) => void;
 }) {
   const [items, setItems] = useState<Row[]>([]);
   const [editing, setEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [command, setCommand] = useState("");
   const [error, setError] = useState("");
@@ -194,6 +344,9 @@ function SavedCommands({
     api("/access/commands")
       .then((v) => setItems(v.items))
       .catch((e) => setError(e.message));
+    const updated = (event: Event) => setItems((event as CustomEvent).detail);
+    window.addEventListener("netrix:commands", updated);
+    return () => window.removeEventListener("netrix:commands", updated);
   }, []);
   const save = async (next: Row[]) => {
     setBusy(true);
@@ -201,6 +354,9 @@ function SavedCommands({
     try {
       const saved = await api("/access/commands", "PUT", { items: next });
       setItems(saved.items);
+      window.dispatchEvent(
+        new CustomEvent("netrix:commands", { detail: saved.items }),
+      );
       return true;
     } catch (e: any) {
       setError(e.message);
@@ -213,21 +369,64 @@ function SavedCommands({
     <section className="ssh-commands" aria-label="Hazır komutlar">
       <div className="ssh-commands-head">
         <h3>Hazır komutlar</h3>
-        <button
-          className="icon-button"
-          aria-label="Hazır komut kaydet"
-          aria-expanded={editing}
-          onClick={() => setEditing((v) => !v)}
-        >
-          <Plus size={18} />
-        </button>
+        <div className="ssh-command-tools">
+          <button
+            className="icon-button ssh-panel-resize-button"
+            aria-label="Hazır komutları sola genişlet"
+            title="Sola genişlet"
+            onClick={() => onResize(60)}
+          >
+            <CaretLeft size={16} aria-hidden="true" />
+          </button>
+          <button
+            className="icon-button ssh-panel-resize-button"
+            aria-label="Hazır komutları daralt"
+            title="Daralt"
+            onClick={() => onResize(-60)}
+          >
+            <CaretRight size={16} aria-hidden="true" />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Hazır komut kaydet"
+            title="Hazır komut ekle"
+            aria-expanded={editing}
+            disabled={busy}
+            onClick={() => {
+              setEditingId(null);
+              setName("");
+              setCommand("");
+              setEditing(true);
+              setError("");
+            }}
+          >
+            <Plus size={18} aria-hidden="true" />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Hazır komutları gizle"
+            title="Paneli daralt"
+            onClick={onCollapse}
+          >
+            <ArrowsIn size={16} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {editing && (
         <form
           onSubmit={async (e) => {
             e.preventDefault();
+            const item = {
+              id: editingId || crypto.randomUUID(),
+              name,
+              command,
+            };
             if (
-              await save([...items, { id: crypto.randomUUID(), name, command }])
+              await save(
+                editingId
+                  ? items.map((v) => (v.id === editingId ? item : v))
+                  : [...items, item],
+              )
             ) {
               setName("");
               setCommand("");
@@ -238,6 +437,10 @@ function SavedCommands({
           <label>
             Komut adı
             <input
+              autoFocus
+              name="command-name"
+              autoComplete="off"
+              disabled={busy}
               required
               maxLength={80}
               value={name}
@@ -247,6 +450,11 @@ function SavedCommands({
           <label>
             Komut
             <textarea
+              aria-label="Komut"
+              name="command-text"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
               required
               maxLength={4000}
               rows={3}
@@ -254,9 +462,30 @@ function SavedCommands({
               onChange={(e) => setCommand(e.target.value)}
             />
           </label>
-          <button className="secondary" disabled={busy || items.length >= 50}>
-            Komutu kaydet
-          </button>
+          <div className="ssh-command-form-actions">
+            <button
+              className="secondary"
+              disabled={busy || (!editingId && items.length >= 50)}
+            >
+              {busy
+                ? "Kaydediliyor…"
+                : editingId
+                  ? "Değişiklikleri kaydet"
+                  : "Komutu kaydet"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => {
+                setEditing(false);
+                setEditingId(null);
+                setError("");
+              }}
+            >
+              Vazgeç
+            </button>
+          </div>
         </form>
       )}
       <div className="ssh-command-list">
@@ -265,11 +494,27 @@ function SavedCommands({
             <button
               className="ssh-command-run"
               title={item.command}
+              aria-label={`${item.name} komutunu çalıştır`}
               disabled={!enabled || busy}
               onClick={() => send(item.command.replace(/\r?\n/g, "\r") + "\r")}
             >
-              <Play size={15} />
+              <Play size={16} aria-hidden="true" />
               <span>{item.name}</span>
+            </button>
+            <button
+              className="icon-button"
+              disabled={busy}
+              title="Komutu düzenle"
+              aria-label={`${item.name} komutunu düzenle`}
+              onClick={() => {
+                setEditingId(item.id);
+                setName(item.name);
+                setCommand(item.command);
+                setEditing(true);
+                setError("");
+              }}
+            >
+              <PencilSimple size={16} aria-hidden="true" />
             </button>
             <button
               className="icon-button"
@@ -277,7 +522,7 @@ function SavedCommands({
               aria-label={`${item.name} komutunu sil`}
               onClick={() => void save(items.filter((v) => v.id !== item.id))}
             >
-              <Trash size={15} />
+              <Trash size={16} aria-hidden="true" />
             </button>
           </div>
         ))}
@@ -314,10 +559,52 @@ function SessionWindow({
   const [status, setStatus] = useState("queued");
   const [error, setError] = useState("");
   const [features, setFeatures] = useState(currentPreferences().features);
+  const [appearance, setAppearance] = useState(currentPreferences().terminal);
+  const [settings, setSettings] = useState(false);
+  const [draft, setDraft] = useState(appearance);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
+  const savingRef = useRef(false);
+  const drag = useRef<{ x: number; width: number } | null>(null);
+  const widthRef = useRef(appearance.commands_width);
+  const persistAppearance = async (patch: Partial<TerminalAppearance>) => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    setError("");
+    setNotice("");
+    const next = { ...currentPreferences().terminal, ...patch };
+    setAppearance(next);
+    try {
+      const saved = await api("/access/preferences/terminal", "PUT", next);
+      applyPreferences(saved);
+      setNotice("Terminal görünümü kaydedildi.");
+      return true;
+    } catch (e: any) {
+      setAppearance(currentPreferences().terminal);
+      setError(e.message);
+      return false;
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+  const boundedWidth = (value: number) =>
+    Math.max(240, Math.min(560, Math.round(value)));
+  const resizeCommands = (delta: number) => {
+    if (savingRef.current) return;
+    const width = boundedWidth(appearance.commands_width + delta);
+    if (width === appearance.commands_width) return;
+    void persistAppearance({
+      commands_width: width,
+    });
+  };
   const send = useRef<((data: string) => void) | null>(null);
   useEffect(() => {
-    const handler = (e: Event) =>
+    const handler = (e: Event) => {
       setFeatures((e as CustomEvent).detail.features);
+      setAppearance((e as CustomEvent).detail.terminal);
+    };
     window.addEventListener("netrix:preferences", handler);
     return () => window.removeEventListener("netrix:preferences", handler);
   }, []);
@@ -357,6 +644,20 @@ function SessionWindow({
           {states[status] || status}
         </span>
         <div className="ssh-window-actions">
+          <button
+            className="icon-button"
+            aria-label="Terminal görünümü"
+            title="Terminal görünümü"
+            aria-expanded={settings}
+            aria-controls={`ssh-appearance-${session.id}`}
+            onClick={() => {
+              setDraft(appearance);
+              setSettings((v) => !v);
+              setNotice("");
+            }}
+          >
+            <TextAa size={20} aria-hidden="true" />
+          </button>
           {!standalone && (
             <>
               <button
@@ -396,16 +697,135 @@ function SessionWindow({
           </button>
         </div>
       </header>
+      {settings && (
+        <form
+          className="ssh-appearance-panel"
+          id={`ssh-appearance-${session.id}`}
+          aria-label="Terminal görünüm ayarları"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (
+              await persistAppearance({
+                font: draft.font,
+                font_size: draft.font_size,
+                font_weight: draft.font_weight,
+                background: draft.background,
+              })
+            )
+              setSettings(false);
+          }}
+        >
+          <div className="ssh-appearance-fields">
+            <label>
+              Yazı tipi
+              <select
+                aria-label="Yazı tipi"
+                name="terminal-font"
+                value={draft.font}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({
+                    ...v,
+                    font: e.target.value as TerminalAppearance["font"],
+                  }))
+                }
+              >
+                <option value="ubuntu">Ubuntu Mono</option>
+                <option value="plex">IBM Plex Mono</option>
+                <option value="system">Sistem Monospace</option>
+              </select>
+            </label>
+            <label>
+              Yazı kalınlığı
+              <select
+                aria-label="Yazı kalınlığı"
+                name="terminal-weight"
+                value={draft.font_weight}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({
+                    ...v,
+                    font_weight: Number(e.target.value) as 400 | 700,
+                  }))
+                }
+              >
+                <option value={400}>Normal (ince)</option>
+                <option value={700}>Kalın</option>
+              </select>
+            </label>
+            <label>
+              Yazı boyutu
+              <select
+                aria-label="Yazı boyutu"
+                name="terminal-size"
+                value={draft.font_size}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({ ...v, font_size: Number(e.target.value) }))
+                }
+              >
+                {Array.from({ length: 19 }, (_, i) => i + 10).map((size) => (
+                  <option key={size} value={size}>
+                    {size} px
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Arka plan rengi
+              <input
+                name="terminal-background"
+                type="color"
+                value={draft.background}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({ ...v, background: e.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <div className="ssh-appearance-actions">
+            <span>Değişiklikleri terminalde canlı önizleyin.</span>
+            <button
+              type="button"
+              className="secondary"
+              disabled={saving}
+              onClick={() =>
+                setDraft({ ...draft, ...defaultTerminalAppearance })
+              }
+            >
+              Ubuntu varsayılanı
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={saving}
+              onClick={() => setSettings(false)}
+            >
+              Vazgeç
+            </button>
+            <button className="primary" disabled={saving}>
+              {saving ? "Kaydediliyor…" : "Görünümü kaydet"}
+            </button>
+          </div>
+        </form>
+      )}
       {error && (
         <p className="ssh-error" role="alert">
           {error}
         </p>
       )}
       <div
-        className={`ssh-body${features.includes("saved_commands") ? " with-commands" : ""}`}
+        className={`ssh-body${features.includes("saved_commands") ? " with-commands" : ""}${appearance.commands_collapsed ? " commands-collapsed" : ""}`}
+        style={
+          {
+            "--ssh-commands-width": `${appearance.commands_width}px`,
+          } as React.CSSProperties
+        }
       >
         <Terminal
           id={session.id}
+          appearance={settings ? draft : appearance}
           hidden={session.minimized}
           sendRef={send}
           onStatus={(state, message) => {
@@ -414,14 +834,107 @@ function SessionWindow({
           }}
         />
         {features.includes("saved_commands") && (
-          <SavedCommands
-            enabled={status === "connected"}
-            send={(value) => send.current?.(value)}
-          />
+          <>
+            <div
+              className="ssh-command-separator"
+              role="separator"
+              aria-label="Hazır komut panelinin genişliği"
+              aria-orientation="vertical"
+              aria-valuemin={240}
+              aria-valuemax={560}
+              aria-valuenow={appearance.commands_width}
+              tabIndex={appearance.commands_collapsed ? -1 : 0}
+              onKeyDown={(e) => {
+                if (
+                  ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)
+                ) {
+                  e.preventDefault();
+                  resizeCommands(
+                    e.key === "Home"
+                      ? 240 - appearance.commands_width
+                      : e.key === "End"
+                        ? 560 - appearance.commands_width
+                        : e.key === "ArrowLeft"
+                          ? 20
+                          : -20,
+                  );
+                }
+              }}
+              onPointerDown={(e) => {
+                if (savingRef.current || e.button !== 0) return;
+                e.preventDefault();
+                const panel = e.currentTarget.nextElementSibling as HTMLElement;
+                drag.current = {
+                  x: e.clientX,
+                  width: panel.getBoundingClientRect().width,
+                };
+                widthRef.current = appearance.commands_width;
+                e.currentTarget.setPointerCapture(e.pointerId);
+              }}
+              onPointerMove={(e) => {
+                if (!drag.current) return;
+                widthRef.current = boundedWidth(
+                  drag.current.width + drag.current.x - e.clientX,
+                );
+                setAppearance((v) => ({
+                  ...v,
+                  commands_width: widthRef.current,
+                }));
+              }}
+              onPointerUp={(e) => {
+                if (!drag.current) return;
+                drag.current = null;
+                e.currentTarget.releasePointerCapture(e.pointerId);
+                if (
+                  widthRef.current !==
+                  currentPreferences().terminal.commands_width
+                )
+                  void persistAppearance({ commands_width: widthRef.current });
+              }}
+              onPointerCancel={() => {
+                drag.current = null;
+                setAppearance(currentPreferences().terminal);
+              }}
+              onLostPointerCapture={() => {
+                if (drag.current) {
+                  drag.current = null;
+                  setAppearance(currentPreferences().terminal);
+                }
+              }}
+            />
+            <div
+              className="ssh-command-panel"
+              hidden={appearance.commands_collapsed}
+            >
+              <SavedCommands
+                enabled={status === "connected"}
+                send={(value) => send.current?.(value)}
+                onCollapse={() =>
+                  void persistAppearance({ commands_collapsed: true })
+                }
+                onResize={resizeCommands}
+              />
+            </div>
+            {appearance.commands_collapsed && (
+              <div className="ssh-command-rail">
+                <button
+                  className="icon-button"
+                  aria-label="Hazır komutları göster"
+                  title="Hazır komutları göster"
+                  disabled={saving}
+                  onClick={() =>
+                    void persistAppearance({ commands_collapsed: false })
+                  }
+                >
+                  <CaretLeft size={20} aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       <footer className="ssh-footer">
-        <span>SSH · Şifreli bağlantı</span>
+        <span role="status">{notice || "SSH · Şifreli bağlantı"}</span>
         <span>15 dk hareketsizlikte kapanır</span>
       </footer>
     </dialog>

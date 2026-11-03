@@ -1,3 +1,19 @@
+export type TerminalAppearance = {
+  font: "ubuntu" | "plex" | "system";
+  font_size: number;
+  font_weight: 400 | 700;
+  background: string;
+  commands_width: number;
+  commands_collapsed: boolean;
+};
+export const defaultTerminalAppearance: TerminalAppearance = {
+  font: "ubuntu",
+  font_size: 15,
+  font_weight: 400,
+  background: "#300a24",
+  commands_width: 300,
+  commands_collapsed: false,
+};
 export type Preferences = {
   palette: string;
   design: string;
@@ -5,6 +21,7 @@ export type Preferences = {
   locale: string;
   hour12: boolean;
   features: string[];
+  terminal: TerminalAppearance;
 };
 export const defaultPreferences: Preferences = {
   palette: "cobalt",
@@ -13,10 +30,12 @@ export const defaultPreferences: Preferences = {
   locale: "tr-TR",
   hour12: false,
   features: ["saved_commands", "session_dock"],
+  terminal: defaultTerminalAppearance,
 };
 let active = defaultPreferences;
 export function applyPreferences(value: Preferences) {
   value = { ...defaultPreferences, ...value };
+  value.terminal = { ...defaultTerminalAppearance, ...value.terminal };
   active = value;
   const root = document.documentElement;
   root.dataset.palette = value.palette;

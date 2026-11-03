@@ -29,6 +29,18 @@ def save_preferences(payload: s.Preferences, user=Depends(current_user), db=Depe
     return payload
 
 
+@router.put("/preferences/terminal")
+def save_terminal_preferences(
+    payload: s.TerminalAppearance, user=Depends(current_user), db=Depends(db_session)
+):
+    svc.lock_owner(db, user)
+    preferences = svc.preferences(db, user)
+    preferences["terminal"] = payload.model_dump()
+    svc.workspace(db, user).preferences = preferences
+    db.commit()
+    return preferences
+
+
 @router.get("/ssh-profiles")
 def ssh_profiles(user=Depends(current_user), db=Depends(db_session)):
     return {"items": svc.list_profiles(db, user)}

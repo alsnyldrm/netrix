@@ -117,6 +117,58 @@ def test_preferences_single_row_validation_and_saved_commands(admin_client, env)
     assert Preferences().features == ["saved_commands", "session_dock"]
 
 
+def test_terminal_preferences_preserve_workspace_and_validate_bounds(admin_client, env):
+    original = {"palette": "amber", "design": "focus", "timezone": "UTC", "features": []}
+    assert admin_client.put("/api/v1/access/preferences", json=original).status_code == 200
+    defaults = admin_client.get("/api/v1/access/preferences").json()["terminal"]
+    assert defaults["font"] == "ubuntu" and defaults["background"] == "#300a24"
+    terminal = {
+        **defaults,
+        "font": "plex",
+        "font_size": 22,
+        "font_weight": 700,
+        "background": "#ffffff",
+        "commands_width": 480,
+        "commands_collapsed": True,
+    }
+    response = admin_client.put("/api/v1/access/preferences/terminal", json=terminal)
+    assert response.status_code == 200
+    saved = admin_client.get("/api/v1/access/preferences").json()
+    assert saved["terminal"] == terminal
+    assert all(saved[key] == value for key, value in original.items())
+    for invalid in (
+        {"font": "url(https://untrusted.test/font)"},
+        {"font_size": 29},
+        {"font_size": 9},
+        {"font_weight": 200},
+        {"background": "red;display:none"},
+        {"background": "#00000000"},
+        {"commands_width": 239},
+        {"commands_width": 561},
+        {"unknown": True},
+    ):
+        result = admin_client.put("/api/v1/access/preferences/terminal", json={**terminal, **invalid})
+        assert result.status_code == 422
+    assert admin_client.get("/api/v1/access/preferences").json() == saved
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.UserWorkspace)) == 1
+
+
+def test_saved_command_edit_retains_identity_order_and_encryption(admin_client, env):
+    items = [
+        {"id": "one", "name": "Conf", "command": "show version"},
+        {"id": "two", "name": "running conf", "command": "show running-config"},
+    ]
+    assert admin_client.put("/api/v1/access/commands", json={"items": items}).status_code == 200
+    items[0] = {**items[0], "name": "Configuration", "command": "edited-secret-marker"}
+    response = admin_client.put("/api/v1/access/commands", json={"items": items})
+    assert response.status_code == 200
+    assert admin_client.get("/api/v1/access/commands").json()["items"] == items
+    with env() as db:
+        row = db.scalar(select(m.UserWorkspace))
+        assert "edited-secret-marker" not in row.encrypted_commands
+
+
 def test_ssh_role_enforced_and_groups_are_personal(admin_client, target, env):
     device_id, user_id = target
     with env() as db:

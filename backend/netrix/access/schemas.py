@@ -8,6 +8,15 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TerminalAppearance(Input):
+    font: Literal["ubuntu", "plex", "system"] = "ubuntu"
+    font_size: int = Field(default=15, ge=10, le=28)
+    font_weight: Literal[400, 700] = 400
+    background: str = Field(default="#300a24", pattern=r"^#[0-9a-fA-F]{6}$")
+    commands_width: int = Field(default=300, ge=240, le=560)
+    commands_collapsed: bool = False
+
+
 class Preferences(Input):
     palette: Literal[
         "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo"
@@ -16,6 +25,7 @@ class Preferences(Input):
     timezone: str = "Europe/Istanbul"
     locale: Literal["tr-TR", "en-GB", "en-US", "de-DE"] = "tr-TR"
     hour12: bool = False
+    terminal: TerminalAppearance = Field(default_factory=TerminalAppearance)
     features: list[Literal["saved_commands", "session_dock", "compact_tables", "reduced_motion"]] = Field(
         default_factory=lambda: ["saved_commands", "session_dock"], max_length=4
     )
