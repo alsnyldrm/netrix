@@ -782,7 +782,7 @@ export const PAGES: Page[] = [
   {
     key: "settings",
     title: "Sistem odası",
-    desc: "Platform sağlığı, saklama politikası ve hesabınız.",
+    desc: "Platform sağlığı ve sistem durumu.",
     group: "Yönetim",
     icon: GearSix,
   },
@@ -2313,18 +2313,9 @@ function ConnectionTestDialog({
     </Dialog>
   );
 }
-function Settings({
-  onLogout,
-  section,
-}: {
-  onLogout: () => void;
-  section: string;
-}) {
+function Settings({ section }: { section: string }) {
   const systemQuery = useLiveQuery<Row>("/system");
   const system = systemQuery.data || {};
-  const [error, setError] = useState("");
-  const [current, setCurrent] = useState("");
-  const [next, setNext] = useState("");
   useEffect(() => {
     if (section) document.getElementById("settings-" + section)?.focus();
   }, [section]);
@@ -2366,63 +2357,6 @@ function Settings({
             “Anahtara güven” seçiliyse o cihazın sunduğu anahtar kabul edilir.
           </p>
         </div>
-      </section>
-      <section className="panel">
-        <header className="panel-header">
-          <h2 id="settings-password" tabIndex={-1}>
-            Parolanızı değiştirin
-          </h2>
-          <Key size={20} />
-        </header>
-        <form
-          className="settings-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            try {
-              await api("/auth/password", "POST", {
-                current_password: current,
-                new_password: next,
-              });
-              onLogout();
-            } catch (e: any) {
-              setError(e.message);
-            }
-          }}
-        >
-          <label>
-            Mevcut parola
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={current}
-              onChange={(e) => setCurrent(e.target.value)}
-            />
-          </label>
-          <label>
-            Yeni parola
-            <input
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={12}
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-            />
-            <small>
-              En az 12 karakter. Değişiklikten sonra bütün oturumlar kapanır.
-            </small>
-          </label>
-          {error && (
-            <div className="error" role="alert">
-              {error}
-            </div>
-          )}
-          <button className="primary">
-            Parolayı güncelle
-            <ArrowRight size={17} />
-          </button>
-        </form>
       </section>
     </div>
   );
@@ -3448,10 +3382,7 @@ function App() {
                 />
               </>
             ) : page.key === "settings" ? (
-              <Settings
-                section={settingsSection}
-                onLogout={() => setUser(null)}
-              />
+              <Settings section={settingsSection} />
             ) : (
               <>
                 {page.key === "discovery" && (
@@ -3880,6 +3811,10 @@ function App() {
       {profileOpen && (
         <Profile
           user={user}
+          onPasswordChanged={() => {
+            setProfileOpen(false);
+            setUser(null);
+          }}
           onClose={() => setProfileOpen(false)}
           onChanged={() => setRefresh((n) => n + 1)}
         />
@@ -3950,6 +3885,10 @@ function App() {
             onVLAN={(row) => {
               navigate("vlans");
               setShortcutVLAN(row);
+            }}
+            onPassword={() => {
+              setCommand(false);
+              setProfileOpen(true);
             }}
             onSettings={(section) => {
               navigate("settings");

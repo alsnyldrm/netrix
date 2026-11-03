@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Check,
+  ArrowRight,
   SquaresFour,
   Funnel,
   Key,
@@ -31,10 +32,12 @@ export function Profile({
   user,
   onClose,
   onChanged,
+  onPasswordChanged,
 }: {
   user: Row;
   onClose: () => void;
   onChanged: () => void;
+  onPasswordChanged: () => void;
 }) {
   const [tab, setTab] = useState("account");
   const sshAllowed = canSSH(user);
@@ -133,6 +136,7 @@ export function Profile({
                 Tercihleriniz hesabınıza özeldir ve diğer kullanıcıları
                 etkilemez.
               </p>
+              <PasswordChange onChanged={onPasswordChanged} />
             </>
           )}
           {tab === "design" && (
@@ -1190,5 +1194,78 @@ export function AccessGroups({ user }: { user: Row }) {
         </Dialog>
       )}
     </section>
+  );
+}
+
+function PasswordChange({ onChanged }: { onChanged: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="profile-password"
+      aria-labelledby="profile-password-title"
+      aria-busy={busy}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        setError("");
+        try {
+          await api("/auth/password", "POST", {
+            current_password: current,
+            new_password: next,
+          });
+          setCurrent("");
+          setNext("");
+          onChanged();
+        } catch (e: any) {
+          setError(e.message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <h3 id="profile-password-title">Parolanızı değiştirin</h3>
+      <label>
+        Mevcut parola
+        <input
+          type="password"
+          name="current_password"
+          autoComplete="current-password"
+          required
+          maxLength={200}
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+        />
+      </label>
+      <label>
+        Yeni parola
+        <input
+          type="password"
+          name="new_password"
+          autoComplete="new-password"
+          required
+          minLength={12}
+          maxLength={200}
+          aria-describedby="profile-password-help"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+        />
+      </label>
+      <small id="profile-password-help" className="muted">
+        En az 12 karakter. Değişiklikten sonra bütün oturumlar kapanır.
+      </small>
+      {error && (
+        <div className="error" role="alert">
+          {error}
+        </div>
+      )}
+      <button className="primary" disabled={busy}>
+        {busy ? "Güncelleniyor…" : "Parolayı güncelle"}
+        <ArrowRight size={17} aria-hidden="true" />
+      </button>
+    </form>
   );
 }

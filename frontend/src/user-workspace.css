@@ -664,3 +664,12 @@
     align-items: flex-start;
   }
 }
+
+.dialog .profile-content > .profile-password {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.profile-password h3 {
+  margin: 0;
+}

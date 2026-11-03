@@ -23,8 +23,7 @@ type Page = {
   fields?: { label: string }[];
 };
 const aliases: Record<string, string> = {
-  settings:
-    "ayarlar sistem platform sağlık worker redis veritabanı parola şifre hesap",
+  settings: "ayarlar sistem platform sağlık worker redis veritabanı",
   credentials: "ayarlar snmp ssh api erişim profilleri kimlik bilgileri",
   vlans:
     "ayarlar vlan ipam ip bloğu subnet ping tarama keşif zamanlama dns eşik",
@@ -54,6 +53,7 @@ export function WorkspaceSearch({
   onDevice,
   onVLAN,
   onSettings,
+  onPassword,
   onTheme,
   onRefresh,
 }: {
@@ -65,6 +65,7 @@ export function WorkspaceSearch({
   onDevice: (row: Row) => void;
   onVLAN: (row: Row) => void;
   onSettings: (section: string) => void;
+  onPassword: () => void;
   onTheme: () => void;
   onRefresh: () => void;
 }) {
@@ -112,9 +113,9 @@ export function WorkspaceSearch({
     {
       key: "password",
       title: "Parolamı değiştir",
-      hint: "Sistem odası · Hesap ve şifre ayarları",
+      hint: "Profil · Hesabım · Parola ve şifre ayarları",
       icon: Key,
-      run: () => onSettings("password"),
+      run: onPassword,
     },
     {
       key: "institutions",

@@ -54,11 +54,13 @@ with sync_playwright() as p:
     search.press("ArrowDown")
     expect(
         dialog.get_by_role(
-            "button", name="Parolamı değiştir Sistem odası · Hesap ve şifre ayarları", exact=True
+            "button", name="Parolamı değiştir Profil · Hesabım · Parola ve şifre ayarları", exact=True
         )
     ).to_be_focused()
     page.keyboard.press("Enter")
-    expect(page.locator("#settings-password")).to_be_focused()
+    expect(page.get_by_role("dialog", name="Profil", exact=True)).to_be_visible()
+    expect(page.get_by_label("Mevcut parola", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Pencereyi kapat", exact=True).click()
 
     dialog, search = palette("Switch 1")
     device = dialog.get_by_role("region", name="Cihaz sonuçları").get_by_role("button").first
