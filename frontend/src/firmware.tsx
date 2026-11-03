@@ -17,13 +17,14 @@ import { api, clearReadCache, useLiveQuery } from "./data";
 import { Dialog, date } from "./main";
 import "./firmware.css";
 import FirmwareHistory from "./firmware-history";
+import OutdatedGroups, { UpdateState, type PlanStep } from "./firmware-updates";
 
 type Row = Record<string, any>;
 const SECTIONS = [
   ["devices", "Cihazlar"],
+  ["plans", "Güncelleme planları"],
   ["images", "Firmware deposu"],
   ["groups", "Gruplar"],
-  ["plans", "Güncelleme planları"],
   ["history", "İşlem geçmişi"],
 ];
 const FAMILIES: Row = {
@@ -55,6 +56,7 @@ const PHASE: Row = {
   verifying: "Sürüm doğrulama",
   reconcile: "Sonucu yeniden doğrulama",
   recovered: "Manuel kurtarma doğrulandı",
+  version_skipped: "Cihaz güncel; işlem atlandı",
 };
 const MODES: Row = {
   check: "Yalnız ön kontrol",
@@ -777,24 +779,60 @@ function ImageForm({
 }
 
 function PlanForm({
+  initialSteps,
   onClose,
   onSaved,
 }: {
   onClose: () => void;
   onSaved: (id: string) => void;
+  initialSteps?: PlanStep[];
 }) {
   const groups = useLiveQuery<Row>("/firmware/groups"),
-    images = useLiveQuery<Row>("/firmware/images?limit=100");
+    images = useLiveQuery<Row>("/firmware/plan-images");
   const [name, setName] = useState(""),
-    [mode, setMode] = useState("check"),
+    [mode, setMode] = useState(initialSteps ? "stage" : "check"),
     [concurrency, setConcurrency] = useState(1),
     [time, setTime] = useState("");
-  const [steps, setSteps] = useState([{ group_id: "", image_id: "" }]),
+  const [steps, setSteps] = useState<PlanStep[]>(
+      initialSteps || [{ group_id: "", image_id: "" }],
+    ),
     [path, setPath] = useState(false),
     [outage, setOutage] = useState(false),
     [enableSFTP, setEnableSFTP] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [previewResult, setPreview] = useState<Row | null>(null),
+    [previewError, setPreviewError] = useState("");
+  const stepKey = JSON.stringify(steps);
+  const preview =
+    previewResult?.requestKey === stepKey + mode ? previewResult : null;
+  useEffect(() => {
+    let active = true;
+    setPreview(null);
+    setPreviewError("");
+    if (
+      steps.some((s) => !s.image_id || (!s.group_id && !s.device_ids?.length))
+    )
+      return;
+    const timer = setTimeout(() => {
+      api("/firmware/plans/preview", "POST", {
+        name: "Ön izleme",
+        mode,
+        steps,
+      }).then(
+        (data) => {
+          if (active) setPreview({ ...data, requestKey: stepKey + mode });
+        },
+        (e) => {
+          if (active) setPreviewError(e.message);
+        },
+      );
+    }, 200);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [stepKey, mode]);
   const move = (index: number, direction: number) => {
     const next = [...steps];
     [next[index], next[index + direction]] = [
@@ -890,8 +928,9 @@ function PlanForm({
                   Firmware grubu
                   <select
                     aria-label="Firmware grubu"
-                    required
-                    value={step.group_id}
+                    required={!step.device_ids}
+                    disabled={!!step.device_ids}
+                    value={step.group_id || ""}
                     onChange={(e) =>
                       setSteps(
                         steps.map((s, n) =>
@@ -900,7 +939,9 @@ function PlanForm({
                       )
                     }
                   >
-                    <option value="">Grup seçin</option>
+                    <option value="">
+                      {step.device_ids ? "Seçilen cihazlar" : "Grup seçin"}
+                    </option>
                     {groups.data?.items.map((g: Row) => (
                       <option key={g.id} value={g.id}>
                         {g.name} · {g.device_count} cihaz
@@ -933,6 +974,19 @@ function PlanForm({
                   </select>
                 </label>
               </div>
+              {step.device_ids && (
+                <p className="fw-note">
+                  Bu aşama yalnız seçilen {step.device_ids.length} cihazı
+                  içerir.
+                </p>
+              )}
+              {preview && (
+                <p className="fw-note" role="status">
+                  {preview.steps[i].count} cihaz plana alınacak
+                  {mode !== "check" &&
+                    ` · ${preview.steps[i].excluded.current} aynı sürüm · ${preview.steps[i].excluded.newer} daha yeni · ${preview.steps[i].excluded.unknown} karşılaştırılamıyor; bu cihazlar dışarıda kalır.`}
+                </p>
+              )}
               <div className="fw-row-actions">
                 <button
                   type="button"
@@ -977,6 +1031,21 @@ function PlanForm({
           <Plus size={18} aria-hidden="true" />
           Aşama ekle
         </button>
+        <p className="fw-note">
+          Güncelleme ve hazırlama planlarına yalnız hedef sürümden eski cihazlar
+          alınır. Aynı, daha yeni veya karşılaştırılamayan sürümler
+          güncellenmez. Ön kontrol seçeneği yalnız bilgi toplar.
+        </p>
+        {previewError && (
+          <p role="alert" className="error">
+            {previewError}
+          </p>
+        )}
+        {preview && (
+          <p role="status">
+            <b>{preview.target_total} cihaz</b> taslak plana alınacak.
+          </p>
+        )}
         {mode !== "check" && (
           <label className="fw-check">
             <input
@@ -1035,7 +1104,10 @@ function PlanForm({
           >
             Vazgeç
           </button>
-          <button className="primary" disabled={busy}>
+          <button
+            className="primary"
+            disabled={busy || !preview || !preview.target_total}
+          >
             {busy ? "Oluşturuluyor…" : "Taslak oluştur"}
           </button>
         </div>
@@ -1138,7 +1210,13 @@ function PlanDetail({
                           </small>
                         }
                       >
-                        <State value={t.status} />
+                        {t.evidence.skipped_current ? (
+                          <span className="fw-state fw-state-succeeded">
+                            Güncel; atlandı
+                          </span>
+                        ) : (
+                          <State value={t.status} />
+                        )}
                       </Cell>
                       <Cell
                         detail={
@@ -1153,7 +1231,9 @@ function PlanDetail({
                         }
                       >
                         <span>
-                          {t.previous_version || "Ön kontrol bekliyor"}
+                          {t.previous_version ||
+                            t.verified_version ||
+                            "Ön kontrol bekliyor"}
                         </span>
                       </Cell>
                       <td>
@@ -1360,23 +1440,32 @@ export default function FirmwareWorkspace({
   const [modal, setModal] = useState<{ kind: string; row?: Row } | null>(null),
     [detail, setDetail] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
+  const [deviceView, setDeviceView] = useState("all"),
+    [selected, setSelected] = useState<string[]>([]);
+  const selectView = (value: string) => {
+    setDeviceView(value);
+    setOffset(0);
+    setSelected([]);
+  };
   const refresh = revision + externalRefresh,
     admin = hasAdminAccess(user),
     write = admin || user.role === "operator";
   const search = useDeferredValue(q);
   const overview = useLiveQuery<Row>("/firmware/overview", refresh);
   const endpoint =
-    tab === "history"
+    tab === "history" || (tab === "devices" && deviceView === "outdated")
       ? null
       : tab === "groups"
         ? "/firmware/groups"
         : tab === "plans"
           ? `/firmware/plans?limit=30&offset=${offset}`
-          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}`;
+          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}${tab === "devices" && deviceView === "current" ? "&update_status=current" : ""}`;
   const result = useLiveQuery<Row>(endpoint, refresh, undefined, q ? 200 : 0);
   useEffect(() => {
     setOffset(0);
     setQ("");
+    setSelected([]);
+    setDeviceView("all");
   }, [tab]);
   useEffect(() => {
     if (!detail && !["plans", "history"].includes(tab)) return;
@@ -1400,10 +1489,59 @@ export default function FirmwareWorkspace({
     }
   };
   const rows = result.data?.items || [];
+  const eligible: Row[] = rows.filter(
+    (r: Row) => r.update_status === "outdated",
+  );
+  const planSelected = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const prepared = await api("/firmware/plans/prepare", "POST", {
+        device_ids: selected,
+      });
+      setModal({ kind: "plan", row: prepared });
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   if (tab === "history") return <FirmwareHistory refresh={refresh} />;
   return (
     <div className="fw-workspace" aria-busy={busy}>
-      <div className="fw-summary">
+      <div
+        className={
+          "fw-summary" + (tab === "devices" ? " fw-device-summary" : "")
+        }
+      >
+        {tab === "devices" && (
+          <>
+            <button
+              className="fw-summary-action"
+              aria-pressed={deviceView === "current"}
+              onClick={() =>
+                selectView(deviceView === "current" ? "all" : "current")
+              }
+            >
+              <span>Güncel</span>
+              <b className="fw-current-text">
+                {overview.data?.devices?.current ?? "—"}
+              </b>
+            </button>
+            <button
+              className="fw-summary-action"
+              aria-pressed={deviceView === "outdated"}
+              onClick={() =>
+                selectView(deviceView === "outdated" ? "all" : "outdated")
+              }
+            >
+              <span>Güncel değil</span>
+              <b className="fw-error-text">
+                {overview.data?.devices?.outdated ?? "—"}
+              </b>
+            </button>
+          </>
+        )}
         <div>
           <span>Doğrulanmış dosya</span>
           <b>{overview.data?.images ?? "—"}</b>
@@ -1435,7 +1573,7 @@ export default function FirmwareWorkspace({
             <h2>{SECTIONS.find(([key]) => key === tab)?.[1]}</h2>
             <p>
               {tab === "devices"
-                ? "Ortak envanterden, desteklenen cihazlar."
+                ? "Çalışan sürümler, depodaki model ve yazılım ailesi uyumlu imajlarla karşılaştırılır."
                 : tab === "groups"
                   ? "Grupları rol ve ihtiyacınıza göre siz tanımlayın."
                   : tab === "images"
@@ -1452,8 +1590,20 @@ export default function FirmwareWorkspace({
                 onChange={(e) => {
                   setQ(e.target.value);
                   setOffset(0);
+                  setSelected([]);
                 }}
               />
+            )}
+            {tab === "devices" && (
+              <select
+                aria-label="Güncellik filtresi"
+                value={deviceView}
+                onChange={(e) => selectView(e.target.value)}
+              >
+                <option value="all">Tüm cihazlar</option>
+                <option value="current">Güncel</option>
+                <option value="outdated">Güncel değil · Gruplar</option>
+              </select>
             )}
             {admin && tab === "images" && (
               <button
@@ -1484,227 +1634,357 @@ export default function FirmwareWorkspace({
             )}
           </div>
         </div>
-        {result.loading && (
-          <p className="fw-loading" role="status">
-            Kayıtlar okunuyor…
-          </p>
-        )}
-        {!result.loading && !rows.length ? (
-          <Empty
-            text={
-              tab === "groups"
-                ? "Henüz firmware grubu yok. İlk grubunuzu oluşturun."
-                : tab === "images"
-                  ? "Henüz firmware dosyası yüklenmedi."
-                  : tab === "devices"
-                    ? "Desteklenen cihaz kaydı bulunamadı."
-                    : "Henüz firmware planı bulunmuyor."
-            }
-          />
-        ) : (
-          <div
-            className="fw-table-scroll"
-            tabIndex={0}
-            role="region"
-            aria-label="Firmware tablosu"
-          >
-            <table
-              className={
-                "fw-table fw-" + (tab === "history" ? "plans" : tab) + "-table"
-              }
-            >
-              <thead>
-                <tr>
-                  {(tab === "devices"
-                    ? ["Cihaz", "Model / aile", "Çalışan sürüm", "Aktarım"]
-                    : tab === "images"
-                      ? ["Firmware", "Uyumluluk", "Bütünlük", "İşlemler"]
-                      : tab === "groups"
-                        ? ["Grup", "Açıklama", "Üyeler", "İşlemler"]
-                        : ["Plan", "İşlem / sıra", "Durum", "Zaman"]
-                  ).map((label) => (
-                    <th key={label}>{label}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r: Row) => (
-                  <tr key={r.id}>
-                    {tab === "devices" ? (
-                      <>
-                        <Cell detail={<small>{r.management_ip}</small>}>
-                          <b>{r.name}</b>
-                        </Cell>
-                        <Cell detail={<small>{FAMILIES[r.family]}</small>}>
-                          {r.model || "—"}
-                        </Cell>
-                        <Cell mono>
-                          {r.software_version || "Henüz okunmadı"}
-                        </Cell>
-                        <Cell>SSH + {r.protocol.toUpperCase()}</Cell>
-                      </>
-                    ) : tab === "images" ? (
-                      <>
-                        <td>
-                          <div className="fw-cell-stack">
-                            <button
-                              className="text-button fw-plan-link fw-cell-primary"
-                              onClick={() =>
-                                setModal({ kind: "image-detail", row: r })
-                              }
-                            >
-                              {r.name}
-                            </button>
-                            <small>
-                              {r.version} · {bytes(r.size_bytes)}
-                            </small>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="fw-cell-stack">
-                            <div className="fw-cell-primary">
-                              {FAMILIES[r.family]}
-                            </div>
-                            <small>{r.models.join(", ")}</small>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="fw-cell-stack">
-                            <div className="fw-cell-primary">
-                              <State value={r.status} />
-                            </div>
-                            <small
-                              className="mono"
-                              title={r.sha256 || r.expected_sha256}
-                            >
-                              {(r.sha256 || r.expected_sha256).slice(0, 20)}…
-                            </small>
-                          </div>
-                        </td>
-                        <td>
-                          <div className="fw-row-actions fw-image-actions">
-                            {admin && r.status === "uploading" && (
-                              <button
-                                className="secondary"
-                                onClick={() =>
-                                  setModal({ kind: "image", row: r })
-                                }
-                              >
-                                Yüklemeyi tamamla
-                              </button>
-                            )}
-                            {admin && r.status === "ready" && (
-                              <a
-                                className="secondary"
-                                href={`/api/v1/firmware/images/${r.id}/content`}
-                              >
-                                <DownloadSimple size={16} aria-hidden="true" />
-                                İndir
-                              </a>
-                            )}
-                            {admin && (
-                              <button
-                                className="secondary fw-image-delete"
-                                onClick={() =>
-                                  setModal({ kind: "delete-image", row: r })
-                                }
-                              >
-                                <Trash size={16} aria-hidden="true" />
-                                Sil
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </>
-                    ) : tab === "groups" ? (
-                      <>
-                        <Cell>
-                          <b>{r.name}</b>
-                        </Cell>
-                        <Cell>{r.description || "—"}</Cell>
-                        <Cell>{r.device_count} cihaz</Cell>
-                        <td>
-                          <div className="fw-row-actions">
-                            {write && (
-                              <button
-                                className="text-button"
-                                onClick={async () => {
-                                  try {
-                                    const group = await api(
-                                      "/firmware/groups/" + r.id,
-                                    );
-                                    setModal({ kind: "group", row: group });
-                                  } catch (e: any) {
-                                    setError(e.message);
-                                  }
-                                }}
-                              >
-                                Düzenle
-                              </button>
-                            )}
-                            {admin && (
-                              <button
-                                className="text-button"
-                                onClick={() =>
-                                  setModal({ kind: "delete-group", row: r })
-                                }
-                              >
-                                Sil
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <Cell
-                          detail={
-                            <small>
-                              {Object.values(r.counts as Row).reduce(
-                                (a: number, n: any) => a + Number(n),
-                                0,
-                              )}{" "}
-                              cihaz
-                            </small>
-                          }
-                        >
-                          <button
-                            className="text-button fw-plan-link"
-                            onClick={() => setDetail(r.id)}
-                          >
-                            {r.name}
-                          </button>
-                        </Cell>
-                        <Cell
-                          detail={
-                            <small>
-                              {r.steps
-                                .map((s: Row) => s.group_name)
-                                .join(" → ")}
-                            </small>
-                          }
-                        >
-                          {MODES[r.mode]}
-                        </Cell>
-                        <Cell>
-                          <State value={r.status} />
-                        </Cell>
-                        <Cell>{date(r.available_at)}</Cell>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {tab === "devices" && deviceView !== "outdated" && admin && (
+          <div className="fw-device-selection">
+            <p role="status">{selected.length} cihaz seçildi</p>
+            <div className="fw-row-actions">
+              {!!selected.length && (
+                <>
+                  <button className="secondary" onClick={() => setSelected([])}>
+                    Seçimi temizle
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={busy}
+                    onClick={planSelected}
+                  >
+                    Güncelle
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         )}
-        {result.data && tab !== "groups" && (
-          <Pager
-            offset={offset}
-            total={result.data.total}
-            onChange={setOffset}
-            size={tab === "plans" ? 30 : 50}
+        {tab === "devices" && (
+          <p className="fw-inventory-note">
+            Durum, envanterdeki son çalışan sürüme göredir. Daha yeni sürümler
+            de güncel sayılır. Uyumlu imajı veya karşılaştırılabilir sürümü
+            olmayan cihazlar güncel olarak işaretlenmez.
+          </p>
+        )}
+        {tab === "devices" && deviceView === "outdated" ? (
+          <OutdatedGroups
+            q={search}
+            refresh={refresh}
+            admin={admin}
+            onPlan={(steps) => setModal({ kind: "plan", row: { steps } })}
           />
+        ) : (
+          <>
+            {result.loading && (
+              <p className="fw-loading" role="status">
+                Kayıtlar okunuyor…
+              </p>
+            )}
+            {!result.loading && !rows.length ? (
+              <Empty
+                text={
+                  tab === "groups"
+                    ? "Henüz firmware grubu yok. İlk grubunuzu oluşturun."
+                    : tab === "images"
+                      ? "Henüz firmware dosyası yüklenmedi."
+                      : tab === "devices"
+                        ? "Desteklenen cihaz kaydı bulunamadı."
+                        : "Henüz firmware planı bulunmuyor."
+                }
+              />
+            ) : (
+              <div
+                className="fw-table-scroll"
+                tabIndex={0}
+                role="region"
+                aria-label="Firmware tablosu"
+              >
+                <table
+                  className={
+                    "fw-table fw-" +
+                    (tab === "history" ? "plans" : tab) +
+                    "-table"
+                  }
+                >
+                  <thead>
+                    <tr>
+                      {tab === "devices" && admin && (
+                        <th className="fw-select-cell">
+                          <input
+                            type="checkbox"
+                            aria-label="Bu sayfadaki güncel olmayan cihazları seç"
+                            checked={
+                              !!eligible.length &&
+                              eligible.every((r) => selected.includes(r.id))
+                            }
+                            ref={(input) => {
+                              if (input)
+                                input.indeterminate =
+                                  eligible.some((r) =>
+                                    selected.includes(r.id),
+                                  ) &&
+                                  !eligible.every((r) =>
+                                    selected.includes(r.id),
+                                  );
+                            }}
+                            disabled={!eligible.length}
+                            onChange={(e) =>
+                              setSelected((ids) =>
+                                e.target.checked
+                                  ? [
+                                      ...new Set([
+                                        ...ids,
+                                        ...eligible.map((r) => r.id),
+                                      ]),
+                                    ].slice(0, 1000)
+                                  : ids.filter(
+                                      (id) =>
+                                        !eligible.some((r) => r.id === id),
+                                    ),
+                              )
+                            }
+                          />
+                        </th>
+                      )}
+                      {(tab === "devices"
+                        ? [
+                            "Cihaz",
+                            "Model / aile",
+                            "Çalışan sürüm",
+                            "Güncellik",
+                            "Aktarım",
+                          ]
+                        : tab === "images"
+                          ? ["Firmware", "Uyumluluk", "Bütünlük", "İşlemler"]
+                          : tab === "groups"
+                            ? ["Grup", "Açıklama", "Üyeler", "İşlemler"]
+                            : ["Plan", "İşlem / sıra", "Durum", "Zaman"]
+                      ).map((label) => (
+                        <th key={label}>{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r: Row) => (
+                      <tr key={r.id}>
+                        {tab === "devices" ? (
+                          <>
+                            {admin && (
+                              <td className="fw-select-cell">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`${r.name} cihazını seç`}
+                                  disabled={
+                                    r.update_status !== "outdated" ||
+                                    (!selected.includes(r.id) &&
+                                      selected.length >= 1000)
+                                  }
+                                  checked={selected.includes(r.id)}
+                                  onChange={(e) =>
+                                    setSelected((ids) =>
+                                      e.target.checked
+                                        ? [...ids, r.id]
+                                        : ids.filter((id) => id !== r.id),
+                                    )
+                                  }
+                                />
+                              </td>
+                            )}
+                            <Cell
+                              detail={
+                                <>
+                                  <small>{r.management_ip}</small>
+                                  <small>
+                                    {r.firmware_group_name || "Gruba atanmamış"}
+                                  </small>
+                                </>
+                              }
+                            >
+                              <b>{r.name}</b>
+                            </Cell>
+                            <Cell detail={<small>{FAMILIES[r.family]}</small>}>
+                              {r.model || "—"}
+                            </Cell>
+                            <Cell mono>
+                              {r.software_version || "Henüz okunmadı"}
+                            </Cell>
+                            <Cell
+                              detail={
+                                r.latest_version && (
+                                  <small>
+                                    Depodaki sürüm: {r.latest_version}
+                                  </small>
+                                )
+                              }
+                            >
+                              <UpdateState row={r} />
+                            </Cell>
+                            <Cell>SSH + {r.protocol.toUpperCase()}</Cell>
+                          </>
+                        ) : tab === "images" ? (
+                          <>
+                            <td>
+                              <div className="fw-cell-stack">
+                                <button
+                                  className="text-button fw-plan-link fw-cell-primary"
+                                  onClick={() =>
+                                    setModal({ kind: "image-detail", row: r })
+                                  }
+                                >
+                                  {r.name}
+                                </button>
+                                <small>
+                                  {r.version} · {bytes(r.size_bytes)}
+                                </small>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="fw-cell-stack">
+                                <div className="fw-cell-primary">
+                                  {FAMILIES[r.family]}
+                                </div>
+                                <small>{r.models.join(", ")}</small>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="fw-cell-stack">
+                                <div className="fw-cell-primary">
+                                  <State value={r.status} />
+                                </div>
+                                <small
+                                  className="mono"
+                                  title={r.sha256 || r.expected_sha256}
+                                >
+                                  {(r.sha256 || r.expected_sha256).slice(0, 20)}
+                                  …
+                                </small>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="fw-row-actions fw-image-actions">
+                                {admin && r.status === "uploading" && (
+                                  <button
+                                    className="secondary"
+                                    onClick={() =>
+                                      setModal({ kind: "image", row: r })
+                                    }
+                                  >
+                                    Yüklemeyi tamamla
+                                  </button>
+                                )}
+                                {admin && r.status === "ready" && (
+                                  <a
+                                    className="secondary"
+                                    href={`/api/v1/firmware/images/${r.id}/content`}
+                                  >
+                                    <DownloadSimple
+                                      size={16}
+                                      aria-hidden="true"
+                                    />
+                                    İndir
+                                  </a>
+                                )}
+                                {admin && (
+                                  <button
+                                    className="secondary fw-image-delete"
+                                    onClick={() =>
+                                      setModal({ kind: "delete-image", row: r })
+                                    }
+                                  >
+                                    <Trash size={16} aria-hidden="true" />
+                                    Sil
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        ) : tab === "groups" ? (
+                          <>
+                            <Cell>
+                              <b>{r.name}</b>
+                            </Cell>
+                            <Cell>{r.description || "—"}</Cell>
+                            <Cell>{r.device_count} cihaz</Cell>
+                            <td>
+                              <div className="fw-row-actions">
+                                {write && (
+                                  <button
+                                    className="text-button"
+                                    onClick={async () => {
+                                      try {
+                                        const group = await api(
+                                          "/firmware/groups/" + r.id,
+                                        );
+                                        setModal({ kind: "group", row: group });
+                                      } catch (e: any) {
+                                        setError(e.message);
+                                      }
+                                    }}
+                                  >
+                                    Düzenle
+                                  </button>
+                                )}
+                                {admin && (
+                                  <button
+                                    className="text-button"
+                                    onClick={() =>
+                                      setModal({ kind: "delete-group", row: r })
+                                    }
+                                  >
+                                    Sil
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <Cell
+                              detail={
+                                <small>
+                                  {Object.values(r.counts as Row).reduce(
+                                    (a: number, n: any) => a + Number(n),
+                                    0,
+                                  )}{" "}
+                                  cihaz
+                                </small>
+                              }
+                            >
+                              <button
+                                className="text-button fw-plan-link"
+                                onClick={() => setDetail(r.id)}
+                              >
+                                {r.name}
+                              </button>
+                            </Cell>
+                            <Cell
+                              detail={
+                                <small>
+                                  {r.steps
+                                    .map((s: Row) => s.group_name)
+                                    .join(" → ")}
+                                </small>
+                              }
+                            >
+                              {MODES[r.mode]}
+                            </Cell>
+                            <Cell>
+                              <State value={r.status} />
+                            </Cell>
+                            <Cell>{date(r.available_at)}</Cell>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {result.data && tab !== "groups" && (
+              <Pager
+                offset={offset}
+                total={result.data.total}
+                onChange={setOffset}
+                size={tab === "plans" ? 30 : 50}
+              />
+            )}
+          </>
         )}
       </section>
       {modal?.kind === "image-detail" && (
@@ -1749,6 +2029,7 @@ export default function FirmwareWorkspace({
       )}
       {modal?.kind === "plan" && (
         <PlanForm
+          initialSteps={modal.row?.steps}
           onClose={() => setModal(null)}
           onSaved={(id) => {
             saved();

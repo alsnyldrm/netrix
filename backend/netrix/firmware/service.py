@@ -15,6 +15,7 @@ from ..core import now, settings
 from ..identity.security import audit
 from ..services import get, publish, serialize
 from .adapters import ERRORS
+from .versions import compare
 
 FAMILIES = {"aruba_5400": "aos_s", "aruba_2900": "aos_s", "aruba_6100": "cx6100", "hp_1950": "hp1950"}
 BUSY = ("running", "staged", "attention")
@@ -53,8 +54,9 @@ class GroupInput(Input):
 
 
 class StepInput(Input):
-    group_id: str
+    group_id: str | None = None
     image_id: str
+    device_ids: list[str] | None = Field(default=None, min_length=1, max_length=1000)
 
 
 class PlanInput(Input):
@@ -111,6 +113,61 @@ def connection_stamp(device, profile):
     ).hexdigest()
 
 
+def plan_candidates(db, payload):
+    """Freeze only older, compatible targets; explicit selections never expand."""
+    seen, steps, targets = set(), [], []
+    for item in payload.steps:
+        group = get(db, m.FirmwareGroup, item.group_id) if item.group_id else None
+        image = get(db, m.FirmwareImage, item.image_id)
+        if not group and not item.device_ids:
+            raise HTTPException(422, "Bir firmware grubu veya cihaz seçimi gerekli")
+        query = select(m.Device).order_by(m.Device.id)
+        if group:
+            query = query.join(m.FirmwareMember, m.FirmwareMember.device_id == m.Device.id).where(
+                m.FirmwareMember.group_id == group.id
+            )
+        if item.device_ids is not None:
+            query = query.where(m.Device.id.in_(item.device_ids))
+        devices = list(db.scalars(query.limit(1001)))
+        if item.device_ids is not None and {d.id for d in devices} != set(item.device_ids):
+            raise HTTPException(
+                422, "Seçilen cihaz artık bu grupta veya envanterde bulunmuyor; seçimi yenileyin"
+            )
+        if not devices:
+            raise HTTPException(422, f"{group.name if group else 'Seçim'}: cihaz bulunamadı")
+        skipped = {"current": 0, "newer": 0, "unknown": 0}
+        included = 0
+        for device in devices:
+            if device.id in seen:
+                raise HTTPException(422, "Aynı cihaz planda yalnızca bir kez bulunabilir")
+            seen.add(device.id)
+            if len(seen) > 1000:
+                raise HTTPException(422, "Bir plan en fazla 1000 cihaz içerebilir")
+            if image.status != "ready" or not compatible(image, device):
+                raise HTTPException(422, f"{device.name}: imajın ürün kodu/aile uyumluluğu doğrulanamadı")
+            relation = compare(device.software_version, image.version)
+            if payload.mode != "check" and relation != -1:
+                skipped["unknown" if relation is None else "current" if relation == 0 else "newer"] += 1
+                continue
+            profile = validate_device(db, device, image)
+            targets.append((len(steps), device, image, profile))
+            included += 1
+        steps.append(
+            {
+                "group_id": group.id if group else None,
+                "group_name": group.name if group else "Seçilen cihazlar",
+                "image_id": image.id,
+                "image_name": image.name,
+                "version": image.version,
+                "count": included,
+                "selected_count": len(devices),
+                "excluded": skipped,
+                "allow_enable_sftp": payload.allow_enable_sftp,
+            }
+        )
+    return steps, targets
+
+
 def new_plan(db, payload, user):
     if payload.mode != "check" and not payload.acknowledge_upgrade_path:
         raise HTTPException(422, "Üreticinin sürüm geçişi ve BootROM gereksinimlerini doğrulayın")
@@ -126,51 +183,26 @@ def new_plan(db, payload, user):
                 raise ValueError()
         except ValueError:
             raise HTTPException(422, "Zamanlama saat dilimi içermeli") from None
-    seen, steps, targets = set(), [], []
-    for index, item in enumerate(payload.steps):
-        group = get(db, m.FirmwareGroup, item.group_id)
-        image = get(db, m.FirmwareImage, item.image_id)
-        devices = list(
-            db.scalars(
-                select(m.Device)
-                .join(m.FirmwareMember, m.FirmwareMember.device_id == m.Device.id)
-                .where(m.FirmwareMember.group_id == group.id)
-                .order_by(m.Device.id)
-            )
+    steps, candidates = plan_candidates(db, payload)
+    targets = [
+        m.FirmwareTarget(
+            device_id=device.id,
+            image_id=image.id,
+            stage=stage,
+            evidence={
+                "history_version": 1,
+                "connection_stamp": connection_stamp(device, profile),
+                "device_name": device.name,
+                "management_ip": device.management_ip,
+                "expected_version": image.version,
+            },
         )
-        if not devices:
-            raise HTTPException(422, f"{group.name}: grup boş")
-        for device in devices:
-            profile = validate_device(db, device, image)
-            if device.id in seen:
-                raise HTTPException(422, "Aynı cihaz planda yalnızca bir kez bulunabilir")
-            seen.add(device.id)
-            if len(seen) > 1000:
-                raise HTTPException(422, "Bir plan en fazla 1000 cihaz içerebilir")
-            targets.append(
-                m.FirmwareTarget(
-                    device_id=device.id,
-                    image_id=image.id,
-                    stage=index,
-                    evidence={
-                        "history_version": 1,
-                        "connection_stamp": connection_stamp(device, profile),
-                        "device_name": device.name,
-                        "management_ip": device.management_ip,
-                        "expected_version": image.version,
-                    },
-                )
-            )
-        steps.append(
-            {
-                "group_id": group.id,
-                "group_name": group.name,
-                "image_id": image.id,
-                "image_name": image.name,
-                "version": image.version,
-                "count": len(devices),
-                "allow_enable_sftp": payload.allow_enable_sftp,
-            }
+        for stage, device, image, profile in candidates
+    ]
+    if not targets:
+        raise HTTPException(
+            422,
+            "Güncellenecek cihaz yok. Aynı veya daha yeni sürümler ve karşılaştırılamayan sürümler plana alınmadı.",
         )
     plan = m.FirmwarePlan(
         name=payload.name,

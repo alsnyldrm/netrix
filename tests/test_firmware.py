@@ -349,7 +349,7 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch,
 async def test_cx_reuses_identical_inactive_image_after_fresh_backup(fw, monkeypatch, mode):
     with fw["sf"]() as db:
         for d in db.scalars(select(m.Device)):
-            d.adapter, d.model = "aruba_6100", "JL675A"
+            d.adapter, d.model, d.software_version = "aruba_6100", "JL675A", "PL.10.17.1030"
         image = db.get(m.FirmwareImage, fw["image"]["id"])
         image.family, image.models, image.version = "cx6100", ["JL675A"], "PL.10.18.1010"
         db.commit()
@@ -424,7 +424,7 @@ async def test_cx_reuses_identical_inactive_image_after_fresh_backup(fw, monkeyp
 async def test_cx_reuse_requires_complete_fresh_proof(fw, monkeypatch, case):
     with fw["sf"]() as db:
         for d in db.scalars(select(m.Device)):
-            d.adapter, d.model = "aruba_6100", "JL675A"
+            d.adapter, d.model, d.software_version = "aruba_6100", "JL675A", "PL.10.17.1030"
         image = db.get(m.FirmwareImage, fw["image"]["id"])
         image.family, image.models, image.version = "cx6100", ["JL675A"], "PL.10.18.1010"
         db.commit()

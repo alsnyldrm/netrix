@@ -564,6 +564,13 @@ export const PAGES: Page[] = [
     icon: HardDrives,
   },
   {
+    key: "firmware-plans",
+    title: "Güncelleme planları",
+    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
+    group: "Firmware",
+    icon: HardDrives,
+  },
+  {
     key: "firmware-images",
     title: "Firmware deposu",
     desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
@@ -573,13 +580,6 @@ export const PAGES: Page[] = [
   {
     key: "firmware-groups",
     title: "Gruplar",
-    desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
-    group: "Firmware",
-    icon: HardDrives,
-  },
-  {
-    key: "firmware-plans",
-    title: "Güncelleme planları",
     desc: "Güvenli firmware dağıtımı, kullanıcı tanımlı gruplar ve doğrulanmış sonuçlar.",
     group: "Firmware",
     icon: HardDrives,

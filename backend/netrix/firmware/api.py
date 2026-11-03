@@ -17,7 +17,7 @@ from .. import models as m
 from ..core import db_session, now, settings
 from ..identity.security import admin, audit, current_user, operator
 from ..services import get, publish, serialize
-from . import grouping, history
+from . import catalog, grouping, history
 from .service import (
     GroupInput,
     ImageInput,
@@ -26,6 +26,7 @@ from .service import (
     groups_view,
     image_path,
     new_plan,
+    plan_candidates,
     service_info,
     start_plan,
     target_view,
@@ -46,6 +47,7 @@ def overview(db=Depends(db_session), user=Depends(current_user)):
             db.execute(select(m.FirmwarePlan.status, func.count()).group_by(m.FirmwarePlan.status)).all()
         ),
         "service": service_info(),
+        "devices": catalog.counts(db, grouping.base_conditions()),
     }
 
 
@@ -70,6 +72,23 @@ def images(
             )
         ],
         "total": db.scalar(select(func.count()).select_from(m.FirmwareImage).where(*conditions)),
+    }
+
+
+@router.get("/plan-images")
+def plan_images(db=Depends(db_session), user=Depends(current_user)):
+    # Compact choices include older uploaded releases as well as the newest.
+    return {
+        "items": [
+            dict(row._mapping)
+            for row in db.execute(
+                select(
+                    m.FirmwareImage.id, m.FirmwareImage.name, m.FirmwareImage.version, m.FirmwareImage.status
+                )
+                .where(m.FirmwareImage.status == "ready")
+                .order_by(m.FirmwareImage.created_at.desc(), m.FirmwareImage.id)
+            )
+        ]
     }
 
 
@@ -338,9 +357,33 @@ def plans(
     }
 
 
+@router.get("/outdated-groups")
+def outdated_groups(
+    q: str = Query("", max_length=120),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(30, ge=1, le=100),
+    db=Depends(db_session),
+    user=Depends(current_user),
+):
+    return catalog.outdated_groups(
+        db, grouping.conditions(db, grouping.DeviceFilters(q=q)), offset=offset, limit=limit
+    )
+
+
+@router.post("/plans/prepare")
+def prepare_plan(payload: catalog.SelectionInput, db=Depends(db_session), user=Depends(admin)):
+    return catalog.prepare_selection(db, payload, grouping.base_conditions())
+
+
 @router.post("/plans", status_code=201)
 def create_plan(payload: PlanInput, db=Depends(db_session), user=Depends(admin)):
     return serialize(new_plan(db, payload, user))
+
+
+@router.post("/plans/preview")
+def preview_plan(payload: PlanInput, db=Depends(db_session), user=Depends(admin)):
+    steps, targets = plan_candidates(db, payload)
+    return {"steps": steps, "target_total": len(targets)}
 
 
 @router.get("/plans/{id}")

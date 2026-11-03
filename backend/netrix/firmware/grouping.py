@@ -11,6 +11,7 @@ from sqlalchemy.orm import lazyload
 from .. import models as m
 from ..identity.security import audit
 from ..services import get, publish, serialize
+from . import catalog
 from .service import FAMILIES, Input, compatible, transfer_protocol
 
 
@@ -25,6 +26,7 @@ class DeviceFilters(Input):
     site_id: str = Field(default="", max_length=36)
     assignment: Literal["any", "available", "assigned"] = "any"
     editing_group_id: str = Field(default="", max_length=36)
+    update_status: Literal["", "current", "outdated", "unknown", "no_image"] = ""
 
 
 def base_conditions():
@@ -87,6 +89,13 @@ def conditions(db, filters, group_id=""):
 
 def candidates(db, filters, *, limit=50, offset=0, group_id="", image_id=None):
     where = conditions(db, filters, group_id)
+    updates = catalog.statuses(db, where) if filters.update_status else None
+    if filters.update_status:
+        where.append(
+            m.Device.id.in_(
+                [id for id, value in updates.items() if value["update_status"] == filters.update_status]
+            )
+        )
     rows = list(
         db.scalars(
             select(m.Device)
@@ -97,6 +106,8 @@ def candidates(db, filters, *, limit=50, offset=0, group_id="", image_id=None):
             .offset(offset)
         )
     )
+    if updates is None:
+        updates = catalog.statuses(db, [m.Device.id.in_([d.id for d in rows])])
     owners = dict(
         db.execute(
             select(m.FirmwareMember.device_id, m.FirmwareGroup)
@@ -120,6 +131,7 @@ def candidates(db, filters, *, limit=50, offset=0, group_id="", image_id=None):
                 "firmware_group_id": owners[d.id].id if d.id in owners else None,
                 "firmware_group_name": owners[d.id].name if d.id in owners else None,
                 "selectable": d.id not in owners or owners[d.id].id == filters.editing_group_id,
+                **updates[d.id],
             }
             for d in rows
         ],
@@ -131,10 +143,18 @@ def candidates(db, filters, *, limit=50, offset=0, group_id="", image_id=None):
 
 
 def selection(db, filters):
+    where = conditions(db, filters)
+    if filters.update_status:
+        updates = catalog.statuses(db, where)
+        where.append(
+            m.Device.id.in_(
+                [id for id, row in updates.items() if row["update_status"] == filters.update_status]
+            )
+        )
     ids = list(
         db.scalars(
             select(m.Device.id)
-            .where(*conditions(db, filters), selectable(filters.editing_group_id))
+            .where(*where, selectable(filters.editing_group_id))
             .order_by(m.Device.name, m.Device.id)
             .limit(1001)
         )

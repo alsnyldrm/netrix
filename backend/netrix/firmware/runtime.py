@@ -22,6 +22,7 @@ from ..identity.security import encrypt, secret_data
 from ..services import publish
 from . import adapters, history, transfers
 from .service import connection_stamp, image_path, service_info, transfer_protocol, validate_device
+from .versions import compare
 
 log = logging.getLogger("netrix.firmware")
 stop = False
@@ -262,9 +263,13 @@ async def execute(id):
                 release = re.search(r"(?:R|Release\s*)(\d{4})", live["version"], re.I)
                 if not release or image.version.startswith("R51") != release[1].startswith("51"):
                     raise ValueError("image_family")
-            if adapters.matches_version(image.version, live["version"]) and plan.mode != "check":
-                finish(id, "succeeded", verified_version=live["version"])
-                return
+            if plan.mode != "check":
+                relation = compare(live["version"], image.version)
+                if relation is None:
+                    raise adapters.FirmwareError("version")
+                if relation >= 0:
+                    finish(id, "succeeded", verified_version=live["version"], skipped=True)
+                    return
             prepare_sftp = False
             if image.family == "aos_s" and plan.mode != "activate":
                 try:
@@ -319,14 +324,18 @@ async def execute(id):
                     finish(id, "cancelled")
                     return
                 reused = False
+                current = await adapters.inspect(cli, device)
+                relation = compare(current["version"], image.version)
+                if relation is not None and relation >= 0:
+                    finish(id, "succeeded", verified_version=current["version"], skipped=True)
+                    return
+                if current["bank"] != live["bank"] or not adapters.matches_version(
+                    live["version"], current["version"]
+                ):
+                    raise ValueError("connection_changed")
                 if image.family == "cx6100":
                     # Read again after backup: another administrator may have
                     # changed the running image or the inactive area meanwhile.
-                    current = await adapters.inspect(cli, device)
-                    if current["bank"] != live["bank"] or not adapters.matches_version(
-                        live["version"], current["version"]
-                    ):
-                        raise ValueError("connection_changed")
                     if (
                         adapters.bank_contains(current["banks"], bank, image.version)
                         and adapters.cx_image_progress(current["banks"], bank) is not None
@@ -462,9 +471,12 @@ def target_phase(id):
         return db.get(m.FirmwareTarget, id).phase
 
 
-def finish(id, status, *, error_code="", verified_version=""):
+def finish(id, status, *, error_code="", verified_version="", skipped=False):
     with session_factory()() as db:
         row = db.get(m.FirmwareTarget, id)
+        if skipped:
+            row.phase = "version_skipped"
+            row.evidence = {**row.evidence, "skipped_current": True}
         if error_code:
             key = "verification_error" if row.phase == "reconcile" else "operation_error"
             row.evidence = {
@@ -482,7 +494,9 @@ def finish(id, status, *, error_code="", verified_version=""):
             db,
             row,
             kind="result",
-            title=history.RESULTS.get(status, status),
+            title="Cihaz zaten güncel; güncelleme atlandı"
+            if skipped
+            else history.RESULTS.get(status, status),
             status="failed"
             if error_code
             else "succeeded"
@@ -491,6 +505,11 @@ def finish(id, status, *, error_code="", verified_version=""):
             response=row.error
             or (
                 f"Çalışan sürüm: {verified_version}"
+                + (
+                    ". Hedefle aynı veya daha yeni; dosya aktarımı ve yeniden başlatma yapılmadı."
+                    if skipped
+                    else ""
+                )
                 if verified_version
                 else history.RESULTS.get(status, status)
             ),

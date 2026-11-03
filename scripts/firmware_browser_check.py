@@ -81,9 +81,9 @@ with sync_playwright() as p:
 
     tabs = {
         "devices": "Cihazlar",
+        "plans": "Güncelleme planları",
         "images": "Firmware deposu",
         "groups": "Gruplar",
-        "plans": "Güncelleme planları",
         "history": "İşlem geçmişi",
     }
     firmware_menu = page.locator(".nav-group").filter(

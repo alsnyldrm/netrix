@@ -105,7 +105,7 @@ async def test_completed_wrong_digest_fails_without_waiting_or_accepting_other_a
 def cx_fixture(fw):
     with fw["sf"]() as db:
         for device in db.scalars(select(m.Device)):
-            device.adapter, device.model = "aruba_6100", "JL675A"
+            device.adapter, device.model, device.software_version = "aruba_6100", "JL675A", "PL.10.17.1030"
         image = db.get(m.FirmwareImage, fw["image"]["id"])
         image.family, image.models, image.version = "cx6100", ["JL675A"], "PL.10.18.1010"
         db.commit()

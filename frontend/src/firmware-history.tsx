@@ -33,6 +33,7 @@ const PHASES: Row = {
   verifying: "Sürüm doğrulama",
   reconcile: "Sonucu yeniden doğrulama",
   recovered: "Manuel kurtarma",
+  version_skipped: "Cihaz güncel; işlem atlandı",
 };
 const EVENT_STATES: Row = {
   info: "Bilgi",
@@ -295,7 +296,11 @@ function Device({ target, refresh }: { target: Row; refresh: number }) {
             {PHASES[target.phase] || target.phase}
           </small>
         </span>
-        <State value={target.status} />
+        {target.evidence.skipped_current ? (
+          <span className="fw-state fw-state-succeeded">Güncel; atlandı</span>
+        ) : (
+          <State value={target.status} />
+        )}
       </summary>
       {open && <Transcript id={target.id} refresh={refresh} />}
     </details>
