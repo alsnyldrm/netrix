@@ -71,7 +71,7 @@ def test_all_addresses_ipv6_and_managed_metadata(admin_client, inventory):
 def test_vlan_settings_ignore_inventory_exclusions_and_deduplicate(admin_client, inventory, env):
     c = admin_client
     p = prefix(c, inventory)
-    assert c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").status_code == 409
+    assert c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").status_code == 202
     assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"ping_enabled": True}).status_code == 200
     assert (
         c.put(

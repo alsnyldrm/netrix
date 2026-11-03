@@ -121,7 +121,7 @@ Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme
 ## VLAN, envanter ve konfigürasyon kararı (1 Kasım 2026)
 
 - Ağ keşfi yalnızca Envanter altındadır; cihaz envanterine alınan adresler burada tanımlanan etkin VLAN/CIDR kapsamından gelmelidir. IPAM ve topolojiye keşif sonucu aktarılmaz; cihaz bağlantısı ve konfigürasyon işleri keşif kapsamına bağımlı değildir.
-- IPAM'in sahibi VLAN'dır. Bağımsız ağ blokları ve genel IP adresleri ekranı/API listesi kaldırılmıştır. VLAN kaydı kendi CIDR, DNS ve zamanlama ayarlarıyla IP taramasını başlatır; envanter keşif kapsamı veya cihaz profili istemez. Entegrasyonlar tüm VLAN'lara uygulanır. IPAM değişikliklerinde [VLAN ve entegrasyon davranışını](docs/ipam-integrations.md) oku.
+- IPAM'in sahibi VLAN'dır. Bağımsız ağ blokları ve genel IP adresleri ekranı/API listesi kaldırılmıştır. VLAN kendi CIDR, DNS ve zamanlama ayarlarıyla IP taramasının sahibidir; envanter keşif kapsamı veya cihaz profili istemez. Entegrasyonlar tüm VLAN'lara uygulanır. IPAM değişikliklerinde [VLAN ve entegrasyon davranışını](docs/ipam-integrations.md) oku.
 - Konfigürasyonda ilk geçerli kayıt base config'tir; kullanıcı bunu değiştirebilir. Değişenler base ile son konfigürasyonun anlamlı farkıdır ve onayla listeden kaldırılır. Konfigürasyon işi yaparken [base config ve onay kurallarını](docs/configuration-baselines.md) oku.
 
 ## Sabit IPAM kaynak sözleşmesi (1 Kasım 2026)
@@ -136,8 +136,8 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 ## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
 
-- IPAM tam kaynak toplaması yalnız Ayarlar → Tarama gruplarının zamanlamasından başlar. VLAN/IP sayfası açılışı, yenileme, kayıt oluşturma/düzenleme ve manuel API çağrıları tarama ya da entegrasyon eşitlemesi başlatmaz.
-- DNS, VMware, DHCP, gateway ve switch okumaları zamanlanmış tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
-- Ping ayrı periyodik ICMP işidir: varsayılan 30 saniye, yapılandırılabilir en az 10 saniye. Kayıtlı IP'leri kontrol eder; DNS veya başka bir kaynak okumaz. Tarayıcı açık olmasa da çalışır, uzun tam taramayla aynı VLAN üzerinde eşzamanlı yürüyebilir.
+- IPAM tam kaynak toplaması Ayarlar → Tarama gruplarının zamanlaması veya yetkili kullanıcının VLAN içindeki **Tara** düğmesiyle başlar. VLAN/IP sayfası açılışı, yenileme ve kayıt oluşturma/düzenleme salt okunur kaynak davranışını korur; tarama başlatmaz.
+- DNS, VMware, DHCP, gateway ve switch okumaları zamanlanmış veya kullanıcı tarafından açıkça başlatılmış tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
+- VLAN içindeki **Ping** düğmesi yetkili kullanıcının kayıtlı IP’ler için yalnız ICMP işi başlatmasını sağlar. Ping ayrıca ayrı periyodik ICMP işidir: varsayılan 30 saniye, yapılandırılabilir en az 10 saniye. Kayıtlı IP'leri kontrol eder; DNS veya başka bir kaynak okumaz. Tarayıcı açık olmasa da çalışır, uzun tam taramayla aynı VLAN üzerinde eşzamanlı yürüyebilir.
 - Ping sonucu açık liste/ayrıntıya WebSocket bildirimiyle yansır. Bağlantı yoksa görünür IPAM ekranı 10 saniyede bir yalnız veritabanından yenilenir; bu yenileme ping veya tam tarama tetiklemez.
 - Bu davranışı doğrularken gerçek ağda tarama/entegrasyon eşitlemesi başlatma; sahte protokol istemcileri ve yerel fixture kullan. Ayrıntılar [IPAM davranışında](docs/ipam-integrations.md).

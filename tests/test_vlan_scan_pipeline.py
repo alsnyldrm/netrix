@@ -3,6 +3,7 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from netrix import models as m
 from netrix import worker
 from netrix.ipam import adapters, jobs, service
@@ -29,7 +30,10 @@ async def run_scan(env, monkeypatch, id, *, check=None):
         await asyncio.wait_for(loop, 5)
 
 
-async def test_new_vlan_waits_for_sources_and_matches_all_fields(admin_client, inventory, env, monkeypatch):
+@pytest.mark.parametrize("manual", [False, True])
+async def test_new_vlan_waits_for_sources_and_matches_all_fields(
+    admin_client, inventory, env, monkeypatch, manual
+):
     vlan = prefix(admin_client, inventory)
     vc = integration(admin_client, vlan)
     dhcp = integration(admin_client, vlan, name="DHCP", kind="windows_dhcp", port=5986)
@@ -52,7 +56,11 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(admin_client, i
         )
         db.add_all([gateway, switch])
         db.commit()
-    initial = timer_job("ipam_discover", vlan["id"])
+    initial = (
+        admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/discover").json()
+        if manual
+        else timer_job("ipam_discover", vlan["id"])
+    )
     assert initial["kind"] == "ipam_discover" and initial["status"] == "queued"
     assert timer_job("ipam_discover", vlan["id"])["id"] == initial["id"]
     phases = set()

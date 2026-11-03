@@ -177,8 +177,8 @@ function VLANSettings({
         </div>
         <p className="ipam-hint">
           Ping yalnız kayıtlı IP’lere ICMP gönderir; sayfa açılışından bağımsız
-          çalışır. DNS, VMware, DHCP, switch ve gateway okumaları yalnız Ayarlar
-          → Tarama gruplarındaki zamanlanmış tam taramada yapılır.
+          çalışır. DNS, VMware, DHCP, switch ve gateway okumaları Tara düğmesi
+          veya Ayarlar → Tarama gruplarının zamanlamasıyla yapılır.
         </p>
         <div className="ipam-actions">
           <button type="button" className="secondary" onClick={close}>
@@ -709,6 +709,18 @@ export function IPAMWorkspace({
   const jobActive =
     job?.target_id === prefix?.id &&
     ["queued", "running"].includes(job?.status);
+  const startScan = async (action: "discover" | "ping") => {
+    if (!prefix || busy || jobActive) return;
+    setBusy(true);
+    setError("");
+    try {
+      setJob(await api(`/ipam/vlans/${prefix.id}/${action}`, "POST"));
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const phaseName = (
     {
       addresses: "IP ve DNS taranıyor",
@@ -855,13 +867,41 @@ export function IPAMWorkspace({
               </span>
             </div>
           </div>
-          <div className="ipam-schedule-note">
-            <span>Tam tarama: zamanlama</span>
-            <small>
-              {prefix.ping_enabled
-                ? `Ping: ${prefix.ping_interval || 30} sn`
-                : "Ping kapalı"}
-            </small>
+          <div className="ipam-scan-controls">
+            {canWrite && (
+              <div
+                className="ipam-scan-actions"
+                aria-label="VLAN tarama işlemleri"
+                aria-busy={busy}
+              >
+                <button
+                  className="secondary"
+                  disabled={busy || jobActive}
+                  title="Kayıtlı IP adreslerine yalnız ping gönder"
+                  onClick={() => startScan("ping")}
+                >
+                  <Waveform size={17} aria-hidden="true" />
+                  Ping
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy || jobActive}
+                  title="VLAN’ı tara ve kaynak bilgilerini güncelle"
+                  onClick={() => startScan("discover")}
+                >
+                  <Broadcast size={17} aria-hidden="true" />
+                  Tara
+                </button>
+              </div>
+            )}
+            <div className="ipam-schedule-note">
+              <span>Tam tarama: zamanlama</span>
+              <small>
+                {prefix.ping_enabled
+                  ? `Ping: ${prefix.ping_interval || 30} sn`
+                  : "Periyodik ping kapalı"}
+              </small>
+            </div>
           </div>
         </section>
       )}

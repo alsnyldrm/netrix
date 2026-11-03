@@ -595,15 +595,13 @@ def backup_profile(db, device):
 
 def enqueue(db, kind, target_id, user=None, *, commit=True, ipam_origin=None):
     from .ipam.jobs import KINDS, validate_target
+    from .ipam.triggers import allowed_origin
 
     if kind not in (*KINDS, "discovery", "backup", "compare", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
     if kind in KINDS:
-        origins = {"ipam_ping": "ping_timer", "ipam_discover": "schedule", "integration": "scheduled_source"}
-        if ipam_origin != origins[kind]:
-            raise HTTPException(
-                409, "IPAM kaynakları yalnızca zamanlamadan, ping yalnızca periyodik kontrolden çalışır"
-            )
+        if not allowed_origin(kind, ipam_origin, user.id if user else None):
+            raise HTTPException(409, "IPAM işi yetkili kullanıcı eylemi veya tanımlı zamanlama gerektirir")
         target = validate_target(db, kind, target_id)
     elif kind == "discovery":
         target = get(db, m.Scope, target_id)

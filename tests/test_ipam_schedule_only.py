@@ -1,4 +1,4 @@
-"""IPAM reads never collect evidence; only scheduled full scans and ICMP timers run."""
+"""IPAM reads never collect evidence; explicit user actions, schedules and ICMP timers are separate."""
 
 from datetime import timedelta
 
@@ -32,30 +32,61 @@ def test_create_and_repeated_reads_never_enqueue_sources(admin_client, inventory
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind.in_(jobs.KINDS))) == 0
 
 
-def test_manual_collectors_are_rejected(admin_client, inventory, env):
+@pytest.mark.parametrize("role", ["super_admin", "admin", "operator"])
+def test_manual_vlan_actions_are_queued_once_but_independent_sync_is_blocked(
+    admin_client, inventory, env, role
+):
     vlan = prefix(admin_client, inventory)
     config = integration(admin_client, vlan)
-    for path in (
-        f"/ipam/vlans/{vlan['id']}/discover",
-        f"/ipam/vlans/{vlan['id']}/ping",
-        f"/integrations/{config['id']}/sync",
-    ):
-        response = admin_client.post("/api/v1" + path)
-        assert response.status_code == 409, response.text
+    with env() as db:
+        db.scalar(select(m.User)).role = role
+        db.commit()
+    for action in ("discover", "ping"):
+        url = f"/api/v1/ipam/vlans/{vlan['id']}/{action}"
+        response = admin_client.post(url)
+        assert response.status_code == 202, response.text
+        job = response.json()
+        assert job["kind"] == "ipam_" + action and job["status"] == "queued"
+        assert job["requested_by"] and job["result"]["ipam_origin"] == "manual"
+        assert admin_client.post(url).json()["id"] == job["id"]
+        with env() as db:
+            scheduled = services.enqueue(
+                db,
+                "ipam_" + action,
+                vlan["id"],
+                ipam_origin="schedule" if action == "discover" else "ping_timer",
+            )
+            assert scheduled.id == job["id"]
+    assert admin_client.post(f"/api/v1/integrations/{config['id']}/sync").status_code == (
+        403 if role == "operator" else 409
+    )
     with env() as db:
         for kind, target in (
             ("ipam_discover", vlan["id"]),
             ("ipam_ping", vlan["id"]),
             ("integration", config["id"]),
         ):
-            with pytest.raises(HTTPException) as error:
-                services.enqueue(db, kind, target)
-            assert error.value.status_code == 409
+            for origin in (None, "manual"):
+                with pytest.raises(HTTPException) as error:
+                    services.enqueue(db, kind, target, ipam_origin=origin)
+                assert error.value.status_code == 409
 
 
+def test_viewer_cannot_start_manual_vlan_actions(admin_client, inventory, env):
+    vlan = prefix(admin_client, inventory)
+    with env() as db:
+        db.scalar(select(m.User)).role = "viewer"
+        db.commit()
+    for action in ("discover", "ping"):
+        assert admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/{action}").status_code == 403
+    with env() as db:
+        assert not db.scalar(select(m.Job.id))
+
+
+@pytest.mark.parametrize("manual", [False, True])
 @pytest.mark.asyncio
 async def test_ping_is_icmp_only_and_recovery_updates_cached_status(
-    admin_client, inventory, env, monkeypatch
+    admin_client, inventory, env, monkeypatch, manual
 ):
     from netrix.ipam import read_cache
 
@@ -87,9 +118,14 @@ async def test_ping_is_icmp_only_and_recovery_updates_cached_status(
     assert not admin_client.get(url).json()["items"]
     events = []
     monkeypatch.setattr(services.redis_client(), "publish", lambda *args: events.append(args))
-    with env() as db:
-        job = services.enqueue(db, "ipam_ping", vlan["id"], ipam_origin="ping_timer")
-        id = job.id
+    if manual:
+        response = admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/ping")
+        assert response.status_code == 202, response.text
+        id = response.json()["id"]
+    else:
+        with env() as db:
+            job = services.enqueue(db, "ipam_ping", vlan["id"], ipam_origin="ping_timer")
+            id = job.id
     assert worker.claim(interactive=False, include_kinds=("ipam_ping",)) == id
     await worker.execute(id)
     import json
@@ -135,8 +171,11 @@ def test_only_groups_dispatch_full_scans_and_ping_deadlines_are_independent(admi
         assert len(rows) == 1 and rows[0].result["ipam_origin"] == "ping_timer"
 
 
+@pytest.mark.parametrize("origin", [None, "manual"])
 @pytest.mark.asyncio
-async def test_old_unattributed_scan_is_cancelled_before_network(admin_client, inventory, env, monkeypatch):
+async def test_old_unattributed_scan_is_cancelled_before_network(
+    admin_client, inventory, env, monkeypatch, origin
+):
     vlan = prefix(admin_client, inventory)
 
     async def forbidden(*args, **kwargs):
@@ -144,7 +183,12 @@ async def test_old_unattributed_scan_is_cancelled_before_network(admin_client, i
 
     monkeypatch.setattr(adapters, "ping", forbidden)
     with env() as db:
-        job = m.Job(kind="ipam_discover", target_id=vlan["id"], active_key="legacy:" + vlan["id"])
+        job = m.Job(
+            kind="ipam_discover",
+            target_id=vlan["id"],
+            active_key="legacy:" + vlan["id"],
+            result={"ipam_origin": origin},
+        )
         db.add(job)
         db.commit()
         id = job.id

@@ -563,10 +563,13 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     with session_factory()() as db:
         initial = get(db, m.Job, job_id)
         kind, interactive = initial.kind, initial.result.get("interactive", False)
-        origins = {"ipam_ping": "ping_timer", "ipam_discover": "schedule", "integration": "scheduled_source"}
-        if kind in origins and initial.result.get("ipam_origin") != origins[kind]:
+        from .ipam.triggers import SCHEDULED_ORIGINS, allowed_origin
+
+        if kind in SCHEDULED_ORIGINS and not allowed_origin(
+            kind, initial.result.get("ipam_origin"), initial.requested_by
+        ):
             initial.status, initial.active_key, initial.finished_at = "cancelled", None, now()
-            initial.error = "Zamanlama dışı IPAM işi iptal edildi"
+            initial.error = "Geçerli tetikleyicisi olmayan IPAM işi iptal edildi"
             db.commit()
             return
     from .configuration.management import compare_live

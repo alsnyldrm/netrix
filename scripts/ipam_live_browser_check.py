@@ -1,4 +1,4 @@
-"""Verify read-only navigation, pushed/fallback ICMP updates and schedule-only UI."""
+"""Verify read-only navigation, pushed/fallback ICMP updates and explicit user actions."""
 
 import json
 from pathlib import Path
@@ -28,8 +28,8 @@ with sync_playwright() as p:
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     target = page.get_by_role("row").filter(has=page.get_by_role("button", name="192.0.2.12", exact=True))
     expect(target.locator(".ipam-state")).to_have_text("Pasif")
-    expect(page.get_by_role("button", name="Tara", exact=True)).to_have_count(0)
-    expect(page.get_by_role("button", name="Ping", exact=True)).to_have_count(0)
+    expect(page.get_by_role("button", name="Tara", exact=True)).to_be_enabled()
+    expect(page.get_by_role("button", name="Ping", exact=True)).to_be_enabled()
     expect(page.get_by_text("Ping: 30 sn", exact=True)).to_be_visible()
     result = page.request.post(
         BASE + "/fixture/ping-result?reachable=true", headers={"X-Netrix-Request": "1"}
@@ -39,9 +39,7 @@ with sync_playwright() as p:
     expect(target.locator(".ipam-state")).to_have_text("Aktif", timeout=3000)
     page.get_by_role("button", name="192.0.2.12", exact=True).click()
     dialog = page.get_by_role("dialog")
-    ping = (
-        dialog.locator(".ipam-summary > div").filter(has=page.locator("dt", has_text="Ping")).locator("dd")
-    )
+    ping = dialog.locator(".ipam-summary > div").filter(has=page.locator("dt", has_text="Ping")).locator("dd")
     expect(ping).to_have_text("Yanıt var")
     page.request.post(BASE + "/fixture/ping-result?reachable=false", headers={"X-Netrix-Request": "1"})
     sockets[-1].send(json.dumps({"type": "ipam_ping", "vlan_id": result["vlan_id"]}))
@@ -57,14 +55,37 @@ with sync_playwright() as p:
             page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
             page.evaluate("window.scrollTo(0,0)")
             assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth")
+            buttons = [
+                page.get_by_role("button", name=name, exact=True).bounding_box() for name in ("Ping", "Tara")
+            ]
+            assert all(buttons)
+            assert buttons[0]["y"] == buttons[1]["y"] and buttons[0]["height"] == buttons[1]["height"]
+            assert buttons[1]["x"] - buttons[0]["x"] - buttons[0]["width"] == 8
+            assert buttons[0]["height"] >= (44 if width <= 640 else 40)
             page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
             assert not page.evaluate(
                 "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,targets:v.nodes.map(n=>n.target)}))"
             )
-            page.screenshot(path=f"/tmp/netrix-scheduled-vlan-{width}-{theme}.png")
+            page.screenshot(path=f"/tmp/netrix-manual-vlan-{width}-{theme}.png")
     assert not collectors, collectors
+    # Local fixture has no worker: clicks only queue jobs; production is never scanned.
+    for label, action in (("Ping", "ping"), ("Tara", "discover")):
+        button = page.get_by_role("button", name=label, exact=True)
+        with page.expect_response(
+            lambda r: r.request.method == "POST" and r.url.endswith("/" + action)
+        ) as pending:
+            button.click()
+        response = pending.value
+        assert response.status == 202, response.text()
+        job = response.json()
+        assert job["kind"] == "ipam_" + action and job["result"]["ipam_origin"] == "manual"
+        assert job["requested_by"]
+        expect(button).to_be_disabled()
+        page.get_by_role("button", name="İptal et", exact=True).click()
+        expect(button).to_be_enabled(timeout=5000)
+    assert len(collectors) == 2, collectors
     assert not errors, errors
     print(
-        "PASS: no scan on navigation, no manual collection actions, pushed active/passive status in list and detail, DB fallback, desktop/mobile/landscape and axe"
+        "PASS: no scan on navigation, explicit Tara/Ping enqueue and cancel, pushed active/passive status in list and detail, DB fallback, desktop/mobile/landscape and axe"
     )
     browser.close()

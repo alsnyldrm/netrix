@@ -75,7 +75,7 @@ def settings(id: str, payload: VLANSettings, user=Depends(operator), db=Depends(
 
 @router.post("/ipam/vlans/{id}/{action}", status_code=202)
 def scan(id: str, action: Literal["ping", "discover"], user=Depends(operator), db=Depends(db_session)):
-    return svc.serialize(svc.enqueue(db, "ipam_" + action, id, user))
+    return svc.serialize(svc.enqueue(db, "ipam_" + action, id, user, ipam_origin="manual"))
 
 
 @router.get("/ipam/vlans/{id}/scan")
