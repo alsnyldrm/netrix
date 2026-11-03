@@ -20,6 +20,17 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
+    jobs = context.request.get("http://127.0.0.1:8258/api/v1/jobs").json()
+    assert jobs["total"] == 4 and all(job["kind"] != "ipam_ping" for job in jobs["items"])
+    assert context.request.get("http://127.0.0.1:8258/api/v1/dashboard").json()["counts"]["running_jobs"] == 1
+    for width, height in ((1440, 1000), (375, 812)):
+        page.set_viewport_size({"width": width, "height": height})
+        expect(page.get_by_role("button", name="IP erişilebilirlik kontrolü", exact=False)).to_have_count(0)
+        expect(page.get_by_role("button", name="IP durum kontrolü", exact=False)).to_have_count(0)
+        expect(page.locator("tbody tr")).to_have_count(4)
+        assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
+        page.screenshot(path=str(root / f"task-center-no-ping-{width}.png"))
+    page.set_viewport_size({"width": 1440, "height": 1000})
     opener = page.get_by_role("button", name="SNMP ağ keşfi · VLAN-60 · 10.6.0.0/21 açıklaması", exact=True)
     expect(opener).to_be_visible()
     opener.focus()
@@ -58,5 +69,5 @@ with sync_playwright() as p:
     expect(opener).to_be_focused()
     assert not errors, errors
     assert not any(reports.values()), reports
-    print("Task details browser PASS: six layouts, prose, keyboard, alignment, accessibility")
+    print("Task center browser PASS: ping hidden, counts, six layouts, keyboard, alignment, accessibility")
     browser.close()

@@ -280,7 +280,7 @@ def dashboard_data(db):
         ),
         "active_devices": count(m.Device, m.Device.lifecycle_status == "active"),
         "firing_alerts": count(m.Alert, m.Alert.state == "firing"),
-        "running_jobs": count(m.Job, m.Job.status.in_(["queued", "running"])),
+        "running_jobs": count(m.Job, m.Job.kind != "ipam_ping", m.Job.status.in_(["queued", "running"])),
         "successful_discoveries": count(
             m.Job, m.Job.kind == "discovery", m.Job.status.in_(["succeeded", "partial"])
         ),

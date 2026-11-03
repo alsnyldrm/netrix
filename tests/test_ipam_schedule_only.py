@@ -147,6 +147,7 @@ async def test_ping_is_icmp_only_and_recovery_updates_cached_status(
             )
             == 1
         )
+    assert all(item["id"] != id for item in admin_client.get("/api/v1/jobs").json()["items"])
 
 
 def test_legacy_full_scan_timers_stay_off_and_ping_deadlines_are_independent(admin_client, inventory, env):

@@ -16,7 +16,7 @@ with session_factory()() as db:
     db.flush()
     vrf = db.scalar(select(m.VRF))
     scope = m.Scope(name="VLAN-60", cidr="10.6.0.0/21", vrf_id=vrf.id, credential_id=credential.id)
-    prefix = m.Prefix(cidr="10.6.0.0/21", vrf_id=vrf.id)
+    prefix = m.VLAN(name="VLAN-60", vid=60, cidr="10.6.0.0/21", vrf_id=vrf.id)
     db.add_all([scope, prefix])
     db.flush()
     db.add_all(

@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import pytest
 from netrix import models as m
 from netrix.core import now
 from netrix.job_details import DESCRIPTIONS
@@ -54,3 +55,45 @@ def test_missing_target_and_old_timestamp_do_not_break_history(admin_client, env
 
 def test_all_supported_connection_tests_have_descriptions():
     assert all(kind in DESCRIPTIONS for kind in CONNECTION_TESTS)
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "succeeded", "partial", "failed", "cancelled"])
+def test_ping_jobs_are_excluded_before_pagination_and_search(admin_client, env, status):
+    with env() as db:
+        visible = [
+            m.Job(kind="ipam_discover", target_id="vlan", created_at=now() - timedelta(minutes=2)),
+            m.Job(kind="backup", target_id="device", created_at=now() - timedelta(minutes=1)),
+        ]
+        ping = m.Job(kind="ipam_ping", target_id="vlan", status=status)
+        db.add_all([*visible, ping])
+        db.commit()
+        expected = [row.id for row in reversed(visible)]
+        ping_id = ping.id
+    for offset, id in enumerate(expected):
+        response = admin_client.get("/api/v1/jobs", params={"limit": 1, "offset": offset})
+        assert response.status_code == 200
+        assert response.json()["total"] == 2
+        assert [row["id"] for row in response.json()["items"]] == [id]
+    result = admin_client.get("/api/v1/jobs", params={"q": "ipam"}).json()
+    assert result["total"] == 1 and result["items"][0]["kind"] == "ipam_discover"
+    assert admin_client.get("/api/v1/jobs", params={"q": "ipam_ping"}).json()["total"] == 0
+    # Operational state remains available to the worker; hiding is not deletion.
+    with env() as db:
+        assert db.get(m.Job, ping_id).status == status
+
+
+def test_running_job_badge_excludes_background_ping(admin_client, env):
+    with env() as db:
+        db.add_all(
+            [
+                m.Job(kind="ipam_ping", target_id="vlan", status="queued"),
+                m.Job(kind="ipam_ping", target_id="vlan", status="running"),
+                m.Job(kind="backup", target_id="device", status="running"),
+                m.Job(kind="ipam_discover", target_id="vlan", status="queued"),
+                m.Job(kind="backup", target_id="device", status="succeeded"),
+            ]
+        )
+        db.commit()
+    result = admin_client.get("/api/v1/dashboard", headers={"Cache-Control": "no-cache"})
+    assert result.status_code == 200
+    assert result.json()["counts"]["running_jobs"] == 2

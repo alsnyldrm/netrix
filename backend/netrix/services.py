@@ -430,6 +430,9 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         options.append(selectinload(m.Scope.profiles))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
+    if name == "jobs":
+        # ICMP checks keep their worker state but never enter the task center.
+        stmt = stmt.where(m.Job.kind != "ipam_ping")
     if name == "observations":
         # The inventory's last discovery/identity view must not be replaced by
         # independent IPAM bridge/gateway reads stored in the shared journal.

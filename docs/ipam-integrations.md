@@ -8,6 +8,8 @@ Periyodik ping varsayılan 30 saniyedir (VLAN ayarından 10–86.400 saniye); ku
 
 Ping bildirimi `ipam_ping`, kaynak güncellemesi `ipam_update`/VLAN kimliği taşır. Açık IPAM listesi ve ayrıntısı yalnız kendi DB yanıtını yeniler; oda/cihaz referanslarını yeniden toplamaz. Görünür sayfada 10 saniyelik DB yenilemesi kopuk WebSocket için yedektir; geri dönüldüğünde DB yanıtı hemen okunur. Bu GET istekleri gerçek kaynak veya ping isteği değildir.
 
+Ping işleri arka planda yürütülür; manuel ve periyodik `ipam_ping` kayıtları Görev merkezi listesine, arama sonuçlarına, sayfalama toplamına ve çalışan görev sayacına dahil edilmez. Mevcut ping geçmişi de görünmez. Worker durumları ve canlı IPAM bildirimleri korunur; tam tarama ve diğer görevler listelenmeye devam eder.
+
 ### Tarama sürerken tamamlanan sonuçlar
 
 IP/ICMP/DNS sonuçları, aynı 32’lik grupteki yavaş IP’leri veya sonraki kaynak aşamalarını beklemeden kaydedilir. Hazır sonuçlar en fazla 200 ms’lik bir toplama penceresinde birleştirilir; bu pencere DB/HTTP yanıt süresi garantisi değildir. IP ekleme/güncelleme ve ilerleme aynı transaction’da commit edilir, ardından Redis okuma revizyonu ve yalnız ilgili VLAN’ın `ipam_update` bildirimi yayımlanır. DNS tamamlama adımı da hazır yanıtları bekletmez. Bir switch/gateway okuması commit edildiğinde diğer cihazların bitmesi beklenmeden bildirilir. Son eşleştirme sayımı tabloyu açan bir onay adımı değildir; liste/ayrıntı her aşamada mevcut geçerli kanıtlardan okunur.
