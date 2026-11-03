@@ -534,7 +534,7 @@ def test_reconciliation_does_not_resume_later_writes(fw, settle_first):
 
 
 @pytest.mark.parametrize("legacy_error", [False, True])
-def test_failed_reconciliation_preserves_original_transfer_error(fw, legacy_error):
+def test_failed_reconciliation_reports_current_error_and_keeps_original_evidence(fw, legacy_error):
     plan = make_plan(fw, "upgrade")
     start(fw, plan)
     target = runtime.claim()
@@ -552,7 +552,7 @@ def test_failed_reconciliation_preserves_original_transfer_error(fw, legacy_erro
         runtime.finish(target, "attention", error_code="version_mismatch")
     with fw["sf"]() as db:
         row = db.get(m.FirmwareTarget, target)
-        assert row.error_code == "transfer_protocol" and "protokol" in row.error
+        assert row.error_code == "version_mismatch" and "hedef sürümde" in row.error
         assert row.evidence["operation_error"]["phase"] == "transferring"
         assert row.evidence["verification_error"]["code"] == "version_mismatch"
         assert row.active_device and db.get(m.FirmwarePlan, plan["id"]).status == "paused"

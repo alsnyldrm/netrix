@@ -455,7 +455,12 @@ def activate(id: str, db=Depends(db_session), user=Depends(admin)):
         if target.status != "staged":
             raise HTTPException(409, "Tüm hedefler hazırlanmış olmalı")
         validate_device(db, get(db, m.Device, target.device_id), get(db, m.FirmwareImage, target.image_id))
-        target.status = "queued"
+        # Activation is a newly authorized write operation. A successful
+        # read-only repair may have left the staged target in `reconcile`;
+        # retaining it would bypass boot and check the old running version.
+        target.status, target.phase = "queued", "waiting"
+        target.error_code, target.error, target.verified_version = "", "", ""
+        target.finished_at = None
         history.add_event(
             db, target, kind="phase", title="Yönetici hazır imajı etkinleştirmeyi onayladı", finished=True
         )

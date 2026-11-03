@@ -499,10 +499,9 @@ def finish(id, status, *, error_code="", verified_version="", skipped=False):
                 **row.evidence,
                 key: {"code": error_code, "phase": row.phase, "at": now().isoformat()},
             }
-            if key == "verification_error":
-                original = row.evidence.get("operation_error", {}).get("code")
-                if original in FAILURE_MESSAGES or original in adapters.ERRORS:
-                    error_code = original
+            # The current result must describe this attempt. Earlier errors
+            # remain in operation_error and the immutable command history,
+            # including when a later read-only repair succeeded.
         row.status, row.error_code = status, error_code
         row.error = FAILURE_MESSAGES.get(error_code, adapters.ERRORS.get(error_code, ""))
         row.verified_version, row.finished_at = verified_version, now()

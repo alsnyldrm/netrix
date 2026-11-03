@@ -112,6 +112,97 @@ def cx_fixture(fw):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reconciled", [False, True])
+async def test_staged_plan_activation_starts_new_phase_after_read_only_recovery(fw, monkeypatch, reconciled):
+    cx_fixture(fw)
+    plan = make_plan(fw, "stage")
+    start(fw, plan)
+    running, booted, staged = {}, [], []
+
+    class CLI:
+        def __init__(self, device):
+            self.device = device
+
+        async def command(self, command, **kwargs):
+            if command == "show version":
+                return (
+                    "Version : PL.10.18.1010\nActive Image : primary"
+                    if self.device.id in running
+                    else "Version : PL.10.17.1030\nActive Image : secondary"
+                )
+            assert command == "show images"
+            return f"AOS-CX Primary Image\nVersion : PL.10.18.1010\nSHA-256 : {DIGEST}\nAOS-CX Secondary Image\nVersion : PL.10.17.1030\nSHA-256 : {'c' * 64}"
+
+    @asynccontextmanager
+    async def connection(device, *args, **kwargs):
+        yield None, CLI(device)
+
+    async def fetch(*args):
+        return "!Version AOS-CX PL.10.17.1030\nhostname fixture\n"
+
+    async def activate(cli, device, bank):
+        assert bank == "primary" and device.id not in running
+        running[device.id] = True
+        booted.append(device.id)
+
+    async def sleep(_):
+        pass
+
+    def prohibit(*args, **kwargs):
+        raise AssertionError("Prepared activation must never copy firmware or create another backup")
+
+    monkeypatch.setattr(adapters, "connect", connection)
+    monkeypatch.setattr(adapters, "activate", activate)
+    monkeypatch.setattr(adapters, "stage", prohibit)
+    monkeypatch.setattr(transfers, "grant", prohibit)
+    monkeypatch.setattr(runtime, "fetch_config", fetch)
+    monkeypatch.setattr(runtime.asyncio, "sleep", sleep)
+    while target_id := runtime.claim():
+        await runtime.execute(target_id)
+        staged.append(target_id)
+    assert len(staged) == 3 and not booted
+
+    first = staged[0]
+    if reconciled:
+        # This image was successfully repaired read-only after a historic copy error.
+        runtime.set_phase(first, "transferring")
+        runtime.finish(first, "attention", error_code="image")
+        assert fw["client"].post(f"/api/v1/firmware/targets/{first}/verify").status_code == 200
+        assert runtime.claim() == first
+        await runtime.execute(first)
+        assert runtime.claim() is None
+        with fw["sf"]() as db:
+            assert db.get(m.FirmwareTarget, first).phase == "reconcile"
+            assert db.get(m.FirmwarePlan, plan["id"]).status == "paused"
+        assert fw["client"].post(f"/api/v1/firmware/plans/{plan['id']}/retry").status_code == 200
+        assert runtime.claim() is None
+
+    with fw["sf"]() as db:
+        snapshots = {t.id: t.snapshot_id for t in db.scalars(select(m.FirmwareTarget))}
+        old_events = db.scalar(select(m.FirmwareEvent.id).order_by(m.FirmwareEvent.id.desc()).limit(1))
+    monkeypatch.setattr(runtime, "fetch_config", prohibit)
+    response = fw["client"].post(f"/api/v1/firmware/plans/{plan['id']}/activate")
+    assert response.status_code == 200, response.text
+    assert fw["client"].post(f"/api/v1/firmware/plans/{plan['id']}/activate").status_code == 409
+    with fw["sf"]() as db:
+        for row in db.scalars(select(m.FirmwareTarget)):
+            assert row.phase == "waiting" and row.finished_at is None
+            assert row.error_code == row.error == row.verified_version == ""
+    while target_id := runtime.claim():
+        await runtime.execute(target_id)
+    assert len(booted) == len(set(booted)) == 3
+    with fw["sf"]() as db:
+        assert db.get(m.FirmwarePlan, plan["id"]).status == "succeeded"
+        for row in db.scalars(select(m.FirmwareTarget)):
+            assert row.status == "succeeded" and row.verified_version == "PL.10.18.1010"
+            assert row.snapshot_id == snapshots[row.id]
+            assert db.get(m.Device, row.device_id).software_version == "PL.10.18.1010"
+        assert db.get(m.FirmwareEvent, old_events)
+        if reconciled:
+            assert db.get(m.FirmwareTarget, first).evidence["operation_error"]["code"] == "image"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("case", ["good", "wrong_hash", "changed_running", "missing_backup"])
 async def test_stage_reconciliation_checks_stored_image_without_running_it(fw, monkeypatch, case):
     cx_fixture(fw)
