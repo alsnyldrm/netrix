@@ -17,12 +17,17 @@ from ..discovery.aruba import ARUBA_ADAPTERS, CLI_ERROR, terminal_text
 from ..discovery.protocols import ssh_known_hosts
 from . import ephemeral as e
 from . import service as svc
+from .schemas import DEFAULT_IDLE_TIMEOUT_MINUTES
 
 OUTPUT_LIMIT = 65536
 PROMPT = re.compile(r"(?m)^(?:[^\r\n]{1,160}[#$>]\s*|<[^\r\n<>]{1,120}>\s*|\[[^\r\n\[\]]{1,120}\]\s*)\Z")
 
 
 class SessionEnded(Exception):
+    pass
+
+
+class SessionIdleTimeout(SessionEnded):
     pass
 
 
@@ -79,6 +84,8 @@ def error_message(exc):
         return "SSH host anahtarı doğrulanamadı. Envanterdeki anahtar güven ayarını kontrol edin."
     if isinstance(exc, asyncssh.PermissionDenied):
         return "SSH kullanıcı doğrulaması reddedildi"
+    if isinstance(exc, SessionIdleTimeout):
+        return "Hareketsizlik süresi doldu; SSH oturumu kapatıldı."
     if isinstance(exc, SessionEnded):
         return "İşlem iptal edildi veya bağlantı sona erdi"
     if isinstance(exc, ValueError):
@@ -111,8 +118,30 @@ async def event(client, id, value):
     await client.expire(e.key("out", id), e.TTL)
 
 
+async def logout(process, *, timeout=2):
+    """Discard an unfinished line before exit; never accept save/confirmation prompts.
+
+    A nested CLI mode or an unresponsive device may not exit itself. Close the
+    channel regardless, then the enclosing connection context closes transport.
+    """
+    try:
+        async with asyncio.timeout(timeout):
+            process.stdin.write("\x03\x15")  # Interrupt current command and clear partial input.
+            process.stdin.write("exit\n")
+            await process.stdin.drain()
+            await process.wait_closed()
+    except (TimeoutError, OSError, asyncssh.Error):
+        pass
+    finally:
+        process.close()
+
+
 async def shell_session(client, id, value):
     device, profile = await asyncio.to_thread(connection_data, value, value["device_id"])
+    idle_seconds = (
+        value.get("idle_timeout_minutes", profile.get("idle_timeout_minutes", DEFAULT_IDLE_TIMEOUT_MINUTES))
+        * 60
+    )
     async with connect(device, profile) as connection:
         async with connection.create_process(
             term_type="xterm-256color", term_size=(value["cols"], value["rows"]), stderr=asyncssh.STDOUT
@@ -123,11 +152,14 @@ async def shell_session(client, id, value):
             if profile.get("initial_command"):
                 process.stdin.write(profile["initial_command"].replace("\r\n", "\n") + "\n")
             last_input = time.monotonic()
+            remote_eof = False
 
             async def output():
+                nonlocal remote_eof
                 while True:
                     chunk = await process.stdout.read(1024)
                     if not chunk:
+                        remote_eof = True
                         return
                     await event(client, id, {"type": "output", "data": chunk})
 
@@ -163,10 +195,11 @@ async def shell_session(client, id, value):
                     if (
                         await client.get(e.key("cancel", id))
                         or stamp - absent > 60
-                        or stamp - last_input > 900
                         or time.time() - value["created"] > e.TTL
                     ):
                         raise SessionEnded()
+                    if stamp - last_input >= idle_seconds:
+                        raise SessionIdleTimeout()
                     if stamp - checked >= 10:
                         await asyncio.to_thread(connection_data, value, value["device_id"])
                         checked = stamp
@@ -180,6 +213,11 @@ async def shell_session(client, id, value):
                 for task in tasks:
                     task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
+                # A real EOF already ended the remote shell. Otherwise X, idle,
+                # lost viewer, revoked authorization and worker shutdown all
+                # use the same bounded logout after stopping incoming writes.
+                if not remote_eof:
+                    await logout(process)
 
 
 async def read_prompt(process, *, login=False, progress=None):
@@ -392,8 +430,10 @@ async def execute(client, kind, id):
             value["status"] = "closed"
         else:
             await run_batch(client, id, value)
-    except SessionEnded:
-        value.update(status="cancelled", error="İşlem iptal edildi veya bağlantı sona erdi")
+    except SessionEnded as exc:
+        value.update(
+            status="closed" if isinstance(exc, SessionIdleTimeout) else "cancelled", error=error_message(exc)
+        )
         for target in value.get("targets", []):
             if target["status"] in ("queued", "running"):
                 target.update(status="cancelled", output="İptal edildi; komut gönderilmedi.")

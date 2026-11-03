@@ -98,8 +98,11 @@ async def shell(process):
                 continue
             if not line:
                 break
-            line = line.strip()
+            # Model a CLI's Ctrl-U line clearing before the logout command.
+            line = line.split("\x15")[-1].strip()
             commands.append(line)
+            if line == "exit":
+                break
             if line == "hang":
                 await asyncio.sleep(20)
             if line == "bad-command":
@@ -203,6 +206,7 @@ async def check():
                     await until(other, "RESULT:show version")
                     assert (await api.delete("/api/v1/access/sessions/" + id)).status_code == 204
                     await asyncio.wait_for(job, 5)
+                    assert commands.count("exit") == 1 and active == 0, commands
                 assert commands.count("show version") == 1
             count = len(commands)
             await runtime.execute(client, "session", id)
@@ -228,6 +232,31 @@ async def check():
                 before = commands.count(command)
                 await runtime.execute(client, "batch", batch_id)
                 assert commands.count(command) == before
+            # Use the real one-minute minimum: output and viewer heartbeats must
+            # not keep an idle SSH session alive. No clock overrides or device access.
+            await client.set(e.PREFIX + "heartbeat", str(time.time()), ex=120)
+            response = await api.put(
+                f"/api/v1/access/ssh-profiles/{profile_id}", json={**profile, "idle_timeout_minutes": 1}
+            )
+            assert response.status_code == 200, response.text
+            response = await api.post("/api/v1/access/sessions", json={"device_id": device_id})
+            assert response.status_code == 201 and response.json()["idle_timeout_minutes"] == 1
+            idle_id = response.json()["id"]
+            started = time.monotonic()
+            idle_job = asyncio.create_task(runtime.execute(client, "session", idle_id))
+            async with websockets.connect(
+                f"ws://127.0.0.1:8242/api/v1/access/sessions/{idle_id}/ws",
+                origin="http://127.0.0.1:8242",
+                additional_headers={"Cookie": "netrix_session=" + token},
+            ) as idle_ws:
+                await until(idle_ws, "RESULT:no page")
+                await asyncio.wait_for(idle_job, 65)
+            assert 60 <= time.monotonic() - started < 66
+            result = (await api.get("/api/v1/access/sessions/" + idle_id)).json()
+            assert result["status"] == "closed" and "Hareketsizlik" in result["error"], result
+            assert commands.count("exit") == 2 and active == 0, commands
+            assert idle_id not in await client.zrange(e.PREFIX + "session:active", 0, -1)
+            await client.set(e.PREFIX + "heartbeat", str(time.time()), ex=120)
             # Password validation failure reveals no credential values.
             await api.put(
                 f"/api/v1/access/ssh-profiles/{profile_id}",
@@ -255,6 +284,8 @@ async def check():
                     "no_replay": True,
                     "cross_origin_denied": True,
                     "wrong_password_denied": True,
+                    "exit_on_close": True,
+                    "real_idle_logout_60_seconds": True,
                 }
             )
         )

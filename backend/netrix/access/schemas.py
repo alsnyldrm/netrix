@@ -3,6 +3,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+DEFAULT_IDLE_TIMEOUT_MINUTES = 15
+
 
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -50,6 +52,7 @@ class SSHProfile(Input):
     port: int = Field(default=22, ge=1, le=65535)
     initial_command: str = Field(default="", max_length=2000)
     connect_timeout: int = Field(default=10, ge=3, le=30)
+    idle_timeout_minutes: int = Field(default=DEFAULT_IDLE_TIMEOUT_MINUTES, ge=1, le=240)
 
 
 class SavedCommand(Input):

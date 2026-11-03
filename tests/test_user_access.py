@@ -404,6 +404,70 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, monkeypa
     assert exc.value.status_code == 503
 
 
+def test_profile_idle_timeout_legacy_defaults_validation_and_session_snapshot(
+    admin_client, target, env, monkeypatch
+):
+    from netrix.identity.security import encrypt
+
+    device_id, _ = target
+    memory = EphemeralRedis()
+    monkeypatch.setattr(e, "redis_client", lambda: memory)
+    saved = profile(admin_client).json()
+    id = saved["id"]
+    assert saved["idle_timeout_minutes"] == 15
+    # Existing encrypted profiles work without a schema/data migration.
+    with env() as db:
+        row = db.get(m.UserSSHProfile, id)
+        data = json.loads(decrypt(row.encrypted_ssh))
+        data.pop("idle_timeout_minutes")
+        row.encrypted_ssh = encrypt(json.dumps(data))
+        db.commit()
+    assert admin_client.get("/api/v1/access/ssh-profiles").json()["items"][0]["idle_timeout_minutes"] == 15
+    payload = {
+        "name": saved["name"],
+        "username": "personal",
+        "group_ids": saved["group_ids"],
+        "idle_timeout_minutes": 7,
+    }
+    assert (
+        admin_client.put(f"/api/v1/access/ssh-profiles/{id}", json=payload).json()["idle_timeout_minutes"]
+        == 7
+    )
+    with env() as db:
+        data = json.loads(decrypt(db.get(m.UserSSHProfile, id).encrypted_ssh))
+        assert data["idle_timeout_minutes"] == 7 and data["password"] == "private-password"
+    session = admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).json()
+    assert session["idle_timeout_minutes"] == 7
+    assert e.read(memory, "session", session["id"])["idle_timeout_minutes"] == 7
+    for invalid in (0, -1, 241, 1.5, None):
+        response = admin_client.put(
+            f"/api/v1/access/ssh-profiles/{id}", json={**payload, "idle_timeout_minutes": invalid}
+        )
+        assert response.status_code == 422, response.text
+    assert (
+        admin_client.put(
+            f"/api/v1/access/ssh-profiles/{id}", json={**payload, "idle_timeout_minutes": 1}
+        ).status_code
+        == 200
+    )
+    # An existing session keeps its admitted policy, including after tab transfer.
+    assert admin_client.get(f"/api/v1/access/sessions/{session['id']}").json()["idle_timeout_minutes"] == 7
+    second = admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).json()
+    assert second["idle_timeout_minutes"] == 1
+    assert (
+        admin_client.post(
+            "/api/v1/access/sessions", json={"device_id": device_id, "idle_timeout_minutes": 240}
+        ).status_code
+        == 422
+    )
+    assert (
+        admin_client.put(
+            f"/api/v1/access/ssh-profiles/{id}", json={**payload, "idle_timeout_minutes": 240}
+        ).status_code
+        == 200
+    )
+
+
 def test_batch_all_or_nothing_no_unscoped_target(admin_client, target, env, monkeypatch):
     device_id, user_id = target
     profile(admin_client)

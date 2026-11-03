@@ -34,6 +34,7 @@ type Session = {
   device_id: string;
   device_name: string;
   management_ip: string;
+  idle_timeout_minutes?: number;
   minimized: boolean;
 };
 export function openSSH(device: Row) {
@@ -949,7 +950,9 @@ function SessionWindow({
       </div>
       <footer className="ssh-footer">
         <span role="status">{notice || "SSH · Şifreli bağlantı"}</span>
-        <span>15 dk hareketsizlikte kapanır</span>
+        <span>
+          {session.idle_timeout_minutes ?? 15} dk hareketsizlikte kapanır
+        </span>
       </footer>
     </dialog>
   );

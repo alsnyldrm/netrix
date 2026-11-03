@@ -351,7 +351,7 @@ function SSHConnectionForm({
 }: {
   profile: Row;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (profile: Row) => void;
 }) {
   const [data, setData] = useState<Row>({
     name: "",
@@ -359,6 +359,7 @@ function SSHConnectionForm({
     port: 22,
     initial_command: "",
     connect_timeout: 10,
+    idle_timeout_minutes: 15,
     group_ids: [],
     ...profile,
   });
@@ -374,12 +375,12 @@ function SSHConnectionForm({
     for (const key of ["password", "private_key", "passphrase"])
       if (!payload[key]) delete payload[key];
     try {
-      await api(
+      const saved = await api(
         "/access/ssh-profiles" + (profile.id ? "/" + profile.id : ""),
         profile.id ? "PUT" : "POST",
         payload,
       );
-      onSaved();
+      onSaved(saved);
       onClose();
     } catch (e: any) {
       setError(e.message);
@@ -446,6 +447,27 @@ function SSHConnectionForm({
               />
             </label>
           ))}
+          <label className="full">
+            Hareketsizlik süresi (dakika)
+            <input
+              type="number"
+              min={1}
+              max={240}
+              required
+              value={data.idle_timeout_minutes}
+              onChange={(e) =>
+                setData({
+                  ...data,
+                  idle_timeout_minutes: Number(e.target.value),
+                })
+              }
+              aria-describedby="ssh-idle-timeout-hint"
+            />
+            <small id="ssh-idle-timeout-hint">
+              1–240 dakika. Terminale giriş yapılmazsa exit gönderilir ve
+              bağlantı kapatılır. Bu ayar yeni açılan oturumlarda uygulanır.
+            </small>
+          </label>
           <label className="full">
             Bağlantıda ilk çalıştırılacak komut
             <textarea
@@ -585,6 +607,10 @@ export function SSHSettings() {
   const [refresh, setRefresh] = useState(0);
   const profiles = useLiveQuery("/access/ssh-profiles", refresh);
   const groups = useLiveQuery("/access/groups", refresh);
+  const [savedProfile, setSavedProfile] = useState<{
+    row: Row;
+    source: unknown;
+  } | null>(null);
   const [editing, setEditing] = useState<Row | null>(null);
   const [deleting, setDeleting] = useState<Row | null>(null);
   const [query, setQuery] = useState("");
@@ -621,6 +647,15 @@ export function SSHSettings() {
       )}
       <div className="ssh-profile-cards">
         {profiles.data?.items
+          // Keep the saved values if the editor reopens before the list read settles.
+          // A fresh query result automatically supersedes this temporary response.
+          .map((p: Row) =>
+            savedProfile &&
+            savedProfile.source === profiles.data &&
+            savedProfile.row.id === p.id
+              ? savedProfile.row
+              : p,
+          )
           .filter((p: Row) =>
             `${p.name} ${p.username}`
               .toLocaleLowerCase("tr")
@@ -679,7 +714,10 @@ export function SSHSettings() {
         <SSHConnectionForm
           profile={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => setRefresh((n) => n + 1)}
+          onSaved={(row) => {
+            setSavedProfile({ row, source: profiles.data });
+            setRefresh((n) => n + 1);
+          }}
         />
       )}
       {deleting && (

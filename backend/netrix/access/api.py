@@ -173,9 +173,10 @@ def open_session(
     payload: s.SessionInput, request: Request, user=Depends(current_user), db=Depends(db_session)
 ):
     device = svc.authorize_device(db, user, payload.device_id)
-    profile_id, _ = svc.resolve_profile(db, user, device.id)
+    profile_id, profile = svc.resolve_profile(db, user, device.id)
     value = {
         "ssh_profile_id": profile_id,
+        "idle_timeout_minutes": profile.get("idle_timeout_minutes", s.DEFAULT_IDLE_TIMEOUT_MINUTES),
         **payload.model_dump(),
         "user_id": user.id,
         "auth_hash": token_hash(request.cookies.get("netrix_session", "")),
@@ -185,13 +186,29 @@ def open_session(
     result = e.admit("session", value)
     audit(db, user, "ssh_session_opened", "device", device.id, "Etkileşimli SSH oturumu istendi")
     db.commit()
-    return {**result, "device_name": device.name, "management_ip": device.management_ip}
+    return {
+        **result,
+        "device_name": device.name,
+        "management_ip": device.management_ip,
+        "idle_timeout_minutes": value["idle_timeout_minutes"],
+    }
 
 
 @router.get("/sessions/{id}")
 def session_info(id: str, user=Depends(current_user)):
     value = e.read(e.redis_client(), "session", id, user)
-    return {k: value.get(k) for k in ("id", "status", "device_id", "device_name", "management_ip", "error")}
+    return {
+        k: value.get(k)
+        for k in (
+            "id",
+            "status",
+            "device_id",
+            "device_name",
+            "management_ip",
+            "error",
+            "idle_timeout_minutes",
+        )
+    }
 
 
 @router.delete("/sessions/{id}", status_code=204)

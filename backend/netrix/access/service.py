@@ -7,7 +7,7 @@ from sqlalchemy import delete, select, update
 
 from .. import models as m
 from ..identity.security import audit, decrypt, encrypt
-from .schemas import Preferences
+from .schemas import DEFAULT_IDLE_TIMEOUT_MINUTES, Preferences
 
 
 def workspace(db, user):
@@ -54,6 +54,7 @@ def public_profile(row, groups):
         "name": row.name,
         "group_ids": groups,
         **{k: v for k, v in data.items() if k not in ("password", "private_key", "passphrase")},
+        "idle_timeout_minutes": data.get("idle_timeout_minutes", DEFAULT_IDLE_TIMEOUT_MINUTES),
         "has_password": bool(data.get("password")),
         "has_private_key": bool(data.get("private_key")),
     }
