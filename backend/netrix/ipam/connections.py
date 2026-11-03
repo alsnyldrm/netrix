@@ -8,6 +8,7 @@ from functools import lru_cache
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import load_only
 
 from .. import models as m
 from ..core import now
@@ -231,6 +232,93 @@ def projections(db, rows, *, model=m.Observation):
 
 
 class Evidence:
+    def for_address(self, db, row, observations):
+        """Overlay a one-IP scan on shared snapshots without changing another row's resolver."""
+        from .address_scan import NETWORK_SOURCE
+        from .network import detail_profile, read_context
+
+        scoped = [o for o in observations if o.source == NETWORK_SOURCE]
+        if not scoped:
+            return self
+        references = list(
+            db.scalars(
+                select(m.Observation)
+                .options(
+                    load_only(
+                        m.Observation.id,
+                        m.Observation.device_id,
+                        m.Observation.created_at,
+                        m.Observation.updated_at,
+                    )
+                )
+                .join(m.Job, m.Job.id == m.Observation.job_id)
+                .where(
+                    m.Observation.id.in_([o.data.get("observation_id") for o in scoped]),
+                    m.Observation.source == NETWORK_SOURCE,
+                    m.Job.kind == "ipam_address_scan",
+                    m.Job.target_id == row.id,
+                )
+            )
+        )
+        projected = {o.id: (o, p) for o, p in projections(db, references)}
+        # Keep credential objects alive so repeated per-device checks use the session identity map.
+        profiles = list(
+            db.scalars(
+                select(m.Credential)
+                .options(load_only(m.Credential.id, m.Credential.updated_at, m.Credential.protocol))
+                .where(
+                    m.Credential.id.in_(
+                        {
+                            id
+                            for o in scoped
+                            if o.source_key in self.devices
+                            for id in (
+                                self.devices[o.source_key].snmp_credential_id,
+                                self.devices[o.source_key].config_credential_id,
+                            )
+                            if id
+                        }
+                    )
+                )
+            )
+        )
+        snapshots = dict(self.snapshots)
+        changed = False
+        for observation in scoped:
+            device = self.devices.get(observation.source_key)
+            data = observation.data
+            previous = snapshots.get(observation.source_key)
+            reference = projected.get(data.get("observation_id"))
+            if (
+                not device
+                or not reference
+                or reference[0].device_id != device.id
+                or device.vrf_id != row.vrf_id
+                or data.get("address_scope") != [row.address, row.vrf_id, row.vlan_id]
+                or data.get("device_address") != device.management_ip
+                or (previous and previous[0].created_at >= observation.observed_at)
+            ):
+                continue
+            profile = next((p for p in profiles if p.id == device.snmp_credential_id), None)
+            if not profile or data.get("read_context") != read_context(
+                device, profile, detail_profile(db, device)
+            ):
+                continue
+            snapshots[device.id] = (
+                Snapshot(observation.id, observation.observed_at),
+                reference[1],
+            )
+            changed = True
+        if not changed:
+            return self
+        scoped_evidence = Evidence.__new__(Evidence)
+        scoped_evidence.__dict__.update(self.__dict__)
+        scoped_evidence.snapshots = snapshots
+        scoped_evidence.static, scoped_evidence.attached = {}, {}
+        scoped_evidence.raw_neighbors, scoped_evidence.excluded_raw_neighbors = {}, {}
+        scoped_evidence.refresh_neighbors()
+        return scoped_evidence
+
     def __init__(self, db, vrfs):
         self.at = now()
         self.devices = {

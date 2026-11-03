@@ -4,7 +4,7 @@ import hashlib
 import json
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 
 from .. import models as m
 from ..core import now
@@ -47,8 +47,10 @@ def remove(db, ids, user, confirmation=None):
     for job in db.scalars(
         select(m.Job)
         .where(
-            m.Job.target_id.in_(ids),
-            m.Job.kind.in_(("ipam_ping", "ipam_discover")),
+            or_(
+                (m.Job.target_id.in_(ids) & m.Job.kind.in_(("ipam_ping", "ipam_discover"))),
+                (m.Job.target_id.in_(addresses) & (m.Job.kind == "ipam_address_scan")),
+            ),
             m.Job.active_key.is_not(None),
         )
         .with_for_update()

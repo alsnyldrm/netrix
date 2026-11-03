@@ -311,7 +311,7 @@ class CachedEvidence(Evidence):
         return super()._static_links(vrf_id, self.at - FRESHNESS)
 
 
-def fallback(db, rows, items, prefixes, primary):
+def fallback(db, rows, items, prefixes, primary, *, scoped=None):
     """One indexed bulk lookup, only for rows without any primary/manual/VM attachment."""
     eligible = {}
     for row, item in zip(rows, items):
@@ -411,7 +411,26 @@ def fallback(db, rows, items, prefixes, primary):
     for row, item in zip(rows, items):
         if row.id not in eligible:
             continue
-        proof = cached.resolve(
+        resolver = cached
+        address_primary = (scoped or {}).get(row.id)
+        if address_primary:
+            # A new one-IP read (including an empty/failed source) supersedes
+            # older cached positives for that source, only for this address.
+            snapshots = {
+                id: value
+                for id, value in cached.snapshots.items()
+                if id not in address_primary.snapshots
+                or value[0].created_at > address_primary.snapshots[id][0].created_at
+            }
+            if not snapshots:
+                continue
+            resolver = CachedEvidence.__new__(CachedEvidence)
+            resolver.__dict__.update(cached.__dict__)
+            resolver.snapshots = snapshots
+            resolver.static, resolver.attached = {}, {}
+            resolver.raw_neighbors, resolver.excluded_raw_neighbors = {}, {}
+            resolver.refresh_neighbors()
+        proof = resolver.resolve(
             row, prefixes[row.vlan_id], identity_mac=eligible[row.id][2], identity_source="switch_mac_cache"
         )
         if not proof["connections"]:

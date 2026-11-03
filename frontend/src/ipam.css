@@ -216,6 +216,30 @@
   gap: 16px;
   margin: 0;
 }
+.ipam-address-scan,
+.ipam-address-scan > div,
+.ipam-address-scan-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.ipam-address-scan {
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 13px;
+}
+.ipam-address-scan button {
+  min-height: 40px;
+}
+@media (max-width: 640px) {
+  .ipam-address-scan button {
+    min-height: 44px;
+  }
+}
 .ipam-summary dt {
   color: var(--text-2);
   font-size: 12px;

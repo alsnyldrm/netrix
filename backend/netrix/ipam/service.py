@@ -412,7 +412,7 @@ def enrich(db, rows, *, details=True, include_options=False):
         if any(r.device_id for r in rows)
         else {}
     )
-    result = []
+    result, scoped_networks = [], {}
 
     for row in rows:
         item = serialize(row)
@@ -425,6 +425,12 @@ def enrich(db, rows, *, details=True, include_options=False):
         item["rack_position"] = position_label(item["rack_location"])
         item["cabinet"] = item["rack_position"] or item["cabinet"]
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
+        from .address_scan import NETWORK_SOURCE
+
+        address_evidence = network_evidence.for_address(db, row, obs)
+        if address_evidence is not network_evidence:
+            scoped_networks[row.id] = address_evidence
+        obs = [o for o in obs if o.source != NETWORK_SOURCE]
         if details:
             item["observations"] = [serialize(o) for o in obs]
         recent = [
@@ -449,7 +455,7 @@ def enrich(db, rows, *, details=True, include_options=False):
                     "",
                 )
         vlan = prefixes[row.vlan_id]
-        physical = network_evidence.resolve(row, vlan)
+        physical = address_evidence.resolve(row, vlan)
         item["hostname"] = dns_hostname(recent, vlan)
         from .vmware_hosts import select_host
 
@@ -465,7 +471,7 @@ def enrich(db, rows, *, details=True, include_options=False):
             else None
         )
         if host:
-            physical = network_evidence.resolve(row, vlan, host=host)
+            physical = address_evidence.resolve(row, vlan, host=host)
             if details:
                 item["host_nics"] = host.get("physical_nics", [])
             item["vmware_host"] = {
@@ -473,7 +479,7 @@ def enrich(db, rows, *, details=True, include_options=False):
             }
         vm_observations, vm_mac = vmware_observations(obs, item["hostname"], row.address, physical)
         if vm_mac:
-            physical = network_evidence.resolve(row, vlan, identity_mac=vm_mac, identity_source="vcenter")
+            physical = address_evidence.resolve(row, vlan, identity_mac=vm_mac, identity_source="vcenter")
         item.update(physical)
         if details:
             if host:
@@ -561,7 +567,7 @@ def enrich(db, rows, *, details=True, include_options=False):
         result.append(item)
     from .mac_cache import fallback
 
-    result = fallback(db, rows, result, prefixes, network_evidence)
+    result = fallback(db, rows, result, prefixes, network_evidence, scoped=scoped_networks)
     if not details:
         for item in result:
             item.pop("connections", None)

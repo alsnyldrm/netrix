@@ -38,12 +38,17 @@ def read_context(device, profile, ssh):
     ]
 
 
-async def refresh(job_id, collector, *, detail_reader=None):
+async def refresh(job_id, collector, *, detail_reader=None, address_id=None):
     from ..worker import Cancelled
 
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
-        vlan = get(db, m.VLAN, job.target_id)
+        if address_id:
+            from .address_scan import target
+
+            _, vlan = target(db, job)
+        else:
+            vlan = get(db, m.VLAN, job.target_id)
         devices = list(
             db.scalars(
                 select(m.Device)
@@ -71,7 +76,9 @@ async def refresh(job_id, collector, *, detail_reader=None):
         async with semaphore:
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
-                if job.cancel_requested or not db.get(m.VLAN, job.target_id):
+                if address_id:
+                    target(db, job)
+                if job.cancel_requested or not db.get(m.VLAN, vlan.id):
                     raise Cancelled()
                 device = get(db, m.Device, id)
                 if device.archived or not device.discovery_scope_id or device.lifecycle_status != "active":
@@ -89,7 +96,8 @@ async def refresh(job_id, collector, *, detail_reader=None):
                 )
                 lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
                 if (
-                    completed
+                    not address_id
+                    and completed
                     and not completed.evidence.get("failed")
                     and not completed.evidence.get("neighbor_detail_failed")
                     and completed.created_at >= now() - lifetime
@@ -125,7 +133,9 @@ async def refresh(job_id, collector, *, detail_reader=None):
                 success = False
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
-                if job.cancel_requested or not db.get(m.VLAN, job.target_id):
+                if address_id:
+                    target(db, job)
+                if job.cancel_requested or not db.get(m.VLAN, vlan.id):
                     raise Cancelled()
                 current = get(db, m.Device, id)
                 profile = db.get(m.Credential, current.snmp_credential_id)
@@ -137,20 +147,25 @@ async def refresh(job_id, collector, *, detail_reader=None):
                     or current.lifecycle_status != "active"
                 ):
                     raise Cancelled()
-                observation = db.scalar(
-                    select(m.Observation).where(
-                        m.Observation.job_id == job.id, m.Observation.address == current.management_ip
+                if address_id:
+                    from .address_scan import save_network
+
+                    save_network(db, job, current, context, data)
+                else:
+                    observation = db.scalar(
+                        select(m.Observation).where(
+                            m.Observation.job_id == job.id, m.Observation.address == current.management_ip
+                        )
                     )
-                )
-                if not observation:
-                    observation = m.Observation(
-                        job_id=job.id, device_id=id, address=current.management_ip, source="ipam_network"
-                    )
-                    db.add(observation)
-                observation.evidence = {**data, "read_context": context}
-                observation.created_at = now()
+                    if not observation:
+                        observation = m.Observation(
+                            job_id=job.id, device_id=id, address=current.management_ip, source="ipam_network"
+                        )
+                        db.add(observation)
+                    observation.evidence = {**data, "read_context": context}
+                    observation.created_at = now()
                 db.commit()
-            publish(ipam_vlan=job.target_id)
+            publish(ipam_vlan=vlan.id)
             return success
 
     tasks = [asyncio.create_task(read(id)) for id in ids]

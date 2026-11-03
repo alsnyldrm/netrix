@@ -136,6 +136,8 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 ## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
 
+- 4 Kasım ek kararı: IP ayrıntısındaki açık **Tara** eylemi, yalnız seçili IP/VRF/VLAN bağı için manuel `ipam_address_scan` işi başlatabilir. Ortak kaynak snapshot'larına veya diğer IP'lere yazmaz; IPAM tek-IP işi yaparken [tek adres taraması sözleşmesini](docs/ipam-integrations.md#ip-ayrıntısında-tek-adres-taraması--4-kasım-2026) oku. Pencere açılışı/yenileme pasiftir.
+
 - Ek switch MAC önbelleği, proje sahibinin yeni talebiyle tam VLAN taramasından bağımsız olarak Türkiye saatiyle 00:00/06:00/12:00/18:00'de ve yetkili kullanıcının açık eylemiyle toplanır. Mevcut eşleştirme önceliklidir; yeni tablo yalnız kanıtlı gateway MAC'i bulunan ve mevcut bağlantısı olmayan IP'lerde kullanılır. Bu akışı değiştirirken [switch MAC önbelleği sözleşmesini](docs/ipam-integrations.md#bağımsız-switch-mac-önbelleği--3-kasım-2026) oku. Sayfa açılışı pasif kalır.
 
 - IPAM tam kaynak toplaması Ayarlar → Tarama gruplarının zamanlaması veya yetkili kullanıcının VLAN içindeki **Tara** düğmesiyle başlar. VLAN/IP sayfası açılışı, yenileme ve mevcut kayıtları düzenleme tarama başlatmaz. Yeni VLAN oluşturulduğunda ilk tam tarama aynı transaction içinde bir kez kuyruğa eklenir; API kaynak okumalarını beklemez.

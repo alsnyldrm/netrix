@@ -945,6 +945,7 @@ const LABELS: Record<string, string> = {
   ipam_ping: "IP durum kontrolü",
   switch_mac_scan: "Switch MAC tablosu taraması",
   ipam_discover: "Yeni IP keşfi",
+  ipam_address_scan: "Tek IP taraması",
   inventory_import: "Envanter gözlem aktarımı",
   identify: "Cihaz bilgisi sorgusu",
   snmpv3: "SNMPv3",
