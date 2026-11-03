@@ -145,7 +145,7 @@ def test_selection_atomic_validation_and_viewer_guard(admin_client, env, device)
         with env() as db:
             assert db.get(m.Interface, port).is_managed and not db.get(m.Interface, port).auto_add_excluded
     with env() as db:
-        db.scalar(select(m.User).where(m.User.email == "owner@example.test")).role = "viewer"
+        db.scalar(select(m.User).where(m.User.email == "alisan.yildirim@fbu.edu.tr")).role = "viewer"
         db.commit()
     assert (
         admin_client.put(f"/api/v1/devices/{device}/interfaces", json={"exclude_ids": [port]}).status_code

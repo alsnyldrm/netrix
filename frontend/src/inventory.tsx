@@ -1,3 +1,4 @@
+import { hasAdminAccess, canSSH } from "./permissions";
 import { openSSH, sendBulkCommand } from "./ssh-workspace";
 import { useLiveQuery } from "./data";
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
@@ -699,24 +700,27 @@ export function InventoryTable({
   const columns: Column[] = data.columns;
   const visible = columns.filter((c) => shown.includes(c.key));
   const writable = user.role !== "viewer";
+  useEffect(() => {
+    setSelected([]);
+    setDialog("");
+  }, [user.role, user.ssh_access]);
   const hasActions =
-    (restorable && user.role === "admin") ||
+    (restorable && hasAdminAccess(user)) ||
     (["devices", "backup-devices", "topology-devices"].includes(resource) &&
       Boolean(onDevice || (writable && onEdit))) ||
     (resource === "snapshots" && writable) ||
     (resource === "links" &&
       Boolean(
-        onContent ||
-        (writable && onEdit) ||
-        (user.role === "admin" && onDelete),
+        onContent || (writable && onEdit) || (hasAdminAccess(user) && onDelete),
       ));
-  const sshActions = resource === "devices" && purpose === "devices";
+  const sshActions =
+    resource === "devices" && purpose === "devices" && canSSH(user);
   const selectRows =
     (writable || sshActions) &&
-    (!archive || user.role === "admin") &&
+    (!archive || hasAdminAccess(user)) &&
     purpose !== "interface-devices" &&
     (["devices", "interfaces"].includes(resource) ||
-      (resource === "links" && user.role === "admin"));
+      (resource === "links" && hasAdminAccess(user)));
   const apply = async (action: string) => {
     setBusy(true);
     setError("");
@@ -829,7 +833,7 @@ export function InventoryTable({
           </label>
         )}
       </div>
-      {(selected.length > 0 || (archive && user.role === "admin")) && (
+      {(selected.length > 0 || (archive && hasAdminAccess(user))) && (
         <div
           className={`inventory-selection${archive ? " archive-selection" : ""}`}
         >
@@ -864,7 +868,7 @@ export function InventoryTable({
                 : "Toplu değiştir"}
             </button>
           ) : null}
-          {archive && user.role === "admin" && (
+          {archive && hasAdminAccess(user) && (
             <button
               className="secondary delete-confirm archive-delete"
               disabled={busy || loading || !selected.length}
@@ -874,7 +878,7 @@ export function InventoryTable({
               Kalıcı sil
             </button>
           )}
-          {user.role === "admin" && !restorable && (
+          {hasAdminAccess(user) && !restorable && (
             <button className="secondary" onClick={() => setDialog("delete")}>
               <Trash size={16} aria-hidden="true" />
               Sil
@@ -1118,7 +1122,7 @@ export function InventoryTable({
                           </button>
                         )}
                         {resource === "links" &&
-                          user.role === "admin" &&
+                          hasAdminAccess(user) &&
                           onDelete && (
                             <button
                               className="icon-button"
@@ -1137,7 +1141,7 @@ export function InventoryTable({
                             <Eye size={18} aria-hidden="true" />
                           </button>
                         )}
-                        {archive && user.role === "admin" && (
+                        {archive && hasAdminAccess(user) && (
                           <button
                             className="secondary delete-confirm archive-delete"
                             disabled={busy || loading}
@@ -1151,7 +1155,7 @@ export function InventoryTable({
                             Kalıcı sil
                           </button>
                         )}
-                        {restorable && user.role === "admin" && (
+                        {restorable && hasAdminAccess(user) && (
                           <button
                             className="secondary"
                             disabled={busy || loading}
@@ -1242,7 +1246,7 @@ export function InventoryTable({
                             >
                               Fark
                             </button>
-                            {user.role === "admin" && (
+                            {hasAdminAccess(user) && (
                               <button
                                 className="icon-button"
                                 aria-label="Yedeği sil"

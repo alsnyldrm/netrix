@@ -17,6 +17,7 @@ from ..configuration.formatting import config_text
 from ..configuration.validation import validate_cli_output
 from ..core import now, redis_client, session_factory, settings
 from ..discovery.protocols import fetch_config
+from ..identity.permissions import is_admin
 from ..identity.security import encrypt, secret_data
 from ..services import publish
 from . import adapters, history, transfers
@@ -58,7 +59,7 @@ def load(id):
             raise ValueError("connection_changed")
         if not db.get(m.User, plan.requested_by) or not db.get(m.User, plan.requested_by).is_active:
             raise ValueError("actor_disabled")
-        if db.get(m.User, plan.requested_by).role != "admin":
+        if not is_admin(db.get(m.User, plan.requested_by)):
             raise ValueError("actor_disabled")
         return target, plan, device, image, secret_data(profile)
 

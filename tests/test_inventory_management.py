@@ -484,7 +484,7 @@ def test_archive_can_be_read_but_only_admin_can_restore(admin_client, records, e
     device_id = records["devices"][0]
     admin_client.delete("/api/v1/devices/" + device_id)
     with env() as db:
-        db.scalar(select(m.User).where(m.User.email == "owner@example.test")).role = role
+        db.scalar(select(m.User).where(m.User.email == "alisan.yildirim@fbu.edu.tr")).role = role
         db.commit()
     assert admin_client.get("/api/v1/inventory/devices", params={"archived": True}).json()["total"] == 1
     assert (

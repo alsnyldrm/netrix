@@ -1,3 +1,9 @@
+import {
+  isSuperAdmin,
+  hasAdminAccess,
+  canOperate,
+  canSSH,
+} from "./permissions";
 import { UserRoleEditor } from "./identity-roles";
 import { Profile } from "./user-workspace";
 import { SSHWorkspace } from "./ssh-workspace";
@@ -950,6 +956,7 @@ const LABELS: Record<string, string> = {
   config_change: "Konfigürasyon değişimi",
   viewer: "İzleyici",
   operator: "Operatör",
+  super_admin: "Süper yönetici",
   admin: "Yönetici",
 };
 export const tag = (v: string) => LABELS[v] || v;
@@ -1854,12 +1861,14 @@ function Overview({
   navigate,
   onAdd,
   onDevice,
+  canAdd,
 }: {
   dashboard: Row;
   refs: Record<string, Row[]>;
   navigate: (key: string) => void;
   onAdd: (key: string) => void;
   onDevice: (row: Row) => void;
+  canAdd: (key: string) => boolean;
 }) {
   const c = dashboard.counts || {};
   const steps = [
@@ -1990,27 +1999,29 @@ function Overview({
               : "Üç küçük adımla ağınızı görünür hale getirin."}
           </p>
           <div className="setup-steps">
-            {steps.map((step, i) => (
-              <button
-                onClick={() =>
-                  step.done ? navigate(step.key) : onAdd(step.key)
-                }
-                key={i}
-              >
-                <span className={"step-number " + (step.done ? "done" : "")}>
-                  {step.done ? (
-                    <Check size={15} />
-                  ) : (
-                    String(i + 1).padStart(2, "0")
-                  )}
-                </span>
-                <span>
-                  <b>{step.title}</b>
-                  <small>{step.desc}</small>
-                </span>
-                <ArrowUpRight size={15} />
-              </button>
-            ))}
+            {steps
+              .filter((step) => step.done || canAdd(step.key))
+              .map((step, i) => (
+                <button
+                  onClick={() =>
+                    step.done ? navigate(step.key) : onAdd(step.key)
+                  }
+                  key={i}
+                >
+                  <span className={"step-number " + (step.done ? "done" : "")}>
+                    {step.done ? (
+                      <Check size={15} />
+                    ) : (
+                      String(i + 1).padStart(2, "0")
+                    )}
+                  </span>
+                  <span>
+                    <b>{step.title}</b>
+                    <small>{step.desc}</small>
+                  </span>
+                  <ArrowUpRight size={15} />
+                </button>
+              ))}
           </div>
           <div className="setup-note">
             <ShieldCheck size={16} /> Her keşif, sizin belirlediğiniz sınırlar
@@ -2059,9 +2070,11 @@ function Overview({
           <p>
             Merkezi envanterinizi oluşturarak ağınıza bir kimlik kazandırın.
           </p>
-          <button className="secondary" onClick={() => onAdd("devices")}>
-            <Plus size={17} /> Cihaz ekle
-          </button>
+          {canAdd("devices") && (
+            <button className="secondary" onClick={() => onAdd("devices")}>
+              <Plus size={17} /> Cihaz ekle
+            </button>
+          )}
         </section>
       </div>
     </>
@@ -2471,7 +2484,12 @@ function App() {
   );
   const [drawer, setDrawer] = useState(false);
   const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
-  const page = PAGES.find((p) => p.key === current) || PAGES[0];
+  const page =
+    PAGES.find(
+      (p) =>
+        p.key === current &&
+        (!["users", "audit"].includes(p.key) || hasAdminAccess(user)),
+    ) || PAGES[0];
   useEffect(() => {
     const changeDesign = (event: Event) => {
       if ((event as CustomEvent).detail.design === "panorama") {
@@ -2535,8 +2553,10 @@ function App() {
       active = false;
     };
   }, [user?.id]);
-  const canWrite = user?.role === "admin" || user?.role === "operator";
-  const isAdmin = user?.role === "admin";
+  const canWrite = canOperate(user);
+  const isAdmin = hasAdminAccess(user);
+  const canAssignRoles = isSuperAdmin(user);
+  const sshAllowed = canSSH(user);
   const notify = useCallback((message: string) => {
     setToast(message);
   }, []);
@@ -2666,7 +2686,7 @@ function App() {
     addReferences("institutions", "sites", "vrfs", "credentials");
   if (jobModal || configCompare || detail)
     addReferences("devices", "sites", "vrfs");
-  if (user?.role !== "admin") referenceNames.delete("users");
+  if (!isAdmin) referenceNames.delete("users");
   const referencesKey = [...referenceNames].sort().join(",");
   const referenceQuery = useLiveQuery<Record<string, Row[]>>(
     user && !standaloneView ? `references:${user.id}:${referencesKey}` : null,
@@ -2739,16 +2759,25 @@ function App() {
     setError(issue);
   }, [tableQuery.error, referenceQuery.error, dashboardQuery.error]);
   useEffect(() => {
-    if (!user || standaloneView) return;
+    if (!user) return;
     let socket: WebSocket | undefined;
     let reconnect: ReturnType<typeof setTimeout>;
     let closed = false;
     let liveTimer: ReturnType<typeof setTimeout> | undefined;
+    const syncUser = () =>
+      void api("/auth/me")
+        .then((next) =>
+          setUser((previous) =>
+            JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+          ),
+        )
+        .catch(() => {});
     const liveRefresh = () => {
       if (document.hidden || liveTimer) return;
       liveTimer = setTimeout(() => {
         liveTimer = undefined;
         setRefresh((n) => n + 1);
+        syncUser();
       }, 1500);
     };
     const connect = () => {
@@ -2769,12 +2798,17 @@ function App() {
         if (!closed) reconnect = setTimeout(connect, 10000);
       };
     };
-    connect();
+    if (!standaloneView) connect();
+    window.addEventListener("focus", syncUser);
     const interval = setInterval(() => {
-      if (!document.hidden) reload();
+      if (!document.hidden) {
+        if (!standaloneView) reload();
+        syncUser();
+      }
     }, 30000);
     return () => {
       closed = true;
+      window.removeEventListener("focus", syncUser);
       clearTimeout(reconnect);
       clearTimeout(liveTimer);
       clearInterval(interval);
@@ -2827,8 +2861,8 @@ function App() {
     "—";
   const cell = (key: string, value: any, row: Row) => {
     if (key === "ssh_access")
-      return row.role === "admin"
-        ? "Yönetici erişimi"
+      return row.role === "super_admin"
+        ? "Tam erişim"
         : value
           ? "Atandı"
           : "Atanmadı";
@@ -2943,6 +2977,13 @@ function App() {
         }}
       />
     );
+  if (standaloneView && !sshAllowed)
+    return (
+      <main className="boot-screen">
+        <p role="status">Bu alana erişim yetkiniz bulunmuyor.</p>
+        <a href="/">Ana sayfaya dön</a>
+      </main>
+    );
   if (standaloneView)
     return (
       <SSHWorkspace
@@ -2965,7 +3006,7 @@ function App() {
       <a className="skip-link" href="#main">
         İçeriğe atla
       </a>
-      {configCompare && (
+      {configCompare && canWrite && (
         <Dialog
           wide
           title="Kayıtlı konfigürasyonları karşılaştır"
@@ -3185,7 +3226,11 @@ function App() {
               <div className="page-heading">
                 <div>
                   <h1>{page.title}</h1>
-                  <p>{page.desc}</p>
+                  <p>
+                    {page.key === "users" && !canAssignRoles
+                      ? "Kullanıcı hesaplarını ve atanmış rolleri görüntüleyin."
+                      : page.desc}
+                  </p>
                 </div>
                 {canWrite && (
                   <div
@@ -3248,6 +3293,7 @@ function App() {
                 navigate={navigate}
                 onAdd={add}
                 onDevice={inspectDevice}
+                canAdd={(key) => canWrite && (key !== "credentials" || isAdmin)}
               />
             ) : page.key.startsWith("firmware-") ? (
               <React.Suspense
@@ -3633,7 +3679,7 @@ function App() {
                                         <Check size={18} />
                                       </button>
                                     )}
-                                  {page.key === "users" && isAdmin && (
+                                  {page.key === "users" && canAssignRoles && (
                                     <button
                                       className="icon-button"
                                       aria-label={`${row.display_name} rollerini düzenle`}
@@ -3644,6 +3690,7 @@ function App() {
                                   )}
                                   {page.key === "users" &&
                                     isAdmin &&
+                                    !isSuperAdmin(row) &&
                                     row.id !== user.id && (
                                       <button
                                         className="icon-button"
@@ -3811,8 +3858,8 @@ function App() {
           </div>
         </main>
       </div>
-      <SSHWorkspace key={user.id} />
-      {roleUser && (
+      {sshAllowed && <SSHWorkspace key={user.id} />}
+      {roleUser && canAssignRoles && (
         <UserRoleEditor
           user={roleUser}
           onClose={() => setRoleUser(null)}
@@ -3841,28 +3888,41 @@ function App() {
           </button>
         </div>
       )}
-      {form && (
-        <ResourceForm
-          key={form.page.key + (form.row?.id || "new")}
-          page={form.page}
-          row={form.row}
-          refs={refs}
-          onTest={
-            form.page.key === "devices" && form.row ? setTestDevice : undefined
-          }
-          onClose={() => setForm(null)}
-          onSaved={(saved) => {
-            if (form.page.key === "addresses")
-              window.dispatchEvent(
-                new CustomEvent("netrix:ipam-saved", { detail: saved }),
+      {form &&
+        canWrite &&
+        (!["credentials", "users"].includes(form.page.key) || isAdmin) && (
+          <ResourceForm
+            key={form.page.key + (form.row?.id || "new")}
+            page={
+              form.page.key === "users" && !canAssignRoles
+                ? {
+                    ...form.page,
+                    fields: form.page.fields?.filter(
+                      (field) => !["role", "ssh_access"].includes(field.key),
+                    ),
+                  }
+                : form.page
+            }
+            row={form.row}
+            refs={refs}
+            onTest={
+              form.page.key === "devices" && form.row
+                ? setTestDevice
+                : undefined
+            }
+            onClose={() => setForm(null)}
+            onSaved={(saved) => {
+              if (form.page.key === "addresses")
+                window.dispatchEvent(
+                  new CustomEvent("netrix:ipam-saved", { detail: saved }),
+                );
+              reload();
+              notify(
+                "Kayıt kaydedildi. " + (saved.identification?.message || ""),
               );
-            reload();
-            notify(
-              "Kayıt kaydedildi. " + (saved.identification?.message || ""),
-            );
-          }}
-        />
-      )}
+            }}
+          />
+        )}
       {command && (
         <Dialog
           title="Çalışma alanında gezin"
@@ -4091,18 +4151,18 @@ function App() {
       {jobDetail && (
         <JobDetails job={jobDetail} onClose={() => setJobDetail(null)} />
       )}
-      {config && (
+      {config && canWrite && (
         <Dialog title={config.title} onClose={() => setConfig(null)} wide>
           <pre className="config-code">{config.content}</pre>
         </Dialog>
       )}
-      {testDevice && (
+      {testDevice && canWrite && (
         <ConnectionTestDialog
           device={testDevice}
           onClose={() => setTestDevice(null)}
         />
       )}
-      {jobModal && (
+      {jobModal && canWrite && (
         <Dialog
           title={
             jobKind === "backup"

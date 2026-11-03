@@ -299,7 +299,7 @@ class RuleInput(Input):
 
 
 class UserRolesInput(Input):
-    role: Literal["admin", "operator", "viewer"]
+    role: Literal["super_admin", "admin", "operator", "viewer"]
     ssh_access: bool = False
 
 
@@ -307,7 +307,7 @@ class UserInput(Input):
     email: str = Field(min_length=3, max_length=190, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
     display_name: str = Field(min_length=1, max_length=120)
     password: str = Field(min_length=12, max_length=200, json_schema_extra={"format": "password"})
-    role: Literal["admin", "operator", "viewer"] = "viewer"
+    role: Literal["super_admin", "admin", "operator", "viewer"] = "viewer"
     ssh_access: bool = False
 
     @field_validator("email")

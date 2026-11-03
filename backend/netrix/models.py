@@ -40,7 +40,13 @@ class User(Entity, Base):
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     ssh_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    __table_args__ = (CheckConstraint("role in ('admin','operator','viewer')", name="ck_user_role"),)
+    __table_args__ = (
+        CheckConstraint("role in ('super_admin','admin','operator','viewer')", name="ck_user_role"),
+        CheckConstraint(
+            "role <> 'super_admin' OR lower(email) = 'alisan.yildirim@fbu.edu.tr'",
+            name="ck_user_super_admin_email",
+        ),
+    )
 
 
 class AuthSession(Base):

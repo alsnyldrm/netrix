@@ -31,6 +31,8 @@ Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk a
 
 Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential, token veya hassas konfigürasyon içeriği bulunmasın.
 
+MariaDB uygulamasında roller `users.role` ve bağımsız SSH ataması `users.ssh_access` alanındadır; ayrı rol/izin tabloları oluşturulmamıştır. `20261103_43`, yalnız `alisan.yildirim@fbu.edu.tr` hesabına atanabilen `super_admin` rolünü ve veritabanı kısıtını ekler. Yönetici otomatik SSH erişimi taşımaz; rol atamalarını yalnız süper yönetici yapar. [Erişim sözleşmesi](access-control.md).
+
 ## 2. Merkezi cihaz envanteri
 
 `20261101_29`, `devices.software_version` gözlem alanını ekler; başlangıç değeri boştur. Envanter listesi ve cihaz ayrıntısında Versiyon olarak gösterilir, aranabilir ve filtrelenebilir. SNMP'de chassis `entPhysicalSoftwareRev` veya açık sysDescr yazılım revizyonu; SSH'de adaptörün sürüm çıktısı kullanılır. SNMP'de kimlik tam olsa bile sürüm eksikse atanmış SSH profili denenir. Eksik/çelişkili yanıt mevcut değeri silmez; ROM/BIOS sürümü yazılım sürümü olarak alınmaz. Manuel üretici/model/tür tercihleri korunur. AOS-S kimlik okuması aynı shell'de `show modules` ardından `show version` çalıştırır; cihaz yapılandırması değiştirilmez.

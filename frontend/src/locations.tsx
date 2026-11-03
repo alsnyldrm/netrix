@@ -1,3 +1,4 @@
+import { hasAdminAccess } from "./permissions";
 import { PatchPanels, PatchPorts, panelKind } from "./patch-panels";
 import React, { useEffect, useState } from "react";
 import {
@@ -155,7 +156,7 @@ export function Locations({ refs, user, onSaved }: Props) {
                     <PencilSimple size={17} />
                   </button>
                 )}
-                {user.role === "admin" && (
+                {hasAdminAccess(user) && (
                   <button
                     className="icon-button"
                     aria-label={`${r.name} kurumunu sil`}
@@ -179,7 +180,7 @@ export function Locations({ refs, user, onSaved }: Props) {
             <b>{parent ? "Odalar" : "Lokasyonlar"}</b>
             <span className="count-pill">{children.length}</span>
           </div>
-          {parent && user.role === "admin" && (
+          {parent && hasAdminAccess(user) && (
             <button
               className="secondary danger"
               disabled={!picked.length}
@@ -212,7 +213,7 @@ export function Locations({ refs, user, onSaved }: Props) {
           <table>
             <thead>
               <tr>
-                {parent && user.role === "admin" && (
+                {parent && hasAdminAccess(user) && (
                   <th>
                     <input
                       type="checkbox"
@@ -245,7 +246,7 @@ export function Locations({ refs, user, onSaved }: Props) {
             <tbody>
               {children.map((r) => (
                 <tr key={r.id}>
-                  {parent && user.role === "admin" && (
+                  {parent && hasAdminAccess(user) && (
                     <td>
                       <input
                         type="checkbox"
@@ -299,7 +300,7 @@ export function Locations({ refs, user, onSaved }: Props) {
                           <PencilSimple size={17} />
                         </button>
                       )}
-                      {user.role === "admin" && (
+                      {hasAdminAccess(user) && (
                         <button
                           className="icon-button"
                           aria-label={`${r.name} sil`}
@@ -725,7 +726,7 @@ export function Cabinets({
               </button>
             </div>
           )}
-          {roomId && user.role === "admin" && (
+          {roomId && hasAdminAccess(user) && (
             <button
               className="secondary danger"
               disabled={!picked.length || busy}
@@ -747,7 +748,7 @@ export function Cabinets({
             <table className={roomId ? undefined : "cabinet-floor-table"}>
               <thead>
                 <tr>
-                  {roomId && user.role === "admin" && (
+                  {roomId && hasAdminAccess(user) && (
                     <th>
                       <input
                         type="checkbox"
@@ -784,7 +785,7 @@ export function Cabinets({
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    {user.role === "admin" && (
+                    {hasAdminAccess(user) && (
                       <td>
                         <input
                           type="checkbox"
@@ -822,7 +823,7 @@ export function Cabinets({
                             <PencilSimple size={17} />
                           </button>
                         )}
-                        {user.role === "admin" && (
+                        {hasAdminAccess(user) && (
                           <button
                             className="icon-button"
                             disabled={busy}

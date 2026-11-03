@@ -218,13 +218,13 @@ def test_ssh_role_enforced_and_groups_are_personal(admin_client, target, env):
             service.authorize_device(db, db.get(m.User, user_id), device_id)
         assert exc.value.status_code == 403
     assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 403
-    # Personal grouping remains available without the network execution role.
+    # SSH-specific configuration is unavailable after the role is removed.
     assert (
         admin_client.put(
             f"/api/v1/access/groups/{personal.json()['id']}",
             json={"name": "Personal", "device_ids": [device_id]},
         ).status_code
-        == 200
+        == 403
     )
 
 
@@ -273,7 +273,7 @@ def test_device_filters_and_cross_page_selection(admin_client, target, inventory
     bad = json.dumps([{"field": "password_hash", "op": "eq", "value": "x", "join": "and"}])
     assert admin_client.get("/api/v1/access/device-selection", params={"filters": bad}).status_code == 422
     with env() as db:
-        me = db.scalar(select(m.User).where(m.User.role == "admin"))
+        me = db.scalar(select(m.User).where(m.User.role == "super_admin"))
         me_id = me.id
     assert (
         admin_client.put(
@@ -377,7 +377,7 @@ class EphemeralRedis:
         self.queue.append(value)
 
 
-def test_admission_is_bounded_and_owner_isolation(admin_client, target, monkeypatch):
+def test_admission_is_bounded_and_owner_isolation(admin_client, target, env, monkeypatch):
     device_id, user_id = target
     memory = EphemeralRedis()
     monkeypatch.setattr(e, "redis_client", lambda: memory)
@@ -391,13 +391,16 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, monkeypa
     assert admin_client.get("/api/v1/access/sessions/" + id).status_code == 200
     assert e.read(memory, "session", id)["auth_hash"] not in sessions[0].text
     assert "SSH fixture" not in memory.data[e.key("session", id)]
+    with env() as db:
+        db.get(m.User, user_id).ssh_access = True
+        db.commit()
     admin_client.post("/api/v1/auth/logout")
     admin_client.post(
         "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
     )
     assert admin_client.get("/api/v1/access/sessions/" + id).status_code == 404
     assert admin_client.delete("/api/v1/access/sessions/" + id).status_code == 404
-    assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 403
+    assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 409
     memory.data.pop(e.PREFIX + "heartbeat")
     with pytest.raises(Exception) as exc:
         e.admit("session", {"user_id": user_id})
@@ -642,7 +645,7 @@ def test_named_profiles_route_by_group_and_prevent_duplicate_membership(
     )
     assert len(admin_client.get("/api/v1/access/ssh-profiles").json()["items"]) == 2
     with env() as db:
-        user = db.scalar(select(m.User).where(m.User.role == "admin"))
+        user = db.scalar(select(m.User).where(m.User.role == "super_admin"))
         assert service.resolve_profile(db, user, device_id)[1]["username"] == "switch-admin"
         assert service.resolve_profile(db, user, second_id)[1]["port"] == 2200
         owner_id = user.id
@@ -673,6 +676,9 @@ def test_named_profiles_route_by_group_and_prevent_duplicate_membership(
     assert selection["ids"] == [] and selection["skipped"] == 2
     selection = admin_client.get("/api/v1/access/device-selection", params={"group_id": a["id"]}).json()
     assert selection["ids"] == [device_id] and selection["skipped"] == 1
+    with env() as db:
+        db.get(m.User, other_user_id).ssh_access = True
+        db.commit()
     admin_client.post("/api/v1/auth/logout")
     admin_client.post(
         "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
@@ -699,7 +705,7 @@ def test_named_profiles_route_by_group_and_prevent_duplicate_membership(
 def test_appearance_defaults_and_isolation(admin_client, target, env):
     device_id, user_id = target
     with env() as db:
-        owner = db.scalar(select(m.User).where(m.User.role == "admin"))
+        owner = db.scalar(select(m.User).where(m.User.role == "super_admin"))
         db.add(m.UserWorkspace(user_id=owner.id, preferences={"palette": "amber", "timezone": "UTC"}))
         db.commit()
     assert admin_client.get("/api/v1/access/preferences").json()["design"] == "atlas"
@@ -743,12 +749,15 @@ def test_batch_tab_draft_is_encrypted_bounded_and_never_executes(admin_client, t
     assert not memory.queue
     retained_id = next(iter(memory.zsets.values()))
     retained_id = next(iter(retained_id))
+    with env() as db:
+        db.get(m.User, other_user).ssh_access = True
+        db.commit()
     admin_client.post("/api/v1/auth/logout")
     admin_client.post(
         "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
     )
     assert admin_client.get("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
     assert admin_client.delete("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
-    assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 403
+    assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 409
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.Job)) == 0

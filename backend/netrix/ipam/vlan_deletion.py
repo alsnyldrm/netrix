@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 
 from .. import models as m
 from ..core import now
+from ..identity.permissions import is_admin
 from ..identity.security import audit
 from ..services import lock_vrf, publish
 
@@ -38,7 +39,7 @@ def preview(db, ids):
 
 
 def remove(db, ids, user, confirmation=None):
-    if user.role != "admin":
+    if not is_admin(user):
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
     rows, addresses, token = selection(db, ids, lock=True)
     if confirmation is not None and token != confirmation:

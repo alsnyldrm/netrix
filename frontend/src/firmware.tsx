@@ -1,3 +1,4 @@
+import { hasAdminAccess } from "./permissions";
 import React, { useDeferredValue, useEffect, useId, useState } from "react";
 import {
   ArrowDown,
@@ -1351,7 +1352,7 @@ export default function FirmwareWorkspace({
     [detail, setDetail] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   const refresh = revision + externalRefresh,
-    admin = user.role === "admin",
+    admin = hasAdminAccess(user),
     write = admin || user.role === "operator";
   const search = useDeferredValue(q);
   const overview = useLiveQuery<Row>("/firmware/overview", refresh);

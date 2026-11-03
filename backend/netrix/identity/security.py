@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, Request
 
 from ..core import db_session, now, settings
 from ..models import Audit, AuthSession, User
+from .permissions import can_operate, can_ssh, is_admin, is_super_admin
 
 hasher = PasswordHasher()
 DUMMY_HASH = hasher.hash(secrets.token_urlsafe(24))
@@ -56,14 +57,26 @@ def current_user(request: Request, db=Depends(db_session)):
 
 
 def operator(user=Depends(current_user)):
-    if user.role not in ("admin", "operator"):
+    if not can_operate(user):
         raise HTTPException(403, "Bu işlem için operatör yetkisi gerekiyor")
     return user
 
 
 def admin(user=Depends(current_user)):
-    if user.role != "admin":
+    if not is_admin(user):
         raise HTTPException(403, "Bu işlem için yönetici yetkisi gerekiyor")
+    return user
+
+
+def super_admin(user=Depends(current_user)):
+    if not is_super_admin(user):
+        raise HTTPException(403, "Bu işlem için süper yönetici yetkisi gerekiyor")
+    return user
+
+
+def ssh_user(user=Depends(current_user)):
+    if not can_ssh(user):
+        raise HTTPException(403, "SSH bağlantısı rolü gerekli")
     return user
 
 

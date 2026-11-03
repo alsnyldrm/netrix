@@ -130,6 +130,7 @@ with session_factory()() as db:
         email="browser@example.test",
         display_name="Browser Tester",
         role="admin",
+        ssh_access=True,
         password_hash=hasher.hash("browser-fixture-password"),
     )
     vrf = m.VRF(name="Global")
@@ -147,6 +148,21 @@ with session_factory()() as db:
             password_hash=hasher.hash("browser-fixture-password"),
         )
     )
+    for email, name, role, ssh in (
+        ("alisan.yildirim@fbu.edu.tr", "Super Owner", "super_admin", False),
+        ("admin@example.test", "Admin Without SSH", "admin", False),
+        ("operator@example.test", "Operator Without SSH", "operator", False),
+        ("ssh-viewer@example.test", "SSH Viewer", "viewer", True),
+    ):
+        db.add(
+            m.User(
+                email=email,
+                display_name=name,
+                role=role,
+                ssh_access=ssh,
+                password_hash=hasher.hash("browser-fixture-password"),
+            )
+        )
     profile = m.UserSSHProfile(
         owner_id=user.id,
         name="Fixture SSH",

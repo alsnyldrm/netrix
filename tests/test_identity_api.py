@@ -42,7 +42,7 @@ def test_setup_single_use_password_hash_and_session_revocation(admin_client, env
     assert c.get("/api/v1/auth/me").status_code == 401
     assert (
         c.post(
-            "/api/v1/auth/login", json={"email": "OWNER@example.test", "password": "changed-test-password"}
+            "/api/v1/auth/login", json={"email": "ALISAN.YILDIRIM@fbu.edu.tr", "password": "changed-test-password"}
         ).status_code
         == 200
     )

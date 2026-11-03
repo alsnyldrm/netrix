@@ -10,6 +10,7 @@ from sqlalchemy.orm import aliased, defer
 from .. import models as m
 from .. import schemas as s
 from .. import services as svc
+from ..identity.permissions import is_admin
 from ..identity.security import audit
 
 LABELS = {
@@ -482,9 +483,9 @@ def select_interfaces(db, device_id, payload, user):
 def bulk(db, resource, payload, user):
     if resource not in ("devices", "interfaces", "links"):
         raise HTTPException(404, "Kaynak bulunamadı")
-    if payload.action in ("delete", "purge") and user.role != "admin":
+    if payload.action in ("delete", "purge") and not is_admin(user):
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
-    if payload.action == "restore" and user.role != "admin":
+    if payload.action == "restore" and not is_admin(user):
         raise HTTPException(403, "Geri yükleme için yönetici yetkisi gerekli")
     if resource == "links":
         from ..discovery.link_deletions import delete_links, restore_links

@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 
 from .. import models as m
 from ..core import db_session, session_factory, settings
-from ..identity.security import audit, current_user, session_user, token_hash
+from ..identity.security import audit, current_user, session_user, ssh_user, token_hash
 from . import ephemeral as e
 from . import schemas as s
 from . import service as svc
@@ -30,9 +30,7 @@ def save_preferences(payload: s.Preferences, user=Depends(current_user), db=Depe
 
 
 @router.put("/preferences/terminal")
-def save_terminal_preferences(
-    payload: s.TerminalAppearance, user=Depends(current_user), db=Depends(db_session)
-):
+def save_terminal_preferences(payload: s.TerminalAppearance, user=Depends(ssh_user), db=Depends(db_session)):
     svc.lock_owner(db, user)
     preferences = svc.preferences(db, user)
     preferences["terminal"] = payload.model_dump()
@@ -42,32 +40,32 @@ def save_terminal_preferences(
 
 
 @router.get("/ssh-profiles")
-def ssh_profiles(user=Depends(current_user), db=Depends(db_session)):
+def ssh_profiles(user=Depends(ssh_user), db=Depends(db_session)):
     return {"items": svc.list_profiles(db, user)}
 
 
 @router.post("/ssh-profiles", status_code=201)
-def add_ssh(payload: s.SSHProfile, user=Depends(current_user), db=Depends(db_session)):
+def add_ssh(payload: s.SSHProfile, user=Depends(ssh_user), db=Depends(db_session)):
     return svc.save_ssh(db, user, payload)
 
 
 @router.put("/ssh-profiles/{id}")
-def save_ssh(id: str, payload: s.SSHProfile, user=Depends(current_user), db=Depends(db_session)):
+def save_ssh(id: str, payload: s.SSHProfile, user=Depends(ssh_user), db=Depends(db_session)):
     return svc.save_ssh(db, user, payload, id)
 
 
 @router.delete("/ssh-profiles/{id}", status_code=204)
-def delete_ssh(id: str, user=Depends(current_user), db=Depends(db_session)):
+def delete_ssh(id: str, user=Depends(ssh_user), db=Depends(db_session)):
     svc.delete_profile(db, user, id)
 
 
 @router.get("/commands")
-def commands(user=Depends(current_user), db=Depends(db_session)):
+def commands(user=Depends(ssh_user), db=Depends(db_session)):
     return {"items": svc.commands(db, user)}
 
 
 @router.put("/commands")
-def save_commands(payload: s.Commands, user=Depends(current_user), db=Depends(db_session)):
+def save_commands(payload: s.Commands, user=Depends(ssh_user), db=Depends(db_session)):
     svc.workspace(db, user).encrypted_commands = e.pack([c.model_dump() for c in payload.items])
     db.commit()
     return payload
@@ -78,7 +76,7 @@ def devices(
     q: str = Query(default="", max_length=120),
     filters: str = Query(default="[]", max_length=20000),
     offset: int = Query(default=0, ge=0),
-    user=Depends(current_user),
+    user=Depends(ssh_user),
     db=Depends(db_session),
 ):
     from ..inventory.management import query
@@ -108,7 +106,7 @@ def device_selection(
     q: str = Query(default="", max_length=120),
     filters: str = Query(default="[]", max_length=20000),
     group_id: str = "",
-    user=Depends(current_user),
+    user=Depends(ssh_user),
     db=Depends(db_session),
 ):
     from ..inventory.management import query
@@ -136,7 +134,7 @@ def device_selection(
 def device_filter_values(
     field: str,
     q: str = Query(default="", max_length=120),
-    user=Depends(current_user),
+    user=Depends(ssh_user),
     db=Depends(db_session),
 ):
     from ..inventory.management import query
@@ -145,22 +143,22 @@ def device_filter_values(
 
 
 @router.get("/groups")
-def groups(user=Depends(current_user), db=Depends(db_session)):
+def groups(user=Depends(ssh_user), db=Depends(db_session)):
     return {"items": svc.list_groups(db, user)}
 
 
 @router.post("/groups", status_code=201)
-def add_group(payload: s.GroupInput, user=Depends(current_user), db=Depends(db_session)):
+def add_group(payload: s.GroupInput, user=Depends(ssh_user), db=Depends(db_session)):
     return svc.save_group(db, user, payload)
 
 
 @router.put("/groups/{id}")
-def save_group(id: str, payload: s.GroupInput, user=Depends(current_user), db=Depends(db_session)):
+def save_group(id: str, payload: s.GroupInput, user=Depends(ssh_user), db=Depends(db_session)):
     return svc.save_group(db, user, payload, id)
 
 
 @router.delete("/groups/{id}", status_code=204)
-def delete_group(id: str, user=Depends(current_user), db=Depends(db_session)):
+def delete_group(id: str, user=Depends(ssh_user), db=Depends(db_session)):
     svc.lock_owner(db, user)
     group = svc.owned_group(db, user, id)
     db.execute(delete(m.AccessGroup).where(m.AccessGroup.id == group.id))
@@ -169,9 +167,7 @@ def delete_group(id: str, user=Depends(current_user), db=Depends(db_session)):
 
 
 @router.post("/sessions", status_code=201)
-def open_session(
-    payload: s.SessionInput, request: Request, user=Depends(current_user), db=Depends(db_session)
-):
+def open_session(payload: s.SessionInput, request: Request, user=Depends(ssh_user), db=Depends(db_session)):
     device = svc.authorize_device(db, user, payload.device_id)
     profile_id, profile = svc.resolve_profile(db, user, device.id)
     value = {
@@ -195,7 +191,7 @@ def open_session(
 
 
 @router.get("/sessions/{id}")
-def session_info(id: str, user=Depends(current_user)):
+def session_info(id: str, user=Depends(ssh_user)):
     value = e.read(e.redis_client(), "session", id, user)
     return {
         k: value.get(k)
@@ -212,14 +208,14 @@ def session_info(id: str, user=Depends(current_user)):
 
 
 @router.delete("/sessions/{id}", status_code=204)
-def close_session(id: str, user=Depends(current_user)):
+def close_session(id: str, user=Depends(ssh_user)):
     client = e.redis_client()
     e.read(client, "session", id, user)
     client.set(e.key("cancel", id), "1", ex=e.TTL)
 
 
 @router.post("/batches", status_code=202)
-def batch(payload: s.BatchInput, request: Request, user=Depends(current_user), db=Depends(db_session)):
+def batch(payload: s.BatchInput, request: Request, user=Depends(ssh_user), db=Depends(db_session)):
     targets = svc.batch_targets(db, user, payload.device_ids)
     result = e.admit(
         "batch",
@@ -237,7 +233,7 @@ def batch(payload: s.BatchInput, request: Request, user=Depends(current_user), d
 
 
 @router.post("/batch-drafts", status_code=201)
-def batch_draft(payload: s.BatchDraftInput, user=Depends(current_user), db=Depends(db_session)):
+def batch_draft(payload: s.BatchDraftInput, user=Depends(ssh_user), db=Depends(db_session)):
     targets = svc.batch_targets(db, user, payload.device_ids)
     return e.draft(
         {
@@ -250,13 +246,13 @@ def batch_draft(payload: s.BatchDraftInput, user=Depends(current_user), db=Depen
 
 
 @router.get("/batch-drafts/{id}")
-def read_batch_draft(id: str, user=Depends(current_user)):
+def read_batch_draft(id: str, user=Depends(ssh_user)):
     value = e.read(e.redis_client(), "draft", id, user)
     return {k: value[k] for k in ("id", "targets", "command", "timeout")}
 
 
 @router.delete("/batch-drafts/{id}", status_code=204)
-def delete_batch_draft(id: str, user=Depends(current_user)):
+def delete_batch_draft(id: str, user=Depends(ssh_user)):
     client = e.redis_client()
     value = e.read(client, "draft", id, user)
     client.delete(e.key("draft", id))
@@ -264,7 +260,7 @@ def delete_batch_draft(id: str, user=Depends(current_user)):
 
 
 @router.get("/batches/{id}")
-def batch_result(id: str, user=Depends(current_user)):
+def batch_result(id: str, user=Depends(ssh_user)):
     client = e.redis_client()
     value = e.read(client, "batch", id, user)
     targets = value.get("targets", [])
@@ -277,7 +273,7 @@ def batch_result(id: str, user=Depends(current_user)):
 
 
 @router.delete("/batches/{id}", status_code=204)
-def cancel_batch(id: str, user=Depends(current_user)):
+def cancel_batch(id: str, user=Depends(ssh_user)):
     client = e.redis_client()
     e.read(client, "batch", id, user)
     client.set(e.key("cancel", id), "1", ex=e.TTL)

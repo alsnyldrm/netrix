@@ -25,6 +25,7 @@ import {
 import type { Preferences } from "./preferences";
 import "./user-workspace.css";
 import { applicationThemes, colorPalettes } from "./appearance";
+import { canSSH } from "./permissions";
 type Row = Record<string, any>;
 export function Profile({
   user,
@@ -36,6 +37,11 @@ export function Profile({
   onChanged: () => void;
 }) {
   const [tab, setTab] = useState("account");
+  const sshAllowed = canSSH(user);
+  useEffect(() => {
+    if (!sshAllowed && ["ssh", "device-groups"].includes(tab))
+      setTab("account");
+  }, [sshAllowed, tab]);
   const [values, setValues] = useState<Preferences>(currentPreferences());
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -72,29 +78,35 @@ export function Profile({
     <Dialog title="Profil" onClose={onClose} wide>
       <div className="profile-layout">
         <nav className="profile-menu" aria-label="Profil bölümleri">
-          {tabs.map(([id, name, Icon]) => (
-            <React.Fragment key={id}>
-              {id === "ssh" && (
-                <h3 className="profile-menu-group">Cihaz yetkisi</h3>
-              )}
-              <button
-                key={id}
-                className={tab === id ? "selected" : ""}
-                aria-current={tab === id ? "page" : undefined}
-                onClick={() => {
-                  setTab(id);
-                  setNotice("");
-                }}
-              >
-                <Icon size={20} />
-                <span>{name}</span>
-              </button>
-            </React.Fragment>
-          ))}
+          {tabs
+            .filter(
+              ([id]) => sshAllowed || !["ssh", "device-groups"].includes(id),
+            )
+            .map(([id, name, Icon]) => (
+              <React.Fragment key={id}>
+                {id === "ssh" && (
+                  <h3 className="profile-menu-group">Cihaz yetkisi</h3>
+                )}
+                <button
+                  key={id}
+                  className={tab === id ? "selected" : ""}
+                  aria-current={tab === id ? "page" : undefined}
+                  onClick={() => {
+                    setTab(id);
+                    setNotice("");
+                  }}
+                >
+                  <Icon size={20} />
+                  <span>{name}</span>
+                </button>
+              </React.Fragment>
+            ))}
         </nav>
         <section className="profile-content">
-          {tab === "ssh" && <SSHSettings />}
-          {tab === "device-groups" && <AccessGroups user={user} />}
+          {tab === "ssh" && sshAllowed && <SSHSettings />}
+          {tab === "device-groups" && sshAllowed && (
+            <AccessGroups user={user} />
+          )}
           {tab === "account" && (
             <>
               <span className="eyebrow">Kişisel çalışma alanı</span>
@@ -297,27 +309,33 @@ export function Profile({
                     "Azaltılmış hareket",
                     "Arayüz geçişlerini ve animasyonları kapat.",
                   ],
-                ].map(([id, name, desc]) => (
-                  <label key={id}>
-                    <input
-                      type="checkbox"
-                      disabled={busy}
-                      checked={values.features.includes(id)}
-                      onChange={(e) =>
-                        void save({
-                          ...values,
-                          features: e.target.checked
-                            ? [...values.features, id]
-                            : values.features.filter((v) => v !== id),
-                        })
-                      }
-                    />
-                    <span>
-                      <b>{name}</b>
-                      <small>{desc}</small>
-                    </span>
-                  </label>
-                ))}
+                ]
+                  .filter(
+                    ([id]) =>
+                      sshAllowed ||
+                      !["saved_commands", "session_dock"].includes(id),
+                  )
+                  .map(([id, name, desc]) => (
+                    <label key={id}>
+                      <input
+                        type="checkbox"
+                        disabled={busy}
+                        checked={values.features.includes(id)}
+                        onChange={(e) =>
+                          void save({
+                            ...values,
+                            features: e.target.checked
+                              ? [...values.features, id]
+                              : values.features.filter((v) => v !== id),
+                          })
+                        }
+                      />
+                      <span>
+                        <b>{name}</b>
+                        <small>{desc}</small>
+                      </span>
+                    </label>
+                  ))}
               </div>
               <button
                 className="text-button"
@@ -581,7 +599,7 @@ function SSHConnectionForm({
           )}
         </fieldset>
         <p className="muted">
-          SSH bağlantısı rolünü yöneticiniz Ekip & yetkiler bölümünden atar.
+          SSH bağlantısı rolünü süper yönetici Ekip & yetkiler bölümünden atar.
           Cihazın grubuna atanmış bağlantı otomatik kullanılır.
         </p>
         {error && (

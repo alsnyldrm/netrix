@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Dialog } from "./main";
 import { api } from "./data";
+import { SUPER_ADMIN_EMAIL } from "./permissions";
 export function UserRoleEditor({
   user,
   onClose,
@@ -14,6 +15,7 @@ export function UserRoleEditor({
   const [ssh, setSSH] = useState(Boolean(user.ssh_access));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const owner = user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
   return (
     <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose}>
       <form
@@ -43,7 +45,12 @@ export function UserRoleEditor({
         </p>
         <label>
           Uygulama rolü
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <select
+            value={role}
+            disabled={owner}
+            onChange={(e) => setRole(e.target.value)}
+          >
+            {owner && <option value="super_admin">Süper yönetici</option>}
             <option value="viewer">İzleyici</option>
             <option value="operator">Operatör</option>
             <option value="admin">Yönetici</option>
@@ -54,15 +61,15 @@ export function UserRoleEditor({
           <label className="checkbox-label">
             <input
               type="checkbox"
-              checked={role === "admin" || ssh}
-              disabled={role === "admin"}
+              checked={role === "super_admin" || ssh}
+              disabled={role === "super_admin"}
               onChange={(e) => setSSH(e.target.checked)}
             />
             SSH bağlantısı
           </label>
           <p className="muted">
-            {role === "admin"
-              ? "Yöneticiler SSH erişimine sahiptir."
+            {role === "super_admin"
+              ? "Süper yönetici uygulamadaki tüm yetkilere sahiptir."
               : "Envanter cihazlarına kendi SSH bilgileriyle bağlantı ve toplu komut gönderme yetkisi verir."}
           </p>
         </fieldset>

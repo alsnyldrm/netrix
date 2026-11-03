@@ -13,6 +13,7 @@ from . import schemas as s
 from .configuration.validation import BackupError, require_ssh_backup
 from .core import now, redis_client
 from .discovery.neighbor_labels import neighbor_label
+from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin, is_super_admin
 from .identity.security import audit, encrypt
 from .ipam.schemas import DNSInput
 
@@ -246,12 +247,21 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
     if name not in RESOURCES or RESOURCES[name][1] is None:
         raise HTTPException(405, "Bu kaynak salt okunur")
     model, schema = RESOURCES[name]
-    if name in ("credentials", "users") and user.role != "admin":
+    if name in ("credentials", "users") and not is_admin(user):
         raise HTTPException(403, "Yönetici yetkisi gerekli")
     if name == "users" and row_id:
         raise HTTPException(405, "Kullanıcı parolası için parola değiştirme işlemini kullanın")
     value = schema.model_validate(payload)
     data = value.model_dump()
+    if name == "users":
+        if not is_super_admin(user) and (
+            data["role"] != "viewer" or data["ssh_access"] or data["email"] == SUPER_ADMIN_EMAIL
+        ):
+            raise HTTPException(403, "Rol ve SSH yetkisini yalnızca süper yönetici atayabilir")
+        if data["role"] == "super_admin" and data["email"] != SUPER_ADMIN_EMAIL:
+            raise HTTPException(422, "Süper yönetici yalnızca tanımlı uygulama sahibine atanabilir")
+        if data["email"] == SUPER_ADMIN_EMAIL and data["role"] != "super_admin":
+            raise HTTPException(422, "Tanımlı uygulama sahibi süper yönetici rolünü kullanmalıdır")
     if name in ("sites", "cabinets"):
         from .ipam import patch_links
 
@@ -483,14 +493,14 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
 
 def delete_resource(db, name, id, user):
     if name == "links":
-        if user.role != "admin":
+        if not is_admin(user):
             raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
         from .discovery.link_deletions import delete_link
 
         return delete_link(db, id, user)
     if name not in RESOURCES or RESOURCES[name][1] is None:
         raise HTTPException(405, "Bu kaynak salt okunur")
-    if user.role != "admin":
+    if not is_admin(user):
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
     model = RESOURCES[name][0]
     row = get(db, model, id)

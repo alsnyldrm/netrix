@@ -169,7 +169,7 @@ def test_types_in_templates_import_export_and_deleted_stale_selection(
 @pytest.mark.parametrize("role,create_status", [("viewer", 403), ("operator", 201)])
 def test_type_permissions(admin_client, env, role, create_status):
     with env() as db:
-        db.scalar(select(m.User).where(m.User.email == "owner@example.test")).role = role
+        db.scalar(select(m.User).where(m.User.email == "alisan.yildirim@fbu.edu.tr")).role = role
         db.commit()
     assert admin_client.get(BASE).status_code == 200
     result = admin_client.post(BASE, json={"name": "Controller"})

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from .. import models as m
 from .. import schemas as s
 from .. import services as svc
+from ..identity.permissions import is_admin
 from ..identity.security import audit
 from . import service
 
@@ -204,7 +205,7 @@ def bulk(db, payload, user):
     if len(rows) != len(ids):
         raise HTTPException(404, "Seçilen IP kayıtlarından biri artık yok; listeyi yenileyin")
     if payload.action == "delete":
-        if user.role != "admin":
+        if not is_admin(user):
             raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
         for row in rows:
             if db.scalar(

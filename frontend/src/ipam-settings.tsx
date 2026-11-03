@@ -1,3 +1,4 @@
+import { hasAdminAccess, canOperate } from "./permissions";
 import { useState } from "react";
 import {
   CalendarBlank,
@@ -425,7 +426,7 @@ export default function IPAMSettings({
   const [removing, setRemoving] = useState<Row | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const canWrite = ["admin", "operator"].includes(user.role);
+  const canWrite = canOperate(user);
   const data = query.data;
   const items = (data?.items || []).filter((g: Row) =>
     g.name.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")),
@@ -549,7 +550,7 @@ export default function IPAMSettings({
                     Düzenle
                   </button>
                 )}
-                {user.role === "admin" && (
+                {hasAdminAccess(user) && (
                   <button
                     className="icon-button danger"
                     aria-label={`${g.name} grubunu sil`}

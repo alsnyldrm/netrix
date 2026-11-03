@@ -46,7 +46,11 @@ with session_factory()() as db:
 
     seed_defaults(db)
     user = m.User(
-        email="loopback@example.test", display_name="Loopback", role="admin", password_hash="unused"
+        email="loopback@example.test",
+        display_name="Loopback",
+        role="admin",
+        ssh_access=True,
+        password_hash="unused",
     )
     vrf = m.VRF(name="Loopback")
     credential = m.Credential(name="Fixture", protocol="snmpv3", encrypted_secret=encrypt("{}"))
@@ -211,6 +215,26 @@ async def check():
             count = len(commands)
             await runtime.execute(client, "session", id)
             assert len(commands) == count, "Duplicate delivery re-executed"
+            # An admin without an explicit SSH role loses a live connection too.
+            response = await api.post("/api/v1/access/sessions", json={"device_id": device_id})
+            revoked_id = response.json()["id"]
+            revoked_job = asyncio.create_task(runtime.execute(client, "session", revoked_id))
+            async with websockets.connect(
+                f"ws://127.0.0.1:8242/api/v1/access/sessions/{revoked_id}/ws",
+                origin="http://127.0.0.1:8242",
+                additional_headers={"Cookie": "netrix_session=" + token},
+            ) as revoked_ws:
+                await until(revoked_ws, "RESULT:no page")
+                with session_factory()() as db:
+                    db.get(m.User, user_id).ssh_access = False
+                    db.commit()
+                assert (await api.get("/api/v1/access/ssh-profiles")).status_code == 403
+                await asyncio.wait_for(revoked_job, 12)
+            assert commands.count("exit") == 2 and active == 0
+            with session_factory()() as db:
+                db.get(m.User, user_id).ssh_access = True
+                db.commit()
+            await client.set(e.PREFIX + "heartbeat", str(time.time()), ex=120)
             # PTY batch keeps startup and command in one shell; returns per-device CLI failure.
             for command, expected in (
                 ("show system", "succeeded"),
@@ -254,7 +278,7 @@ async def check():
             assert 60 <= time.monotonic() - started < 66
             result = (await api.get("/api/v1/access/sessions/" + idle_id)).json()
             assert result["status"] == "closed" and "Hareketsizlik" in result["error"], result
-            assert commands.count("exit") == 2 and active == 0, commands
+            assert commands.count("exit") == 3 and active == 0, commands
             assert idle_id not in await client.zrange(e.PREFIX + "session:active", 0, -1)
             await client.set(e.PREFIX + "heartbeat", str(time.time()), ex=120)
             # Password validation failure reveals no credential values.
@@ -286,6 +310,7 @@ async def check():
                     "wrong_password_denied": True,
                     "exit_on_close": True,
                     "real_idle_logout_60_seconds": True,
+                    "admin_ssh_revocation_logs_out": True,
                 }
             )
         )

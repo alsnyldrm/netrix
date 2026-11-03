@@ -1,3 +1,4 @@
+import { hasAdminAccess } from "./permissions";
 import { useLiveQuery } from "./data";
 import React, { useEffect, useState } from "react";
 import {
@@ -985,7 +986,7 @@ export function IPAMWorkspace({
                 Düzenle
               </button>
             )}
-            {user.role === "admin" && (
+            {hasAdminAccess(user) && (
               <button
                 className="secondary danger"
                 disabled={busy}
@@ -1032,7 +1033,7 @@ export function IPAMWorkspace({
           <table className={!isBlocks ? "ipam-address-table" : undefined}>
             <thead>
               <tr>
-                {canWrite && (!isBlocks || user.role === "admin") && (
+                {canWrite && (!isBlocks || hasAdminAccess(user)) && (
                   <th className="ipam-select">
                     <input
                       type="checkbox"
@@ -1077,7 +1078,7 @@ export function IPAMWorkspace({
               {rows.map((r) =>
                 isBlocks ? (
                   <tr key={r.id}>
-                    {user.role === "admin" && (
+                    {hasAdminAccess(user) && (
                       <td className="ipam-select">
                         <input
                           type="checkbox"
@@ -1134,7 +1135,7 @@ export function IPAMWorkspace({
                             >
                               <PencilSimple size={18} />
                             </button>
-                            {user.role === "admin" && (
+                            {hasAdminAccess(user) && (
                               <button
                                 className="icon-button danger"
                                 aria-label={`${r.cidr} sil`}
@@ -1562,7 +1563,7 @@ export function Integrations({
       <section className="panel ipam-block-header">
         <div className="ipam-actions">
           <h2>IPAM veri kaynakları</h2>
-          {user.role === "admin" && (
+          {hasAdminAccess(user) && (
             <button className="primary" onClick={() => edit({})}>
               <Plus size={18} aria-hidden="true" />
               Entegrasyon ekle
@@ -1636,7 +1637,7 @@ export function Integrations({
                   <td>Zamanlanmış VLAN taraması</td>
                   <td>{date(r.last_success_at)}</td>
                   <td>
-                    {user.role === "admin" && (
+                    {hasAdminAccess(user) && (
                       <div className="ipam-actions">
                         <button
                           className="icon-button"

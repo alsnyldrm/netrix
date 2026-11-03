@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select, update
 
 from .. import models as m
+from ..identity.permissions import can_ssh
 from ..identity.security import audit, decrypt, encrypt
 from .schemas import DEFAULT_IDLE_TIMEOUT_MINUTES, Preferences
 
@@ -189,7 +190,7 @@ def authorize_device(db, user, device_id):
         raise HTTPException(404, "Envanter cihazı bulunamadı")
     if device.lifecycle_status not in ("active", "maintenance"):
         raise HTTPException(409, "Bu cihaz bağlantıya uygun durumda değil")
-    if user.role != "admin" and not user.ssh_access:
+    if not can_ssh(user):
         raise HTTPException(
             403, "SSH bağlantısı rolünüz yok; yöneticiniz Ekip & yetkiler bölümünden atayabilir"
         )

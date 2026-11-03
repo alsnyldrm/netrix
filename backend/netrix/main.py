@@ -23,6 +23,7 @@ from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .firmware.api import router as firmware_router
+from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin, is_super_admin
 from .identity.security import (
     DUMMY_HASH,
     admin,
@@ -32,6 +33,7 @@ from .identity.security import (
     issue_session,
     operator,
     session_user,
+    super_admin,
     token_hash,
     verify,
 )
@@ -162,10 +164,12 @@ def setup(payload: s.SetupInput, request: Request, db=Depends(db_session)):
         raise HTTPException(409, "İlk kurulum tamamlanmış")
     if not secrets.compare_digest(payload.setup_token, settings().setup_token):
         raise HTTPException(403, "Kurulum anahtarı geçersiz")
+    if payload.email != SUPER_ADMIN_EMAIL:
+        raise HTTPException(422, "İlk kurulum tanımlı süper yönetici hesabıyla yapılmalıdır")
     user = m.User(
         email=payload.email,
         display_name=payload.display_name,
-        role="admin",
+        role="super_admin",
         password_hash=hasher.hash(payload.password),
     )
     db.add(user)
@@ -420,13 +424,16 @@ def acknowledge(id: str, user=Depends(operator), db=Depends(db_session)):
 
 
 @app.put(P + "/users/{id}/roles")
-def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(admin), db=Depends(db_session)):
-    if id == user.id and payload.role != "admin":
-        raise HTTPException(409, "Kendi yönetici rolünüzü kaldıramazsınız")
+def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(super_admin), db=Depends(db_session)):
     row = svc.get(db, m.User, id)
+    if row.email.casefold() == SUPER_ADMIN_EMAIL and payload.role != "super_admin":
+        raise HTTPException(409, "Süper yönetici rolü bu hesaptan kaldırılamaz")
+    if payload.role == "super_admin" and row.email.casefold() != SUPER_ADMIN_EMAIL:
+        raise HTTPException(422, "Süper yönetici yalnızca tanımlı uygulama sahibine atanabilir")
     row.role, row.ssh_access = payload.role, payload.ssh_access
     audit(db, user, "user_roles_updated", "users", id, "Uygulama ve SSH bağlantısı rolleri güncellendi")
     db.commit()
+    svc.publish()
     return svc.serialize(row)
 
 
@@ -435,10 +442,13 @@ def toggle_user(id: str, user=Depends(admin), db=Depends(db_session)):
     if id == user.id:
         raise HTTPException(409, "Kendi hesabınızı devre dışı bırakamazsınız")
     row = svc.get(db, m.User, id)
+    if is_super_admin(row):
+        raise HTTPException(403, "Süper yönetici hesabı devre dışı bırakılamaz")
     row.is_active = not row.is_active
     db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == id))
     audit(db, user, "toggle_user", "users", id, "Hesap erişimi değiştirildi")
     db.commit()
+    svc.publish()
     return svc.serialize(row)
 
 
@@ -638,7 +648,7 @@ def list_items(
 ):
     if resource == "addresses":
         raise HTTPException(404, "IP adresleri VLAN içinden yönetilir")
-    if resource in ("users", "audit") and user.role != "admin":
+    if resource in ("users", "audit") and not is_admin(user):
         raise HTTPException(403, "Yönetici yetkisi gerekli")
     if resource == "vlans":
         from .ipam.read_cache import json_response
@@ -655,7 +665,7 @@ def list_items(
 def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_session)):
     if resource not in svc.RESOURCES:
         raise HTTPException(404, "Kaynak bulunamadı")
-    if resource in ("users", "audit") and user.role != "admin":
+    if resource in ("users", "audit") and not is_admin(user):
         raise HTTPException(403, "Yönetici yetkisi gerekli")
     if resource == "links":
         from .discovery.visibility import inventory_links

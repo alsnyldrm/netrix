@@ -95,7 +95,7 @@ def admin_client(client):
     response = client.post(
         "/api/v1/auth/setup",
         json={
-            "email": "owner@example.test",
+            "email": "alisan.yildirim@fbu.edu.tr",
             "display_name": "Owner",
             "password": "test-only-password-long",
             "setup_token": settings().setup_token,
@@ -103,7 +103,8 @@ def admin_client(client):
     )
     assert response.status_code == 201, response.text
     response = client.post(
-        "/api/v1/auth/login", json={"email": "owner@example.test", "password": "test-only-password-long"}
+        "/api/v1/auth/login",
+        json={"email": "alisan.yildirim@fbu.edu.tr", "password": "test-only-password-long"},
     )
     assert response.status_code == 200, response.text
     return client
