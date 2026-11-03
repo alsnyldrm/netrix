@@ -307,6 +307,19 @@ def hostname_vm_records(records, hostname, address, gateway_mac=""):
     return by_mac[0] if len(by_mac) == 1 else []
 
 
+def guest_ip_vm_records(records, address, gateway_mac=""):
+    """A direct guest IP proves one current VM/NIC even when its DNS name differs."""
+    matches = [d for d in records if d.get("guest_address") == address and not d.get("matched_by")]
+    owners = {(d.get("integration_id", ""), d.get("vm_id"), d.get("nic_key")) for d in matches}
+    if len(owners) != 1 or not all(next(iter(owners))[1:]):
+        return []
+    cards = [d for d in records if (d.get("integration_id", ""), d.get("vm_id"), d.get("nic_key")) in owners]
+    macs = {normalized_mac(d.get("mac_address")) for d in cards}
+    if len(macs) != 1 or not next(iter(macs)) or (gateway_mac and gateway_mac not in macs):
+        return []
+    return matches
+
+
 def vmware_observations(obs, hostname, address, physical):
     recent = [
         o
@@ -326,9 +339,11 @@ def vmware_observations(obs, hostname, address, physical):
         for o in recent
     ]
     selected = hostname_vm_records(records, hostname, address, physical["mac_address"])
+    if not selected and not physical["mac_conflict"]:
+        selected = guest_ip_vm_records(records, address, physical["mac_address"])
     if selected:
         return [d["observation"] for d in selected], normalized_mac(selected[0]["mac_address"])
-    # Unverified names retain the gateway identity boundary for IP reuse safety.
+    # Without either proof, retain the gateway identity boundary for IP reuse safety.
     return [
         o
         for o in recent

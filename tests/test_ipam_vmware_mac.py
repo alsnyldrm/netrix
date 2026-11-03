@@ -177,6 +177,139 @@ def test_verified_vm_mac_works_without_gateway(network):
     assert item["connected_device"] == "VM-DS" and item["connected_port"] == "89"
 
 
+def test_direct_guest_ip_mac_is_visible_despite_different_dns_and_vm_names(network, admin_client):
+    from netrix.ipam import table
+    from sqlalchemy import delete
+
+    sf, vlan_id, row_id, ids = network
+    with sf() as db:
+        db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
+        add_vm(db, vlan, row, hostname="VM-INVENTORY-NAME", guest_address=row.address)
+        db.commit()
+        for details in (True, False):
+            item = service.enrich(db, [row], details=details)[0]
+            assert item["hostname"] == "dns.example"
+            assert item["mac_address"] == item["automatic_mac_address"] == VM_MAC
+            assert item["field_sources"]["mac_address"] == "vcenter"
+            assert item["operating_system"] == "Ubuntu"
+            assert item["connected_device"] == "VM-DS" and item["connected_port"] == "89"
+        assert table.addresses(db, vlan, q=VM_MAC)["items"][0]["mac_address"] == VM_MAC
+    detail = admin_client.get(f"/api/v1/ipam/addresses/{row_id}").json()
+    listed = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params={"q": VM_MAC}).json()
+    assert detail["mac_address"] == listed["items"][0]["mac_address"] == VM_MAC
+    filtered = admin_client.get(
+        f"/api/v1/ipam/vlans/{vlan_id}/addresses",
+        params={"filters": json.dumps([{"field": "mac_address", "op": "eq", "value": VM_MAC}])},
+    ).json()
+    assert [item["id"] for item in filtered["items"]] == [row_id]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "other_vm",
+        "other_nic",
+        "conflicting_mac",
+        "old",
+        "gone",
+        "inferred",
+        "missing",
+        "invalid",
+        "gateway_conflict",
+    ],
+)
+def test_direct_guest_ip_mac_requires_unique_current_uncontested_nic(network, fault):
+    from sqlalchemy import delete, select
+
+    sf, vlan_id, row_id, ids = network
+    with sf() as db:
+        if fault != "gateway_conflict":
+            db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
+        changes = {"hostname": "VM-INVENTORY-NAME", "guest_address": row.address}
+        if fault == "gone":
+            changes["present"] = False
+        elif fault == "inferred":
+            changes.update(guest_address="192.0.2.11", matched_by="dhcp_mac")
+        elif fault == "missing":
+            changes.pop("guest_address")
+        elif fault == "invalid":
+            changes["mac_address"] = "invalid"
+        add_vm(db, vlan, row, **changes)
+        if fault in ("other_vm", "other_nic", "conflicting_mac"):
+            other = record(**changes)
+            other.pop("address")
+            if fault == "other_vm":
+                other.update(vm_id="vm-2", hostname="OTHER-VM")
+            elif fault == "other_nic":
+                other.update(nic_key="4001")
+            else:
+                other.update(mac_address=MAC)
+            service.observe(db, vlan, row.address, "vcenter", "conflicting-evidence", other)
+        if fault == "old":
+            db.scalar(select(m.IPObservation).where(m.IPObservation.source == "vcenter")).observed_at = (
+                now() - timedelta(hours=25)
+            )
+        db.commit()
+    assert read(network)["mac_address"] == (MAC if fault == "gateway_conflict" else "")
+
+
+def test_direct_guest_ip_selects_its_card_in_multi_nic_vm(network):
+    from sqlalchemy import delete
+
+    sf, vlan_id, row_id, ids = network
+    with sf() as db:
+        db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
+        add_vm(db, vlan, row, hostname="VM-INVENTORY-NAME", guest_address=row.address)
+        add_vm(
+            db,
+            vlan,
+            row,
+            hostname="VM-INVENTORY-NAME",
+            nic_key="4001",
+            guest_address="192.0.2.11",
+            mac_address=MAC,
+            dvport="90",
+        )
+        db.commit()
+    item = read(network)
+    assert item["mac_address"] == VM_MAC and item["connected_port"] == "89"
+
+
+@pytest.mark.asyncio
+async def test_future_vmware_snapshot_supplies_mac_with_different_dns_name(network, monkeypatch):
+    from sqlalchemy import delete
+
+    sf, _, _, ids = network
+    with sf() as db:
+        db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        config = m.Integration(
+            name="VC",
+            kind="vcenter",
+            host="vc.test",
+            port=443,
+            enabled=True,
+            encrypted_secret=encrypt(json.dumps({"username": "fixture", "password": "fixture"})),
+        )
+        db.add(config)
+        db.flush()
+        job = m.Job(kind="integration", target_id=config.id)
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    records = [record(hostname="VM-INVENTORY-NAME")]
+    monkeypatch.setattr(adapters, "vcenter_records", lambda *_: records)
+    await jobs.integration(job_id)
+    item = read(network)
+    assert item["hostname"] == "dns.example" and item["mac_address"] == VM_MAC
+    assert item["connected_device"] == "VM-DS" and item["connected_port"] == "89"
+    records.clear()
+    await jobs.integration(job_id)
+    assert read(network)["mac_address"] == ""
+
+
 def test_switch_fdb_is_resolved_using_selected_vm_mac(network):
     from netrix.ipam.connections import Evidence
     from sqlalchemy import select
