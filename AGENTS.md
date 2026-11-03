@@ -136,8 +136,8 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 ## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
 
-- IPAM tam kaynak toplaması Ayarlar → Tarama gruplarının zamanlaması veya yetkili kullanıcının VLAN içindeki **Tara** düğmesiyle başlar. VLAN/IP sayfası açılışı, yenileme ve kayıt oluşturma/düzenleme salt okunur kaynak davranışını korur; tarama başlatmaz.
-- DNS, VMware, DHCP, gateway ve switch okumaları zamanlanmış veya kullanıcı tarafından açıkça başlatılmış tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
+- IPAM tam kaynak toplaması Ayarlar → Tarama gruplarının zamanlaması veya yetkili kullanıcının VLAN içindeki **Tara** düğmesiyle başlar. VLAN/IP sayfası açılışı, yenileme ve mevcut kayıtları düzenleme tarama başlatmaz. Yeni VLAN oluşturulduğunda ilk tam tarama aynı transaction içinde bir kez kuyruğa eklenir; API kaynak okumalarını beklemez.
+- DNS, VMware, DHCP, gateway ve switch okumaları tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
 - VLAN içindeki **Ping** düğmesi yetkili kullanıcının kayıtlı IP’ler için yalnız ICMP işi başlatmasını sağlar. Ping ayrıca ayrı periyodik ICMP işidir: varsayılan 30 saniye, yapılandırılabilir en az 10 saniye. Kayıtlı IP'leri kontrol eder; DNS veya başka bir kaynak okumaz. Tarayıcı açık olmasa da çalışır, uzun tam taramayla aynı VLAN üzerinde eşzamanlı yürüyebilir.
 - Ping sonucu açık liste/ayrıntıya WebSocket bildirimiyle yansır. Bağlantı yoksa görünür IPAM ekranı 10 saniyede bir yalnız veritabanından yenilenir; bu yenileme ping veya tam tarama tetiklemez.
 - Bu davranışı doğrularken gerçek ağda tarama/entegrasyon eşitlemesi başlatma; sahte protokol istemcileri ve yerel fixture kullan. Ayrıntılar [IPAM davranışında](docs/ipam-integrations.md).

@@ -123,7 +123,8 @@ def validate_target(db, kind, id):
             raise HTTPException(422, "Entegrasyonu etkinleştirin")
     else:
         row = get(db, m.VLAN, id)
-        targets(db, row, discover=kind == "ipam_discover")
+        # Expanding addresses belongs to scan(), after the durable job is claimed.
+        scan_boundary(db, row)
     return row
 
 

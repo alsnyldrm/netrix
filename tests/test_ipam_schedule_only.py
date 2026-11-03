@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from test_ipam_workspace import integration, prefix
 
 
-def test_create_and_repeated_reads_never_enqueue_sources(admin_client, inventory, env, monkeypatch):
+def test_repeated_reads_do_not_add_jobs_after_initial_scan(admin_client, inventory, env, monkeypatch):
     vlan = prefix(admin_client, inventory)
     row = admin_client.post(
         "/api/v1/addresses", json={"address": "192.0.2.1", "vrf_id": vlan["vrf_id"], "vlan_id": vlan["id"]}
@@ -29,7 +29,7 @@ def test_create_and_repeated_reads_never_enqueue_sources(admin_client, inventory
         assert admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/scan").status_code == 200
         assert admin_client.get(f"/api/v1/ipam/addresses/{row['id']}").status_code == 200
     with env() as db:
-        assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind.in_(jobs.KINDS))) == 0
+        assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind.in_(jobs.KINDS))) == 1
 
 
 @pytest.mark.parametrize("role", ["super_admin", "admin", "operator"])
@@ -38,6 +38,7 @@ def test_manual_vlan_actions_are_queued_once_but_independent_sync_is_blocked(
 ):
     vlan = prefix(admin_client, inventory)
     config = integration(admin_client, vlan)
+    assert admin_client.post(f"/api/v1/jobs/{vlan['scan']['job_id']}/cancel").status_code == 200
     with env() as db:
         db.scalar(select(m.User)).role = role
         db.commit()
@@ -80,7 +81,7 @@ def test_viewer_cannot_start_manual_vlan_actions(admin_client, inventory, env):
     for action in ("discover", "ping"):
         assert admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/{action}").status_code == 403
     with env() as db:
-        assert not db.scalar(select(m.Job.id))
+        assert list(db.scalars(select(m.Job.id))) == [vlan["scan"]["job_id"]]
 
 
 @pytest.mark.parametrize("manual", [False, True])
@@ -148,7 +149,7 @@ async def test_ping_is_icmp_only_and_recovery_updates_cached_status(
         )
 
 
-def test_only_groups_dispatch_full_scans_and_ping_deadlines_are_independent(admin_client, inventory, env):
+def test_legacy_full_scan_timers_stay_off_and_ping_deadlines_are_independent(admin_client, inventory, env):
     vlan = prefix(admin_client, inventory)
     config = integration(admin_client, vlan)
     at = now()
@@ -160,7 +161,9 @@ def test_only_groups_dispatch_full_scans_and_ping_deadlines_are_independent(admi
         db.commit()
     scheduler.tick()
     with env() as db:
-        assert not db.scalar(select(m.Job).where(m.Job.kind.in_(("ipam_discover", "integration"))))
+        assert list(db.scalars(select(m.Job.id).where(m.Job.kind.in_(("ipam_discover", "integration"))))) == [
+            vlan["scan"]["job_id"]
+        ]
     scheduler.dispatch_pings(at + timedelta(seconds=29))
     with env() as db:
         assert not db.scalar(select(m.Job).where(m.Job.kind == "ipam_ping"))
@@ -171,7 +174,7 @@ def test_only_groups_dispatch_full_scans_and_ping_deadlines_are_independent(admi
         assert len(rows) == 1 and rows[0].result["ipam_origin"] == "ping_timer"
 
 
-@pytest.mark.parametrize("origin", [None, "manual"])
+@pytest.mark.parametrize("origin", [None, "manual", "vlan_create"])
 @pytest.mark.asyncio
 async def test_old_unattributed_scan_is_cancelled_before_network(
     admin_client, inventory, env, monkeypatch, origin
@@ -212,6 +215,7 @@ def test_ping_lane_can_claim_while_same_vlan_has_a_full_scan(admin_client, inven
 
 def test_group_dispatch_still_creates_scheduled_full_scan(admin_client, inventory, env):
     vlan = prefix(admin_client, inventory)
+    assert admin_client.post(f"/api/v1/jobs/{vlan['scan']['job_id']}/cancel").status_code == 200
     data = dict(
         name="Full scan",
         vlan_ids=[vlan["id"]],
@@ -222,7 +226,7 @@ def test_group_dispatch_still_creates_scheduled_full_scan(admin_client, inventor
     assert response.status_code == 201
     scan_schedules.dispatch_due()
     with env() as db:
-        job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover"))
+        job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover", m.Job.active_key.is_not(None)))
         assert job and job.result["ipam_origin"] == "schedule"
 
 

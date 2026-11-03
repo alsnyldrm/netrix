@@ -43,12 +43,13 @@ def snapshot(db, d, content, offset=0):
     return row
 
 
-def test_vlan_owns_ipam_without_scanning_on_save(admin_client, env):
+def test_vlan_owns_ipam_and_queues_initial_scan_without_inventory_scope(admin_client, env):
     row = vlan(admin_client)
     with env() as db:
         assert not list(db.scalars(select(m.Scope)))
         job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover"))
-        assert job is None
+        assert job.id == row["scan"]["job_id"] and job.result["ipam_origin"] == "vlan_create"
+        assert job.status == "queued"
         assert not list(db.scalars(select(m.Device)))
     result = admin_client.get("/api/v1/ipam/vlans/" + row["id"] + "/addresses").json()
     assert result["total"] == "4" and len(result["items"]) == 4
