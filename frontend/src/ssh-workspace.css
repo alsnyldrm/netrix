@@ -612,3 +612,163 @@
     border-left: 0;
   }
 }
+
+.ssh-batch-dialog {
+  width: min(1280px, calc(100vw - 48px));
+  height: min(850px, calc(100dvh - 72px));
+}
+.ssh-batch-dialog.ssh-full {
+  width: 100vw;
+  height: 100dvh;
+}
+.ssh-batch-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.ssh-batch-body.with-commands {
+  grid-template-columns: minmax(0, 1fr) clamp(
+      240px,
+      var(--ssh-commands-width, 300px),
+      42%
+    );
+}
+.ssh-batch-body > .ssh-batch {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+.batch-guidance {
+  font-size: 0.8rem;
+}
+.batch-saved-commands {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  overflow: hidden;
+}
+.batch-saved-commands > p {
+  margin: 0;
+  padding: 16px 16px 0;
+  color: var(--text-2);
+  font-size: 0.75rem;
+}
+.batch-saved-commands > .ssh-commands {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.ssh-batch-dialog .batch-results {
+  min-height: 240px;
+  height: auto;
+  flex: 1;
+  grid-template-columns: 190px minmax(0, 1fr);
+}
+.ssh-batch-dialog .batch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 0.75rem;
+}
+.batch-summary > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ssh-batch-dialog .batch-error {
+  padding: 12px;
+  margin-top: 12px;
+}
+.batch-result-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.batch-result-heading h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.batch-result-heading > span {
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+.ssh-batch-dialog .batch-results pre {
+  border: 0;
+  border-radius: 0;
+  min-height: 120px;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+}
+.ssh-batch-dialog .batch-results nav b {
+  overflow-wrap: anywhere;
+}
+.standalone-terminal ~ .ssh-dock {
+  left: 20px;
+}
+@media (max-width: 900px) {
+  .ssh-batch-body.with-commands {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .batch-saved-commands {
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    max-height: min(220px, 28dvh);
+  }
+  .batch-saved-commands .ssh-panel-resize-button {
+    display: none;
+  }
+}
+@media (max-width: 650px) {
+  .ssh-batch-dialog {
+    width: 100vw;
+    height: 100dvh;
+  }
+  .ssh-batch-dialog .ssh-heading h2 {
+    max-width: none;
+  }
+  .ssh-batch-dialog .ssh-header > .ssh-state {
+    font-size: 0.65rem;
+  }
+  .ssh-batch-dialog .ssh-batch {
+    padding: 12px;
+  }
+  .ssh-batch-dialog .batch-submit {
+    flex-direction: row;
+    align-items: end;
+    gap: 12px;
+  }
+  .ssh-batch-dialog .batch-submit > label {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.75rem;
+  }
+  .ssh-batch-dialog .batch-submit > button {
+    max-width: 50%;
+    min-height: 40px;
+  }
+  .ssh-batch-dialog .batch-results {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 110px minmax(140px, 1fr);
+    min-height: 270px;
+    flex: none;
+  }
+  .ssh-batch-dialog .ssh-footer {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .batch-saved-commands {
+    max-height: min(200px, 26dvh);
+  }
+  .batch-saved-commands > p {
+    padding: 8px 12px 0;
+  }
+}

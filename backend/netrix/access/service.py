@@ -164,6 +164,24 @@ def commands(db, user):
     return json.loads(decrypt(row.encrypted_commands)) if row and row.encrypted_commands else []
 
 
+def batch_targets(db, user, device_ids):
+    targets = []
+    for id in dict.fromkeys(device_ids):
+        device = authorize_device(db, user, id)
+        profile_id, _ = resolve_profile(db, user, id)
+        targets.append(
+            {
+                "device_id": id,
+                "ssh_profile_id": profile_id,
+                "name": device.name,
+                "management_ip": device.management_ip,
+                "status": "queued",
+                "output": "",
+            }
+        )
+    return targets
+
+
 def authorize_device(db, user, device_id):
     device = db.get(m.Device, device_id)
     if not device or device.archived or not device.discovery_scope_id:

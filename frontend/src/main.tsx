@@ -2424,6 +2424,10 @@ function App() {
   const terminalId = /^\/terminal\/([a-f0-9-]{36})$/.exec(
     location.pathname,
   )?.[1];
+  const batchRoute = /^\/batch\/(draft\/)?([a-f0-9-]{36})$/.exec(
+    location.pathname,
+  );
+  const standaloneView = !!terminalId || !!batchRoute;
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleUser, setRoleUser] = useState<Row | null>(null);
   const [user, setUser] = useState<Row | null>(null);
@@ -2672,7 +2676,7 @@ function App() {
   if (user?.role !== "admin") referenceNames.delete("users");
   const referencesKey = [...referenceNames].sort().join(",");
   const referenceQuery = useLiveQuery<Record<string, Row[]>>(
-    user && !terminalId ? `references:${user.id}:${referencesKey}` : null,
+    user && !standaloneView ? `references:${user.id}:${referencesKey}` : null,
     referenceRefresh +
       (["overview", "topology", "neighbors"].includes(page.key) ? refresh : 0),
     async () =>
@@ -2703,7 +2707,7 @@ function App() {
     };
   const refs = referenceSnapshot.current.values;
   const dashboardQuery = useLiveQuery(
-    user && !terminalId ? "/dashboard" : null,
+    user && !standaloneView ? "/dashboard" : null,
     refresh,
   );
   const dashboard: Row = dashboardQuery.data || {};
@@ -2742,7 +2746,7 @@ function App() {
     setError(issue);
   }, [tableQuery.error, referenceQuery.error, dashboardQuery.error]);
   useEffect(() => {
-    if (!user || terminalId) return;
+    if (!user || standaloneView) return;
     let socket: WebSocket | undefined;
     let reconnect: ReturnType<typeof setTimeout>;
     let closed = false;
@@ -2946,8 +2950,17 @@ function App() {
         }}
       />
     );
-  if (terminalId)
-    return <SSHWorkspace key={user.id} standaloneId={terminalId} />;
+  if (standaloneView)
+    return (
+      <SSHWorkspace
+        key={user.id}
+        standaloneId={terminalId}
+        standaloneBatchId={
+          batchRoute && !batchRoute[1] ? batchRoute[2] : undefined
+        }
+        standaloneDraftId={batchRoute?.[1] ? batchRoute[2] : undefined}
+      />
+    );
   return (
     <div
       className={

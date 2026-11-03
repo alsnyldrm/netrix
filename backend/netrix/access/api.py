@@ -203,20 +203,7 @@ def close_session(id: str, user=Depends(current_user)):
 
 @router.post("/batches", status_code=202)
 def batch(payload: s.BatchInput, request: Request, user=Depends(current_user), db=Depends(db_session)):
-    targets = []
-    for id in dict.fromkeys(payload.device_ids):
-        device = svc.authorize_device(db, user, id)
-        profile_id, _ = svc.resolve_profile(db, user, id)
-        targets.append(
-            {
-                "device_id": id,
-                "ssh_profile_id": profile_id,
-                "name": device.name,
-                "management_ip": device.management_ip,
-                "status": "queued",
-                "output": "",
-            }
-        )
+    targets = svc.batch_targets(db, user, payload.device_ids)
     result = e.admit(
         "batch",
         {
@@ -232,6 +219,33 @@ def batch(payload: s.BatchInput, request: Request, user=Depends(current_user), d
     return result
 
 
+@router.post("/batch-drafts", status_code=201)
+def batch_draft(payload: s.BatchDraftInput, user=Depends(current_user), db=Depends(db_session)):
+    targets = svc.batch_targets(db, user, payload.device_ids)
+    return e.draft(
+        {
+            "user_id": user.id,
+            "targets": targets,
+            "command": payload.command.get_secret_value(),
+            "timeout": payload.timeout,
+        }
+    )
+
+
+@router.get("/batch-drafts/{id}")
+def read_batch_draft(id: str, user=Depends(current_user)):
+    value = e.read(e.redis_client(), "draft", id, user)
+    return {k: value[k] for k in ("id", "targets", "command", "timeout")}
+
+
+@router.delete("/batch-drafts/{id}", status_code=204)
+def delete_batch_draft(id: str, user=Depends(current_user)):
+    client = e.redis_client()
+    value = e.read(client, "draft", id, user)
+    client.delete(e.key("draft", id))
+    client.zrem(e.key("drafts", value["user_id"]), id)
+
+
 @router.get("/batches/{id}")
 def batch_result(id: str, user=Depends(current_user)):
     client = e.redis_client()
@@ -242,7 +256,7 @@ def batch_result(id: str, user=Depends(current_user)):
         value["targets"] = [
             e.unpack(update) if update else target for target, update in zip(targets, updates)
         ]
-    return {k: value.get(k) for k in ("id", "status", "targets", "error")}
+    return {k: value.get(k) for k in ("id", "status", "targets", "error", "timeout")}
 
 
 @router.delete("/batches/{id}", status_code=204)

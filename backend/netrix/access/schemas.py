@@ -78,3 +78,9 @@ class BatchInput(Input):
     device_ids: list[str] = Field(min_length=1, max_length=100)
     command: SecretStr = Field(min_length=1, max_length=4000)
     timeout: int = Field(default=30, ge=5, le=120)
+
+
+class BatchDraftInput(Input):
+    device_ids: list[str] = Field(min_length=1, max_length=100)
+    command: SecretStr = Field(default=SecretStr(""), max_length=4000)
+    timeout: int = Field(default=30, ge=5, le=120)

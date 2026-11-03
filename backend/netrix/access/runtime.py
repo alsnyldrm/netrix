@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 
 from .. import models as m
 from ..core import now, session_factory, settings
-from ..discovery.aruba import CLI_ERROR, terminal_text
+from ..discovery.aruba import ARUBA_ADAPTERS, CLI_ERROR, terminal_text
 from ..discovery.protocols import ssh_known_hosts
 from . import ephemeral as e
 from . import service as svc
@@ -182,8 +182,9 @@ async def shell_session(client, id, value):
                 await asyncio.gather(*tasks, return_exceptions=True)
 
 
-async def read_prompt(process):
+async def read_prompt(process, *, login=False, progress=None):
     output = ""
+    continued = False
     while True:
         chunk = await process.stdout.read(4096)
         if not chunk:
@@ -192,19 +193,35 @@ async def read_prompt(process):
         if len(output.encode()) > OUTPUT_LIMIT:
             raise ValueError("output_limit")
         clean = terminal_text(output)
+        if progress is not None and progress.get("phase") == "command":
+            progress["partial"] = (progress.get("prefix", "") + "\n" + clean).lstrip("\n")
+        if login and not continued and re.search(r"press any key to continue[.\s]*$", clean, re.I):
+            process.stdin.write(" ")
+            await process.stdin.drain()
+            continued = True
+        if re.search(
+            r"(?i)(?:password\s*:|(?:continue|are you sure)[^\r\n]*\[(?:y/n|yes/no)\]\s*:?)\s*$", clean
+        ):
+            raise ValueError("interactive_prompt")
+        if re.search(r"(?i)--+\s*more\s*--+", clean):
+            raise ValueError("paging")
         if PROMPT.search(clean):
             return clean
 
 
-async def run_command(device, profile, command):
+async def run_command(device, profile, command, progress=None):
     """One PTY for network CLI; Linux uses exec and its real exit status."""
+    progress = progress if progress is not None else {}
+    progress.update(phase="connection", command_sent=False, partial="")
     async with connect(device, profile) as connection:
         if device.adapter == "linux":
             full = (profile.get("initial_command", "") + "\n" + command).strip()
+            progress.update(phase="command", command_sent=True)
             async with connection.create_process(full, stderr=asyncssh.STDOUT) as process:
                 output = ""
                 while chunk := await process.stdout.read(4096):
                     output += chunk
+                    progress["partial"] = output.encode()[:OUTPUT_LIMIT].decode(errors="ignore")
                     if len(output.encode()) > OUTPUT_LIMIT:
                         raise ValueError("output_limit")
                 await process.wait_closed()
@@ -212,11 +229,32 @@ async def run_command(device, profile, command):
         async with connection.create_process(
             term_type="vt100", term_size=(200, 40), stderr=asyncssh.STDOUT
         ) as process:
-            await read_prompt(process)
+            progress["phase"] = "greeting"
+            await read_prompt(process, login=True)
             initial = profile.get("initial_command", "").strip()
+            paging_command = ARUBA_ADAPTERS.get(device.adapter, ("",))[0]
+            configured_paging = any(
+                line.strip().casefold() == paging_command for line in initial.splitlines()
+            )
+            requested_paging = (
+                command.splitlines()[0].strip().casefold() == paging_command
+                if command.splitlines()
+                else False
+            )
+            if paging_command and not configured_paging and not requested_paging:
+                progress["phase"] = "preparation"
+                process.stdin.write(paging_command + "\n")
+                await process.stdin.drain()
+                paging = await read_prompt(process)
+                if CLI_ERROR.search(paging):
+                    raise ValueError("paging_setup")
             if initial:
+                progress["phase"] = "initial_command"
                 for line in initial.splitlines():
+                    if not line.strip():
+                        continue
                     process.stdin.write(line + "\n")
+                    await process.stdin.drain()
                     output = await read_prompt(process)
                     if CLI_ERROR.search(output):
                         return output, False
@@ -224,9 +262,12 @@ async def run_command(device, profile, command):
             for line in command.splitlines():
                 if not line.strip():
                     continue
+                progress.update(phase="command", command_sent=True, partial="", prefix="\n".join(outputs))
                 process.stdin.write(line + "\n")
-                output = await read_prompt(process)
+                await process.stdin.drain()
+                output = await read_prompt(process, progress=progress)
                 outputs.append(output)
+                progress["partial"] = "\n".join(outputs)
                 if len("\n".join(outputs).encode()) > OUTPUT_LIMIT:
                     raise ValueError("output_limit")
                 if CLI_ERROR.search(output) or re.search(
@@ -247,35 +288,62 @@ async def run_batch(client, id, value):
             target["status"] = "running"
             async with writing:
                 await target_state(client, id, target)
+            progress = {"phase": "authorization", "command_sent": False, "partial": ""}
             try:
                 if await client.get(e.key("cancel", id)):
                     raise SessionEnded()
                 device, profile = await asyncio.to_thread(connection_data, value, target["device_id"])
                 async with asyncio.timeout(value["timeout"]):
-                    output, success = await run_command(device, profile, value["command"])
-                async with writing:
-                    used = sum(len(t.get("output", "").encode()) for t in value["targets"])
-                    remaining = max(0, 2 * 1024 * 1024 - used)
-                    if len(output.encode()) > remaining:
-                        output = (
-                            output.encode()[:remaining].decode(errors="ignore")
-                            + "\n[Toplam çıktı sınırı: 2 MiB]"
-                        )
-                    target.update(status="succeeded" if success else "failed", output=output)
+                    output, success = await run_command(device, profile, value["command"], progress)
+                target.update(status="succeeded" if success else "failed", output=output)
             except asyncio.CancelledError:
                 target.update(
                     status="cancelled", output="İptal edildi; daha önce gönderilmiş komut geri alınamaz."
                 )
                 raise
             except Exception as exc:
+                phase_names = {
+                    "authorization": "Yetki kontrolü",
+                    "connection": "SSH bağlantısı",
+                    "greeting": "Karşılama ekranı",
+                    "preparation": "Oturum hazırlığı",
+                    "initial_command": "Başlangıç komutu",
+                    "command": "Komut yanıtı",
+                }
+                message = error_message(exc)
+                if isinstance(exc, TimeoutError):
+                    message = phase_names.get(progress["phase"], "SSH") + " aşamasında zaman aşımı. "
+                    message += (
+                        "Komut tekrarlanmadı; sonucu cihazdan doğrulayın."
+                        if progress["command_sent"]
+                        else "Seçili komut cihaza gönderilmedi."
+                    )
+                if isinstance(exc, ValueError):
+                    message = {
+                        "output_limit": "Çıktı 64 KiB sınırını aştı; komut tekrarlanmadı.",
+                        "interactive_prompt": "Cihaz parola veya onay bekliyor; etkileşimli SSH penceresini kullanın. Otomatik onay verilmedi.",
+                        "paging": "Cihaz çıktıyı sayfalıyor. Oturum için sayfalama kapatılmalı; komut tekrarlanmadı.",
+                        "paging_setup": "Cihaz sayfalama hazırlığını reddetti; seçili komut gönderilmedi.",
+                    }.get(str(exc), message)
+                partial = progress["partial"].encode()[:OUTPUT_LIMIT].decode(errors="ignore")
                 target.update(
                     status="failed",
-                    output="Çıktı 64 KiB sınırını aştı; komut tekrarlanmadı"
-                    if isinstance(exc, ValueError) and str(exc) == "output_limit"
-                    else error_message(exc),
+                    phase=progress["phase"],
+                    command_sent=progress["command_sent"],
+                    error=message,
+                    output=(partial + "\n\n" if partial else "") + message,
                 )
             finally:
                 async with writing:
+                    others = sum(
+                        len(t.get("output", "").encode()) for t in value["targets"] if t is not target
+                    )
+                    remaining = max(0, 2 * 1024 * 1024 - others)
+                    raw = target.get("output", "").encode()
+                    if len(raw) > remaining:
+                        target["output"] = (
+                            raw[:remaining].decode(errors="ignore") + "\n[Toplam çıktı sınırı: 2 MiB]"
+                        )
                     await target_state(client, id, target)
 
     tasks = [asyncio.create_task(one(target)) for target in value["targets"]]

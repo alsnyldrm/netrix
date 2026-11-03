@@ -15,6 +15,8 @@ import {
   TextAa,
   CaretLeft,
   CaretRight,
+  ListBullets,
+  ArrowBendDownLeft,
 } from "@phosphor-icons/react";
 import { api } from "./data";
 import { Dialog } from "./main";
@@ -327,11 +329,13 @@ function SavedCommands({
   enabled,
   onCollapse,
   onResize,
+  selectOnly = false,
 }: {
   send: (value: string) => void;
   enabled: boolean;
   onCollapse: () => void;
   onResize: (delta: number) => void;
+  selectOnly?: boolean;
 }) {
   const [items, setItems] = useState<Row[]>([]);
   const [editing, setEditing] = useState(false);
@@ -494,11 +498,21 @@ function SavedCommands({
             <button
               className="ssh-command-run"
               title={item.command}
-              aria-label={`${item.name} komutunu çalıştır`}
+              aria-label={`${item.name} komutunu ${selectOnly ? "seç" : "çalıştır"}`}
               disabled={!enabled || busy}
-              onClick={() => send(item.command.replace(/\r?\n/g, "\r") + "\r")}
+              onClick={() =>
+                send(
+                  selectOnly
+                    ? item.command
+                    : item.command.replace(/\r?\n/g, "\r") + "\r",
+                )
+              }
             >
-              <Play size={16} aria-hidden="true" />
+              {selectOnly ? (
+                <ArrowBendDownLeft size={16} aria-hidden="true" />
+              ) : (
+                <Play size={16} aria-hidden="true" />
+              )}
               <span>{item.name}</span>
             </button>
             <button
@@ -941,19 +955,37 @@ function SessionWindow({
   );
 }
 
-function BulkCommand({
-  devices,
-  onClose,
-}: {
+type BatchWindowState = {
+  key: string;
   devices: Row[];
+  minimized: boolean;
+  id?: string;
+  draftId?: string;
+  command?: string;
+  timeout?: number;
+};
+
+function BulkCommand({
+  windowState,
+  standalone,
+  onClose,
+  onMinimize,
+  onDetached,
+}: {
+  windowState: BatchWindowState;
+  standalone: boolean;
   onClose: () => void;
+  onMinimize: () => void;
+  onDetached: () => void;
 }) {
-  const [command, setCommand] = useState("");
-  const [timeout, setTimeoutValue] = useState(30);
-  const [id, setId] = useState("");
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [full, setFull] = useState(standalone);
+  const [command, setCommand] = useState(windowState.command || "");
+  const [timeout, setTimeoutValue] = useState(windowState.timeout || 30);
+  const [id, setId] = useState(windowState.id || "");
   const [data, setData] = useState<Row>({
-    status: "draft",
-    targets: devices.map((d) => ({
+    status: windowState.id ? "queued" : "draft",
+    targets: windowState.devices.map((d) => ({
       device_id: d.id,
       name: d.name,
       management_ip: d.management_ip,
@@ -962,24 +994,54 @@ function BulkCommand({
     })),
   });
   const [error, setError] = useState("");
+  const [refresh, setRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [active, setActive] = useState(devices[0]?.id || "");
+  const [active, setActive] = useState<string>(
+    windowState.devices[0]?.id || "",
+  );
+  const [savedVisible, setSavedVisible] = useState(
+    currentPreferences().features.includes("saved_commands"),
+  );
+  const [commandsWidth, setCommandsWidth] = useState(
+    currentPreferences().terminal.commands_width,
+  );
+  const transferred = useRef(false);
+  const draftDiscarded = useRef(false);
   const running = ["queued", "running"].includes(data.status);
   const activeBatch = useRef({ id, running });
   activeBatch.current = { id, running };
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement;
+    if (windowState.minimized) dialog.current?.close();
+    else if (!dialog.current?.open) dialog.current?.showModal();
+    return () => {
+      dialog.current?.close();
+      previous?.focus();
+    };
+  }, [windowState.minimized]);
+  useEffect(() => {
+    const release = () => {
+      if (transferred.current) return;
       const value = activeBatch.current;
+      const paths = [];
       if (value.id && value.running)
-        void fetch(`/api/v1/access/batches/${value.id}`, {
+        paths.push(`/api/v1/access/batches/${value.id}`);
+      if (windowState.draftId && !draftDiscarded.current)
+        paths.push(`/api/v1/access/batch-drafts/${windowState.draftId}`);
+      for (const path of paths)
+        void fetch(path, {
           method: "DELETE",
           credentials: "same-origin",
           keepalive: true,
           headers: { "X-Netrix-Request": "1" },
         });
-    },
-    [],
-  );
+    };
+    window.addEventListener("pagehide", release);
+    return () => {
+      window.removeEventListener("pagehide", release);
+      release();
+    };
+  }, []);
   useEffect(() => {
     if (!id) return;
     let stopped = false;
@@ -989,8 +1051,15 @@ function BulkCommand({
         const value = await api("/access/batches/" + id);
         if (!stopped) {
           setData(value);
+          setActive(
+            (previous) => previous || value.targets[0]?.device_id || "",
+          );
+          setError("");
           if (["queued", "running"].includes(value.status))
-            timer = setTimeout(poll, 700);
+            timer = setTimeout(
+              poll,
+              windowState.minimized || document.hidden ? 1500 : 700,
+            );
         }
       } catch (e: any) {
         if (!stopped) setError(e.message);
@@ -1001,163 +1070,401 @@ function BulkCommand({
       stopped = true;
       clearTimeout(timer);
     };
-  }, [id]);
+  }, [id, windowState.minimized, refresh]);
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
     try {
       const result = await api("/access/batches", "POST", {
-        device_ids: devices.map((d) => d.id),
+        device_ids: data.targets.map((d: Row) => d.device_id),
         command,
         timeout,
       });
-      setData((v) => ({ ...v, status: result.status }));
+      setData((v) => ({
+        ...v,
+        status: result.status,
+        error: "",
+        targets: v.targets.map((t: Row) => ({
+          ...t,
+          status: "queued",
+          output: "",
+          error: "",
+        })),
+      }));
       setId(result.id);
+      if (standalone) history.replaceState(null, "", `/batch/${result.id}`);
+      if (windowState.draftId && !draftDiscarded.current) {
+        draftDiscarded.current = true;
+        void api(`/access/batch-drafts/${windowState.draftId}`, "DELETE").catch(
+          () => {},
+        );
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
   };
-  const target = data.targets?.find((t: Row) => t.device_id === active);
+  const detach = async () => {
+    const next = window.open("about:blank", "_blank");
+    if (!next) {
+      setError(
+        "Tarayıcı yeni sekmeyi engelledi. Bu site için açılır pencerelere izin verin.",
+      );
+      return;
+    }
+    next.opener = null;
+    setBusy(true);
+    setError("");
+    let draftId = "";
+    try {
+      let url = `/batch/${id}`;
+      if (!id) {
+        const draft = await api("/access/batch-drafts", "POST", {
+          device_ids: data.targets.map((d: Row) => d.device_id),
+          command,
+          timeout,
+        });
+        draftId = draft.id;
+        url = `/batch/draft/${draft.id}`;
+      }
+      if (next.closed)
+        throw new Error("Yeni sekme kapatıldı; mevcut pencere korunuyor.");
+      next.location.href = url;
+      transferred.current = true;
+      onDetached();
+    } catch (e: any) {
+      next.close();
+      setError(e.message);
+      if (draftId)
+        void api(`/access/batch-drafts/${draftId}`, "DELETE").catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+  const target = data.targets.find((t: Row) => t.device_id === active);
+  const phases: Record<string, string> = {
+    connection: "SSH bağlantısı",
+    greeting: "Karşılama ekranı",
+    preparation: "Oturum hazırlığı",
+    initial_command: "Başlangıç komutu",
+    command: "Komut yanıtı",
+    authorization: "Yetki kontrolü",
+  };
   return (
-    <Dialog title="Toplu komut gönder" onClose={onClose} wide>
-      <div className="ssh-batch">
-        <p>{devices.length} seçili cihaz · Aynı anda en fazla dört bağlantı</p>
-        <form onSubmit={start}>
-          <label>
-            Gönderilecek komut
-            <textarea
-              required
-              rows={3}
-              maxLength={4000}
-              value={command}
-              disabled={!!id || busy}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="Örnek: show version"
-            />
-          </label>
-          <div className="batch-submit">
+    <dialog
+      ref={dialog}
+      className={`ssh-dialog ssh-batch-dialog${full ? " ssh-full" : ""}`}
+      aria-label="Toplu komut gönder"
+      onCancel={(event) => {
+        event.preventDefault();
+        onMinimize();
+      }}
+    >
+      <header className="ssh-header">
+        <div className="ssh-heading">
+          <TerminalWindow size={22} aria-hidden="true" />
+          <div>
+            <h2>Toplu komut gönder</h2>
+            <span className="mono">{data.targets.length} cihaz seçili</span>
+          </div>
+        </div>
+        <span className={`ssh-state state-${data.status}`} role="status">
+          {data.status === "draft"
+            ? "Komut hazırlanıyor"
+            : states[data.status] || data.status}
+        </span>
+        <div className="ssh-window-actions">
+          <button
+            className="icon-button"
+            aria-label={
+              savedVisible
+                ? "Toplu komut hazır komutlarını gizle"
+                : "Toplu komut hazır komutlarını göster"
+            }
+            title="Hazır komutlar"
+            aria-expanded={savedVisible}
+            onClick={() => setSavedVisible((v) => !v)}
+          >
+            <ListBullets size={19} aria-hidden="true" />
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Toplu komutu simge durumuna küçült"
+            title="Simge durumuna küçült"
+            onClick={onMinimize}
+          >
+            <Minus size={19} aria-hidden="true" />
+          </button>
+          {!standalone && (
+            <button
+              className="icon-button"
+              aria-label="Toplu komutu yeni sekmede aç"
+              title="Yeni sekmede aç"
+              disabled={busy}
+              onClick={() => void detach()}
+            >
+              <ArrowSquareOut size={19} aria-hidden="true" />
+            </button>
+          )}
+          <button
+            className="icon-button"
+            aria-label={
+              full
+                ? "Toplu komut penceresini küçült"
+                : "Toplu komutu tam ekran yap"
+            }
+            title={full ? "Pencereyi küçült" : "Tam ekran"}
+            onClick={() => setFull((v) => !v)}
+          >
+            {full ? (
+              <ArrowsIn size={19} aria-hidden="true" />
+            ) : (
+              <ArrowsOut size={19} aria-hidden="true" />
+            )}
+          </button>
+          <button
+            className="icon-button"
+            aria-label="Toplu komut penceresini kapat"
+            title={running ? "İşlemi iptal et ve kapat" : "Pencereyi kapat"}
+            onClick={onClose}
+          >
+            <X size={19} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+      <div
+        className={`ssh-batch-body${savedVisible ? " with-commands" : ""}`}
+        style={
+          {
+            "--ssh-commands-width": `${commandsWidth}px`,
+          } as React.CSSProperties
+        }
+      >
+        <div className="ssh-batch">
+          <p className="batch-guidance">
+            Aynı anda en fazla dört bağlantı · Her cihaz kendi grubunun SSH
+            hesabını kullanır.
+          </p>
+          <form onSubmit={start}>
             <label>
-              Cihaz başına süre (saniye)
-              <input
-                type="number"
-                min={5}
-                max={120}
-                value={timeout}
+              Gönderilecek komut
+              <textarea
+                aria-label="Gönderilecek komut"
+                name="batch-command"
+                autoComplete="off"
+                spellCheck={false}
+                required
+                rows={3}
+                maxLength={4000}
+                value={command}
                 disabled={!!id || busy}
-                onChange={(e) => setTimeoutValue(Number(e.target.value))}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder={
+                  id
+                    ? "Bu sekme mevcut işlemin sonuçlarını izliyor."
+                    : "Örnek: show version"
+                }
               />
             </label>
-            {!id ? (
-              <button
-                className="primary"
-                disabled={busy || !devices.length || devices.length > 100}
-              >
-                <Play size={18} />
-                {busy ? "Gönderiliyor…" : "Komutu gönder"}
-              </button>
-            ) : running ? (
-              <button
-                type="button"
-                className="secondary"
-                onClick={async () => {
-                  try {
-                    await api("/access/batches/" + id, "DELETE");
-                  } catch (e: any) {
-                    setError(e.message);
+            <div className="batch-submit">
+              <label>
+                Cihaz başına süre (saniye)
+                <input
+                  name="batch-timeout"
+                  type="number"
+                  min={5}
+                  max={120}
+                  required
+                  value={timeout}
+                  disabled={!!id || busy}
+                  onChange={(e) => setTimeoutValue(Number(e.target.value))}
+                />
+              </label>
+              {!id ? (
+                <button
+                  className="primary"
+                  disabled={
+                    busy || !data.targets.length || data.targets.length > 100
                   }
-                }}
-              >
-                <Stop size={18} />
-                İptal et
-              </button>
-            ) : (
-              <span role="status">{states[data.status] || data.status}</span>
-            )}
-          </div>
-        </form>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-            <button
-              className="text-button"
-              onClick={async () => {
-                if (id) {
-                  try {
-                    setData(await api("/access/batches/" + id));
+                >
+                  <Play size={18} aria-hidden="true" />
+                  {busy ? "Gönderiliyor…" : "Komutu gönder"}
+                </button>
+              ) : running ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    try {
+                      await api("/access/batches/" + id, "DELETE");
+                    } catch (e: any) {
+                      setError(e.message);
+                    }
+                  }}
+                >
+                  <Stop size={18} aria-hidden="true" />
+                  İptal et
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setId("");
+                    setData((v) => ({
+                      ...v,
+                      status: "draft",
+                      error: "",
+                      targets: v.targets.map((t: Row) => ({
+                        ...t,
+                        status: "queued",
+                        output: "",
+                        error: "",
+                      })),
+                    }));
                     setError("");
-                  } catch (e: any) {
-                    setError(e.message);
-                  }
-                }
-              }}
-            >
-              Sonucu yenile
-            </button>
-          </p>
+                  }}
+                >
+                  <Plus size={18} aria-hidden="true" />
+                  Yeni komut hazırla
+                </button>
+              )}
+            </div>
+          </form>
+          {(error || data.error) && (
+            <div className="ssh-error batch-error" role="alert">
+              {error || data.error}
+              {id && (
+                <button
+                  className="text-button"
+                  onClick={() => setRefresh((value) => value + 1)}
+                >
+                  Sonucu yenile
+                </button>
+              )}
+            </div>
+          )}
+          <div className="batch-summary" role="status">
+            <span>
+              <i className="status-dot state-succeeded" />
+              {
+                data.targets.filter((t: Row) => t.status === "succeeded").length
+              }{" "}
+              başarılı
+            </span>
+            <span>
+              {
+                data.targets.filter((t: Row) =>
+                  ["failed", "cancelled"].includes(t.status),
+                ).length
+              }{" "}
+              başarısız / iptal
+            </span>
+            <span>
+              {
+                data.targets.filter((t: Row) =>
+                  ["queued", "running"].includes(t.status),
+                ).length
+              }{" "}
+              {id ? "bekleyen" : "hazır"}
+            </span>
+          </div>
+          <div className="batch-results">
+            <nav aria-label="Komut gönderilen cihazlar">
+              {data.targets.map((t: Row) => (
+                <button
+                  key={t.device_id}
+                  className={active === t.device_id ? "selected" : ""}
+                  aria-current={active === t.device_id ? "true" : undefined}
+                  onClick={() => setActive(t.device_id)}
+                >
+                  <b>{t.name}</b>
+                  <small className="mono">{t.management_ip}</small>
+                  <span className={`ssh-state state-${t.status}`}>
+                    {id ? states[t.status] : "Hazır"}
+                  </span>
+                </button>
+              ))}
+            </nav>
+            <section aria-label="Seçili cihazın komut sonucu">
+              <div className="batch-result-heading">
+                <h3>{target?.name || "Cihaz seçin"}</h3>
+                {target?.phase && <span>{phases[target.phase] || "SSH"}</span>}
+              </div>
+              <pre tabIndex={0} aria-label="Cihaz komut çıktısı">
+                {target?.output ||
+                  (target?.status === "succeeded"
+                    ? "Komut tamamlandı; cihaz metin çıktısı döndürmedi."
+                    : id
+                      ? "Cihazdan yanıt bekleniyor…"
+                      : "Komut gönderildiğinde cihaz çıktısı burada görünür.")}
+              </pre>
+            </section>
+          </div>
+        </div>
+        {savedVisible && (
+          <aside className="batch-saved-commands">
+            <p>Hazır komutu seçin, kontrol edip gönderin.</p>
+            <SavedCommands
+              selectOnly
+              enabled={!id && !busy}
+              send={setCommand}
+              onCollapse={() => setSavedVisible(false)}
+              onResize={(delta) =>
+                setCommandsWidth((v) => Math.max(240, Math.min(560, v + delta)))
+              }
+            />
+          </aside>
         )}
-        <div className="batch-summary" role="status">
-          {data.targets.filter((t: Row) => t.status === "succeeded").length}{" "}
-          başarılı ·{" "}
-          {
-            data.targets.filter((t: Row) =>
-              ["failed", "cancelled"].includes(t.status),
-            ).length
-          }{" "}
-          başarısız / iptal ·{" "}
-          {
-            data.targets.filter((t: Row) =>
-              ["queued", "running"].includes(t.status),
-            ).length
-          }{" "}
-          bekleyen
-        </div>
-        <div className="batch-results">
-          <nav aria-label="Komut gönderilen cihazlar">
-            {data.targets.map((t: Row) => (
-              <button
-                key={t.device_id}
-                className={active === t.device_id ? "selected" : ""}
-                aria-current={active === t.device_id ? "true" : undefined}
-                onClick={() => setActive(t.device_id)}
-              >
-                <b>{t.name}</b>
-                <small className="mono">{t.management_ip}</small>
-                <span className={`ssh-state state-${t.status}`}>
-                  {states[t.status]}
-                </span>
-              </button>
-            ))}
-          </nav>
-          <section aria-label="Seçili cihazın komut sonucu">
-            <h3>{target?.name}</h3>
-            <pre>
-              {target?.output ||
-                (id
-                  ? "Cihazdan yanıt bekleniyor…"
-                  : "Komut gönderildiğinde cihaz çıktısı burada görünür.")}
-            </pre>
-          </section>
-        </div>
-        <p className="muted">
-          Sonuçlar 10 dakika tutulur. Otomatik tekrar yoktur. İptal, cihaza
-          ulaşmış bir komutu geri almaz.
-        </p>
       </div>
-    </Dialog>
+      <footer className="ssh-footer">
+        <span>Sonuçlar 10 dakika tutulur · Otomatik tekrar yapılmaz.</span>
+        <span>Küçültme ve sekme aktarımı işlemi sürdürür.</span>
+      </footer>
+    </dialog>
   );
 }
 
-export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
+export function SSHWorkspace({
+  standaloneId,
+  standaloneBatchId,
+  standaloneDraftId,
+}: {
+  standaloneId?: string;
+  standaloneBatchId?: string;
+  standaloneDraftId?: string;
+}) {
+  const standalone = !!(standaloneId || standaloneBatchId || standaloneDraftId);
   const [sessions, setSessions] = useState<Session[]>([]);
   const sessionRef = useRef(sessions);
   sessionRef.current = sessions;
-  const [batch, setBatch] = useState<Row[] | null>(null);
+  const [batch, setBatch] = useState<BatchWindowState | null>(null);
+  const batchRef = useRef(batch);
+  batchRef.current = batch;
+  const minimizedCount =
+    sessions.filter((s) => s.minimized).length + (batch?.minimized ? 1 : 0);
   const [error, setError] = useState("");
   const pending = useRef(false);
   useEffect(() => {
+    if (standaloneBatchId || standaloneDraftId) {
+      const draft = !!standaloneDraftId;
+      const id = standaloneDraftId || standaloneBatchId;
+      api((draft ? "/access/batch-drafts/" : "/access/batches/") + id)
+        .then((value) =>
+          setBatch({
+            key: id!,
+            minimized: false,
+            devices: value.targets.map((t: Row) => ({ ...t, id: t.device_id })),
+            ...(draft
+              ? { draftId: id, command: value.command, timeout: value.timeout }
+              : { id, timeout: value.timeout }),
+          }),
+        )
+        .catch((e) => setError(e.message));
+      return;
+    }
     if (standaloneId) {
       api("/access/sessions/" + standaloneId)
         .then((value) => setSessions([{ ...value, minimized: false }]))
@@ -1166,11 +1473,7 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
     }
     const open = async (event: Event) => {
       if (pending.current) return;
-      if (
-        sessionRef.current.length >= 16 ||
-        (sessionRef.current.filter((s) => s.minimized).length >= 15 &&
-          sessionRef.current.some((s) => !s.minimized))
-      ) {
+      if (sessionRef.current.length + (batchRef.current ? 1 : 0) >= 16) {
         setError(
           "En fazla 15 küçültülmüş oturum açabilirsiniz. Önce bir oturumu kapatın.",
         );
@@ -1182,6 +1485,7 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
         const saved = await api("/access/sessions", "POST", {
           device_id: device.id,
         });
+        setBatch((value) => (value ? { ...value, minimized: true } : null));
         setSessions((values) => [
           ...values.map((v) => ({ ...v, minimized: true })),
           { ...saved, device_id: device.id, minimized: false },
@@ -1193,8 +1497,22 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
       }
     };
     const bulk = (event: Event) => {
+      if (sessionRef.current.length > 15) {
+        setError(
+          "Önce bir SSH oturumunu kapatın; en fazla 15 pencere küçültülebilir.",
+        );
+        return;
+      }
       setSessions((v) => v.map((s) => ({ ...s, minimized: true })));
-      setBatch((event as CustomEvent).detail);
+      setBatch((previous) =>
+        previous
+          ? { ...previous, minimized: false }
+          : {
+              key: crypto.randomUUID(),
+              devices: (event as CustomEvent).detail,
+              minimized: false,
+            },
+      );
     };
     window.addEventListener("netrix:ssh-open", open);
     window.addEventListener("netrix:ssh-batch", bulk);
@@ -1202,7 +1520,7 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
       window.removeEventListener("netrix:ssh-open", open);
       window.removeEventListener("netrix:ssh-batch", bulk);
     };
-  }, [standaloneId]);
+  }, [standaloneId, standaloneBatchId, standaloneDraftId]);
   useEffect(
     () => () => {
       for (const session of sessionRef.current)
@@ -1226,7 +1544,7 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
     }
   };
   const minimize = (id: string) => {
-    if (sessionRef.current.filter((v) => v.minimized).length >= 15) {
+    if (minimizedCount >= 15) {
       setError("En fazla 15 oturum küçültülebilir. Önce bir oturumu kapatın.");
       return;
     }
@@ -1247,9 +1565,12 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
   };
   return (
     <>
-      {standaloneId && (
+      {standalone && (
         <main className="standalone-terminal">
-          <h1>NETRIX · SSH çalışma alanı</h1>
+          <h1>
+            NETRIX ·{" "}
+            {standaloneId ? "SSH çalışma alanı" : "Toplu komut çalışma alanı"}
+          </h1>
           <a href="/#devices">Cihaz envanterine dön</a>
         </main>
       )}
@@ -1263,9 +1584,29 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
           onDetach={() => detach(session.id)}
         />
       ))}
-      {!!sessions.filter((s) => s.minimized).length && (
+      {!!minimizedCount && (
         <nav className="ssh-dock" aria-label="Küçültülmüş SSH oturumları">
-          <span>{sessions.filter((s) => s.minimized).length}/15</span>
+          <span>{minimizedCount}/15</span>
+          {batch?.minimized && (
+            <div>
+              <button
+                aria-label="Toplu komut penceresini aç"
+                onClick={() => {
+                  setSessions((v) => v.map((s) => ({ ...s, minimized: true })));
+                  setBatch((v) => (v ? { ...v, minimized: false } : null));
+                }}
+              >
+                <ListBullets size={18} aria-hidden="true" />
+                <span>Toplu komut · {batch.devices.length} cihaz</span>
+              </button>
+              <button
+                aria-label="Küçültülmüş toplu komutu kapat"
+                onClick={() => setBatch(null)}
+              >
+                <X size={15} aria-hidden="true" />
+              </button>
+            </div>
+          )}
           {sessions
             .filter((s) => s.minimized)
             .map((session) => (
@@ -1273,11 +1614,14 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
                 <button
                   title={session.management_ip}
                   aria-label={`${session.device_name} SSH oturumunu aç`}
-                  onClick={() =>
+                  onClick={() => {
+                    setBatch((value) =>
+                      value ? { ...value, minimized: true } : null,
+                    );
                     setSessions((v) =>
                       v.map((s) => ({ ...s, minimized: s.id !== session.id })),
-                    )
-                  }
+                    );
+                  }}
                 >
                   <TerminalWindow size={18} />
                   <span>{session.device_name}</span>
@@ -1292,7 +1636,24 @@ export function SSHWorkspace({ standaloneId }: { standaloneId?: string }) {
             ))}
         </nav>
       )}
-      {batch && <BulkCommand devices={batch} onClose={() => setBatch(null)} />}
+      {batch && (
+        <BulkCommand
+          key={batch.key}
+          windowState={batch}
+          standalone={standalone}
+          onClose={() => setBatch(null)}
+          onDetached={() => setBatch(null)}
+          onMinimize={() => {
+            if (minimizedCount >= 15) {
+              setError(
+                "En fazla 15 pencere küçültülebilir. Önce bir pencereyi kapatın.",
+              );
+              return;
+            }
+            setBatch((value) => (value ? { ...value, minimized: true } : null));
+          }}
+        />
+      )}
       {error && (
         <Dialog title="SSH bağlantısı" onClose={() => setError("")}>
           <p role="alert">{error}</p>

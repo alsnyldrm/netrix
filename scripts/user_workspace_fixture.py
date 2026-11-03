@@ -80,6 +80,12 @@ class MemoryRedis:
     def zrange(self, key, *args):
         return list(self.zsets.get(key, {}))
 
+    def delete(self, key):
+        return self.data.pop(key, None) is not None
+
+    def zrem(self, key, id):
+        self.zsets.get(key, {}).pop(id, None)
+
     def zadd(self, key, value):
         self.zsets.setdefault(key, {}).update(value)
 
@@ -98,6 +104,7 @@ class MemoryRedis:
                     else "Fixture: authentication failed",
                 )
             self.data[e.key("batch", data["id"])] = e.pack(record)
+            self.zsets.get(e.PREFIX + "batch:active", {}).pop(data["id"], None)
 
     def ping(self):
         return True

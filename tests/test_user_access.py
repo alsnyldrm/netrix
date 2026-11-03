@@ -361,6 +361,15 @@ class EphemeralRedis:
     def zrange(self, key, *args):
         return list(self.zsets.get(key, {}))
 
+    def expire(self, key, ttl):
+        return True
+
+    def delete(self, key):
+        return self.data.pop(key, None) is not None
+
+    def zrem(self, key, id):
+        self.zsets.get(key, {}).pop(id, None)
+
     def zadd(self, key, mapping):
         self.zsets.setdefault(key, {}).update(mapping)
 
@@ -645,3 +654,37 @@ def test_appearance_defaults_and_isolation(admin_client, target, env):
     )
     prefs = admin_client.get("/api/v1/access/preferences").json()
     assert prefs["palette"] == "cobalt" and prefs["design"] == "atlas"
+
+
+def test_batch_tab_draft_is_encrypted_bounded_and_never_executes(admin_client, target, env, monkeypatch):
+    device_id, other_user = target
+    assert profile(admin_client).status_code == 201
+    memory = EphemeralRedis()
+    monkeypatch.setattr(e, "redis_client", lambda: memory)
+    payload = {"device_ids": [device_id], "command": "show version draft-secret-marker", "timeout": 45}
+    result = admin_client.post("/api/v1/access/batch-drafts", json=payload)
+    assert result.status_code == 201
+    id = result.json()["id"]
+    assert "draft-secret-marker" not in memory.data[e.key("draft", id)]
+    assert memory.ttls[e.key("draft", id)] == 600 and not memory.queue
+    saved = admin_client.get("/api/v1/access/batch-drafts/" + id).json()
+    assert saved["command"] == payload["command"] and saved["targets"][0]["device_id"] == device_id
+    assert "auth_hash" not in saved and "password" not in saved
+    for _ in range(15):
+        assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 201
+    assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 429
+    assert admin_client.delete("/api/v1/access/batch-drafts/" + id).status_code == 204
+    assert admin_client.get("/api/v1/access/batch-drafts/" + id).status_code == 404
+    assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 201
+    assert not memory.queue
+    retained_id = next(iter(memory.zsets.values()))
+    retained_id = next(iter(retained_id))
+    admin_client.post("/api/v1/auth/logout")
+    admin_client.post(
+        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
+    )
+    assert admin_client.get("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
+    assert admin_client.delete("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
+    assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 403
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.Job)) == 0

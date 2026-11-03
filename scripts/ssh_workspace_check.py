@@ -224,7 +224,7 @@ async def check():
                 result = (await api.get("/api/v1/access/batches/" + batch_id)).json()
                 assert result["targets"][0]["status"] == expected, result
                 if command == "hang":
-                    assert "Zaman aşımı" in result["targets"][0]["output"]
+                    assert "zaman aşımı" in result["targets"][0]["output"].lower()
                 before = commands.count(command)
                 await runtime.execute(client, "batch", batch_id)
                 assert commands.count(command) == before

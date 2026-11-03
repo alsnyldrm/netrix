@@ -61,3 +61,26 @@ def admit(kind, value):
             return {"id": id, "status": "queued"}
     except RedisError:
         raise HTTPException(503, "SSH hizmetine ulaşılamadı") from None
+
+
+def draft(value):
+    """A tab handoff stores encrypted input for ten minutes, without queuing SSH."""
+    client = redis_client()
+    index = key("drafts", value["user_id"])
+    try:
+        with client.lock(index + ":lock", timeout=5, blocking_timeout=1):
+            client.zremrangebyscore(index, "-inf", time.time())
+            if len(client.zrange(index, 0, -1)) >= 16:
+                raise HTTPException(
+                    429, "En fazla 16 toplu komut taslağı açılabilir. Eski taslakları kapatın."
+                )
+            id = str(uuid4())
+            value = {**value, "id": id, "status": "draft"}
+            with client.pipeline(transaction=True) as transaction:
+                transaction.set(key("draft", id), pack(value), ex=RESULT_TTL)
+                transaction.zadd(index, {id: time.time() + RESULT_TTL})
+                transaction.execute()
+            client.expire(index, RESULT_TTL)
+            return {"id": id}
+    except RedisError:
+        raise HTTPException(503, "SSH hizmetine ulaşılamadı") from None
