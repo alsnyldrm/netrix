@@ -220,36 +220,55 @@ async def execute(id):
                 if check_cancelled(id):
                     finish(id, "cancelled")
                     return
-                set_phase(id, "transferring")
-                # Persist the unsafe boundary BEFORE sending any mutation to the device.
-                mutated = True
-                if prepare_sftp:
-                    await adapters.enable_sftp(cli)
-                    await adapters.probe_sftp(connection)
-                username, password, filename = transfers.grant(id, transfer_protocol(image.family))
-                last = 0.0
+                reused = False
+                if image.family == "cx6100":
+                    # Read again after backup: another administrator may have
+                    # changed the running image or the inactive area meanwhile.
+                    current = await adapters.inspect(cli, device)
+                    if current["bank"] != live["bank"] or not adapters.matches_version(
+                        live["version"], current["version"]
+                    ):
+                        raise ValueError("connection_changed")
+                    reused = bool(image.sha256) and adapters.cx_image_matches(current["banks"], bank, image)
+                    if check_cancelled(id):
+                        finish(id, "cancelled")
+                        return
+                if not reused:
+                    set_phase(id, "transferring")
+                    # Persist the unsafe boundary BEFORE sending any mutation to the device.
+                    mutated = True
+                    if prepare_sftp:
+                        await adapters.enable_sftp(cli)
+                        await adapters.probe_sftp(connection)
+                    username, password, filename = transfers.grant(id, transfer_protocol(image.family))
+                    last = 0.0
 
-                def progress(size):
-                    nonlocal last
-                    if time.monotonic() - last > 2:
-                        transfers.record_bytes(id, size)
-                        last = time.monotonic()
+                    def progress(size):
+                        nonlocal last
+                        if time.monotonic() - last > 2:
+                            transfers.record_bytes(id, size)
+                            last = time.monotonic()
 
-                await adapters.stage(
-                    connection,
-                    cli,
-                    device,
-                    image,
-                    bank,
-                    path,
-                    {"username": username, "password": password, "filename": filename},
-                    progress,
-                )
-                transfers.revoke(id)
+                    await adapters.stage(
+                        connection,
+                        cli,
+                        device,
+                        image,
+                        bank,
+                        path,
+                        {"username": username, "password": password, "filename": filename},
+                        progress,
+                    )
+                    transfers.revoke(id)
                 with session_factory()() as db:
                     row = db.get(m.FirmwareTarget, id)
-                    row.evidence = {**row.evidence, "staged": True, "staged_at": now().isoformat()}
-                    row.transfer_bytes = image.size_bytes
+                    row.evidence = {
+                        **row.evidence,
+                        "staged": True,
+                        "staged_at": now().isoformat(),
+                        "transfer_reused": reused,
+                    }
+                    row.transfer_bytes = 0 if reused else image.size_bytes
                     db.commit()
                 if plan.mode == "stage" or check_cancelled(id):
                     finish(id, "staged")

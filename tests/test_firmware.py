@@ -352,6 +352,143 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["stage", "upgrade"])
+async def test_cx_reuses_identical_inactive_image_after_fresh_backup(fw, monkeypatch, mode):
+    with fw["sf"]() as db:
+        for d in db.scalars(select(m.Device)):
+            d.adapter, d.model = "aruba_6100", "JL675A"
+        image = db.get(m.FirmwareImage, fw["image"]["id"])
+        image.family, image.models, image.version = "cx6100", ["JL675A"], "PL.10.18.1010"
+        db.commit()
+    plan = make_plan(fw, mode)
+    start(fw, plan)
+    target_id = runtime.claim()
+    calls = []
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield None, None
+
+    async def inspect(*args):
+        calls.append("inspect")
+        return {
+            "version": "PL.10.17.1030",
+            "bank": "secondary",
+            "banks": f"AOS-CX Primary Image\nVersion : PL.10.18.1010\nSHA-256 : {DIGEST}\n"
+            f"AOS-CX Secondary Image\nVersion : PL.10.17.1030\nSHA-256 : {'b' * 64}\n",
+        }
+
+    async def fetch(*args):
+        calls.append("backup")
+        return "!Version AOS-CX PL.10.17.1030\nhostname fixture\n"
+
+    def no_grant(*args):
+        raise AssertionError("An identical staged image must not get a transfer grant")
+
+    async def no_transfer(*args):
+        raise AssertionError("An identical staged image must not be written again")
+
+    async def activate(cli, device, bank):
+        calls.append("activate")
+        assert bank == "primary" and mode == "upgrade"
+
+    async def verify(*args, **kwargs):
+        calls.append("verify")
+        return "PL.10.18.1010"
+
+    monkeypatch.setattr(adapters, "connect", connection)
+    monkeypatch.setattr(adapters, "inspect", inspect)
+    monkeypatch.setattr(adapters, "stage", no_transfer)
+    monkeypatch.setattr(adapters, "activate", activate)
+    monkeypatch.setattr(transfers, "grant", no_grant)
+    monkeypatch.setattr(runtime, "fetch_config", fetch)
+    monkeypatch.setattr(runtime, "verify_running", verify)
+    await runtime.execute(target_id)
+    with fw["sf"]() as db:
+        target = db.get(m.FirmwareTarget, target_id)
+        assert target.status == ("staged" if mode == "stage" else "succeeded"), target.error
+        assert target.snapshot_id and target.evidence["transfer_reused"] is True
+        assert target.transfer_bytes == 0 and target.evidence["staged"] is True
+        assert target.transfer_username is None
+        assert calls == ["inspect", "backup", "inspect"] + (
+            ["activate", "verify"] if mode == "upgrade" else []
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    [
+        "wrong_hash",
+        "missing_hash",
+        "wrong_version",
+        "other_area",
+        "changed_bank",
+        "changed_version",
+        "backup_failed",
+    ],
+)
+async def test_cx_reuse_requires_complete_fresh_proof(fw, monkeypatch, case):
+    with fw["sf"]() as db:
+        for d in db.scalars(select(m.Device)):
+            d.adapter, d.model = "aruba_6100", "JL675A"
+        image = db.get(m.FirmwareImage, fw["image"]["id"])
+        image.family, image.models, image.version = "cx6100", ["JL675A"], "PL.10.18.1010"
+        db.commit()
+    plan = make_plan(fw, "stage")
+    start(fw, plan)
+    target_id = runtime.claim()
+    reads, writes = [], []
+
+    @asynccontextmanager
+    async def connection(*args, **kwargs):
+        yield None, None
+
+    async def inspect(*args):
+        reads.append(True)
+        fresh = len(reads) == 2
+        version = "PL.10.18.1011" if fresh and case == "wrong_version" else "PL.10.18.1010"
+        digest = "b" * 64 if fresh and case == "wrong_hash" else DIGEST
+        sha_line = "" if fresh and case == "missing_hash" else f"SHA-256 : {digest}\n"
+        area = "Secondary" if fresh and case == "other_area" else "Primary"
+        return {
+            "version": "PL.10.17.1031" if fresh and case == "changed_version" else "PL.10.17.1030",
+            "bank": "primary" if fresh and case == "changed_bank" else "secondary",
+            "banks": f"AOS-CX {area} Image\nVersion : {version}\n{sha_line}",
+        }
+
+    async def fetch(*args):
+        if case == "backup_failed":
+            raise OSError("fixture backup unavailable")
+        return "!Version AOS-CX PL.10.17.1030\nhostname fixture\n"
+
+    async def stage(*args):
+        writes.append(args[4])
+        assert args[6]["username"].startswith("fw_")
+
+    async def no_reboot(*args):
+        raise AssertionError("Stage must never reboot")
+
+    monkeypatch.setattr(adapters, "connect", connection)
+    monkeypatch.setattr(adapters, "inspect", inspect)
+    monkeypatch.setattr(adapters, "stage", stage)
+    monkeypatch.setattr(adapters, "activate", no_reboot)
+    monkeypatch.setattr(runtime, "fetch_config", fetch)
+    await runtime.execute(target_id)
+    with fw["sf"]() as db:
+        target = db.get(m.FirmwareTarget, target_id)
+        if case in ("changed_bank", "changed_version", "backup_failed"):
+            assert target.status == "failed" and not writes
+            assert target.transfer_username is None
+            if case != "backup_failed":
+                assert target.error_code == "connection_changed" and target.snapshot_id
+        else:
+            assert target.status == "staged", target.error
+            assert target.snapshot_id and target.evidence["transfer_reused"] is False
+            assert writes == ["primary"] and target.transfer_bytes == len(CONTENT)
+
+
+@pytest.mark.asyncio
 async def test_failed_transfer_is_uncertain_and_never_auto_replayed(fw, monkeypatch):
     plan = make_plan(fw, "upgrade")
     start(fw, plan)
