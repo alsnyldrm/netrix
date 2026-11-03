@@ -120,14 +120,14 @@ def test_dns_gateway_vmware_fields_and_terminal_switch_port(network):
         )
         db.commit()
     result = read(network)
-    assert result["hostname"] == "dns.example"
+    assert result["hostname"] == "manual-name"
     assert result["mac_address"] == MAC and not result["mac_conflict"]
-    assert result["operating_system"] == "Ubuntu"
+    assert result["operating_system"] == "manual-os"
     assert result["connected_device"] == "Access" and result["connected_port"] == "Gi1/0/1"
     assert result["field_sources"] == {
-        "hostname": "dns",
+        "hostname": "manual",
         "mac_address": "gateway",
-        "operating_system": "vcenter",
+        "operating_system": "manual",
     }
     assert result["managed"]["hostname"] == "manual-name"
 

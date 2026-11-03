@@ -29,6 +29,7 @@ import "./ipam.css";
 type Row = Record<string, any>;
 const sourceName = (v: string) =>
   ({
+    manual: "Manuel",
     vcenter: "VMware vCenter",
     windows_dhcp: "Windows DHCP",
     dns: "DNS",

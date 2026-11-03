@@ -432,6 +432,12 @@ def enrich(db, rows, *, details=True, include_options=False):
             "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",
             "operating_system": "vcenter" if item["operating_system"] else "",
         }
+        # A manual display override is not DNS identity evidence. Apply it only
+        # after VMware NIC/MAC selection has used the actual DNS observation.
+        for field in ("hostname", "operating_system"):
+            if value := item["managed"][field].strip():
+                item[field] = value
+                item["field_sources"][field] = "manual"
         item["location"] = (
             sites.get(row.sub_site_id or row.site_id)
             or item["location"]

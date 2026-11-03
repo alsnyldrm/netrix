@@ -1,0 +1,78 @@
+.form-field > .searchable-choice {
+  grid-row: 2;
+}
+.searchable-choice {
+  display: block;
+  min-width: 0;
+  position: relative;
+  align-self: start;
+}
+.choice-control {
+  display: block;
+  position: relative;
+}
+.choice-control input {
+  width: 100%;
+  padding-right: 36px;
+  text-overflow: ellipsis;
+}
+.choice-control > svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-2);
+}
+.choice-selected-path {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.searchable-choice ul {
+  position: absolute;
+  z-index: 5;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+.searchable-choice li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.searchable-choice li > span {
+  min-width: 0;
+}
+.searchable-choice li > svg {
+  flex-shrink: 0;
+}
+.searchable-choice li:hover,
+.searchable-choice .choice-active,
+.searchable-choice li[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.searchable-choice .choice-empty {
+  cursor: default;
+  color: var(--text-2);
+}

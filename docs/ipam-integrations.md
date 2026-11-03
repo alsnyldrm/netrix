@@ -12,7 +12,13 @@ IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu
 | İşletim sistemi | Yönetim → Entegrasyonlar → VMware |
 | Kabin No | Aynı VRF/IP ile cihazın kendi kabinet yerleşimi; oda katı/bölümü/kabinet numarası/başlangıç U (`L-0/A/4/13U`) |
 
-DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. DHCP ve VMware isimleri DNS yerine; DHCP MAC'i otomatik MAC alanında; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. DNS hostname'i VMware'de doğrulanırsa MAC önceliği VMware'dedir; bu açık istisna dışındaki kayıtlar gateway kuralını kullanır. Manuel hostname/OS notları ayrı `managed` alanında korunur; otomatik alanların kaynağını değiştirmez. Kaynağı olmayan otomatik değer boştur.
+DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. DHCP ve VMware isimleri DNS yerine; DHCP MAC'i otomatik MAC alanında; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. DNS hostname'i VMware'de doğrulanırsa MAC önceliği VMware'dedir; bu açık istisna dışındaki kayıtlar gateway kuralını kullanır. Kaynağı olmayan otomatik değer boştur.
+
+### Manuel bilgilerin gösterimi — 3 Kasım 2026
+
+Proje sahibinin talebiyle kaydedilmiş manuel hostname ve işletim sistemi liste, ayrıntı, arama ve filtrelerde önceliklidir. `field_sources` bu alanları `manual` olarak belirtir; ayrıntıda kaynak **Manuel** görünür. Manuel alan boşsa yukarıdaki otomatik kaynak kullanılır. Ham DNS/VMware gözlemleri ve `managed` değerleri korunur. Manuel hostname DNS kanıtı yerine geçmez; VMware NIC/MAC/port kimliği gerçek DNS gözleminden çözülür. Bu davranış mevcut manuel kayıtlar için de geçerlidir; tekrar kaydetme veya migration gerektirmez.
+
+Düzenleyici yalnız `managed` değerlerini düzenler; dokunulmadan kaydetmek otomatik adı veya işletim sistemini manuel değere dönüştürmez. Kabinet seçimi lokasyon/kat/bölüm/oda/kabinet yoluyla, oda seçimi kat/bölüm/oda yoluyla aranabilir. Aynı numaralı kabinetler seçenek kimlikleriyle ayrılır; kabinet seçimi kendi kurum/lokasyon/oda ilişkisini birlikte günceller. Eski belirsiz kabinet notu keyfi bir odaya atanmaz. Regresyonlar: `test_ipam_manual_display.py`, `scripts/ipam_manual_browser_check.py`.
 
 VMware sanal makinesi olduğu güncel eşleşmeyle doğrulanan IP adreslerinde Kabinet no `Sanal` gösterilir. Bu türetilmiş değer liste, ayrıntı ve düzenleme ekranında aynıdır; manuel kabinet kaydı korunur. Süresi dolmuş VMware gözlemi bu gösterimi oluşturmaz. Hostname ile doğrulanmamış ve gateway MAC ile çelişen VMware gözlemi de kullanılmaz.
 

@@ -95,6 +95,13 @@ import {
 import { BackupWorkspace, ConfigComparison } from "./backups";
 import { IPAMWorkspace, Integrations } from "./ipam";
 import { Locations, Cabinets } from "./locations";
+import { SearchableChoice } from "./searchable-choice";
+import {
+  cabinetChoices,
+  chooseCabinet,
+  roomChoiceLabel,
+  selectedCabinet,
+} from "./location-choices";
 
 const FirmwareWorkspace = React.lazy(() => import("./firmware"));
 
@@ -780,11 +787,11 @@ export const ADDRESS_PAGE: Page = {
     ref("vrf_id", "VRF", "vrfs", true),
     ref("vlan_id", "VLAN", "vlans", true),
     f("hostname", "Hostname", {
-      hint: "Manuel not olarak saklanır. IP tablosundaki Hostname DNS’den alınır.",
+      hint: "Manuel değer önceliklidir. Boş bırakırsanız DNS bilgisi gösterilir.",
     }),
     f("operating_system", "İşletim sistemi", {
       suggestions: "operating-systems",
-      hint: "Manuel not olarak saklanır. IP tablosundaki işletim sistemi VMware’den alınır.",
+      hint: "Manuel değer önceliklidir. Boş bırakırsanız VMware bilgisi gösterilir.",
     }),
     f("cabinet", "Kabinet no", {
       suggestions: "cabinets",
@@ -1280,6 +1287,11 @@ export function dependentChange(values: Row, key: string, value: any) {
   if (key === "site_id" && "sub_site_id" in next) next.sub_site_id = "";
   if (
     ["institution_id", "site_id", "sub_site_id"].includes(key) &&
+    "cabinet" in next
+  )
+    next.cabinet = "";
+  if (
+    ["institution_id", "site_id", "sub_site_id"].includes(key) &&
     "location" in next
   )
     next.location = "";
@@ -1295,6 +1307,32 @@ function ResourceForm(props: React.ComponentProps<typeof GenericResourceForm>) {
     <DiscoveryScopeForm {...props} />
   ) : (
     <GenericResourceForm {...props} />
+  );
+}
+function ResourceField({
+  field,
+  full,
+  searchable,
+  children,
+}: {
+  field: Field;
+  full: boolean;
+  searchable: boolean;
+  children: React.ReactNode;
+}) {
+  const Wrapper = searchable ? "div" : "label";
+  const Title = searchable ? "label" : "span";
+  return (
+    <Wrapper className={"form-field" + (full ? " full" : "")}>
+      <Title
+        className="field-title"
+        htmlFor={searchable ? `choice-${field.key}` : undefined}
+      >
+        {field.label}
+        {field.required && <span className="required"> *</span>}
+      </Title>
+      {children}
+    </Wrapper>
   );
 }
 function GenericResourceForm({
@@ -1323,7 +1361,10 @@ function GenericResourceForm({
         field.key === "cabinet" &&
         (row?.connection_type === "vcenter" || row?.rack_position)
           ? (row.managed?.cabinet ?? "")
-          : row?.[field.key]) ??
+          : page.key === "addresses" &&
+              ["hostname", "operating_system"].includes(field.key)
+            ? (row?.managed?.[field.key] ?? row?.[field.key])
+            : row?.[field.key]) ??
           field.default ??
           (field.type === "checkbox"
             ? false
@@ -1339,6 +1380,10 @@ function GenericResourceForm({
   }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const cabinetId = selectedCabinet(refs, values);
+  const cabinetOptions = cabinetChoices(refs, values);
+  const legacyCabinet =
+    values.cabinet && !cabinetId ? `legacy:${values.cabinet}` : "";
   const cabinetRoom =
     page.key === "cabinets" && !row?.id
       ? refs.sites?.find(
@@ -1477,20 +1522,22 @@ function GenericResourceForm({
         )}
         <div className="form-grid">
           {fields.map((field) => (
-            <label
+            <ResourceField
               key={field.key}
-              className={
-                "form-field" +
-                (field.type === "array" ||
-                (cabinetRoom && field.key === "description")
-                  ? " full"
-                  : "")
+              field={field}
+              full={
+                field.type === "array" ||
+                !!(cabinetRoom && field.key === "description")
+              }
+              searchable={
+                (["addresses", "cabinets"].includes(page.key) &&
+                  field.key === "sub_site_id") ||
+                (page.key === "addresses" &&
+                  field.key === "cabinet" &&
+                  !virtualConnection &&
+                  !row?.rack_position)
               }
             >
-              <span className="field-title">
-                {field.label}
-                {field.required && <span className="required"> *</span>}
-              </span>
               {virtualConnection &&
               ["device_id", "interface_id", "cabinet"].includes(field.key) ? (
                 <>
@@ -1547,7 +1594,47 @@ function GenericResourceForm({
                 </span>
               ) : (
                 <>
-                  {field.suggestions ? (
+                  {page.key === "addresses" && field.key === "cabinet" ? (
+                    <SearchableChoice
+                      inputId={`choice-${field.key}`}
+                      label={field.label}
+                      value={cabinetId || legacyCabinet}
+                      options={[
+                        { value: "", label: "Seçilmedi" },
+                        ...(legacyCabinet
+                          ? [
+                              {
+                                value: legacyCabinet,
+                                label: `${values.cabinet} · Mevcut manuel kayıt`,
+                              },
+                            ]
+                          : []),
+                        ...cabinetOptions,
+                      ]}
+                      onChange={(id) => {
+                        if (!legacyCabinet || id !== legacyCabinet)
+                          setValues(chooseCabinet(refs, values, id));
+                      }}
+                    />
+                  ) : ["addresses", "cabinets"].includes(page.key) &&
+                    field.key === "sub_site_id" ? (
+                    <SearchableChoice
+                      inputId={`choice-${field.key}`}
+                      label={field.label}
+                      value={values[field.key] || ""}
+                      required={field.required}
+                      disabled={!values.site_id}
+                      options={[
+                        { value: "", label: "Seçilmedi" },
+                        ...resourceChoices(field, refs, values, page.key).map(
+                          (r) => ({ value: r.id, label: roomChoiceLabel(r) }),
+                        ),
+                      ]}
+                      onChange={(id) =>
+                        setValues(dependentChange(values, field.key, id))
+                      }
+                    />
+                  ) : field.suggestions ? (
                     <select
                       aria-label={field.label}
                       value={values[field.key] || ""}
@@ -1674,7 +1761,7 @@ function GenericResourceForm({
                   gerektirir.
                 </small>
               )}
-            </label>
+            </ResourceField>
           ))}
         </div>
         {row && onTest && (
