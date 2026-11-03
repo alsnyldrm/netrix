@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Plus,
   UploadSimple,
+  DownloadSimple,
   ShieldCheck,
   Trash,
   Play,
@@ -1260,7 +1261,7 @@ export default function FirmwareWorkspace({
             role="region"
             aria-label="Firmware tablosu"
           >
-            <table>
+            <table className={tab === "images" ? "fw-images-table" : undefined}>
               <thead>
                 <tr>
                   {(tab === "devices"
@@ -1296,36 +1297,46 @@ export default function FirmwareWorkspace({
                     ) : tab === "images" ? (
                       <>
                         <td>
-                          <button
-                            className="text-button fw-plan-link"
-                            onClick={() =>
-                              setModal({ kind: "image-detail", row: r })
-                            }
-                          >
-                            {r.name}
-                          </button>
-                          <small>
-                            {r.version} · {bytes(r.size_bytes)}
-                          </small>
+                          <div className="fw-cell-stack">
+                            <button
+                              className="text-button fw-plan-link fw-cell-primary"
+                              onClick={() =>
+                                setModal({ kind: "image-detail", row: r })
+                              }
+                            >
+                              {r.name}
+                            </button>
+                            <small>
+                              {r.version} · {bytes(r.size_bytes)}
+                            </small>
+                          </div>
                         </td>
                         <td>
-                          {FAMILIES[r.family]}
-                          <small>{r.models.join(", ")}</small>
+                          <div className="fw-cell-stack">
+                            <div className="fw-cell-primary">
+                              {FAMILIES[r.family]}
+                            </div>
+                            <small>{r.models.join(", ")}</small>
+                          </div>
                         </td>
                         <td>
-                          <State value={r.status} />
-                          <small
-                            className="mono"
-                            title={r.sha256 || r.expected_sha256}
-                          >
-                            {(r.sha256 || r.expected_sha256).slice(0, 20)}…
-                          </small>
+                          <div className="fw-cell-stack">
+                            <div className="fw-cell-primary">
+                              <State value={r.status} />
+                            </div>
+                            <small
+                              className="mono"
+                              title={r.sha256 || r.expected_sha256}
+                            >
+                              {(r.sha256 || r.expected_sha256).slice(0, 20)}…
+                            </small>
+                          </div>
                         </td>
                         <td>
-                          <div className="fw-row-actions">
+                          <div className="fw-row-actions fw-image-actions">
                             {admin && r.status === "uploading" && (
                               <button
-                                className="text-button"
+                                className="secondary"
                                 onClick={() =>
                                   setModal({ kind: "image", row: r })
                                 }
@@ -1335,19 +1346,21 @@ export default function FirmwareWorkspace({
                             )}
                             {admin && r.status === "ready" && (
                               <a
-                                className="text-button"
+                                className="secondary"
                                 href={`/api/v1/firmware/images/${r.id}/content`}
                               >
+                                <DownloadSimple size={16} aria-hidden="true" />
                                 İndir
                               </a>
                             )}
                             {admin && (
                               <button
-                                className="text-button"
+                                className="secondary fw-image-delete"
                                 onClick={() =>
                                   setModal({ kind: "delete-image", row: r })
                                 }
                               >
+                                <Trash size={16} aria-hidden="true" />
                                 Sil
                               </button>
                             )}

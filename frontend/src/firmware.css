@@ -60,6 +60,14 @@
 }
 .fw-toolbar-actions > input {
   width: 190px;
+  height: 40px;
+  min-width: 0;
+}
+.fw-toolbar > div {
+  min-width: 0;
+}
+.fw-toolbar-actions {
+  flex-shrink: 0;
 }
 .fw-table-scroll {
   overflow-x: auto;
@@ -94,6 +102,55 @@
 .fw-workspace td p {
   margin: 0;
   max-width: 32ch;
+}
+.fw-images-table {
+  min-width: 1120px;
+  table-layout: fixed;
+}
+.fw-images-table th:last-child {
+  width: 256px;
+}
+.fw-images-table td {
+  padding-top: 16px;
+  padding-bottom: 16px;
+  vertical-align: top;
+}
+.fw-cell-stack {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.fw-cell-primary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 36px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  text-align: left;
+}
+.fw-cell-stack > small {
+  margin-top: 0;
+  line-height: 1.5;
+}
+.fw-image-actions {
+  flex-wrap: nowrap;
+}
+.fw-image-actions > .secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.fw-image-actions .fw-image-delete {
+  color: var(--danger);
 }
 .fw-state {
   display: inline-flex;
