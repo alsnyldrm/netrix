@@ -50,6 +50,7 @@ const PHASE: Row = {
   preflight: "Ön kontrol",
   backup: "Konfigürasyon yedeği",
   transferring: "Dosya aktarımı ve yazım",
+  image_verifying: "Cihazın imajı doğrulanıyor",
   rebooting: "Yeniden başlatma",
   verifying: "Sürüm doğrulama",
   reconcile: "Sonucu yeniden doğrulama",
@@ -1163,6 +1164,14 @@ function PlanDetail({
                             ) : t.status === "staged" ? (
                               <span>
                                 Hedef firmware yazılım alanında hazır.
+                              </span>
+                            ) : t.phase === "image_verifying" ? (
+                              <span>
+                                Dosya aktarıldı; cihazın SHA-256 kontrolü
+                                sürüyor.
+                                {t.evidence.image_verification_percent != null
+                                  ? ` %${t.evidence.image_verification_percent}`
+                                  : ""}
                               </span>
                             ) : t.verified_version ? (
                               <span>Çalışan: {t.verified_version}</span>

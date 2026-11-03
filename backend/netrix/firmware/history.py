@@ -19,6 +19,7 @@ PHASES = {
     "preflight": "Ön kontrol başlatıldı",
     "backup": "Konfigürasyon yedeği başlatıldı",
     "transferring": "Dosya aktarımı ve yazım başlatıldı",
+    "image_verifying": "Cihazın imaj bütünlüğü doğrulanıyor",
     "rebooting": "Yeniden başlatma başlatıldı",
     "verifying": "Açılış sonrası sürüm doğrulaması başlatıldı",
     "reconcile": "Sonuç yeniden doğrulanıyor",

@@ -28,6 +28,7 @@ const PHASES: Row = {
   preflight: "Ön kontrol",
   backup: "Konfigürasyon yedeği",
   transferring: "Dosya aktarımı ve yazım",
+  image_verifying: "Cihazın imajı doğrulanıyor",
   rebooting: "Yeniden başlatma",
   verifying: "Sürüm doğrulama",
   reconcile: "Sonucu yeniden doğrulama",
@@ -219,6 +220,16 @@ function Transcript({ id, refresh }: { id: string; refresh: number }) {
                 {t.evidence.transfer_reused ? " · Mevcut imaj kullanıldı" : ""}
               </dd>
             </div>
+            {t.evidence.image_verification_percent != null && (
+              <div className="fw-history-metadata-wide">
+                <dt>Cihazın imaj doğrulaması</dt>
+                <dd>
+                  {t.evidence.staged && t.evidence.staged_sha256
+                    ? "SHA-256 eşleşti; imaj hazır."
+                    : `SHA-256 doğrulaması: %${t.evidence.image_verification_percent}`}
+                </dd>
+              </div>
+            )}
             <div className="fw-history-metadata-wide">
               <dt>SHA-256</dt>
               <dd className="mono">{data.image.sha256 || "Kaydedilmemiş"}</dd>

@@ -151,12 +151,78 @@ async def verify_running(id, device, secret, image, bank, *, wait=True, recorder
     raise ValueError("reboot_timeout")
 
 
+def image_progress(id, percent, *, transferred_bytes=None):
+    with session_factory()() as db:
+        row = db.get(m.FirmwareTarget, id)
+        phase = "reconcile" if row.phase == "reconcile" else "image_verifying"
+        changed = row.phase != phase or row.evidence.get("image_verification_percent") != percent
+        row.phase, row.heartbeat_at = phase, now()
+        row.evidence = {**row.evidence, "image_verification_percent": percent}
+        if transferred_bytes is not None:
+            row.transfer_bytes = transferred_bytes
+        if changed:
+            history.add_event(
+                db,
+                row,
+                kind="phase",
+                title="Cihazın imaj bütünlüğü doğrulanıyor",
+                response=f"Cihazın SHA-256 doğrulaması: %{percent}"
+                if percent is not None
+                else "Dosya aktarımı tamamlandı; cihazın SHA-256 sonucu bekleniyor.",
+                finished=True,
+            )
+        db.commit()
+    if changed:
+        publish()
+
+
+async def verify_staged(id, target, device, secret, image, recorder):
+    if (
+        not target.snapshot_id
+        or target.bank not in ("primary", "secondary")
+        or target.bank == target.previous_bank
+    ):
+        raise ValueError("not_staged")
+    # Preserve the local file, backup and connection guarantees even for read-only repair.
+    await asyncio.to_thread(verify_file, image)
+    with session_factory()() as db:
+        snapshot = db.get(m.Snapshot, target.snapshot_id)
+        if not snapshot or snapshot.device_id != target.device_id:
+            raise ValueError("not_staged")
+    async with adapters.connect(device, secret, recorder=recorder) as (_, cli):
+        live = await adapters.inspect(cli, device)
+        if live["bank"] != target.previous_bank or not adapters.matches_version(
+            target.previous_version, live["version"]
+        ):
+            raise ValueError("connection_changed")
+
+        async def progress(percent):
+            await asyncio.to_thread(image_progress, id, percent)
+
+        await adapters.wait_cx_image(cli, target.bank, image, progress)
+    with session_factory()() as db:
+        row = db.get(m.FirmwareTarget, id)
+        row.evidence = {
+            **row.evidence,
+            "staged": True,
+            "staged_at": now().isoformat(),
+            "staged_version": image.version,
+            "staged_sha256": image.sha256,
+            "image_verification_percent": 100,
+        }
+        db.commit()
+    finish(id, "staged")
+
+
 async def execute(id):
     mutated = False
     try:
         target, plan, device, image, secret = load(id)
         recorder = history.Recorder(id, (secret.get("password", ""), secret.get("username", "")))
         if target.phase == "reconcile":
+            if plan.mode == "stage" and image.family == "cx6100":
+                await verify_staged(id, target, device, secret, image, recorder)
+                return
             await recorder.note("Sonuç yeniden doğrulanıyor", kind="phase")
             version = await verify_running(
                 id, device, secret, image, target.bank, wait=False, recorder=recorder
@@ -177,6 +243,16 @@ async def execute(id):
             cli,
         ):
             live = await adapters.inspect(cli, device)
+            transfer_started = False
+
+            async def verify_progress(percent):
+                await asyncio.to_thread(
+                    image_progress,
+                    id,
+                    percent,
+                    transferred_bytes=image.size_bytes if transfer_started else None,
+                )
+
             if (
                 image.family == "aos_s"
                 and image.version.split(".")[0].upper() != live["version"].split(".")[0].upper()
@@ -251,7 +327,16 @@ async def execute(id):
                         live["version"], current["version"]
                     ):
                         raise ValueError("connection_changed")
-                    reused = bool(image.sha256) and adapters.cx_image_matches(current["banks"], bank, image)
+                    if (
+                        adapters.bank_contains(current["banks"], bank, image.version)
+                        and adapters.cx_image_progress(current["banks"], bank) is not None
+                    ):
+                        await adapters.wait_cx_image(cli, bank, image, verify_progress)
+                        reused = True
+                    else:
+                        reused = bool(image.sha256) and adapters.cx_image_matches(
+                            current["banks"], bank, image
+                        )
                     if check_cancelled(id):
                         finish(id, "cancelled")
                         return
@@ -281,6 +366,7 @@ async def execute(id):
                             transfers.record_bytes(id, size)
                             last = time.monotonic()
 
+                    transfer_started = True
                     await adapters.stage(
                         connection,
                         cli,
@@ -290,6 +376,7 @@ async def execute(id):
                         path,
                         {"username": username, "password": password, "filename": filename},
                         progress,
+                        verify_progress,
                     )
                     transfers.revoke(id)
                 with session_factory()() as db:
@@ -299,6 +386,15 @@ async def execute(id):
                         "staged": True,
                         "staged_at": now().isoformat(),
                         "transfer_reused": reused,
+                        **(
+                            {
+                                "staged_version": image.version,
+                                "staged_sha256": image.sha256,
+                                "image_verification_percent": 100,
+                            }
+                            if image.family == "cx6100"
+                            else {}
+                        ),
                     }
                     row.transfer_bytes = 0 if reused else image.size_bytes
                     history.add_event(
@@ -438,7 +534,7 @@ def claim():
         ):
             row.status = (
                 "attention"
-                if row.phase in ("transferring", "rebooting", "verifying", "reconcile")
+                if row.phase in ("transferring", "image_verifying", "rebooting", "verifying", "reconcile")
                 else "failed"
             )
             row.error_code, row.error = "interrupted", FAILURE_MESSAGES["interrupted"]

@@ -18,6 +18,7 @@ ERRORS = {
     "version": "Çalışan yazılım sürümü kesin olarak okunamadı.",
     "bank": "Çalışan yazılım alanı okunamadı; üzerine yazma engellendi.",
     "image": "Firmware hedef yazılım alanında doğrulanamadı. Sonucu yeniden doğrulayın.",
+    "image_verification_timeout": "Dosya aktarıldı; cihaz SHA-256 doğrulamasını henüz tamamlamadı. Dosyayı yeniden göndermeden sonucu yeniden doğrulayın.",
     "transfer_protocol": "Cihaz dosya aktarım protokolünü reddetti (Unsupported protocol). Aktarım yöntemi kontrol edilmeli.",
     "source_key": "Dosya sunucusunun SSH anahtarı doğrulanamadı.",
     "unexpected_prompt": "Cihaz beklenmeyen bir onay istedi; işlem durduruldu.",
@@ -93,14 +94,53 @@ def cx_image_matches(text, bank, image):
     expected = getattr(image, "sha256", "")
     if not expected:
         return True
+    digest = cx_image_digest(text, bank)
+    return bool(digest and digest.lower() == expected.lower())
+
+
+def cx_image_section(text, bank):
     section = re.search(
         r"(?ims)^\s*(?:AOS-CX\s+)?"
         + re.escape(bank)
         + r"\s+Image[^\n]*\n(.*?)(?=^\s*(?:AOS-CX\s+)?(?:Primary|Secondary)\s+Image|\Z)",
         text,
     )
-    digest = re.search(r"(?im)^\s*SHA-256\s*:\s*([a-f0-9]{64})\s*$", section[1]) if section else None
-    return bool(digest and digest[1].lower() == expected.lower())
+    return section[1] if section else ""
+
+
+def cx_image_digest(text, bank):
+    digest = re.search(r"(?im)^\s*SHA-256\s*:\s*([a-f0-9]{64})\s*$", cx_image_section(text, bank))
+    return digest[1] if digest else ""
+
+
+def cx_image_progress(text, bank):
+    progress = re.search(r"(?im)^\s*SHA-256\s*:\s*Verifying\s+(\d{1,3})%\s*$", cx_image_section(text, bank))
+    return int(progress[1]) if progress and 0 <= int(progress[1]) <= 100 else None
+
+
+async def wait_cx_image(cli, bank, image, progress=None):
+    """The copy can finish while the device is still computing the image digest."""
+    pending = False
+    if progress:
+        await progress(None)
+    try:
+        async with asyncio.timeout(900):
+            while True:
+                output = await cli.command("show images")
+                if cx_image_matches(output, bank, image):
+                    if progress:
+                        await progress(100)
+                    return
+                percent = cx_image_progress(output, bank)
+                pending = percent is not None and bank_contains(output, bank, image.version)
+                if pending and progress:
+                    await progress(percent)
+                # A completed, wrong digest is a real mismatch, not a slow verification.
+                if bank_contains(output, bank, image.version) and cx_image_digest(output, bank):
+                    raise FirmwareError("image")
+                await asyncio.sleep(5)
+    except TimeoutError:
+        raise FirmwareError("image_verification_timeout" if pending else "image") from None
 
 
 class CLI:
@@ -248,7 +288,7 @@ async def inspect(cli, device):
     return {"version": version, "bank": bank, "banks": banks}
 
 
-async def stage(connection, cli, device, image, bank, path, source, progress=None):
+async def stage(connection, cli, device, image, bank, path, source, progress=None, verify_progress=None):
     if device.adapter in ("aruba_5400", "aruba_2900"):
         before_log = set((await cli.command("show logging -r")).splitlines())
         async with connection.start_sftp_client() as sftp:
@@ -276,16 +316,7 @@ async def stage(connection, cli, device, image, bank, path, source, progress=Non
     elif device.adapter == "aruba_6100":
         command = f"copy scp://{source['username']}@{settings().firmware_advertise_host}:{settings().firmware_sftp_port}/{source['filename']} {bank} vrf default"
         await cli.command(command, action="transfer", password=source["password"], timeout=1800)
-        # The native copy's completion and the show-images metadata can become
-        # visible separately. Retry only readback; never repeat the flash write.
-        try:
-            async with asyncio.timeout(60):
-                while True:
-                    if cx_image_matches(await cli.command("show images"), bank, image):
-                        return
-                    await asyncio.sleep(2)
-        except TimeoutError:
-            raise FirmwareError("image") from None
+        await wait_cx_image(cli, bank, image, verify_progress)
     else:
         await cli.command(
             f"upgrade {settings().firmware_advertise_host} runtime file {source['filename']}",
