@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   CalendarBlank,
+  CaretRight,
   Check,
   Clock,
   MagnifyingGlass,
@@ -427,9 +428,7 @@ export default function IPAMSettings({
   const canWrite = ["admin", "operator"].includes(user.role);
   const data = query.data;
   const items = (data?.items || []).filter((g: Row) =>
-    `${g.name} ${g.description}`
-      .toLocaleLowerCase("tr")
-      .includes(search.toLocaleLowerCase("tr")),
+    g.name.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")),
   );
   return (
     <div className="scan-settings">
@@ -440,10 +439,6 @@ export default function IPAMSettings({
             Tarama
           </span>
           <h2>VLAN tam tarama zamanlaması</h2>
-          <p>
-            VLAN’ları gruplayın; başlangıcı, tekrar aralığını ve kaç kez
-            çalışacağını belirleyin.
-          </p>
         </div>
         {canWrite && (
           <button
@@ -466,9 +461,9 @@ export default function IPAMSettings({
           <label className="scan-search">
             <MagnifyingGlass size={18} aria-hidden="true" />
             <input
-              aria-label="Tarama grubu ara"
+              aria-label="Görev adı ara"
               type="search"
-              placeholder="Grup veya açıklama ara…"
+              placeholder="Görev adı ara…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -490,87 +485,84 @@ export default function IPAMSettings({
           </div>
         )}
         {items.map((g: Row) => (
-          <article className="scan-group" key={g.id}>
-            <div className="scan-group-heading">
-              <div>
-                <h3>{g.name}</h3>
-                {g.description && <p>{g.description}</p>}
-              </div>
-              <span
-                className={`scan-state ${!g.enabled ? "paused" : !g.next_run_at ? "done" : "scheduled"}`}
-              >
-                {!g.enabled
-                  ? "Duraklatıldı"
-                  : !g.next_run_at
-                    ? "Tamamlandı"
-                    : "Zamanlandı"}
-              </span>
-            </div>
-            <dl className="scan-facts">
-              <div>
-                <dt>Tekrarlama</dt>
-                <dd>
-                  {frequencies[g.frequency]} · Her {g.repeat_every}{" "}
-                  {units[g.frequency]}
-                </dd>
-              </div>
-              <div>
-                <dt>Başlangıç</dt>
-                <dd>{date(g.start_at)}</dd>
-              </div>
-              <div>
-                <dt>Sonraki çalışma</dt>
-                <dd>
-                  {g.enabled && g.next_run_at ? date(g.next_run_at) : "—"}
-                </dd>
-              </div>
-              <div>
-                <dt>Çalışma sayısı</dt>
-                <dd>
-                  {g.run_count} / {g.run_limit || "Sürekli"}
-                </dd>
-              </div>
-            </dl>
-            <details className="scan-members">
-              <summary>{g.vlan_ids.length} VLAN</summary>
-              <ul>
-                {g.vlan_ids.map((id: string) => {
-                  const v = data?.vlans.find((v: Row) => v.id === id);
-                  return (
-                    <li key={id}>{v ? vlanLabel(v) : "VLAN kaldırılmış"}</li>
-                  );
-                })}
-              </ul>
-            </details>
-            <div className="scan-group-actions">
-              <button className="secondary" onClick={() => setHistory(g)}>
-                <Clock size={17} aria-hidden="true" />
-                Tarama geçmişi
-              </button>
-              {canWrite && (
-                <button className="secondary" onClick={() => setForm(g)}>
-                  <PencilSimple size={17} aria-hidden="true" />
-                  Düzenle
-                </button>
-              )}
-              {user.role === "admin" && (
-                <button
-                  className="icon-button danger"
-                  aria-label={`${g.name} grubunu sil`}
-                  onClick={() => setRemoving(g)}
+          <details className="scan-group" key={g.id}>
+            <summary className="scan-group-toggle">
+              <CaretRight size={18} aria-hidden="true" />
+              <span>{g.name}</span>
+            </summary>
+            <div className="scan-group-body">
+              <div className="scan-group-status">
+                <span
+                  className={`scan-state ${!g.enabled ? "paused" : !g.next_run_at ? "done" : "scheduled"}`}
                 >
-                  <Trash size={18} aria-hidden="true" />
+                  {!g.enabled
+                    ? "Duraklatıldı"
+                    : !g.next_run_at
+                      ? "Tamamlandı"
+                      : "Zamanlandı"}
+                </span>
+              </div>
+              <dl className="scan-facts">
+                <div>
+                  <dt>Tekrarlama</dt>
+                  <dd>
+                    {frequencies[g.frequency]} · Her {g.repeat_every}{" "}
+                    {units[g.frequency]}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Başlangıç</dt>
+                  <dd>{date(g.start_at)}</dd>
+                </div>
+                <div>
+                  <dt>Sonraki çalışma</dt>
+                  <dd>
+                    {g.enabled && g.next_run_at ? date(g.next_run_at) : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Çalışma sayısı</dt>
+                  <dd>
+                    {g.run_count} / {g.run_limit || "Sürekli"}
+                  </dd>
+                </div>
+              </dl>
+              <details className="scan-members">
+                <summary>{g.vlan_ids.length} VLAN</summary>
+                <ul>
+                  {g.vlan_ids.map((id: string) => {
+                    const v = data?.vlans.find((v: Row) => v.id === id);
+                    return (
+                      <li key={id}>{v ? vlanLabel(v) : "VLAN kaldırılmış"}</li>
+                    );
+                  })}
+                </ul>
+              </details>
+              <div className="scan-group-actions">
+                <button className="secondary" onClick={() => setHistory(g)}>
+                  <Clock size={17} aria-hidden="true" />
+                  Tarama geçmişi
                 </button>
-              )}
+                {canWrite && (
+                  <button className="secondary" onClick={() => setForm(g)}>
+                    <PencilSimple size={17} aria-hidden="true" />
+                    Düzenle
+                  </button>
+                )}
+                {user.role === "admin" && (
+                  <button
+                    className="icon-button danger"
+                    aria-label={`${g.name} grubunu sil`}
+                    onClick={() => setRemoving(g)}
+                  >
+                    <Trash size={18} aria-hidden="true" />
+                  </button>
+                )}
+              </div>
             </div>
-          </article>
+          </details>
         ))}
       </section>
-      <p className="scan-note">
-        Saatler Türkiye saatine ({zone}) göredir. Tam tarama, seçili VLAN’ların
-        IP keşfi ve entegrasyon eşleştirmelerini kapsar. Çalışan bir VLAN
-        taraması tekrar kuyruğa alınmaz.
-      </p>
       {form && data && (
         <GroupForm
           row={form.id ? form : undefined}

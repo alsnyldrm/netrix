@@ -64,12 +64,26 @@ with sync_playwright() as p:
     group = response.value.json()
     assert group["frequency"] == "monthly" and group["repeat_every"] == 2 and group["run_limit"] == 3
     assert group["start_at"].startswith("2030-01-30T23:30") and len(group["vlan_ids"]) == 2
-    expect(page.get_by_role("heading", name=group["name"], exact=True)).to_be_visible()
+    toggle = page.locator(".scan-group-toggle").filter(has_text=group["name"])
+    expect(toggle).to_have_text(group["name"])
+    expect(page.get_by_role("button", name="Düzenle", exact=True)).to_be_hidden()
+    expect(page.get_by_text("Sunucu ve yönetim VLAN grubu", exact=True)).to_have_count(0)
+    expect(page.locator(".scan-settings > .scan-note")).to_have_count(0)
+    assert toggle.bounding_box()["height"] <= 60
+    check("collapsed")
+    toggle.focus()
+    toggle.press("Enter")
+    expect(page.get_by_role("button", name="Düzenle", exact=True)).to_be_visible()
+    toggle.press("Space")
+    expect(page.get_by_role("button", name="Düzenle", exact=True)).to_be_hidden()
+    toggle.click()
     page.get_by_text("2 VLAN", exact=True).click()
     expect(page.get_by_role("listitem").filter(has_text="SERVER")).to_be_visible()
     check("groups")
     page.reload()
     page.wait_for_load_state("networkidle")
+    expect(page.get_by_role("button", name="Düzenle", exact=True)).to_be_hidden()
+    toggle.click()
     page.get_by_role("button", name="Düzenle", exact=True).click()
     expect(dialog.get_by_label("Başlangıç tarihi ve saati", exact=False)).to_have_value("2030-01-31T02:30")
     expect(dialog.get_by_label("Tekrar aralığı", exact=True)).to_have_value("2")
@@ -93,10 +107,10 @@ with sync_playwright() as p:
     page.keyboard.press("Escape")
     page.get_by_role("button", name=group["name"] + " grubunu sil", exact=True).click()
     dialog.get_by_role("button", name="Grubu sil", exact=True).click()
-    expect(page.get_by_role("heading", name=group["name"], exact=True)).to_have_count(0)
+    expect(toggle).to_have_count(0)
     assert not page.request.get(BASE + "/api/v1/ipam/scan-groups").json()["items"]
     assert not errors, errors
     print(
-        "PASS: settings menu, VLAN groups, monthly recurrence, Istanbul input under UTC browser, pause/resume, durable queue history, desktop/mobile and both themes with axe"
+        "PASS: compact name-only groups, keyboard/click expand-collapse, hidden descriptions, schedule editing/history, desktop/mobile and both themes with axe"
     )
     browser.close()
