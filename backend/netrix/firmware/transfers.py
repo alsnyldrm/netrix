@@ -13,6 +13,7 @@ from sqlalchemy import select
 from .. import models as m
 from ..core import now, session_factory, settings
 from ..identity.security import token_hash
+from .limits import MAX_CONCURRENCY, MAX_TRANSFER_CONNECTIONS
 from .service import image_path
 
 connections = {}
@@ -119,7 +120,7 @@ class TransferSSH(asyncssh.SSHServer):
     def connection_made(self, connection):
         self.connection = connection
         self.access = None
-        if len(pending_connections) >= 16:
+        if len(pending_connections) >= MAX_TRANSFER_CONNECTIONS:
             connection.close()
         else:
             pending_connections.add(connection)
@@ -232,7 +233,7 @@ class TFTP(asyncio.DatagramProtocol):
         )
 
     def datagram_received(self, data, addr):
-        if addr in self.active or len(self.active) >= 4:
+        if addr in self.active or len(self.active) >= MAX_CONCURRENCY:
             return
         try:
             filename, options = rrq(data)

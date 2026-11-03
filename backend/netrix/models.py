@@ -536,10 +536,12 @@ class FirmwarePlan(Entity, Base):
     available_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, index=True)
     requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    force_stop_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     finished_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
         Index("ix_fw_plan_history_order", "created_at", "id"),
-        CheckConstraint("concurrency between 1 and 4", name="ck_fw_plan_concurrency"),
+        CheckConstraint("concurrency between 1 and 10", name="ck_fw_plan_concurrency"),
         CheckConstraint("mode in ('check','stage','upgrade','activate','verify')", name="ck_fw_plan_mode"),
         CheckConstraint(
             "status in ('draft','queued','running','paused','ready','succeeded','cancelled')",

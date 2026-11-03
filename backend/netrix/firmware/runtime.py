@@ -21,6 +21,7 @@ from ..identity.permissions import is_admin
 from ..identity.security import encrypt, secret_data
 from ..services import publish
 from . import adapters, history, transfers
+from .limits import MAX_CONCURRENCY
 from .service import connection_stamp, image_path, service_info, transfer_protocol, validate_device
 from .versions import compare
 
@@ -434,7 +435,21 @@ async def execute(id):
         version = await verify_running(id, device, secret, image, bank, recorder=recorder)
         finish(id, "succeeded", verified_version=version)
     except asyncio.CancelledError:
-        finish(id, "attention" if mutated else "failed", error_code="interrupted")
+        with session_factory()() as db:
+            row = db.get(m.FirmwareTarget, id)
+            forced = bool(row.evidence.get("force_stop_requested"))
+        unsafe = mutated or target_phase(id) in (
+            "transferring",
+            "image_verifying",
+            "rebooting",
+            "verifying",
+            "reconcile",
+        )
+        finish(
+            id,
+            "attention" if unsafe else "cancelled" if forced else "failed",
+            error_code="forced_stop" if forced else "interrupted",
+        )
         raise
     except Exception as exc:
         code = (
@@ -461,6 +476,7 @@ FAILURE_MESSAGES = {
     "not_staged": "İmaj ve konfigürasyon yedeği etkinleştirmeye hazır değil.",
     "version_mismatch": "Cihaz beklenen hedef sürümde çalışmıyor.",
     "reboot_timeout": "Yeniden başlatma sonrası hedef sürüm doğrulanamadı; müdahale gerekiyor.",
+    "forced_stop": "Yönetici işlemi zorla durdurdu. Cihazda başlamış yazımın sonucu doğrulanmalı; otomatik tekrar yapılmadı.",
     "interrupted": "Firmware süreci kesildi. Yazma işlemi otomatik tekrarlanmadı.",
     "network": "SSH/dosya aktarımı tamamlanamadı. Erişim, host anahtarı ve yetkiyi kontrol edin.",
 }
@@ -528,13 +544,16 @@ def settle(db, plan):
     rows = list(db.scalars(select(m.FirmwareTarget).where(m.FirmwareTarget.plan_id == plan.id)))
     if any(r.status == "running" for r in rows):
         return
-    if any(r.status in ("failed", "attention") for r in rows):
-        plan.status = "paused"
-    elif plan.cancel_requested:
+    if plan.cancel_requested:
         plan.status, plan.finished_at = "cancelled", now()
         for row in rows:
-            if row.status not in ("succeeded", "checked"):
-                row.status, row.active_device = "cancelled", None
+            if row.status == "queued":
+                if row.phase != "reconcile":
+                    row.status, row.active_device = "cancelled", None
+            elif row.status != "attention":
+                row.active_device = None
+    elif any(r.status in ("failed", "attention") for r in rows):
+        plan.status = "paused"
     elif all(r.status in ("staged", "succeeded") for r in rows) and any(r.status == "staged" for r in rows):
         plan.status = "ready"
     elif all(r.status in ("succeeded", "checked") for r in rows):
@@ -572,6 +591,7 @@ def claim():
                     ),
                 ),
                 m.FirmwarePlan.available_at <= now(),
+                m.FirmwarePlan.deleted_at.is_(None),
             )
             .order_by(m.FirmwarePlan.available_at, m.FirmwarePlan.id)
             .with_for_update(skip_locked=True)
@@ -624,6 +644,39 @@ def claim():
         return None
 
 
+async def maintain_tasks(tasks):
+    """One bounded worker pool; force cancellation belongs to the owning process."""
+    for task in list(tasks):
+        if task.done():
+            if not task.cancelled() and task.exception():
+                log.warning("firmware_task_failed error_class=%s", type(task.exception()).__name__)
+            del tasks[task]
+    forced = set()
+    if tasks:
+        with session_factory()() as db:
+            for row, force in db.execute(
+                select(m.FirmwareTarget, m.FirmwarePlan.force_stop_requested)
+                .join(m.FirmwarePlan, m.FirmwarePlan.id == m.FirmwareTarget.plan_id)
+                .where(m.FirmwareTarget.id.in_(tasks.values()))
+            ):
+                row.heartbeat_at = now()
+                if force and row.evidence.get("force_stop_requested"):
+                    forced.add(row.id)
+            db.commit()
+    cancelled = [task for task, id in tasks.items() if id in forced]
+    for task in cancelled:
+        task.cancel()
+    if cancelled:
+        await asyncio.gather(*cancelled, return_exceptions=True)
+        for task in cancelled:
+            del tasks[task]
+    while len(tasks) < MAX_CONCURRENCY and not stop:
+        id = claim()
+        if not id:
+            break
+        tasks[asyncio.create_task(execute(id))] = id
+
+
 async def loop():
     server = await transfers.start_ssh("0.0.0.0", settings().firmware_sftp_port)
     transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
@@ -637,23 +690,7 @@ async def loop():
                     redis_client().set("netrix:firmware:heartbeat", now().isoformat(), ex=120)
                 except Exception:
                     pass  # MariaDB remains the durable queue during Redis outages.
-                with session_factory()() as db:
-                    for id in tasks.values():
-                        row = db.get(m.FirmwareTarget, id)
-                        row.heartbeat_at = now()
-                    db.commit()
-                for task in list(tasks):
-                    if task.done():
-                        if not task.cancelled() and task.exception():
-                            log.warning(
-                                "firmware_task_failed error_class=%s", type(task.exception()).__name__
-                            )
-                        del tasks[task]
-                while len(tasks) < 4 and not stop:
-                    id = claim()
-                    if not id:
-                        break
-                    tasks[asyncio.create_task(execute(id))] = id
+                await maintain_tasks(tasks)
             except Exception as exc:
                 log.warning("firmware_cycle_failed error_class=%s", type(exc).__name__)
             await asyncio.sleep(1)

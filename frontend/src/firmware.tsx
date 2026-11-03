@@ -19,6 +19,11 @@ import "./firmware.css";
 import FirmwareHistory from "./firmware-history";
 import OutdatedGroups, { UpdateState, type PlanStep } from "./firmware-updates";
 
+import {
+  PlanActions,
+  PlanActionDialog,
+  PlanConcurrency,
+} from "./firmware-controls";
 type Row = Record<string, any>;
 const SECTIONS = [
   ["devices", "Cihazlar"],
@@ -900,7 +905,7 @@ function PlanForm({
               value={concurrency}
               onChange={(e) => setConcurrency(Number(e.target.value))}
             >
-              {[1, 2, 3, 4].map((n) => (
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                 <option key={n}>{n}</option>
               ))}
             </select>
@@ -1122,6 +1127,7 @@ function PlanDetail({
   admin,
   busy,
   actionError,
+  onSaved,
   mutate,
   onClose,
 }: {
@@ -1130,6 +1136,7 @@ function PlanDetail({
   admin: boolean;
   busy: boolean;
   actionError: string;
+  onSaved: () => void;
   mutate: (path: string, body?: Row) => Promise<void>;
   onClose: () => void;
 }) {
@@ -1164,6 +1171,7 @@ function PlanDetail({
                 {MODES[p.mode]} · {date(p.available_at)}
               </span>
             </div>
+            {admin && <PlanConcurrency plan={p} onSaved={onSaved} />}
             <ol className="fw-plan-order">
               {p.steps.map((s: Row, i: number) => (
                 <li key={i}>
@@ -1754,7 +1762,13 @@ export default function FirmwareWorkspace({
                           ? ["Firmware", "Uyumluluk", "Bütünlük", "İşlemler"]
                           : tab === "groups"
                             ? ["Grup", "Açıklama", "Üyeler", "İşlemler"]
-                            : ["Plan", "İşlem / sıra", "Durum", "Zaman"]
+                            : [
+                                "Plan",
+                                "İşlem / sıra",
+                                "Durum",
+                                "Zaman",
+                                ...(admin ? ["İşlemler"] : []),
+                              ]
                       ).map((label) => (
                         <th key={label}>{label}</th>
                       ))}
@@ -1964,10 +1978,34 @@ export default function FirmwareWorkspace({
                             >
                               {MODES[r.mode]}
                             </Cell>
-                            <Cell>
+                            <Cell
+                              detail={
+                                <small>
+                                  Eşzamanlı: {r.concurrency} ·{" "}
+                                  {r.counts.running || 0} çalışıyor ·{" "}
+                                  {r.counts.staged || 0} imaj hazır
+                                  {r.cancel_requested
+                                    ? " · Durdurma istendi"
+                                    : ""}
+                                </small>
+                              }
+                            >
                               <State value={r.status} />
                             </Cell>
                             <Cell>{date(r.available_at)}</Cell>
+                            {admin && (
+                              <Cell>
+                                <PlanActions
+                                  plan={r}
+                                  onAction={(action) =>
+                                    setModal({
+                                      kind: `plan-action-${action}`,
+                                      row: r,
+                                    })
+                                  }
+                                />
+                              </Cell>
+                            )}
                           </>
                         )}
                       </tr>
@@ -1987,6 +2025,14 @@ export default function FirmwareWorkspace({
           </>
         )}
       </section>
+      {modal?.kind.startsWith("plan-action-") && (
+        <PlanActionDialog
+          plan={modal.row!}
+          action={modal.kind.slice(12) as "delete" | "cancel" | "force-stop"}
+          onClose={() => setModal(null)}
+          onSaved={saved}
+        />
+      )}
       {modal?.kind === "image-detail" && (
         <Dialog
           title={modal.row?.name || "Firmware ayrıntısı"}
@@ -2080,6 +2126,7 @@ export default function FirmwareWorkspace({
           admin={admin}
           busy={busy}
           actionError={error}
+          onSaved={saved}
           mutate={mutate}
           onClose={() => setDetail(null)}
         />

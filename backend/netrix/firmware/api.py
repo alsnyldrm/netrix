@@ -17,7 +17,7 @@ from .. import models as m
 from ..core import db_session, now, settings
 from ..identity.security import admin, audit, current_user, operator
 from ..services import get, publish, serialize
-from . import catalog, grouping, history
+from . import catalog, controls, grouping, history
 from .service import (
     GroupInput,
     ImageInput,
@@ -44,7 +44,11 @@ def overview(db=Depends(db_session), user=Depends(current_user)):
         ),
         "groups": db.scalar(select(func.count()).select_from(m.FirmwareGroup)),
         "plans": dict(
-            db.execute(select(m.FirmwarePlan.status, func.count()).group_by(m.FirmwarePlan.status)).all()
+            db.execute(
+                select(m.FirmwarePlan.status, func.count())
+                .where(m.FirmwarePlan.deleted_at.is_(None))
+                .group_by(m.FirmwarePlan.status)
+            ).all()
         ),
         "service": service_info(),
         "devices": catalog.counts(db, grouping.base_conditions()),
@@ -333,7 +337,9 @@ def plans(
     db=Depends(db_session),
     user=Depends(current_user),
 ):
-    conditions = [m.FirmwarePlan.status.in_(("succeeded", "cancelled"))] if history else []
+    conditions = [m.FirmwarePlan.deleted_at.is_(None)]
+    if history:
+        conditions.append(m.FirmwarePlan.status.in_(("succeeded", "cancelled")))
     rows = list(
         db.scalars(
             select(m.FirmwarePlan)
@@ -420,44 +426,28 @@ def start(id: str, db=Depends(db_session), user=Depends(admin)):
 
 @router.post("/plans/{id}/cancel")
 def cancel(id: str, db=Depends(db_session), user=Depends(admin)):
-    row = db.scalar(select(m.FirmwarePlan).where(m.FirmwarePlan.id == id).with_for_update())
-    if not row:
-        raise HTTPException(404, "Plan bulunamadı")
-    row.cancel_requested = True
-    running = False
-    for target in db.scalars(select(m.FirmwareTarget).where(m.FirmwareTarget.plan_id == id)):
-        if target.status == "running":
-            running = True
-        elif target.status not in ("succeeded", "attention"):
-            target.status, target.active_device = "cancelled", None
-            target.transfer_expires_at = now()
-        history.add_event(
-            db,
-            target,
-            kind="phase",
-            title="Yönetici sonraki işlemleri durdurdu",
-            response="Devam eden dosya yazımı kesilmedi; sonraki işler durduruldu.",
-            finished=True,
-        )
-    if not running:
-        row.status, row.finished_at = "cancelled", now()
-    audit(
-        db,
-        user,
-        "cancel",
-        "firmware_plans",
-        id,
-        "Sonraki firmware işlemleri durduruldu; flash yazımı kesilmedi",
-    )
-    db.commit()
-    publish()
-    return serialize(row)
+    return serialize(controls.stop_plan(db, id, user))
+
+
+@router.post("/plans/{id}/force-stop")
+def force_stop(id: str, payload: controls.ForceStopInput, db=Depends(db_session), user=Depends(admin)):
+    return serialize(controls.stop_plan(db, id, user, force=True, confirmation=payload))
+
+
+@router.patch("/plans/{id}/concurrency")
+def concurrency(id: str, payload: controls.ConcurrencyInput, db=Depends(db_session), user=Depends(admin)):
+    return serialize(controls.set_concurrency(db, id, payload.concurrency, user))
+
+
+@router.delete("/plans/{id}", status_code=204)
+def delete_plan(id: str, db=Depends(db_session), user=Depends(admin)):
+    controls.remove_plan(db, id, user)
 
 
 @router.post("/plans/{id}/activate")
 def activate(id: str, db=Depends(db_session), user=Depends(admin)):
-    row = db.scalar(select(m.FirmwarePlan).where(m.FirmwarePlan.id == id).with_for_update())
-    if not row or row.status != "ready" or row.cancel_requested:
+    row = controls.locked_plan(db, id)
+    if row.status != "ready" or row.cancel_requested:
         raise HTTPException(409, "Yalnız hazırlanmış plan etkinleştirilebilir")
     for target in db.scalars(select(m.FirmwareTarget).where(m.FirmwareTarget.plan_id == id)):
         if target.status == "succeeded":
@@ -478,7 +468,7 @@ def activate(id: str, db=Depends(db_session), user=Depends(admin)):
 
 @router.post("/plans/{id}/retry")
 def retry(id: str, db=Depends(db_session), user=Depends(admin)):
-    row = get(db, m.FirmwarePlan, id)
+    row = controls.locked_plan(db, id)
     if row.status != "paused" or row.cancel_requested:
         raise HTTPException(409, "Plan yeniden denemeye uygun değil")
     targets = list(db.scalars(select(m.FirmwareTarget).where(m.FirmwareTarget.plan_id == id)))
@@ -523,6 +513,7 @@ def verify(id: str, db=Depends(db_session), user=Depends(admin)):
             },
         }
     target.status, target.phase = "queued", "reconcile"
+    target.evidence = {**target.evidence, "force_stop_requested": False}
     history.add_event(
         db, target, kind="phase", title="Yönetici salt okunur sürüm doğrulaması istedi", finished=True
     )

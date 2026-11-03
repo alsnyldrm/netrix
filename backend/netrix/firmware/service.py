@@ -15,6 +15,7 @@ from ..core import now, settings
 from ..identity.security import audit
 from ..services import get, publish, serialize
 from .adapters import ERRORS
+from .limits import MAX_CONCURRENCY
 from .versions import compare
 
 FAMILIES = {"aruba_5400": "aos_s", "aruba_2900": "aos_s", "aruba_6100": "cx6100", "hp_1950": "hp1950"}
@@ -63,7 +64,7 @@ class PlanInput(Input):
     name: str = Field(min_length=1, max_length=120)
     mode: str = Field(default="check", pattern=r"^(check|stage|upgrade)$")
     steps: list[StepInput] = Field(min_length=1, max_length=50)
-    concurrency: int = Field(default=1, ge=1, le=4)
+    concurrency: int = Field(default=1, ge=1, le=MAX_CONCURRENCY)
     available_at: str | None = None
     allow_enable_sftp: bool = False
     acknowledge_outage: bool = False
@@ -242,6 +243,8 @@ def _start_plan(db, plan, user):
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    if plan.deleted_at:
+        raise HTTPException(404, "Plan bulunamadı")
     if plan.status in ("queued", "running"):
         return plan
     if plan.mode != "check" and not service_info()["configured"]:

@@ -1127,3 +1127,60 @@
     gap: 8px;
   }
 }
+
+.fw-plans-table {
+  min-width: 1050px;
+  table-layout: fixed;
+}
+.fw-plans-table th:last-child {
+  width: 330px;
+}
+.fw-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.fw-plan-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fw-destructive:not(:disabled) {
+  color: var(--danger);
+}
+.fw-force-note {
+  border-color: var(--danger);
+}
+.fw-concurrency-panel {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.fw-concurrency-controls {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.fw-concurrency-controls label {
+  display: grid;
+  gap: 8px;
+  min-width: 160px;
+}
+.fw-concurrency-controls select,
+.fw-concurrency-controls button {
+  min-height: 40px;
+}
+.fw-concurrency-panel p {
+  margin: 0;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .fw-concurrency-controls > * {
+    width: 100%;
+  }
+}

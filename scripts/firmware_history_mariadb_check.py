@@ -8,10 +8,10 @@ from alembic.migration import MigrationContext
 from firmware_groups_mariadb_check import engine, ids, migrate, session_factory
 from netrix import models as m
 from netrix.firmware.history import add_event, transcript
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
-migrate("upgrade", "20261103_42")
+migrate("upgrade", "head")
 with engine().connect() as connection:
     context = MigrationContext.configure(
         connection,
@@ -88,8 +88,9 @@ with session_factory()() as db:
         db.rollback()
 migrate("downgrade", "20261103_41")
 with session_factory()() as db:
-    assert db.get(m.FirmwareTarget, target_id) and db.get(m.FirmwarePlan, plan_id)
-migrate("upgrade", "20261103_42")
+    assert db.execute(text("SELECT id FROM firmware_targets WHERE id=:id"), {"id": target_id}).first()
+    assert db.execute(text("SELECT id FROM firmware_plans WHERE id=:id"), {"id": plan_id}).first()
+migrate("upgrade", "head")
 with session_factory()() as db:
     assert db.scalar(select(func.count()).select_from(m.FirmwareEvent)) == 0
 print(
