@@ -1179,7 +1179,8 @@ export default function FirmwareWorkspace({
                 <p>
                   {overview.data?.service.host ||
                     "Sunucu adresi yapılandırılmamış"}{" "}
-                  · SFTP {overview.data?.service.sftp_port || 2222} · TFTP 69
+                  · SCP / SFTP {overview.data?.service.sftp_port || 2222} · TFTP
+                  69
                 </p>
                 <p>
                   Dosya erişimi yalnız çalışan işlemin hedef IP’sine, süreli ve
@@ -1210,7 +1211,7 @@ export default function FirmwareWorkspace({
                   <tr>
                     <td>6100</td>
                     <td>SSH</td>
-                    <td>Cihaz süreli SFTP hesabıyla dosyayı çeker.</td>
+                    <td>Cihaz süreli SCP hesabıyla dosyayı çeker.</td>
                   </tr>
                   <tr>
                     <td>HP 1950</td>

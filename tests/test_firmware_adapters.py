@@ -129,7 +129,7 @@ async def test_aoss_waits_for_new_flash_completion_event_even_if_same_version_al
 
 
 @pytest.mark.asyncio
-async def test_cx_uses_sftp_pull_default_vrf_and_verifies_exact_target_bank(monkeypatch, tmp_path):
+async def test_cx_uses_scp_pull_default_vrf_and_verifies_exact_target_bank(monkeypatch, tmp_path):
     from netrix.core import settings
 
     monkeypatch.setenv("NETRIX_FIRMWARE_ADVERTISE_HOST", "192.0.2.100")
@@ -150,10 +150,22 @@ async def test_cx_uses_sftp_pull_default_vrf_and_verifies_exact_target_bank(monk
         tmp_path / "unused",
         {"username": "fw_temp", "password": "temporary", "filename": "random.swi"},
     )
-    assert calls[0][0] == "copy sftp://fw_temp@192.0.2.100:2222/random.swi secondary vrf default"
+    assert calls[0][0] == "copy scp://fw_temp@192.0.2.100:2222/random.swi secondary vrf default"
     assert calls[0][1]["password"] == "temporary"
     assert calls[1][0] == "show images"
     settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_transfer_protocol_rejection_is_not_hidden_by_later_bank_check():
+    terminal = Terminal(
+        {"copy fixture\n": ["Download failed with exit code 1: Unsupported protocol.\nswitch# "]}
+    )
+    cli = adapters.CLI(terminal, "aruba_6100")
+    await cli.read()
+    with pytest.raises(adapters.FirmwareError) as failure:
+        await cli.command("copy fixture", action="transfer")
+    assert failure.value.code == "transfer_protocol"
 
 
 @pytest.mark.asyncio

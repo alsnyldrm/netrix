@@ -19,6 +19,10 @@ FAMILIES = {"aruba_5400": "aos_s", "aruba_2900": "aos_s", "aruba_6100": "cx6100"
 BUSY = ("running", "staged", "attention")
 
 
+def transfer_protocol(family):
+    return {"aos_s": "sftp", "cx6100": "scp", "hp1950": "tftp"}[family]
+
+
 class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
@@ -255,7 +259,7 @@ def service_info():
         "host": host,
         "sftp_port": settings().firmware_sftp_port,
         "tftp_port": 69,
-        "protocols": ["sftp", "tftp"],
+        "protocols": ["scp", "sftp", "tftp"],
         "max_bytes": settings().firmware_max_bytes,
     }
 

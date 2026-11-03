@@ -1,4 +1,4 @@
-"""Explicit loopback SFTP/TFTP integration; temporary DB and fixture bytes only."""
+"""Explicit loopback SCP/SFTP/TFTP integration; temporary DB and fixture bytes only."""
 
 import asyncio
 import hashlib
@@ -76,17 +76,7 @@ async def main():
             db.commit()
             target_id = target.id
         key = transfers.host_key()
-        server = await asyncssh.create_server(
-            transfers.TransferSSH,
-            "127.0.0.1",
-            0,
-            server_host_keys=[key],
-            sftp_factory=transfers.TransferSFTP,
-            login_timeout=5,
-            password_auth=True,
-            public_key_auth=False,
-            allow_scp=False,
-        )
+        server = await transfers.start_ssh("127.0.0.1", 0)
         port = server.get_port()
         known = Path(directory) / "known_hosts"
         known.write_bytes(f"[127.0.0.1]:{port} ".encode() + key.export_public_key())
@@ -99,6 +89,22 @@ async def main():
                 known_hosts=str(known),
                 client_keys=[],
             ) as connection:
+                downloaded = Path(directory) / "scp-readback.bin"
+                await asyncssh.scp((connection, name), downloaded)
+                assert downloaded.read_bytes() == content
+                for wrong in ("../fixture.ipe", "/etc/passwd", name + ";id"):
+                    try:
+                        await asyncssh.scp((connection, wrong), downloaded)
+                        raise AssertionError("SCP traversal/command accepted")
+                    except asyncssh.Error:
+                        pass
+                try:
+                    await asyncssh.scp(downloaded, (connection, name))
+                    raise AssertionError("SCP upload accepted")
+                except asyncssh.Error:
+                    pass
+                assert downloaded.read_bytes() == content
+                assert image_path(image).read_bytes() == content
                 async with connection.start_sftp_client() as client:
                     async with client.open(name, "rb") as source:
                         assert await source.read() == content
@@ -131,7 +137,7 @@ async def main():
             except asyncssh.PermissionDenied:
                 pass
             print(
-                "PASS: actual loopback SFTP, pinned host key, binary readback, traversal/delete/shell denial and bad password"
+                "PASS: actual loopback SCP/SFTP, pinned host key, binary readback, traversal/upload/delete/shell denial and bad password"
             )
             with session_factory()() as db:
                 row = db.get(m.FirmwareTarget, target_id)

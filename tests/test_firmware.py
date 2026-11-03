@@ -238,12 +238,13 @@ def test_worker_restart_keeps_uncertain_target_reserved(fw):
         assert db.get(m.FirmwareTarget, id).active_device
 
 
-def test_transfer_grant_is_peer_bound_expiring_read_only_and_not_in_api(fw):
+@pytest.mark.parametrize("protocol", ["sftp", "scp"])
+def test_transfer_grant_is_peer_bound_expiring_read_only_and_not_in_api(fw, protocol):
     plan = make_plan(fw, "stage")
     start(fw, plan)
     id = runtime.claim()
     runtime.set_phase(id, "transferring")
-    username, password, name = transfers.grant(id, "sftp")
+    username, password, name = transfers.grant(id, protocol)
     with fw["sf"]() as db:
         peer = db.get(m.Device, db.get(m.FirmwareTarget, id).device_id).management_ip
     access = transfers.lookup(peer, username=username)
@@ -295,7 +296,17 @@ def test_running_bank_and_exact_version_checks():
 
 
 @pytest.mark.asyncio
-async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch):
+@pytest.mark.parametrize("family", ["aos_s", "cx6100"])
+async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch, family):
+    if family == "cx6100":
+        with fw["sf"]() as db:
+            for d in db.scalars(select(m.Device)):
+                d.adapter, d.model, d.software_version = "aruba_6100", "JL675A", "PL.10.17.1030"
+            image = db.get(m.FirmwareImage, fw["image"]["id"])
+            image.family, image.models, image.version = family, ["JL675A"], "PL.10.18.1010"
+            db.commit()
+        device = fw["client"].get("/api/v1/firmware/devices").json()["items"][0]
+        assert device["protocol"] == "scp"
     plan = make_plan(fw, "stage")
     start(fw, plan)
     id = runtime.claim()
@@ -311,13 +322,15 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch)
     monkeypatch.setattr(adapters, "probe_sftp", probe)
 
     async def inspect(*args):
-        return {"version": "WC.16.10.0025", "bank": "primary", "banks": ""}
+        version = "WC.16.10.0025" if family == "aos_s" else "PL.10.17.1030"
+        return {"version": version, "bank": "primary", "banks": ""}
 
     async def backup(*args):
         return '; JL256A Configuration Editor; Created on release #WC.16.10.0025\nhostname "fixture"\n'
 
     async def stage(*args):
         staged.append(args[4])
+        assert args[6]["username"].startswith("fw_") and args[6]["password"]
 
     async def no_reboot(*args):
         raise AssertionError("Stage must not reboot")
@@ -333,6 +346,7 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch)
         assert target.status == "staged", target.error
         assert target.bank == "secondary" and target.snapshot_id and staged == ["secondary"]
         assert target.evidence["staged"] is True
+        assert target.evidence["protocol"] == ("sftp" if family == "aos_s" else "scp")
         snapshot = db.get(m.Snapshot, target.snapshot_id)
         assert "hostname" not in snapshot.encrypted_content
 
@@ -372,12 +386,14 @@ async def test_failed_transfer_is_uncertain_and_never_auto_replayed(fw, monkeypa
     assert runtime.claim() is None
 
 
-def test_reconciliation_does_not_resume_later_writes(fw):
+@pytest.mark.parametrize("settle_first", [True, False])
+def test_reconciliation_does_not_resume_later_writes(fw, settle_first):
     plan = make_plan(fw, "upgrade")
     start(fw, plan)
     target = runtime.claim()
     runtime.finish(target, "attention", error_code="interrupted")
-    assert runtime.claim() is None
+    if settle_first:
+        assert runtime.claim() is None
     response = fw["client"].post("/api/v1/firmware/targets/" + target + "/verify")
     assert response.status_code == 200
     assert runtime.claim() == target
@@ -385,6 +401,31 @@ def test_reconciliation_does_not_resume_later_writes(fw):
     assert runtime.claim() is None
     with fw["sf"]() as db:
         assert db.get(m.FirmwarePlan, plan["id"]).status == "paused"
+
+
+@pytest.mark.parametrize("legacy_error", [False, True])
+def test_failed_reconciliation_preserves_original_transfer_error(fw, legacy_error):
+    plan = make_plan(fw, "upgrade")
+    start(fw, plan)
+    target = runtime.claim()
+    runtime.set_phase(target, "transferring")
+    runtime.finish(target, "attention", error_code="transfer_protocol")
+    if legacy_error:
+        with fw["sf"]() as db:
+            row = db.get(m.FirmwareTarget, target)
+            row.evidence = {k: v for k, v in row.evidence.items() if k != "operation_error"}
+            db.commit()
+    for _ in range(2):
+        response = fw["client"].post("/api/v1/firmware/targets/" + target + "/verify")
+        assert response.status_code == 200
+        assert runtime.claim() == target
+        runtime.finish(target, "attention", error_code="version_mismatch")
+    with fw["sf"]() as db:
+        row = db.get(m.FirmwareTarget, target)
+        assert row.error_code == "transfer_protocol" and "protokol" in row.error
+        assert row.evidence["operation_error"]["phase"] == "transferring"
+        assert row.evidence["verification_error"]["code"] == "version_mismatch"
+        assert row.active_device and db.get(m.FirmwarePlan, plan["id"]).status == "paused"
 
 
 def test_viewer_cannot_upload_create_groups_or_start_firmware(fw):

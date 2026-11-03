@@ -7,11 +7,12 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 fixture = tempfile.TemporaryDirectory(prefix="netrix-firmware-browser-")
+port = int(os.environ.get("NETRIX_FIRMWARE_FIXTURE_PORT", "8231"))
 os.environ.update(
     NETRIX_DATABASE_URL="sqlite+pysqlite:///" + str(Path(fixture.name) / "test.db"),
     NETRIX_ENCRYPTION_KEY=Fernet.generate_key().decode(),
     NETRIX_SETUP_TOKEN="firmware-browser-fixture-setup-token",
-    NETRIX_PUBLIC_URL="http://127.0.0.1:8231",
+    NETRIX_PUBLIC_URL=f"http://127.0.0.1:{port}",
     NETRIX_SECURE_COOKIES="false",
     NETRIX_FIRMWARE_DIRECTORY=str(Path(fixture.name) / "images"),
     NETRIX_FIRMWARE_ADVERTISE_HOST="192.0.2.100",
@@ -76,12 +77,12 @@ with session_factory()() as db:
                 management_ip=f"198.18.{n // 250}.{n % 250 + 1}",
                 vrf_id=vrf.id,
                 discovery_scope_id=scope.id,
-                model="JL256A",
+                model="JL675A" if n == 999 else "JL256A",
                 vendor="Aruba",
-                adapter="aruba_2900",
+                adapter="aruba_6100" if n == 999 else "aruba_2900",
                 kind="switch",
                 config_credential_id=profile.id,
-                software_version="WC.16.10.0025",
+                software_version="PL.10.17.1030" if n == 999 else "WC.16.10.0025",
             )
         )
     db.commit()

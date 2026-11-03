@@ -18,6 +18,7 @@ ERRORS = {
     "version": "Çalışan yazılım sürümü kesin olarak okunamadı.",
     "bank": "Çalışan imaj alanı okunamadı; üzerine yazma engellendi.",
     "image": "İmajın hedef bankaya yazıldığı doğrulanamadı.",
+    "transfer_protocol": "Cihaz dosya aktarım protokolünü reddetti (Unsupported protocol). Aktarım yöntemi kontrol edilmeli.",
     "source_key": "Dosya sunucusunun SSH anahtarı doğrulanamadı.",
     "unexpected_prompt": "Cihaz beklenmeyen bir onay istedi; işlem durduruldu.",
     "space": "Cihaz yeterli boş alan bildirmiyor.",
@@ -150,6 +151,8 @@ class CLI:
                     if self.adapter != "hp_1950" and not self.prompt.endswith("#"):
                         raise FirmwareError("prompt")
                     content = clean[: match.start()]
+                    if action == "transfer" and re.search(r"(?i)\bUnsupported protocol\b", content):
+                        raise FirmwareError("transfer_protocol")
                     if CLI_ERROR.search(content) or re.search(
                         r"(?im)^\s*(?:Error:|Failed to|Not enough space|Insufficient space)", content
                     ):
@@ -227,7 +230,7 @@ async def stage(connection, cli, device, image, bank, path, source, progress=Non
                     return
                 await asyncio.sleep(3)
     elif device.adapter == "aruba_6100":
-        command = f"copy sftp://{source['username']}@{settings().firmware_advertise_host}:{settings().firmware_sftp_port}/{source['filename']} {bank} vrf default"
+        command = f"copy scp://{source['username']}@{settings().firmware_advertise_host}:{settings().firmware_sftp_port}/{source['filename']} {bank} vrf default"
         await cli.command(command, action="transfer", password=source["password"], timeout=1800)
         if not bank_contains(await cli.command("show images"), bank, image.version):
             raise FirmwareError("image")

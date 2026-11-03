@@ -24,8 +24,9 @@ def grant(target_id, protocol):
     with session_factory()() as db:
         row = db.get(m.FirmwareTarget, target_id)
         image = db.get(m.FirmwareImage, row.image_id)
-        row.transfer_username = "fw_" + secrets.token_hex(10) if protocol == "sftp" else None
-        row.transfer_secret_hash = token_hash(password) if protocol == "sftp" else ""
+        secure = protocol in ("sftp", "scp")
+        row.transfer_username = "fw_" + secrets.token_hex(10) if secure else None
+        row.transfer_secret_hash = token_hash(password) if secure else ""
         row.transfer_name = (
             "netrix-fw-" + secrets.token_hex(24) + (".ipe" if image.family == "hp1950" else ".swi")
         )
@@ -97,6 +98,21 @@ def host_key():
         except FileExistsError:
             pass
     return asyncssh.read_private_key(path)
+
+
+async def start_ssh(host, port):
+    return await asyncssh.create_server(
+        TransferSSH,
+        host,
+        port,
+        server_host_keys=[host_key()],
+        sftp_factory=TransferSFTP,
+        login_timeout=15,
+        password_auth=True,
+        public_key_auth=False,
+        allow_scp=True,
+        sftp_version=3,
+    )
 
 
 class TransferSSH(asyncssh.SSHServer):

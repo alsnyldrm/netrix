@@ -20,7 +20,7 @@ from ..discovery.protocols import fetch_config
 from ..identity.security import encrypt, secret_data
 from ..services import publish
 from . import adapters, transfers
-from .service import connection_stamp, image_path, service_info, validate_device
+from .service import connection_stamp, image_path, service_info, transfer_protocol, validate_device
 
 log = logging.getLogger("netrix.firmware")
 stop = False
@@ -198,7 +198,7 @@ async def execute(id):
                     **target.evidence,
                     "preflight_at": now().isoformat(),
                     "staged": False,
-                    "protocol": "tftp" if image.family == "hp1950" else "sftp",
+                    "protocol": transfer_protocol(image.family),
                 }
                 set_phase(
                     id,
@@ -226,9 +226,7 @@ async def execute(id):
                 if prepare_sftp:
                     await adapters.enable_sftp(cli)
                     await adapters.probe_sftp(connection)
-                username, password, filename = transfers.grant(
-                    id, "tftp" if image.family == "hp1950" else "sftp"
-                )
+                username, password, filename = transfers.grant(id, transfer_protocol(image.family))
                 last = 0.0
 
                 def progress(size):
@@ -304,6 +302,16 @@ def target_phase(id):
 def finish(id, status, *, error_code="", verified_version=""):
     with session_factory()() as db:
         row = db.get(m.FirmwareTarget, id)
+        if error_code:
+            key = "verification_error" if row.phase == "reconcile" else "operation_error"
+            row.evidence = {
+                **row.evidence,
+                key: {"code": error_code, "phase": row.phase, "at": now().isoformat()},
+            }
+            if key == "verification_error":
+                original = row.evidence.get("operation_error", {}).get("code")
+                if original in FAILURE_MESSAGES or original in adapters.ERRORS:
+                    error_code = original
         row.status, row.error_code = status, error_code
         row.error = FAILURE_MESSAGES.get(error_code, adapters.ERRORS.get(error_code, ""))
         row.verified_version, row.finished_at = verified_version, now()
@@ -417,19 +425,7 @@ def claim():
 
 
 async def loop():
-    key = transfers.host_key()
-    server = await asyncssh.create_server(
-        transfers.TransferSSH,
-        "0.0.0.0",
-        settings().firmware_sftp_port,
-        server_host_keys=[key],
-        sftp_factory=transfers.TransferSFTP,
-        login_timeout=15,
-        password_auth=True,
-        public_key_auth=False,
-        allow_scp=False,
-        sftp_version=3,
-    )
+    server = await transfers.start_ssh("0.0.0.0", settings().firmware_sftp_port)
     transport, _ = await asyncio.get_running_loop().create_datagram_endpoint(
         transfers.TFTP, local_addr=("0.0.0.0", settings().firmware_tftp_port)
     )

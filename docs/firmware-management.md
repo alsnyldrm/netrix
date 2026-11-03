@@ -9,7 +9,7 @@ Cihazların HTTPS/WebUI/REST servisi kullanılmaz ve kendiliğinden açılıp ka
 | Adaptör | Komut / dosya yolu | İmaj |
 | --- | --- | --- |
 | Aruba 54xx, 2900 (5400/5400R, 2920/2930) | SSH komut oturumu; SFTP ile `/os/primary` veya `/os/secondary` alanına gönderme | Modele uygun `.swi`, K/KB/WB/WC ailesi |
-| Aruba 61xx (6100) | SSH komut oturumu; cihazın süreli SFTP hesabıyla NETRIX'ten çekmesi, `vrf default` | PL ailesi `.swi` |
+| Aruba 61xx (6100) | SSH komut oturumu; cihazın süreli SCP hesabıyla NETRIX'ten çekmesi, `vrf default` | PL ailesi `.swi` |
 | HP 1950 | SSH sınırlı CLI; `upgrade <sunucu> runtime file <dosya>.ipe` ile TFTP çekme | Ürün koduna uygun `.ipe` |
 
 AOS-S ön kontrolde SFTP alt sistemi salt okunur sınanır. Kapalıysa yalnız planda ayrıca onaylanan **SFTP erişimini aç** seçeneği, yedekten sonra `ip ssh filetransfer` uygular; TFTP’nin kapanacağı kullanıcıya gösterilir. Sessiz protokol değişikliği yapılmaz.
@@ -45,7 +45,7 @@ Aynı cihazı iki firmware planı kullanamaz. Mevcut normal worker cihazda firmw
 
 Worker yazma veya reboot komutunu vermeden önce aşamayı kalıcı kaydeder. Süreç bu sınırdan sonra kesilirse komut otomatik tekrarlanmaz; attention sonucu ve cihaz kilidi korunur. Ön kontrol/yedek gibi yazma öncesi başarısız hedefler kullanıcı isteğiyle yeniden denenebilir. **Sonraki işlemleri durdur** başlamış flash yazımını kesmez.
 
-**Sürümü yeniden doğrula** yalnız salt okunur hedef doğrulamasıdır; diğer bekleyen yazmaları kendiliğinden başlatmaz. Önceki ve hedef sürüm, imaj alanları, hata kodu, zamanlar ve şifreli konfigürasyon yedeği referansı korunur. Yönetici konsol/SSH ile kurtarmayı ayrıca tamamladıysa cihaz adını yazarak **Manuel kurtarmayı tamamla** ile kilidi kaldırabilir. Bu eylem başarısız kurulumu başarılı göstermez; audit kaydı üretir.
+**Sürümü yeniden doğrula** yalnız salt okunur hedef doğrulamasıdır; diğer bekleyen yazmaları kendiliğinden başlatmaz. Plan, doğrulama isteği içinde kilitlenip duraklatılır; worker henüz hata durumunu plana yansıtmamış olsa da sonraki gruplar başlamaz. Asıl işlem hatası `operation_error`, son salt okunur kontrolün hatası `verification_error` olarak ayrı tutulur; sürüm uyuşmazlığı ilk aktarım/yazma hatasının yerine geçmez. Önceki ve hedef sürüm, imaj alanları, hata kodu, zamanlar ve şifreli konfigürasyon yedeği referansı korunur. Yönetici konsol/SSH ile kurtarmayı ayrıca tamamladıysa cihaz adını yazarak **Manuel kurtarmayı tamamla** ile kilidi kaldırabilir. Bu eylem başarısız kurulumu başarılı göstermez; audit kaydı üretir.
 
 Otomatik downgrade veya uzaktan garantili kurtarma vaat edilmez. Eski imaj alanı tek başına eski sürüme uyumlu konfigürasyon garantisi değildir. Stack/VSF ve çift management module yönetim hedefleri fiziksel üyeler gibi farklı gruplara ayrılmamalıdır. Bu sürüm sıfır kesinti/ISSU sunmaz. Gerçek model/sürüm/topoloji kombinasyonu işletmeci tarafından üretici notlarıyla doğrulanmalıdır; sahte istemci ve loopback testleri donanım yükseltme sertifikası değildir.
 
@@ -53,9 +53,9 @@ Otomatik downgrade veya uzaktan garantili kurtarma vaat edilmez. Eski imaj alan�
 
 `netrix-firmware`, mevcut `netrix` container'ındaki Supervisor süreçlerinden biridir. Ayrı Redis/worker/transfer container'ı eklenmez. API yalnız indeksli ve sayfalı metadata okur; firmware sayfası ayrı JavaScript/CSS parçası olarak yüklenir. Plan ayrıntıları da sayfalıdır. Dosya hashing'i event loop dışında yapılır. İş kaydının kaynağı MariaDB'dir; Redis yalnız heartbeat ve yenileme bildirimi içindir.
 
-SFTP servisi salt okunur ve shell/exec/forwarding sunmaz. Rastgele süreli hesap yalnız o işin cihaz IP'sine, tek dosyaya ve çalışan aktarım aşamasına erişir; parola yalnız hash olarak tutulur. Kaynak SSH host anahtarı cihazın gösterdiği fingerprint ile doğrulanır. TFTP kullanıcı doğrulaması sunmadığı için yalnız süreli, tahmin edilemez `netrix-fw-<rastgele>.ipe` dosyası ve ilgili hedef IP kabul edilir. Dizin listeleme/yazma yoktur. Bu hizmetler mevcut `netrix_netrix-redis` volume'undaki `/data/firmware` dizinini kullanır; secret dosyaları veya SSH anahtar içerikleri Git'e girmez.
+SCP/SFTP servisi salt okunurdur; shell, serbest komut çalıştırma ve forwarding sunmaz. SCP komutları aynı tek dosya erişimini uygulayan protokol işleyicisine gider; yükleme ve yol aşımı reddedilir. Rastgele süreli hesap yalnız o işin cihaz IP'sine, tek dosyaya ve çalışan aktarım aşamasına erişir; parola yalnız hash olarak tutulur. Kaynak SSH host anahtarı cihazın gösterdiği fingerprint ile doğrulanır. TFTP kullanıcı doğrulaması sunmadığı için yalnız süreli, tahmin edilemez `netrix-fw-<rastgele>.ipe` dosyası ve ilgili hedef IP kabul edilir. Dizin listeleme/yazma yoktur. Bu hizmetler mevcut `netrix_netrix-redis` volume'undaki `/data/firmware` dizinini kullanır; secret dosyaları veya SSH anahtar içerikleri Git'e girmez.
 
-Ortam değişkenleri: `NETRIX_FIRMWARE_ADVERTISE_HOST` cihazın erişeceği gerçek LAN IP'si; `NETRIX_FIRMWARE_BIND_IP` host'ta dinlenecek IP; `NETRIX_FIRMWARE_SFTP_PORT` varsayılan 2222; `NETRIX_FIRMWARE_TFTP_PUBLIC_PORT` varsayılan 69. Geliştirmede host publish varsayılan loopback'tir. TFTP veri portları UDP/20000–20015'tir.
+Ortam değişkenleri: `NETRIX_FIRMWARE_ADVERTISE_HOST` cihazın erişeceği gerçek LAN IP'si; `NETRIX_FIRMWARE_BIND_IP` host'ta dinlenecek IP; `NETRIX_FIRMWARE_SFTP_PORT` SCP ve SFTP için ortak SSH portudur, varsayılan 2222; `NETRIX_FIRMWARE_TFTP_PUBLIC_PORT` varsayılan 69. Geliştirmede host publish varsayılan loopback'tir. TFTP veri portları UDP/20000–20015'tir.
 
 Dağıtım sunucusunda UDP/69 mevcut PXE servisine aittir. NETRIX, UDP/1069 yayımlar; `scripts/firmware_tftp_dispatch.py` host NAT tablosunda sadece `00 01` RRQ opcode'u ardından `netrix-fw-` dosya önekini taşıyan, host'un belirli LAN IP'sine gelen UDP/69 isteklerini NETRIX container'ına yönlendirir. Diğer TFTP istekleri ve mevcut PXE kuralları değişmez. `netrix-firmware-dispatch.timer`, container adresi değiştiğinde bu dar yönlendirmeyi yeniler. Bu bir host ağ kuralıdır, ek uygulama container'ı değildir.
 
@@ -68,3 +68,10 @@ Nginx'te yalnız NETRIX imaj aktarım yolunun gövde sınırı 2 GiB'ye yükselt
 - `scripts/firmware_transfer_check.py`: geçici DB ve loopback üzerinde gerçek SFTP/TFTP ikili aktarımı ve reddetme kontrolleri.
 - `scripts/firmware_mariadb_check.py`: yalnız atılabilir `netrix_test` üzerinde migration, FK/CHECK/UNIQUE, UTC ve eşzamanlı planlar.
 - `scripts/firmware_browser_check.py`: yalnız geçici fixture üzerinde 1.000 cihazla sayfalama, dosya yükleme, grup/sıra/onay, masaüstü/mobil hizalama, açık/koyu tema ve Axe kontrolü.
+
+
+## CX 6100 aktarım düzeltmesi — 3 Kasım 2026
+
+PL.10.17.1030 çalışan bir 6100, CLI yardımında SFTP listelenmesine rağmen gerçek firmware indirmesini `Download failed with exit code 1: Unsupported protocol` ile reddetti (cihaz olayları 4413/4403). Salt okunur `show images` ve `show boot-history` kontrolünde eski çalışan sürüm, aktif banka ve önceki primary imajı korundu; yeni bir reboot yoktu. Bu adaptör artık SSH ile `copy scp://... {primary|secondary} vrf default` kullanır. Bu bulgu bütün CX sürümlerinin SFTP desteklemediği anlamına gelmez. Cihaz HTTPS'i açılmaz ve şifresiz protokole otomatik geçilmez.
+
+SCP kaynağı, mevcut geçici kullanıcı/parola hash'i, hedef cihaz IP'si, süre ve tek dosya sınırlarını kullanır. Aynı sunucunun SFTP alt sistemi AOS-S akışı ve SSH istemci uyumluluğu için korunur. Gerçek döngüsel SCP/SFTP testinde ikili dosya eşitliği, upload/shell/silme/yol aşımı reddi ayrıca doğrulanır.

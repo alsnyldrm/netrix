@@ -29,6 +29,7 @@ from .service import (
     service_info,
     start_plan,
     target_view,
+    transfer_protocol,
     validate_device,
 )
 
@@ -340,7 +341,7 @@ def devices(
                 "model": d.model,
                 "software_version": d.software_version,
                 "family": FAMILIES[d.adapter],
-                "protocol": "tftp" if d.adapter == "hp_1950" else "sftp",
+                "protocol": transfer_protocol(FAMILIES[d.adapter]),
                 "compatible": compatible(image, d) if image else None,
             }
             for d in rows
@@ -488,9 +489,29 @@ def retry(id: str, db=Depends(db_session), user=Depends(admin)):
 @router.post("/targets/{id}/verify")
 def verify(id: str, db=Depends(db_session), user=Depends(admin)):
     target = get(db, m.FirmwareTarget, id)
+    # Serialize with the claimant, then refresh the target after acquiring the
+    # plan lock. A read-only verification must never resume later device writes.
+    plan = db.scalar(select(m.FirmwarePlan).where(m.FirmwarePlan.id == target.plan_id).with_for_update())
+    target = db.scalar(
+        select(m.FirmwareTarget)
+        .where(m.FirmwareTarget.id == id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if target.status != "attention":
         raise HTTPException(409, "Yalnız sonucu belirsiz hedef yeniden doğrulanabilir")
+    if target.phase != "reconcile" and target.error_code:
+        target.evidence = {
+            **target.evidence,
+            "operation_error": {
+                "code": target.error_code,
+                "phase": target.phase,
+                "at": (target.finished_at or now()).isoformat(),
+            },
+        }
     target.status, target.phase = "queued", "reconcile"
+    if plan.status != "cancelled":
+        plan.status = "paused"
     audit(
         db, user, "verify", "firmware_targets", id, "Firmware sonucu salt okunur yeniden doğrulamaya alındı"
     )

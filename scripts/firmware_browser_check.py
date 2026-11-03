@@ -2,13 +2,14 @@
 
 import hashlib
 import json
+import os
 import statistics
 import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-BASE = "http://127.0.0.1:8231"
+BASE = "http://127.0.0.1:" + os.environ.get("NETRIX_FIRMWARE_FIXTURE_PORT", "8231")
 content = b"firmware browser fixture\x00\xff" * 100
 Path("artifacts").mkdir(exist_ok=True)
 with sync_playwright() as p:
@@ -140,6 +141,13 @@ with sync_playwright() as p:
     page.get_by_role("dialog").get_by_role("button", name="İşlemi onayla", exact=True).click()
     expect(page.get_by_role("dialog").get_by_text("Durduruldu", exact=True).first).to_be_visible()
     page.keyboard.press("Escape")
+    page.goto(BASE + "/#firmware-devices")
+    page.get_by_placeholder("Ara…", exact=True).fill("Fixture 0999")
+    expect(page.locator(".fw-workspace tbody tr")).to_have_count(1)
+    expect(page.locator(".fw-workspace tbody")).to_contain_text("SSH + SCP")
+    for width in (1440, 375):
+        page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
+        check(f"cx-scp-{width}")
     measurements = page.evaluate(
         """async()=>{const paths=['/firmware/overview','/firmware/devices?limit=50','/firmware/images','/firmware/groups','/firmware/plans'];const r=[];for(let i=0;i<20;i++){const p=paths[i%paths.length],t=performance.now();const x=await fetch('/api/v1'+p);if(!x.ok)throw Error(p);await x.json();r.push(performance.now()-t)}return r}"""
     )
