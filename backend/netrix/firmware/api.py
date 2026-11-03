@@ -16,20 +16,18 @@ from .. import models as m
 from ..core import db_session, now, settings
 from ..identity.security import admin, audit, current_user, operator
 from ..services import get, publish, serialize
+from . import grouping
 from .service import (
-    FAMILIES,
     GroupInput,
     ImageInput,
     PlanInput,
     RecoveryInput,
-    compatible,
     groups_view,
     image_path,
     new_plan,
     service_info,
     start_plan,
     target_view,
-    transfer_protocol,
     validate_device,
 )
 
@@ -262,31 +260,14 @@ def group(id: str, db=Depends(db_session), user=Depends(current_user)):
     }
 
 
-def save_group(db, user, payload, row):
-    ids = sorted(set(payload.device_ids))
-    for id in ids:
-        device = get(db, m.Device, id)
-        if device.archived or not device.discovery_scope_id or device.adapter not in FAMILIES:
-            raise HTTPException(422, "Yalnız desteklenen aktif envanter cihazları gruba eklenebilir")
-    row.name, row.description = payload.name, payload.description
-    db.add(row)
-    db.flush()
-    db.execute(delete(m.FirmwareMember).where(m.FirmwareMember.group_id == row.id))
-    db.add_all(m.FirmwareMember(group_id=row.id, device_id=id) for id in ids)
-    audit(db, user, "update", "firmware_groups", row.id, "Bağımsız firmware grubu ve üyeleri kaydedildi")
-    db.commit()
-    publish()
-    return {**serialize(row), "device_ids": ids}
-
-
 @router.post("/groups", status_code=201)
 def create_group(payload: GroupInput, db=Depends(db_session), user=Depends(operator)):
-    return save_group(db, user, payload, m.FirmwareGroup())
+    return grouping.save_group(db, user, payload, m.FirmwareGroup())
 
 
 @router.put("/groups/{id}")
 def update_group(id: str, payload: GroupInput, db=Depends(db_session), user=Depends(operator)):
-    return save_group(db, user, payload, get(db, m.FirmwareGroup, id))
+    return grouping.save_group(db, user, payload, get(db, m.FirmwareGroup, id))
 
 
 @router.delete("/groups/{id}", status_code=204)
@@ -299,55 +280,29 @@ def delete_group(id: str, db=Depends(db_session), user=Depends(admin)):
     publish()
 
 
+@router.get("/device-filters")
+def device_filters(db=Depends(db_session), user=Depends(current_user)):
+    return grouping.filter_options(db)
+
+
+@router.get("/devices/selection")
+def device_selection(
+    filters: grouping.DeviceFilters = Depends(), db=Depends(db_session), user=Depends(current_user)
+):
+    return grouping.selection(db, filters)
+
+
 @router.get("/devices")
 def devices(
-    q: str = "",
-    group_id: str | None = None,
+    filters: grouping.DeviceFilters = Depends(),
+    group_id: str = "",
     image_id: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db=Depends(db_session),
     user=Depends(current_user),
 ):
-    conditions = [
-        m.Device.archived.is_(False),
-        m.Device.discovery_scope_id.is_not(None),
-        m.Device.adapter.in_(FAMILIES),
-    ]
-    if q:
-        conditions.append(
-            m.Device.name.contains(q) | m.Device.management_ip.contains(q) | m.Device.model.contains(q)
-        )
-    if group_id:
-        conditions.append(
-            m.Device.id.in_(select(m.FirmwareMember.device_id).where(m.FirmwareMember.group_id == group_id))
-        )
-    image = get(db, m.FirmwareImage, image_id) if image_id else None
-    rows = list(
-        db.scalars(
-            select(m.Device)
-            .where(*conditions)
-            .order_by(m.Device.name, m.Device.id)
-            .offset(offset)
-            .limit(limit)
-        )
-    )
-    return {
-        "items": [
-            {
-                "id": d.id,
-                "name": d.name,
-                "management_ip": d.management_ip,
-                "model": d.model,
-                "software_version": d.software_version,
-                "family": FAMILIES[d.adapter],
-                "protocol": transfer_protocol(FAMILIES[d.adapter]),
-                "compatible": compatible(image, d) if image else None,
-            }
-            for d in rows
-        ],
-        "total": db.scalar(select(func.count()).select_from(m.Device).where(*conditions)),
-    }
+    return grouping.candidates(db, filters, limit=limit, offset=offset, group_id=group_id, image_id=image_id)
 
 
 @router.get("/plans")

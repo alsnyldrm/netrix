@@ -515,7 +515,8 @@ class FirmwareMember(Base):
     group_id: Mapped[str] = mapped_column(
         ForeignKey("firmware_groups.id", ondelete="CASCADE"), primary_key=True
     )
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True, index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True)
+    __table_args__ = (UniqueConstraint("device_id", name="uq_firmware_member_device"),)
 
 
 class FirmwarePlan(Entity, Base):

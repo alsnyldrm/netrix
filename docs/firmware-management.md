@@ -28,7 +28,7 @@ Hazır imaj değiştirilemez. İşlem geçmişinin referans verdiği dosya ve fi
 
 ## Gruplar ve planlar
 
-Grup adları ve sıraları sabit değildir. Aynı model farklı işletim rollerine göre farklı gruplarda bulunabilir. Bir planda aynı cihaz iki kez yer alamaz. Plan oluşturulurken grup adları, imajlar, sıra ve cihaz üyelikleri sabitlenir; sonraki grup değişiklikleri bu planı değiştirmez.
+Grup adları ve sıraları sabit değildir. Aynı modeldeki farklı cihazlar işletim rollerine göre ayrı gruplarda bulunabilir. Bir cihaz yalnızca bir firmware grubuna ait olabilir; başka gruba alınmadan önce mevcut üyeliği kaldırılmalıdır. Bir planda aynı cihaz iki kez yer alamaz. Plan oluşturulurken grup adları, imajlar, sıra ve cihaz üyelikleri sabitlenir; sonraki grup değişiklikleri bu planı değiştirmez.
 
 Plan taslaktır; oluşturmak cihaz işlemi başlatmaz. Yönetici **Başlat** ile açıkça tetikler. Zamanlama saat dilimli UTC saklanır, kullanıcı yerel saat seçer. Gruplar sırayla, grup içindeki cihazlar 1–4 sınırlı eşzamanlılıkla çalışır. Önceki grubun gerekli tüm sonuçları tamamlanmadan sonraki grup başlamaz. Başarısızlık/belirsizlikte yeni hedefler bekler.
 
@@ -94,3 +94,14 @@ Hazırlama planı bu durumda da yeniden başlatmaz. Yükseltme yalnız mevcut ku
 Canlı plandaki `preflight_at=2026-11-03T17:26:32.768756Z` ile `staged_at=2026-11-03T17:28:27.240294Z` arasındaki süre yaklaşık 114,5 saniyedir. Bu aralık konfigürasyon yedeği, aktarım, cihazda yazım ve son okuma işlemlerini birlikte kapsar; saf ağ hızı hesaplamak için kullanılamaz. Aynı sunucuda gerçek SCP işleyicisiyle, geçici dosya/kimlik ve yalnız loopback üzerinden yapılan iki 32 MiB okuma 0,427/0,430 saniye sürdü (74,9/74,3 MiB/s); hash'ler eşleşti. Bu test üretim erişim kayıtlarını veya gerçek cihazları kullanmadı; DB yetkilendirme/ilerleme kaydı yerine süreç içi test değerleri kullanıldığı için uçtan uca üretim aktarım hızı değildir.
 
 Doğrulama: 103 hedefli firmware/adaptör/terminal/sürüm testi geçti. Yeni regresyonlar hem hazırlama hem yükseltmede tekrar aktarımını atlamayı; hash yokluğu/uyuşmazlığını, diğer alandaki imajı, yedek sırasında değişen aktif alan/sürümü ve yedek başarısızlığında yazmanın engellenmesini kapsar. Ruff kontrolü ve format doğrulaması başarılıdır.
+
+
+## Firmware gruplarında toplu seçim ve tek üyelik — 3 Kasım 2026
+
+Grup oluşturma/düzenleme penceresi, görünen sayfadaki uygun cihazların seçimini ve filtreye uyan tüm uygun cihazların tek istekle seçimini destekler. Sayfa/filtre değişikliği mevcut seçimleri silmez; **Seçimleri temizle** bütün seçimi kaldırır. Toplu seçim yalnız kimlikleri okur ve tüm gruplarda geçerli mevcut 1000 cihaz sınırını aşınca filtreyi daraltmayı ister; sonuçları sessizce kesmez. Filtre alanında Enter tuşu grubu erken kaydetmez.
+
+Gelişmiş filtreler: ad/IP/model/üretici araması, cihaz ailesi, model/ürün kodu, üretici, çalışan sürüm, metin olarak IP adresi öneki, yönetim VLAN’ı, atanmış konum ve grup üyeliği. IP öneki bir CIDR hesaplaması değildir. Filtreler sunucuda birleşir; sayfalı sonuç ve toplu seçim aynı koşulları kullanır. Üyelik bilgisi toplu sorguyla gelir; her cihaz için ayrı grup sorgusu yapılmaz. Başka gruba ait cihazın mevcut grubu görünür, seçimi kapalıdır. Düzenlenen grubun mevcut üyeleri seçilebilir kalır.
+
+Kayıt işlemi servis katmanında cihazları sabit sırada kilitler; başka firmware grubunun üyesi için HTTP 409 döner. Çakışan güncelleme ad/açıklama/üyelikleri kısmen değiştirmez. Veritabanındaki `uq_firmware_member_device` benzersiz kısıtı, eşzamanlı istek ve doğrudan DB yazımında da tek üyelik sağlar. Alembic `20261103_39`, mevcut çakışmaları keyfi seçimle temizlemez; açık çözüm ister. Kullanıcının seçimiyle `HP-SW-CO-02-A-00-01` cihazı **6100** grubunda kalır; **6100-02-LOBİ** grubundaki yalnız bu üyelik kaldırılır. Grup ve eski planların sabitlenmiş ad/cihaz/sıra bilgileri korunur.
+
+İlgili kontroller `tests/test_firmware_groups.py`, atılabilir MariaDB için `scripts/firmware_groups_mariadb_check.py` ve yalnız geçici tarayıcı fixture’ı kullanan `scripts/firmware_group_browser_check.py` içindedir. Yeni bağımlılık veya gerçek cihaz işlemi eklenmez.

@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useState } from "react";
+import React, { useDeferredValue, useEffect, useId, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -136,63 +136,325 @@ function Pager({
   );
 }
 
+const EMPTY_FILTERS = {
+  q: "",
+  family: "",
+  model: "",
+  vendor: "",
+  version: "",
+  ip_prefix: "",
+  scope_id: "",
+  site_id: "",
+  assignment: "any",
+};
+
 function DevicePicker({
   selected,
   onChange,
+  groupId = "",
+  disabled,
+  selecting,
+  onSelecting,
 }: {
   selected: string[];
   onChange: (ids: string[]) => void;
+  groupId?: string;
+  disabled: boolean;
+  selecting: boolean;
+  onSelecting: (value: boolean) => void;
 }) {
-  const [q, setQ] = useState(""),
-    [offset, setOffset] = useState(0);
-  const query = useDeferredValue(q);
-  const { data, error } = useLiveQuery<Row>(
-    `/firmware/devices?q=${encodeURIComponent(query)}&offset=${offset}`,
+  const [filters, setFilters] = useState(EMPTY_FILTERS),
+    [offset, setOffset] = useState(0),
+    [selectionError, setSelectionError] = useState("");
+  const query = useDeferredValue(filters);
+  const prefix = useId();
+  const params = new URLSearchParams(
+    Object.entries({ ...query, editing_group_id: groupId }).filter(
+      ([, value]) => !!value,
+    ),
+  );
+  const { data, error, loading } = useLiveQuery<Row>(
+    `/firmware/devices?${params}&offset=${offset}`,
     0,
     undefined,
     200,
   );
+  const options = useLiveQuery<Row>("/firmware/device-filters", 0);
+  const pending = disabled || selecting || loading || query !== filters;
+  const eligible =
+    data?.items.filter((d: Row) => d.selectable).map((d: Row) => d.id) || [];
+  const countOnPage = eligible.filter((id: string) =>
+    selected.includes(id),
+  ).length;
+  const allOnPage = eligible.length > 0 && countOnPage === eligible.length;
+  const filterCount = Object.entries(filters).filter(
+    ([key, value]) =>
+      key !== "q" && (key === "assignment" ? value !== "any" : !!value),
+  ).length;
+  const update = (key: keyof typeof EMPTY_FILTERS, value: string) => {
+    setFilters((f) => ({ ...f, [key]: value }));
+    setOffset(0);
+    setSelectionError("");
+  };
+  const add = (ids: string[]) => {
+    const next = [...new Set([...selected, ...ids])];
+    if (next.length > 1000) {
+      setSelectionError(
+        "Bir firmware grubuna en fazla 1000 cihaz seçilebilir. Filtreyi daraltın veya bazı seçimleri kaldırın.",
+      );
+      return;
+    }
+    onChange(next);
+    setSelectionError("");
+  };
   return (
-    <div className="fw-picker">
+    <div
+      className="fw-picker"
+      aria-busy={pending}
+      onKeyDown={(event) => {
+        if (
+          event.key === "Enter" &&
+          event.target instanceof HTMLInputElement &&
+          event.target.type !== "checkbox"
+        )
+          event.preventDefault();
+      }}
+    >
       <label>
         Cihaz ara
         <input
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setOffset(0);
-          }}
-          placeholder="Ad, IP veya model"
+          value={filters.q}
+          disabled={disabled || selecting}
+          onChange={(e) => update("q", e.target.value)}
+          placeholder="Ad, IP, model veya üretici"
         />
       </label>
-      <p>{selected.length} cihaz seçildi</p>
-      {error && (
+      <details className="fw-picker-filters">
+        <summary>
+          Gelişmiş filtreler
+          {filterCount > 0 && <span>{filterCount} etkin</span>}
+        </summary>
+        <div className="fw-fields">
+          <label>
+            Cihaz ailesi
+            <select
+              aria-label="Cihaz ailesi"
+              value={filters.family}
+              disabled={disabled || selecting}
+              onChange={(e) => update("family", e.target.value)}
+            >
+              <option value="">Tüm aileler</option>
+              {Object.entries(FAMILIES).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {String(name)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {(
+            [
+              ["model", "Model / ürün kodu", "models"],
+              ["vendor", "Üretici", "vendors"],
+              ["version", "Çalışan sürüm", "versions"],
+            ] as const
+          ).map(([key, label, choices]) => (
+            <label key={key}>
+              {label}
+              <input
+                aria-label={label}
+                value={filters[key]}
+                list={prefix + key}
+                disabled={disabled || selecting}
+                onChange={(e) => update(key, e.target.value)}
+                placeholder="Tümü"
+              />
+              <datalist id={prefix + key}>
+                {options.data?.[choices]?.map((v: string) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+            </label>
+          ))}
+          <label>
+            IP adresi öneki
+            <input
+              aria-label="IP adresi öneki"
+              value={filters.ip_prefix}
+              disabled={disabled || selecting}
+              onChange={(e) => update("ip_prefix", e.target.value)}
+              placeholder="Örn. 10.1.1."
+            />
+          </label>
+          <label>
+            Yönetim VLAN’ı
+            <select
+              aria-label="Yönetim VLAN’ı"
+              value={filters.scope_id}
+              disabled={disabled || selecting}
+              onChange={(e) => update("scope_id", e.target.value)}
+            >
+              <option value="">Tüm VLAN’lar</option>
+              {options.data?.scopes?.map((s: Row) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.vid != null ? ` · VLAN ${s.vid}` : ""} · {s.cidr}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Konum
+            <select
+              aria-label="Konum"
+              value={filters.site_id}
+              disabled={disabled || selecting}
+              onChange={(e) => update("site_id", e.target.value)}
+            >
+              <option value="">Tüm konumlar</option>
+              {options.data?.sites?.map((s: Row) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.code}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Grup üyeliği
+            <select
+              aria-label="Grup üyeliği"
+              value={filters.assignment}
+              disabled={disabled || selecting}
+              onChange={(e) => update("assignment", e.target.value)}
+            >
+              <option value="any">Tüm cihazlar</option>
+              <option value="available">Bu gruba eklenebilenler</option>
+              <option value="assigned">Bir gruba ait olanlar</option>
+            </select>
+          </label>
+        </div>
+        <div className="fw-filter-actions">
+          <button
+            type="button"
+            className="text-button"
+            disabled={disabled || selecting}
+            onClick={() => {
+              setFilters(EMPTY_FILTERS);
+              setOffset(0);
+              setSelectionError("");
+            }}
+          >
+            Filtreleri temizle
+          </button>
+        </div>
+      </details>
+      <div className="fw-selection-bar">
+        <p role="status" aria-live="polite">
+          <b>{selected.length} cihaz seçildi</b>
+          <span>
+            {data
+              ? `${data.total} sonuç · ${data.selectable_total} seçilebilir`
+              : "Cihazlar okunuyor…"}
+          </span>
+        </p>
+        <div className="fw-selection-actions">
+          <label className="fw-check">
+            <input
+              type="checkbox"
+              aria-label="Bu sayfadaki uygun cihazları seç"
+              disabled={pending || !eligible.length}
+              checked={allOnPage}
+              ref={(e) => {
+                if (e) e.indeterminate = countOnPage > 0 && !allOnPage;
+              }}
+              onChange={(e) =>
+                e.target.checked
+                  ? add(eligible)
+                  : onChange(selected.filter((id) => !eligible.includes(id)))
+              }
+            />
+            <span>Bu sayfayı seç</span>
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            disabled={pending || !data?.selectable_total}
+            onClick={async () => {
+              onSelecting(true);
+              setSelectionError("");
+              try {
+                const all = await api(`/firmware/devices/selection?${params}`);
+                add(all.device_ids);
+              } catch (e: any) {
+                setSelectionError(e.message);
+              } finally {
+                onSelecting(false);
+              }
+            }}
+          >
+            {selecting ? "Seçiliyor…" : "Filtredeki tüm uygunları seç"}
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            disabled={pending || !selected.length}
+            onClick={() => {
+              onChange([]);
+              setSelectionError("");
+            }}
+          >
+            Seçimleri temizle
+          </button>
+        </div>
+      </div>
+      <p className="fw-picker-help">
+        Bir cihaz yalnızca bir firmware grubuna eklenebilir. Filtre ve sayfa
+        değiştirirken seçimleriniz korunur.
+      </p>
+      {(error || selectionError) && (
         <p role="alert" className="error">
-          {error}
+          {selectionError || error}
+        </p>
+      )}
+      {options.error && (
+        <p role="alert" className="error">
+          Filtre seçenekleri okunamadı: {options.error}
         </p>
       )}
       <div className="fw-checklist">
         {data?.items.map((d: Row) => (
-          <label key={d.id}>
+          <label
+            key={d.id}
+            className={!d.selectable ? "fw-device-unavailable" : undefined}
+          >
             <input
               type="checkbox"
               checked={selected.includes(d.id)}
+              disabled={pending || !d.selectable}
               onChange={(e) =>
-                onChange(
-                  e.target.checked
-                    ? [...selected, d.id]
-                    : selected.filter((id) => id !== d.id),
-                )
+                e.target.checked
+                  ? add([d.id])
+                  : onChange(selected.filter((id) => id !== d.id))
               }
             />
             <span>
               <b>{d.name}</b>
               <small>
-                {d.management_ip} · {d.model || "Model kaydı yok"}
+                {d.management_ip} · {d.model || "Model kaydı yok"} ·{" "}
+                {d.software_version || "Sürüm okunmadı"}
               </small>
+              {d.firmware_group_name && (
+                <small className="fw-membership">
+                  {d.selectable
+                    ? "Bu grubun üyesi"
+                    : `Mevcut grup: ${d.firmware_group_name}`}
+                </small>
+              )}
             </span>
           </label>
         ))}
+        {data && !data.items.length && (
+          <p className="fw-picker-empty">Filtrelere uygun cihaz bulunamadı.</p>
+        )}
       </div>
       {data && (
         <Pager offset={offset} total={data.total} onChange={setOffset} />
@@ -214,6 +476,7 @@ function GroupForm({
     [description, setDescription] = useState(row?.description || ""),
     [members, setMembers] = useState<string[]>(row?.device_ids || []);
   const [busy, setBusy] = useState(false),
+    [selecting, setSelecting] = useState(false),
     [error, setError] = useState("");
   return (
     <Dialog
@@ -225,6 +488,7 @@ function GroupForm({
         className="fw-form"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (selecting || busy) return;
           setBusy(true);
           setError("");
           try {
@@ -265,7 +529,14 @@ function GroupForm({
           Grup adını ve üyelerini siz belirlersiniz. Yedekleme gruplarından
           bağımsızdır.
         </p>
-        <DevicePicker selected={members} onChange={setMembers} />
+        <DevicePicker
+          selected={members}
+          onChange={setMembers}
+          groupId={row?.id}
+          disabled={busy || selecting}
+          selecting={selecting}
+          onSelecting={setSelecting}
+        />
         {error && (
           <p className="error" role="alert">
             {error}
@@ -275,12 +546,12 @@ function GroupForm({
           <button
             type="button"
             className="secondary"
-            disabled={busy}
+            disabled={busy || selecting}
             onClick={onClose}
           >
             Vazgeç
           </button>
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || selecting}>
             {busy ? "Kaydediliyor…" : "Grubu kaydet"}
           </button>
         </div>

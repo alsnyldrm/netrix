@@ -62,6 +62,7 @@ with sync_playwright() as p:
         })""")
         assert not alignment, (name, alignment)
         fields = page.locator(".fw-fields").evaluate_all("""groups => groups.flatMap(group => {
+          if (group.closest('details') && !group.closest('details').open) return [];
           const controls = [...group.children].filter(e => e.matches('label')).map(label => label.querySelector('input,select,textarea')).filter(Boolean);
           const failures = [];
           for (let i = 1; i < controls.length; i++) {

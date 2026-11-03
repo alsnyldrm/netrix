@@ -198,3 +198,8 @@ Alembic `20261103_35`, `ipam_scan_groups` (takvim, başlangıç/sonraki UTC zama
 Alembic `20261102_32`, `firmware_images`, `firmware_groups`, `firmware_group_members`, `firmware_plans` ve `firmware_targets` tablolarını ekler. Cihazlar ortak `devices` kimliğini kullanır; yedekleme grupları ayrı kalır. Grup üyeliği bileşik PK, planda cihaz tekilliği UNIQUE, etkin cihaz rezervasyonu nullable UNIQUE, aile/durum/eşzamanlılık sınırları CHECK ve ilişkiler indeksli FK ile korunur. Planların adları, sırası, imajları ve üyeleri JSON snapshot'ıdır; dosyaların kendisi volume'dadır. Dosya hash'i, boyutu ve açık uyumluluk metadata'sı MariaDB'de tutulur.
 
 Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrulanmış sürüm, banka, korunan şifreli snapshot FK'si ve süreli aktarım erişimi ayrı alanlardır. Aktarım parolası API'ye dönmez; rastgele credential'ın yalnız hash'i saklanır. UTC `DATETIME(6)` kullanılır. Geçmişi olan cihaz/dosya/yedeğin kalıcı silinmesi engellenir; kayıt varken kayıplı downgrade reddedilir. Davranış ve sınırlar: [Firmware yönetimi](firmware-management.md).
+
+
+### Firmware grubu üyeliği (3 Kasım 2026)
+
+`20261103_39`, `firmware_group_members.device_id` üzerinde `uq_firmware_member_device` benzersiz kısıtını uygular; bir cihaz yalnızca bir firmware grubunda bulunabilir. Grup düzenlenirken kendi üyeleri korunabilir, başka gruba geçiş için önce mevcut üyelik kaldırılır. Servis cihaz satırlarını sıralı kilitler ve çakışmayı atomik HTTP 409 ile bildirir. Migration mevcut çoklu üyelikleri silmez; proje sahibinin açık seçimiyle çözülmeden ilerlemez. Yedekleme grupları ve geçmiş firmware planlarının sabitlenmiş üyelikleri bu sözleşmeden ayrıdır.

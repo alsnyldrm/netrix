@@ -152,19 +152,12 @@ def test_plan_is_draft_snapshot_not_a_network_trigger(fw):
     assert len(detail["targets"]) == 3 and detail["steps"][0]["group_name"] == "Role 0"
 
 
-def test_same_device_cannot_be_in_two_groups_in_a_plan(fw):
-    c = fw["client"]
-    group = c.post(
+def test_same_device_cannot_be_added_to_another_firmware_group(fw):
+    response = fw["client"].post(
         "/api/v1/firmware/groups", json={"name": "Duplicate role", "device_ids": [fw["devices"][0].id]}
-    ).json()
-    response = c.post(
-        "/api/v1/firmware/plans",
-        json={
-            "name": "Duplicate",
-            "steps": [{"group_id": g["id"], "image_id": fw["image"]["id"]} for g in (fw["groups"][0], group)],
-        },
     )
-    assert response.status_code == 422
+    assert response.status_code == 409
+    assert fw["groups"][0]["name"] in response.json()["detail"]
 
 
 def test_start_is_idempotent_and_reservations_prevent_conflicting_plans(fw):
