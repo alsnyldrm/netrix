@@ -145,14 +145,22 @@ async def check():
             cookies={"netrix_session": token},
             headers={"X-Netrix-Request": "1"},
         ) as api:
+            group = await api.post(
+                "/api/v1/access/groups", json={"name": "Loopback group", "device_ids": [device_id]}
+            )
+            assert group.status_code == 201, group.text
             profile = {
+                "name": "Loopback SSH",
+                "group_ids": [group.json()["id"]],
                 "username": "fixture",
                 "password": "fixture-password",
                 "port": port,
                 "initial_command": "no page",
                 "connect_timeout": 3,
             }
-            assert (await api.put("/api/v1/access/ssh-profile", json=profile)).status_code == 200
+            saved = await api.post("/api/v1/access/ssh-profiles", json=profile)
+            assert saved.status_code == 201, saved.text
+            profile_id = saved.json()["id"]
             # Default host-key policy fails closed before sending a command.
             Path(os.environ["NETRIX_KNOWN_HOSTS"]).write_text("")
             response = await api.post("/api/v1/access/sessions", json={"device_id": device_id})
@@ -221,7 +229,10 @@ async def check():
                 await runtime.execute(client, "batch", batch_id)
                 assert commands.count(command) == before
             # Password validation failure reveals no credential values.
-            await api.put("/api/v1/access/ssh-profile", json={**profile, "password": "wrong-secret-marker"})
+            await api.put(
+                f"/api/v1/access/ssh-profiles/{profile_id}",
+                json={**profile, "password": "wrong-secret-marker"},
+            )
             response = await api.post(
                 "/api/v1/access/batches",
                 json={"device_ids": [device_id], "command": "show system", "timeout": 5},

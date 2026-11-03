@@ -39,9 +39,12 @@ def connection_data(value, device_id):
         ):
             raise HTTPException(403, "Oturum veya yetki sona erdi")
         device = svc.authorize_device(db, user, device_id)
-        profile = svc.ssh_profile(db, user, private=True)
-        if not profile:
-            raise HTTPException(409, "Kişisel SSH bilgileri kaldırılmış")
+        expected = value.get("ssh_profile_id")
+        if "targets" in value:
+            expected = next(
+                (t.get("ssh_profile_id") for t in value["targets"] if t["device_id"] == device_id), None
+            )
+        _, profile = svc.resolve_profile(db, user, device_id, expected_id=expected)
         return device, profile
 
 

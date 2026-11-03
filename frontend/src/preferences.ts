@@ -1,5 +1,6 @@
 export type Preferences = {
   palette: string;
+  design: string;
   timezone: string;
   locale: string;
   hour12: boolean;
@@ -7,6 +8,7 @@ export type Preferences = {
 };
 export const defaultPreferences: Preferences = {
   palette: "cobalt",
+  design: "atlas",
   timezone: "Europe/Istanbul",
   locale: "tr-TR",
   hour12: false,
@@ -14,9 +16,11 @@ export const defaultPreferences: Preferences = {
 };
 let active = defaultPreferences;
 export function applyPreferences(value: Preferences) {
+  value = { ...defaultPreferences, ...value };
   active = value;
   const root = document.documentElement;
   root.dataset.palette = value.palette;
+  root.dataset.design = value.design;
   root.dataset.compact = String(value.features.includes("compact_tables"));
   root.dataset.reduceMotion = String(value.features.includes("reduced_motion"));
   window.dispatchEvent(

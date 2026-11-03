@@ -3,6 +3,7 @@ import { Profile } from "./user-workspace";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
   applyPreferences,
+  currentPreferences,
   defaultPreferences,
   formatDate,
 } from "./preferences";
@@ -93,6 +94,8 @@ import "@fontsource/ibm-plex-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
+import "./appearance.css";
+import "./application-themes.css";
 import {
   InventoryTable,
   InterfaceWorkspace,
@@ -2473,6 +2476,43 @@ function App() {
   const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
   const page = PAGES.find((p) => p.key === current) || PAGES[0];
   useEffect(() => {
+    const changeDesign = (event: Event) => {
+      if ((event as CustomEvent).detail.design === "panorama") {
+        setCollapsed(false);
+        setClosedGroups([...GROUPS]);
+      }
+    };
+    const closeTopMenu = (event: KeyboardEvent | PointerEvent) => {
+      if (
+        currentPreferences().design !== "panorama" ||
+        window.innerWidth < 1280
+      )
+        return;
+      if (
+        (event instanceof KeyboardEvent && event.key === "Escape") ||
+        (event instanceof PointerEvent &&
+          !(event.target as Element).closest(".sidebar-nav"))
+      )
+        setClosedGroups([...GROUPS]);
+    };
+    const wideNavigation = window.matchMedia("(min-width: 1280px)");
+    const changeViewport = () => {
+      if (wideNavigation.matches && currentPreferences().design === "panorama")
+        setClosedGroups([...GROUPS]);
+    };
+    wideNavigation.addEventListener("change", changeViewport);
+    window.addEventListener("netrix:preferences", changeDesign);
+    window.addEventListener("keydown", closeTopMenu);
+    window.addEventListener("pointerdown", closeTopMenu);
+    return () => {
+      wideNavigation.removeEventListener("change", changeViewport);
+      window.removeEventListener("netrix:preferences", changeDesign);
+      window.removeEventListener("keydown", closeTopMenu);
+      window.removeEventListener("pointerdown", closeTopMenu);
+    };
+  }, []);
+
+  useEffect(() => {
     const expired = () => {
       clearReadCache();
       setUser(null);
@@ -2534,7 +2574,11 @@ function App() {
     location.hash = key;
     setCurrent(key);
     setGroup(p.group);
-    setClosedGroups((groups) => groups.filter((g) => g !== p.group));
+    setClosedGroups((groups) =>
+      currentPreferences().design === "panorama" && window.innerWidth >= 1280
+        ? [...GROUPS]
+        : groups.filter((g) => g !== p.group),
+    );
     setOffset(0);
     setQuery("");
     setError("");
@@ -2550,7 +2594,12 @@ function App() {
       if (p) {
         setCurrent(p.key);
         setGroup(p.group);
-        setClosedGroups((groups) => groups.filter((g) => g !== p.group));
+        setClosedGroups((groups) =>
+          currentPreferences().design === "panorama" &&
+          window.innerWidth >= 1280
+            ? [...GROUPS]
+            : groups.filter((g) => g !== p.group),
+        );
         setOffset(0);
         setQuery("");
       }
@@ -2944,9 +2993,14 @@ function App() {
                 aria-controls={`nav-group-${index}`}
                 onClick={() =>
                   setClosedGroups((groups) =>
-                    groups.includes(g)
-                      ? groups.filter((item) => item !== g)
-                      : [...groups, g],
+                    currentPreferences().design === "panorama" &&
+                    window.innerWidth >= 1280
+                      ? groups.includes(g)
+                        ? GROUPS.filter((item) => item !== g)
+                        : [...GROUPS]
+                      : groups.includes(g)
+                        ? groups.filter((item) => item !== g)
+                        : [...groups, g],
                   )
                 }
               >

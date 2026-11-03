@@ -9,7 +9,10 @@ class Input(BaseModel):
 
 
 class Preferences(Input):
-    palette: Literal["cobalt", "teal", "violet", "amber", "forest", "slate"] = "cobalt"
+    palette: Literal[
+        "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo"
+    ] = "cobalt"
+    design: Literal["atlas", "orbit", "terminal", "panorama", "focus"] = "atlas"
     timezone: str = "Europe/Istanbul"
     locale: Literal["tr-TR", "en-GB", "en-US", "de-DE"] = "tr-TR"
     hour12: bool = False
@@ -28,6 +31,8 @@ class Preferences(Input):
 
 
 class SSHProfile(Input):
+    name: str = Field(min_length=1, max_length=120)
+    group_ids: list[str] = Field(default_factory=list, max_length=10000)
     username: str = Field(min_length=1, max_length=120)
     password: SecretStr | None = Field(default=None, max_length=4096)
     private_key: SecretStr | None = Field(default=None, max_length=16384)

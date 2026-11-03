@@ -203,3 +203,7 @@ Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrul
 ### Firmware grubu üyeliği (3 Kasım 2026)
 
 `20261103_39`, `firmware_group_members.device_id` üzerinde `uq_firmware_member_device` benzersiz kısıtını uygular; bir cihaz yalnızca bir firmware grubunda bulunabilir. Grup düzenlenirken kendi üyeleri korunabilir, başka gruba geçiş için önce mevcut üyelik kaldırılır. Servis cihaz satırlarını sıralı kilitler ve çakışmayı atomik HTTP 409 ile bildirir. Migration mevcut çoklu üyelikleri silmez; proje sahibinin açık seçimiyle çözülmeden ilerlemez. Yedekleme grupları ve geçmiş firmware planlarının sabitlenmiş üyelikleri bu sözleşmeden ayrıdır.
+
+## Kişisel SSH ve görünüm tercihleri (3 Kasım 2026)
+
+`20261103_40`: `user_ssh_profiles(owner_id,name,encrypted_ssh)` kullanıcıya ait adlandırılmış hesapları tutar. `access_groups.ssh_profile_id` grubun bağlantı hesabını seçer; `(ssh_profile_id,owner_id)` bileşik FK başka kullanıcının hesabına atamayı engeller. `access_group_devices.owner_id` grup sahibiyle bileşik FK üzerinden eşleşir ve `UNIQUE(owner_id,device_id)` bir cihazın aynı kullanıcının birden çok grubunda bulunmasını engeller. Envanter cihazı çoğaltılmaz. Eski `user_workspaces.encrypted_ssh` kopyalanıp kaldırılır; tercih JSON'u ve hazır komutlar korunur. Beş tasarım teması ve on renk paleti aynı kullanıcı tercih JSON'unda sabit değerlerle tutulur; görünüm için yeni tablo açılmaz.

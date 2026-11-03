@@ -3,9 +3,9 @@ import json
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from .. import models as m
 from ..core import db_session, session_factory, settings
@@ -29,20 +29,24 @@ def save_preferences(payload: s.Preferences, user=Depends(current_user), db=Depe
     return payload
 
 
-@router.get("/ssh-profile")
-def ssh_profile(user=Depends(current_user), db=Depends(db_session)):
-    return svc.ssh_profile(db, user)
+@router.get("/ssh-profiles")
+def ssh_profiles(user=Depends(current_user), db=Depends(db_session)):
+    return {"items": svc.list_profiles(db, user)}
 
 
-@router.put("/ssh-profile")
-def save_ssh(payload: s.SSHProfile, user=Depends(current_user), db=Depends(db_session)):
+@router.post("/ssh-profiles", status_code=201)
+def add_ssh(payload: s.SSHProfile, user=Depends(current_user), db=Depends(db_session)):
     return svc.save_ssh(db, user, payload)
 
 
-@router.delete("/ssh-profile", status_code=204)
-def delete_ssh(user=Depends(current_user), db=Depends(db_session)):
-    svc.workspace(db, user).encrypted_ssh = None
-    db.commit()
+@router.put("/ssh-profiles/{id}")
+def save_ssh(id: str, payload: s.SSHProfile, user=Depends(current_user), db=Depends(db_session)):
+    return svc.save_ssh(db, user, payload, id)
+
+
+@router.delete("/ssh-profiles/{id}", status_code=204)
+def delete_ssh(id: str, user=Depends(current_user), db=Depends(db_session)):
+    svc.delete_profile(db, user, id)
 
 
 @router.get("/commands")
@@ -68,6 +72,22 @@ def devices(
     from ..inventory.management import query
 
     result = query(db, "devices", limit=100, offset=offset, q=q, filters=filters)
+    assignments = dict(
+        db.execute(
+            select(m.AccessGroupDevice.device_id, m.AccessGroupDevice.group_id).where(
+                m.AccessGroupDevice.owner_id == user.id,
+                m.AccessGroupDevice.device_id.in_([d["id"] for d in result["items"]]),
+            )
+        ).all()
+    )
+    names = dict(
+        db.execute(
+            select(m.AccessGroup.id, m.AccessGroup.name).where(m.AccessGroup.owner_id == user.id)
+        ).all()
+    )
+    for device in result["items"]:
+        group_id = assignments.get(device["id"])
+        device.update(access_group_id=group_id, access_group_name=names.get(group_id))
     return {**result, "has_more": offset + len(result["items"]) < result["total"]}
 
 
@@ -75,12 +95,29 @@ def devices(
 def device_selection(
     q: str = Query(default="", max_length=120),
     filters: str = Query(default="[]", max_length=20000),
+    group_id: str = "",
     user=Depends(current_user),
     db=Depends(db_session),
 ):
     from ..inventory.management import query
 
-    return query(db, "devices", q=q, filters=filters, ids_only=True)
+    if group_id:
+        svc.owned_group(db, user, group_id)
+    result = query(db, "devices", q=q, filters=filters, ids_only=True)
+    occupied = set(
+        db.scalars(
+            select(m.AccessGroupDevice.device_id).where(
+                m.AccessGroupDevice.owner_id == user.id,
+                m.AccessGroupDevice.group_id != group_id,
+                m.AccessGroupDevice.device_id.in_(result["ids"]),
+            )
+        )
+    )
+    return {
+        "ids": [id for id in result["ids"] if id not in occupied],
+        "skipped": len(occupied),
+        "total": result["total"],
+    }
 
 
 @router.get("/device-filter-values")
@@ -112,17 +149,11 @@ def save_group(id: str, payload: s.GroupInput, user=Depends(current_user), db=De
 
 @router.delete("/groups/{id}", status_code=204)
 def delete_group(id: str, user=Depends(current_user), db=Depends(db_session)):
+    svc.lock_owner(db, user)
     group = svc.owned_group(db, user, id)
     db.execute(delete(m.AccessGroup).where(m.AccessGroup.id == group.id))
     audit(db, user, "access_group_deleted", "access_group", id, "Cihaz grubu silindi")
     db.commit()
-
-
-def connection_ready(db, user):
-    if not svc.ssh_profile(db, user, private=True):
-        raise HTTPException(
-            409, "Profil → Cihaz yetkisi → SSH Bağlantısı bölümünde kişisel bağlantı bilgilerinizi kaydedin"
-        )
 
 
 @router.post("/sessions", status_code=201)
@@ -130,8 +161,9 @@ def open_session(
     payload: s.SessionInput, request: Request, user=Depends(current_user), db=Depends(db_session)
 ):
     device = svc.authorize_device(db, user, payload.device_id)
-    connection_ready(db, user)
+    profile_id, _ = svc.resolve_profile(db, user, device.id)
     value = {
+        "ssh_profile_id": profile_id,
         **payload.model_dump(),
         "user_id": user.id,
         "auth_hash": token_hash(request.cookies.get("netrix_session", "")),
@@ -159,13 +191,14 @@ def close_session(id: str, user=Depends(current_user)):
 
 @router.post("/batches", status_code=202)
 def batch(payload: s.BatchInput, request: Request, user=Depends(current_user), db=Depends(db_session)):
-    connection_ready(db, user)
     targets = []
     for id in dict.fromkeys(payload.device_ids):
         device = svc.authorize_device(db, user, id)
+        profile_id, _ = svc.resolve_profile(db, user, id)
         targets.append(
             {
                 "device_id": id,
+                "ssh_profile_id": profile_id,
                 "name": device.name,
                 "management_ip": device.management_ip,
                 "status": "queued",

@@ -35,9 +35,20 @@ def target(admin_client, inventory, env):
 
 
 def profile(client):
-    return client.put(
-        "/api/v1/access/ssh-profile",
+    devices = client.get("/api/v1/access/devices").json()["items"]
+    groups = client.get("/api/v1/access/groups").json()["items"]
+    group_ids = [g["id"] for g in groups if not g["ssh_profile_id"]]
+    assigned = {id for g in groups for id in g["device_ids"]}
+    ids = [d["id"] for d in devices if d["id"] not in assigned]
+    if ids:
+        result = client.post("/api/v1/access/groups", json={"name": "Profile fixture", "device_ids": ids})
+        assert result.status_code == 201, result.text
+        group_ids.append(result.json()["id"])
+    return client.post(
+        "/api/v1/access/ssh-profiles",
         json={
+            "name": "Personal",
+            "group_ids": group_ids,
             "username": "personal",
             "password": "private-password",
             "port": 2222,
@@ -48,33 +59,48 @@ def profile(client):
 
 def test_profile_is_encrypted_and_no_secret_echo(admin_client, env):
     response = profile(admin_client)
-    assert response.status_code == 200, response.text
+    assert response.status_code == 201, response.text
     assert response.json()["has_password"] is True
     assert "private-password" not in response.text
     assert "password" not in response.json()
     with env() as db:
-        row = db.scalar(select(m.UserWorkspace))
+        row = db.scalar(select(m.UserSSHProfile))
         assert "private-password" not in row.encrypted_ssh
         assert json.loads(decrypt(row.encrypted_ssh))["password"] == "private-password"
-    response = admin_client.put("/api/v1/access/ssh-profile", json={"username": "updated", "port": 22})
+    response = admin_client.put(
+        f"/api/v1/access/ssh-profiles/{response.json()['id']}",
+        json={"name": "Personal", "username": "updated", "port": 22},
+    )
     assert response.status_code == 200
     with env() as db:
         assert (
-            json.loads(decrypt(db.scalar(select(m.UserWorkspace)).encrypted_ssh))["password"]
+            json.loads(decrypt(db.scalar(select(m.UserSSHProfile)).encrypted_ssh))["password"]
             == "private-password"
         )
-    response = admin_client.put(
-        "/api/v1/access/ssh-profile",
-        json={"username": "updated", "password": "secret-validation-marker", "port": 0},
+    response = admin_client.post(
+        "/api/v1/access/ssh-profiles",
+        json={"name": "Invalid", "username": "updated", "password": "secret-validation-marker", "port": 0},
     )
     assert response.status_code == 422
     assert "secret-validation-marker" not in response.text
-    assert admin_client.delete("/api/v1/access/ssh-profile").status_code == 204
-    assert admin_client.get("/api/v1/access/ssh-profile").json()["has_password"] is False
+    id = admin_client.get("/api/v1/access/ssh-profiles").json()["items"][0]["id"]
+    assert admin_client.delete(f"/api/v1/access/ssh-profiles/{id}").status_code == 204
+    assert admin_client.get("/api/v1/access/ssh-profiles").json()["items"] == []
 
 
 def test_preferences_single_row_validation_and_saved_commands(admin_client, env):
-    for palette in ("cobalt", "teal", "violet", "amber", "forest", "slate"):
+    for palette in (
+        "cobalt",
+        "teal",
+        "violet",
+        "amber",
+        "forest",
+        "slate",
+        "rose",
+        "cyan",
+        "orange",
+        "indigo",
+    ):
         result = admin_client.put("/api/v1/access/preferences", json={"palette": palette, "timezone": "UTC"})
         assert result.status_code == 200
     assert (
@@ -114,7 +140,7 @@ def test_ssh_role_enforced_and_groups_are_personal(admin_client, target, env):
         == 200
     )
     assert admin_client.get("/api/v1/access/groups").json()["items"] == []
-    assert admin_client.get("/api/v1/access/ssh-profile").json()["has_password"] is False
+    assert admin_client.get("/api/v1/access/ssh-profiles").json()["items"] == []
     assert admin_client.get("/api/v1/access/devices").json()["items"][0]["id"] == device_id
     assert admin_client.put(f"/api/v1/access/groups/{group_id}", json={"name": "Stolen"}).status_code == 404
     assert admin_client.delete(f"/api/v1/access/groups/{group_id}").status_code == 404
@@ -294,7 +320,7 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, monkeypa
     device_id, user_id = target
     memory = EphemeralRedis()
     monkeypatch.setattr(e, "redis_client", lambda: memory)
-    assert profile(admin_client).status_code == 200
+    assert profile(admin_client).status_code == 201
     sessions = [
         admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}) for _ in range(16)
     ]
@@ -433,3 +459,137 @@ async def test_batch_concurrency_cancellation_and_bounded_outputs(monkeypatch):
     assert value["status"] == "cancelled"
     assert all(t["status"] == "cancelled" for t in value["targets"])
     assert active == 0
+
+
+def test_named_profiles_route_by_group_and_prevent_duplicate_membership(
+    admin_client, target, env, monkeypatch
+):
+    device_id, other_user_id = target
+    with env() as db:
+        device = db.get(m.Device, device_id)
+        second = m.Device(
+            name="Second switch",
+            management_ip="192.0.2.2",
+            vrf_id=device.vrf_id,
+            discovery_scope_id=device.discovery_scope_id,
+        )
+        db.add(second)
+        db.commit()
+        second_id = second.id
+    a = admin_client.post("/api/v1/access/groups", json={"name": "A", "device_ids": [device_id]}).json()
+    b = admin_client.post("/api/v1/access/groups", json={"name": "B", "device_ids": [second_id]}).json()
+    duplicate = admin_client.post(
+        "/api/v1/access/groups", json={"name": "Duplicate", "device_ids": [device_id]}
+    )
+    assert duplicate.status_code == 409 and "A" in duplicate.json()["detail"]
+    assert (
+        admin_client.put(
+            f"/api/v1/access/groups/{b['id']}", json={"name": "B", "device_ids": [device_id]}
+        ).status_code
+        == 409
+    )
+    assert admin_client.get("/api/v1/access/groups").json()["items"][1]["device_ids"] == [second_id]
+    payload = {
+        "name": "Switches",
+        "username": "switch-admin",
+        "password": "first-secret",
+        "port": 2222,
+        "group_ids": [a["id"]],
+    }
+    first = admin_client.post("/api/v1/access/ssh-profiles", json=payload)
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+    second_profile = admin_client.post(
+        "/api/v1/access/ssh-profiles",
+        json={
+            **payload,
+            "name": "Routers",
+            "username": "router-admin",
+            "password": "second-secret",
+            "port": 2200,
+            "group_ids": [b["id"]],
+        },
+    )
+    assert second_profile.status_code == 201
+    assert (
+        admin_client.post("/api/v1/access/ssh-profiles", json={**payload, "name": "Steal A"}).status_code
+        == 409
+    )
+    assert len(admin_client.get("/api/v1/access/ssh-profiles").json()["items"]) == 2
+    with env() as db:
+        user = db.scalar(select(m.User).where(m.User.role == "admin"))
+        assert service.resolve_profile(db, user, device_id)[1]["username"] == "switch-admin"
+        assert service.resolve_profile(db, user, second_id)[1]["port"] == 2200
+        owner_id = user.id
+        assert all("secret" not in p.encrypted_ssh for p in db.scalars(select(m.UserSSHProfile)))
+    memory = EphemeralRedis()
+    monkeypatch.setattr(e, "redis_client", lambda: memory)
+    response = admin_client.post("/api/v1/access/sessions", json={"device_id": device_id})
+    assert response.status_code == 201
+    value = e.read(memory, "session", response.json()["id"])
+    assert value["ssh_profile_id"] == first_id
+    assert runtime.connection_data(value, device_id)[1]["password"] == "first-secret"
+    assert admin_client.delete(f"/api/v1/access/ssh-profiles/{first_id}").status_code == 204
+    assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 409
+    replacement = admin_client.post("/api/v1/access/ssh-profiles", json={**payload, "name": "Replacement"})
+    assert replacement.status_code == 201
+    with pytest.raises(Exception) as exc:
+        runtime.connection_data(value, device_id)
+    assert exc.value.status_code == 409
+    # The UNIQUE rule is enforced by the database as well as by the service lock.
+    from sqlalchemy.exc import IntegrityError
+
+    with env() as db:
+        db.add(m.AccessGroupDevice(group_id=b["id"], owner_id=owner_id, device_id=device_id))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    selection = admin_client.get("/api/v1/access/device-selection").json()
+    assert selection["ids"] == [] and selection["skipped"] == 2
+    selection = admin_client.get("/api/v1/access/device-selection", params={"group_id": a["id"]}).json()
+    assert selection["ids"] == [device_id] and selection["skipped"] == 1
+    admin_client.post("/api/v1/auth/logout")
+    admin_client.post(
+        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
+    )
+    assert admin_client.get("/api/v1/access/ssh-profiles").json()["items"] == []
+    assert (
+        admin_client.put(f"/api/v1/access/ssh-profiles/{replacement.json()['id']}", json=payload).status_code
+        == 404
+    )
+    assert admin_client.delete(f"/api/v1/access/ssh-profiles/{replacement.json()['id']}").status_code == 404
+    assert (
+        admin_client.post("/api/v1/access/ssh-profiles", json={**payload, "name": "Cross owner"}).status_code
+        == 422
+    )
+    # Personal grouping of another user's device does not share that user's credentials.
+    assert (
+        admin_client.post(
+            "/api/v1/access/groups", json={"name": "Personal A", "device_ids": [device_id]}
+        ).status_code
+        == 201
+    )
+
+
+def test_appearance_defaults_and_isolation(admin_client, target, env):
+    device_id, user_id = target
+    with env() as db:
+        owner = db.scalar(select(m.User).where(m.User.role == "admin"))
+        db.add(m.UserWorkspace(user_id=owner.id, preferences={"palette": "amber", "timezone": "UTC"}))
+        db.commit()
+    assert admin_client.get("/api/v1/access/preferences").json()["design"] == "atlas"
+    for design in ("atlas", "orbit", "terminal", "panorama", "focus"):
+        result = admin_client.put("/api/v1/access/preferences", json={"design": design, "palette": "amber"})
+        assert result.status_code == 200 and result.json()["design"] == design
+    assert admin_client.put("/api/v1/access/preferences", json={"design": "arbitrary-css"}).status_code == 422
+    assert (
+        admin_client.put("/api/v1/access/preferences", json={"palette": "arbitrary-color"}).status_code == 422
+    )
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.UserWorkspace)) == 1
+    admin_client.post("/api/v1/auth/logout")
+    admin_client.post(
+        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
+    )
+    prefs = admin_client.get("/api/v1/access/preferences").json()
+    assert prefs["palette"] == "cobalt" and prefs["design"] == "atlas"

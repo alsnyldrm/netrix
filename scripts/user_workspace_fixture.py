@@ -133,15 +133,6 @@ with session_factory()() as db:
     db.add(scope)
     db.flush()
     db.add(
-        m.UserWorkspace(
-            user_id=user.id,
-            preferences={},
-            encrypted_ssh=encrypt(
-                '{"username":"fixture","password":"fixture-password","port":22,"connect_timeout":10,"initial_command":""}'
-            ),
-        )
-    )
-    db.add(
         m.User(
             email="viewer@example.test",
             display_name="Viewer Tester",
@@ -149,20 +140,36 @@ with session_factory()() as db:
             password_hash=hasher.hash("browser-fixture-password"),
         )
     )
+    profile = m.UserSSHProfile(
+        owner_id=user.id,
+        name="Fixture SSH",
+        encrypted_ssh=encrypt(
+            '{"username":"fixture","password":"fixture-password","port":22,"connect_timeout":10,"initial_command":""}'
+        ),
+    )
+    db.add(profile)
+    db.flush()
+    group = m.AccessGroup(
+        owner_id=user.id, name="Fixture cihazları", description="Browser fixture", ssh_profile_id=profile.id
+    )
+    db.add(group)
+    db.flush()
     for n in range(225):
-        db.add(
-            m.Device(
-                name=f"SW-{n + 1:02}",
-                created_at=now() - timedelta(seconds=n),
-                management_ip=f"192.0.2.{n + 1}",
-                vrf_id=vrf.id,
-                discovery_scope_id=scope.id,
-                kind="switch",
-                vendor="Aruba",
-                model="CX6200" if n < 150 else "CX6300",
-                software_version="10.13",
-                adapter="aruba_2900",
-            )
+        device = m.Device(
+            name=f"SW-{n + 1:02}",
+            created_at=now() - timedelta(seconds=n),
+            management_ip=f"192.0.2.{n + 1}",
+            vrf_id=vrf.id,
+            discovery_scope_id=scope.id,
+            kind="switch",
+            vendor="Aruba",
+            model="CX6200" if n < 150 else "CX6300",
+            software_version="10.13",
+            adapter="aruba_2900",
         )
+        db.add(device)
+        db.flush()
+        if n < 20:
+            db.add(m.AccessGroupDevice(group_id=group.id, owner_id=user.id, device_id=device.id))
     db.commit()
 app = main.app

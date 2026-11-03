@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -666,8 +667,18 @@ class UserWorkspace(Base):
     __tablename__ = "user_workspaces"
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     preferences: Mapped[dict] = mapped_column(JSON, default=dict)
-    encrypted_ssh: Mapped[str | None] = mapped_column(Text, nullable=True)
     encrypted_commands: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class UserSSHProfile(Entity, Base):
+    __tablename__ = "user_ssh_profiles"
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(120))
+    encrypted_ssh: Mapped[str] = mapped_column(Text)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_user_ssh_profile_name"),
+        UniqueConstraint("id", "owner_id", name="uq_user_ssh_profile_owner"),
+    )
 
 
 class AccessGroup(Entity, Base):
@@ -675,14 +686,33 @@ class AccessGroup(Entity, Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(400), default="")
-    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_access_group_owner_name"),)
+    ssh_profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    __table_args__ = (
+        UniqueConstraint("owner_id", "name", name="uq_access_group_owner_name"),
+        UniqueConstraint("id", "owner_id", name="uq_access_group_identity_owner"),
+        Index("ix_access_group_ssh_profile_owner", "ssh_profile_id", "owner_id"),
+        ForeignKeyConstraint(
+            ["ssh_profile_id", "owner_id"],
+            ["user_ssh_profiles.id", "user_ssh_profiles.owner_id"],
+            name="fk_access_group_ssh_owner",
+        ),
+    )
 
 
 class AccessGroupDevice(Base):
     __tablename__ = "access_group_devices"
-    group_id: Mapped[str] = mapped_column(
-        ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True
-    )
+    group_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(36))
     device_id: Mapped[str] = mapped_column(
         ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    __table_args__ = (
+        UniqueConstraint("owner_id", "device_id", name="uq_access_group_user_device"),
+        Index("ix_access_group_device_owner", "group_id", "owner_id"),
+        ForeignKeyConstraint(
+            ["group_id", "owner_id"],
+            ["access_groups.id", "access_groups.owner_id"],
+            name="fk_access_group_device_owner",
+            ondelete="CASCADE",
+        ),
     )

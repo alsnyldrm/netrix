@@ -1,6 +1,7 @@
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Check,
+  SquaresFour,
   Funnel,
   Key,
   Palette,
@@ -23,15 +24,8 @@ import {
 } from "./preferences";
 import type { Preferences } from "./preferences";
 import "./user-workspace.css";
+import { applicationThemes, colorPalettes } from "./appearance";
 type Row = Record<string, any>;
-const palettes = [
-  ["cobalt", "Teknik kobalt", "#1d4ed8"],
-  ["teal", "Atlantik", "#0f766e"],
-  ["violet", "Ametist", "#6d28d9"],
-  ["amber", "Bakır", "#92400e"],
-  ["forest", "Orman", "#166534"],
-  ["slate", "Grafit", "#475569"],
-];
 export function Profile({
   user,
   onClose,
@@ -67,6 +61,7 @@ export function Profile({
   };
   const tabs = [
     ["account", "Hesabım", UserCircle],
+    ["design", "Tema", SquaresFour],
     ["palette", "Renk paleti", Palette],
     ["region", "Tarih, saat ve bölge", Clock],
     ["features", "Özellikler", SlidersHorizontal],
@@ -128,31 +123,76 @@ export function Profile({
               </p>
             </>
           )}
-          {tab === "palette" && (
+          {tab === "design" && (
             <>
-              <h3>Çalışma alanınızın rengi</h3>
+              <h3>Uygulama teması</h3>
               <p className="muted">
-                Her palet açık ve koyu temada ayrı renk değerleri kullanır.
+                Gezinme düzenini, yazı tipini ve ekran yoğunluğunu birlikte
+                değiştirin. Her tema 10 palet ve açık/koyu modla çalışır.
               </p>
-              <div className="palette-grid">
-                {palettes.map(([id, name, color]) => (
+              <div className="theme-options">
+                {applicationThemes.map((t) => (
                   <button
+                    key={t.id}
+                    className="theme-option"
                     disabled={busy}
-                    key={id}
-                    className={
-                      "palette-option" +
-                      (values.palette === id ? " selected" : "")
-                    }
-                    aria-pressed={values.palette === id}
-                    onClick={() => void save({ ...values, palette: id })}
+                    aria-pressed={values.design === t.id}
+                    onClick={() => void save({ ...values, design: t.id })}
                   >
                     <span
-                      className="palette-swatch"
-                      style={{ background: color }}
-                    />
-                    <b>{name}</b>
-                    {values.palette === id && (
-                      <Check size={20} aria-hidden="true" />
+                      className={`theme-preview theme-preview-${t.id}`}
+                      aria-hidden="true"
+                    >
+                      <i />
+                      <span />
+                      <span />
+                    </span>
+                    <span>
+                      <b>{t.name}</b>
+                      {values.design === t.id && (
+                        <Check size={18} aria-hidden="true" />
+                      )}
+                    </span>
+                    <em>{t.feature}</em>
+                    <small>{t.description}</small>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {tab === "palette" && (
+            <>
+              <h3>Çalışma alanınızın renkleri</h3>
+              <p className="muted">
+                Seçtiğiniz palet arka planı, menüleri, panelleri, tabloları ve
+                butonları birlikte renklendirir. Durum ve hata renkleri anlamını
+                korur.
+              </p>
+              <div className="palette-grid">
+                {colorPalettes.map((p) => (
+                  <button
+                    disabled={busy}
+                    key={p.id}
+                    className={
+                      "palette-option" +
+                      (values.palette === p.id ? " selected" : "")
+                    }
+                    aria-pressed={values.palette === p.id}
+                    onClick={() => void save({ ...values, palette: p.id })}
+                  >
+                    <span className="palette-tones" aria-hidden="true">
+                      {[95, 86, 70, 50, 24].map((light) => (
+                        <i
+                          key={light}
+                          style={{
+                            background: `hsl(${p.hue} ${p.saturation}% ${light}%)`,
+                          }}
+                        />
+                      ))}
+                    </span>
+                    <b>{p.name}</b>
+                    {values.palette === p.id && (
+                      <Check size={18} aria-hidden="true" />
                     )}
                   </button>
                 ))}
@@ -304,36 +344,43 @@ export function Profile({
   );
 }
 
-export function SSHSettings() {
+function SSHConnectionForm({
+  profile,
+  onClose,
+  onSaved,
+}: {
+  profile: Row;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [data, setData] = useState<Row>({
+    name: "",
     username: "",
     port: 22,
     initial_command: "",
     connect_timeout: 10,
+    group_ids: [],
+    ...profile,
   });
-  const [loading, setLoading] = useState(true);
+  const groups = useLiveQuery("/access/groups");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  useEffect(() => {
-    api("/access/ssh-profile")
-      .then((v) => setData((d) => ({ ...d, ...v })))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError("");
-    setNotice("");
-    const { has_password, has_private_key, ...payload } = data;
-    // Blank secret fields preserve the encrypted value; never repopulate secrets from the API.
+    const { id, has_password, has_private_key, ...payload } = data;
     for (const key of ["password", "private_key", "passphrase"])
       if (!payload[key]) delete payload[key];
     try {
-      const saved = await api("/access/ssh-profile", "PUT", payload);
-      setData(saved);
-      setNotice("Kişisel SSH bağlantınız kaydedildi.");
+      await api(
+        "/access/ssh-profiles" + (profile.id ? "/" + profile.id : ""),
+        profile.id ? "PUT" : "POST",
+        payload,
+      );
+      onSaved();
+      onClose();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -341,157 +388,328 @@ export function SSHSettings() {
     }
   };
   return (
+    <Dialog
+      title={profile.id ? "SSH bağlantısını düzenle" : "Yeni SSH bağlantısı"}
+      wide
+      onClose={onClose}
+    >
+      <form className="ssh-profile-form" onSubmit={submit}>
+        <label>
+          Bağlantı adı
+          <input
+            required
+            maxLength={120}
+            value={data.name}
+            placeholder="Örnek: Merkez switch hesabı"
+            onChange={(e) => setData({ ...data, name: e.target.value })}
+          />
+        </label>
+        <div className="form-grid">
+          {[
+            ["username", "Kullanıcı adı", "text"],
+            ["port", "Port", "number"],
+            ["password", "Şifre", "password"],
+            ["connect_timeout", "Bağlantı zaman aşımı (saniye)", "number"],
+          ].map(([key, label, type]) => (
+            <label key={key}>
+              {label}
+              <input
+                type={type}
+                autoComplete={key === "password" ? "new-password" : "off"}
+                required={key === "username" || key === "port"}
+                min={
+                  key === "port" ? 1 : key === "connect_timeout" ? 3 : undefined
+                }
+                max={
+                  key === "port"
+                    ? 65535
+                    : key === "connect_timeout"
+                      ? 30
+                      : undefined
+                }
+                maxLength={key === "username" ? 120 : 4096}
+                value={data[key] ?? ""}
+                placeholder={
+                  key === "password" && data.has_password
+                    ? "Kayıtlı şifre korunur"
+                    : ""
+                }
+                onChange={(e) =>
+                  setData({
+                    ...data,
+                    [key]:
+                      type === "number"
+                        ? Number(e.target.value)
+                        : e.target.value,
+                  })
+                }
+              />
+            </label>
+          ))}
+          <label className="full">
+            Bağlantıda ilk çalıştırılacak komut
+            <textarea
+              rows={3}
+              maxLength={2000}
+              value={data.initial_command || ""}
+              onChange={(e) =>
+                setData({ ...data, initial_command: e.target.value })
+              }
+              placeholder="Örnek: terminal length 0"
+            />
+            <small>Her yeni SSH bağlantısında bir kez çalıştırılır.</small>
+          </label>
+        </div>
+        <details className="ssh-key-settings">
+          <summary>Özel anahtar ile bağlantı</summary>
+          <label>
+            Özel SSH anahtarı
+            <textarea
+              rows={4}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={16384}
+              value={data.private_key || ""}
+              placeholder={
+                data.has_private_key
+                  ? "Kayıtlı anahtar korunur"
+                  : "PEM / OpenSSH özel anahtarı"
+              }
+              onChange={(e) =>
+                setData({ ...data, private_key: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Anahtar parolası
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={data.passphrase || ""}
+              onChange={(e) => setData({ ...data, passphrase: e.target.value })}
+            />
+          </label>
+        </details>
+
+        <fieldset className="ssh-profile-groups">
+          <legend>Cihaz grupları</legend>
+          <p className="muted">
+            Bu bağlantının kullanacağı grupları seçin. Her gruba tek bir SSH
+            bağlantısı atanabilir.
+          </p>
+          <label>
+            Grup ara
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Grup adıyla ara"
+            />
+          </label>
+          {groups.loading && <p role="status">Gruplar yükleniyor…</p>}
+          {groups.error && (
+            <p className="error" role="alert">
+              {groups.error}
+            </p>
+          )}
+          <div className="ssh-group-options">
+            {groups.data?.items
+              .filter((g: Row) =>
+                g.name
+                  .toLocaleLowerCase("tr")
+                  .includes(query.toLocaleLowerCase("tr")),
+              )
+              .map((g: Row) => {
+                const occupied = Boolean(
+                  g.ssh_profile_id && g.ssh_profile_id !== profile.id,
+                );
+                return (
+                  <label key={g.id}>
+                    <input
+                      type="checkbox"
+                      disabled={occupied || busy}
+                      checked={data.group_ids.includes(g.id)}
+                      onChange={(e) =>
+                        setData({
+                          ...data,
+                          group_ids: e.target.checked
+                            ? [...data.group_ids, g.id]
+                            : data.group_ids.filter(
+                                (id: string) => id !== g.id,
+                              ),
+                        })
+                      }
+                    />
+                    <span>
+                      <b>{g.name}</b>
+                      <small>
+                        {g.device_ids.length} cihaz
+                        {occupied ? " · Başka bağlantıya atanmış" : ""}
+                      </small>
+                    </span>
+                  </label>
+                );
+              })}
+          </div>
+          {!groups.loading && !groups.data?.items.length && (
+            <p>
+              Önce Profil → Cihaz yetkisi → Cihaz grupları bölümünden grup
+              oluşturun. Bağlantıyı şimdi kaydedip grupları daha sonra
+              atayabilirsiniz.
+            </p>
+          )}
+        </fieldset>
+        <p className="muted">
+          SSH bağlantısı rolünü yöneticiniz Ekip & yetkiler bölümünden atar.
+          Cihazın grubuna atanmış bağlantı otomatik kullanılır.
+        </p>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="dialog-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Vazgeç
+          </button>
+          <button className="primary" disabled={busy || groups.loading}>
+            <Check size={18} />
+            {busy ? "Kaydediliyor…" : "Bağlantıyı kaydet"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+export function SSHSettings() {
+  const [refresh, setRefresh] = useState(0);
+  const profiles = useLiveQuery("/access/ssh-profiles", refresh);
+  const groups = useLiveQuery("/access/groups", refresh);
+  const [editing, setEditing] = useState<Row | null>(null);
+  const [deleting, setDeleting] = useState<Row | null>(null);
+  const [query, setQuery] = useState("");
+  const [error, setError] = useState("");
+  return (
     <section className="panel access-settings">
       <div className="access-intro">
         <Key size={26} />
         <div>
-          <h2>Kişisel SSH bağlantısı</h2>
+          <h2>SSH bağlantıları</h2>
           <p>
-            Kendi cihaz hesabınızı tanımlayın. Envanterdeki bağlantı butonu bu
-            bilgileri kullanır.
+            Farklı cihaz hesapları oluşturun ve her birine cihaz grupları
+            atayın.
           </p>
         </div>
+        <button className="primary" onClick={() => setEditing({})}>
+          <Plus size={18} />
+          Bağlantı ekle
+        </button>
       </div>
-      {loading ? (
-        <p role="status">Bağlantı bilgileri yükleniyor…</p>
-      ) : (
-        <form onSubmit={submit}>
-          <div className="form-grid">
-            {[
-              ["username", "Kullanıcı adı", "text"],
-              ["port", "Port", "number"],
-              ["password", "Şifre", "password"],
-              ["connect_timeout", "Bağlantı zaman aşımı (saniye)", "number"],
-            ].map(([key, label, type]) => (
-              <label key={key}>
-                {label}
-                <input
-                  type={type}
-                  autoComplete={key === "password" ? "new-password" : "off"}
-                  required={key === "username" || key === "port"}
-                  min={
-                    key === "port"
-                      ? 1
-                      : key === "connect_timeout"
-                        ? 3
-                        : undefined
-                  }
-                  max={
-                    key === "port"
-                      ? 65535
-                      : key === "connect_timeout"
-                        ? 30
-                        : undefined
-                  }
-                  maxLength={key === "username" ? 120 : 4096}
-                  value={data[key] ?? ""}
-                  placeholder={
-                    key === "password" && data.has_password
-                      ? "Kayıtlı şifre korunur"
-                      : ""
-                  }
-                  onChange={(e) =>
-                    setData({
-                      ...data,
-                      [key]:
-                        type === "number"
-                          ? Number(e.target.value)
-                          : e.target.value,
-                    })
-                  }
-                />
-              </label>
-            ))}
-            <label className="full">
-              Bağlantıda ilk çalıştırılacak komut
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={data.initial_command || ""}
-                onChange={(e) =>
-                  setData({ ...data, initial_command: e.target.value })
-                }
-                placeholder="Örnek: terminal length 0"
-              />
-              <small>Her yeni SSH bağlantısında bir kez çalıştırılır.</small>
-            </label>
-          </div>
-          <details className="ssh-key-settings">
-            <summary>Özel anahtar ile bağlantı</summary>
-            <label>
-              Özel SSH anahtarı
-              <textarea
-                rows={4}
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={16384}
-                value={data.private_key || ""}
-                placeholder={
-                  data.has_private_key
-                    ? "Kayıtlı anahtar korunur"
-                    : "PEM / OpenSSH özel anahtarı"
-                }
-                onChange={(e) =>
-                  setData({ ...data, private_key: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              Anahtar parolası
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={data.passphrase || ""}
-                onChange={(e) =>
-                  setData({ ...data, passphrase: e.target.value })
-                }
-              />
-            </label>
-          </details>
-          <p className="muted">
-            SSH bağlantısı rolünü yöneticiniz Ekip & yetkiler bölümünden atar.
-            SSH host anahtarı, cihaz envanterindeki güven ayarına göre
-            doğrulanır.
+      <label className="access-group-search">
+        Bağlantı ara
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Bağlantı adı veya kullanıcı adı"
+        />
+      </label>
+      {profiles.loading && <p role="status">Bağlantılar yükleniyor…</p>}
+      {(profiles.error || error) && (
+        <p className="error" role="alert">
+          {profiles.error || error}
+        </p>
+      )}
+      <div className="ssh-profile-cards">
+        {profiles.data?.items
+          .filter((p: Row) =>
+            `${p.name} ${p.username}`
+              .toLocaleLowerCase("tr")
+              .includes(query.toLocaleLowerCase("tr")),
+          )
+          .map((p: Row) => (
+            <article key={p.id}>
+              <div>
+                <h3>{p.name}</h3>
+                <p className="mono">
+                  {p.username} · Port {p.port}
+                </p>
+                <div className="ssh-assigned-groups">
+                  {p.group_ids.length ? (
+                    p.group_ids.map((id: string) => (
+                      <span key={id}>
+                        {groups.data?.items.find((g: Row) => g.id === id)
+                          ?.name || "Cihaz grubu"}
+                      </span>
+                    ))
+                  ) : (
+                    <small>Grup atanmamış · Bağlantıda kullanılmaz</small>
+                  )}
+                </div>
+              </div>
+              <div className="access-actions">
+                <button
+                  className="icon-button"
+                  aria-label={`${p.name} düzenle`}
+                  onClick={() => setEditing(p)}
+                >
+                  <PencilSimple size={18} />
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={`${p.name} sil`}
+                  onClick={() => setDeleting(p)}
+                >
+                  <Trash size={18} />
+                </button>
+              </div>
+            </article>
+          ))}
+      </div>
+      {!profiles.loading && !profiles.data?.items.length && (
+        <div className="access-empty">
+          <Key size={28} />
+          <h3>Henüz SSH bağlantısı yok</h3>
+          <p>
+            İlk bağlantınızı ekleyin; farklı kullanıcı adları, portlar ve
+            komutlarla yeni bağlantılar oluşturabilirsiniz.
           </p>
-          <div className="access-actions">
-            <button className="primary" disabled={busy}>
-              <Check size={18} />
-              {busy ? "Kaydediliyor…" : "Bağlantıyı kaydet"}
+        </div>
+      )}
+      {editing && (
+        <SSHConnectionForm
+          profile={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => setRefresh((n) => n + 1)}
+        />
+      )}
+      {deleting && (
+        <Dialog title="SSH bağlantısını sil" onClose={() => setDeleting(null)}>
+          <p>
+            {deleting.name} kaldırılacak. Atanmış gruplar korunur; yeni bir SSH
+            bağlantısı atanıncaya kadar bu gruplardaki cihazlara bağlanılamaz.
+          </p>
+          <div className="dialog-actions">
+            <button className="secondary" onClick={() => setDeleting(null)}>
+              Vazgeç
             </button>
             <button
-              type="button"
-              className="secondary"
-              disabled={busy}
+              className="primary"
               onClick={async () => {
-                setBusy(true);
-                setError("");
                 try {
-                  await api("/access/ssh-profile", "DELETE");
-                  setData({
-                    username: "",
-                    port: 22,
-                    initial_command: "",
-                    connect_timeout: 10,
-                  });
-                  setNotice("Kişisel SSH bilgileri kaldırıldı.");
+                  await api(`/access/ssh-profiles/${deleting.id}`, "DELETE");
+                  setRefresh((n) => n + 1);
+                  setDeleting(null);
                 } catch (e: any) {
                   setError(e.message);
-                } finally {
-                  setBusy(false);
+                  setDeleting(null);
                 }
               }}
             >
-              Kayıtlı bağlantıyı kaldır
+              Bağlantıyı sil
             </button>
           </div>
-        </form>
+        </Dialog>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && <p role="status">{notice}</p>}
     </section>
   );
 }
@@ -522,15 +740,19 @@ function GroupForm({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [selecting, setSelecting] = useState(false);
+  const [selectionNotice, setSelectionNotice] = useState("");
   const pageCheck = useRef<HTMLInputElement>(null);
   const items: Row[] = devices.data?.items || [];
   const selected = new Set<string>(values.device_ids);
-  const checkedCount = items.filter((d) => selected.has(d.id)).length;
+  const available = items.filter(
+    (d) => !d.access_group_id || d.access_group_id === group.id,
+  );
+  const checkedCount = available.filter((d) => selected.has(d.id)).length;
   useEffect(() => {
     if (pageCheck.current)
       pageCheck.current.indeterminate =
-        checkedCount > 0 && checkedCount < items.length;
-  }, [checkedCount, items.length]);
+        checkedCount > 0 && checkedCount < available.length;
+  }, [checkedCount, available.length]);
   const mergeSelection = (ids: string[], checked: boolean) =>
     setValues((v: Row) => ({
       ...v,
@@ -650,11 +872,13 @@ function GroupForm({
             <input
               ref={pageCheck}
               type="checkbox"
-              checked={items.length > 0 && checkedCount === items.length}
-              disabled={devices.loading || selecting || !items.length}
+              checked={
+                available.length > 0 && checkedCount === available.length
+              }
+              disabled={devices.loading || selecting || !available.length}
               onChange={(e) =>
                 mergeSelection(
-                  items.map((d) => d.id),
+                  available.map((d) => d.id),
                   e.target.checked,
                 )
               }
@@ -674,7 +898,14 @@ function GroupForm({
               setSelecting(true);
               setError("");
               try {
-                const result = await api(`/access/device-selection?${params}`);
+                const result = await api(
+                  `/access/device-selection?${params}&group_id=${encodeURIComponent(group.id || "")}`,
+                );
+                setSelectionNotice(
+                  result.skipped
+                    ? `${result.skipped} cihaz başka gruplarda olduğu için seçilmedi.`
+                    : "",
+                );
                 mergeSelection(result.ids, true);
               } catch (e: any) {
                 setError(e.message);
@@ -688,6 +919,11 @@ function GroupForm({
               : `Tüm eşleşenleri seç (${devices.data?.total ?? 0})`}
           </button>
         </div>
+        <p className="muted">
+          Bir cihaz kendi gruplarınızdan yalnız birinde bulunabilir. Başka
+          gruptaki cihazlar seçilemez.
+        </p>
+        {selectionNotice && <p role="status">{selectionNotice}</p>}
         {devices.error && (
           <p className="error" role="alert">
             {devices.error}
@@ -706,12 +942,23 @@ function GroupForm({
             <label key={device.id}>
               <input
                 type="checkbox"
-                disabled={devices.loading || selecting}
+                disabled={
+                  devices.loading ||
+                  selecting ||
+                  Boolean(
+                    device.access_group_id &&
+                    device.access_group_id !== group.id,
+                  )
+                }
                 checked={selected.has(device.id)}
                 onChange={(e) => mergeSelection([device.id], e.target.checked)}
               />
               <span>
                 <b>{device.name}</b>
+                {device.access_group_id &&
+                  device.access_group_id !== group.id && (
+                    <small>Grubu: {device.access_group_name}</small>
+                  )}
                 <small className="mono">{device.management_ip}</small>
                 <small>
                   {[device.vendor, device.model, device.site_name]
