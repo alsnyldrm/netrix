@@ -418,6 +418,17 @@ def acknowledge(id: str, user=Depends(operator), db=Depends(db_session)):
     return svc.serialize(alert)
 
 
+@app.put(P + "/users/{id}/roles")
+def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(admin), db=Depends(db_session)):
+    if id == user.id and payload.role != "admin":
+        raise HTTPException(409, "Kendi yönetici rolünüzü kaldıramazsınız")
+    row = svc.get(db, m.User, id)
+    row.role, row.ssh_access = payload.role, payload.ssh_access
+    audit(db, user, "user_roles_updated", "users", id, "Uygulama ve SSH bağlantısı rolleri güncellendi")
+    db.commit()
+    return svc.serialize(row)
+
+
 @app.post(P + "/users/{id}/toggle")
 def toggle_user(id: str, user=Depends(admin), db=Depends(db_session)):
     if id == user.id:

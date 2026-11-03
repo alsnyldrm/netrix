@@ -91,25 +91,21 @@ def test_preferences_single_row_validation_and_saved_commands(admin_client, env)
     assert Preferences().features == ["saved_commands", "session_dock"]
 
 
-def test_grants_enforced_no_self_escalation(admin_client, target, env):
+def test_ssh_role_enforced_and_groups_are_personal(admin_client, target, env):
     device_id, user_id = target
     with env() as db:
-        user = db.get(m.User, user_id)
         with pytest.raises(Exception) as exc:
-            service.authorize_device(db, user, device_id)
+            service.authorize_device(db, db.get(m.User, user_id), device_id)
         assert exc.value.status_code == 403
-    payload = {
-        "name": "Authorized devices",
-        "device_ids": [device_id],
-        "user_ids": [user_id],
-        "ssh_enabled": True,
-    }
-    result = admin_client.post("/api/v1/access/groups", json=payload)
-    assert result.status_code == 201, result.text
+    result = admin_client.post(
+        "/api/v1/access/groups", json={"name": "Admin personal", "device_ids": [device_id]}
+    )
     group_id = result.json()["id"]
+    result = admin_client.put(f"/api/v1/users/{user_id}/roles", json={"role": "viewer", "ssh_access": True})
+    assert result.status_code == 200, result.text
+    assert result.json()["role"] == "viewer"
     with env() as db:
-        user = db.get(m.User, user_id)
-        assert service.authorize_device(db, user, device_id).id == device_id
+        assert service.authorize_device(db, db.get(m.User, user_id), device_id).id == device_id
     admin_client.post("/api/v1/auth/logout")
     assert (
         admin_client.post(
@@ -117,23 +113,96 @@ def test_grants_enforced_no_self_escalation(admin_client, target, env):
         ).status_code
         == 200
     )
+    assert admin_client.get("/api/v1/access/groups").json()["items"] == []
     assert admin_client.get("/api/v1/access/ssh-profile").json()["has_password"] is False
-    assert admin_client.get("/api/v1/access/commands").json()["items"] == []
-    assert admin_client.get("/api/v1/access/preferences").json()["palette"] == "cobalt"
     assert admin_client.get("/api/v1/access/devices").json()["items"][0]["id"] == device_id
-    assert admin_client.put("/api/v1/access/groups/" + group_id, json=payload).status_code == 404
-    assert admin_client.post("/api/v1/access/groups", json=payload).status_code == 403
+    assert admin_client.put(f"/api/v1/access/groups/{group_id}", json={"name": "Stolen"}).status_code == 404
+    assert admin_client.delete(f"/api/v1/access/groups/{group_id}").status_code == 404
+    assert (
+        admin_client.put(
+            f"/api/v1/users/{user_id}/roles", json={"role": "admin", "ssh_access": True}
+        ).status_code
+        == 403
+    )
+    assert (
+        admin_client.post("/api/v1/access/groups", json={"name": "Grant", "ssh_enabled": True}).status_code
+        == 422
+    )
     personal = admin_client.post(
         "/api/v1/access/groups", json={"name": "Personal", "device_ids": [device_id]}
     )
     assert personal.status_code == 201
+    assert "user_ids" not in personal.json() and "ssh_enabled" not in personal.json()
     with env() as db:
-        grant = db.get(m.AccessGroup, group_id)
-        grant.ssh_enabled = False
+        db.get(m.User, user_id).ssh_access = False
         db.commit()
         with pytest.raises(Exception) as exc:
             service.authorize_device(db, db.get(m.User, user_id), device_id)
         assert exc.value.status_code == 403
+    assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 403
+    # Personal grouping remains available without the network execution role.
+    assert (
+        admin_client.put(
+            f"/api/v1/access/groups/{personal.json()['id']}",
+            json={"name": "Personal", "device_ids": [device_id]},
+        ).status_code
+        == 200
+    )
+
+
+def test_device_filters_and_cross_page_selection(admin_client, target, inventory, env):
+    with env() as db:
+        for n in range(205):
+            db.add(
+                m.Device(
+                    name=f"Filter {n:03}",
+                    management_ip=f"198.51.100.{n + 1}",
+                    vrf_id=inventory["vrf"]["id"],
+                    discovery_scope_id=inventory["scope"]["id"],
+                    model="CX6200" if n < 150 else "CX6300",
+                    vendor="Aruba",
+                    software_version="10.13",
+                )
+            )
+        db.commit()
+    filters = json.dumps(
+        [
+            {"field": "model", "op": "eq", "value": "CX6200", "join": "and"},
+            {"field": "software_version", "op": "contains", "value": "10.13", "join": "and"},
+        ]
+    )
+    params = {"filters": filters}
+    page = admin_client.get("/api/v1/access/devices", params=params).json()
+    assert page["total"] == 150 and len(page["items"]) == 100 and page["has_more"]
+    assert {"model", "software_version", "vendor", "kind", "site_name", "vrf_name"} <= {
+        c["key"] for c in page["columns"]
+    }
+    assert all(d["model"] == "CX6200" for d in page["items"])
+    second = admin_client.get("/api/v1/access/devices", params={**params, "offset": 100}).json()
+    assert len(second["items"]) == 50 and not second["has_more"]
+    ids = admin_client.get("/api/v1/access/device-selection", params=params).json()["ids"]
+    assert len(set(ids)) == 150
+    assert set(ids) == {d["id"] for d in page["items"] + second["items"]}
+    saved = admin_client.post("/api/v1/access/groups", json={"name": "Filtered", "device_ids": ids})
+    assert saved.status_code == 201 and len(saved.json()["device_ids"]) == 150
+    assert admin_client.get("/api/v1/access/device-filter-values", params={"field": "model"}).json()[
+        "values"
+    ] == ["CX6200", "CX6300"]
+    assert (
+        admin_client.get("/api/v1/access/device-filter-values", params={"field": "password_hash"}).status_code
+        == 422
+    )
+    bad = json.dumps([{"field": "password_hash", "op": "eq", "value": "x", "join": "and"}])
+    assert admin_client.get("/api/v1/access/device-selection", params={"filters": bad}).status_code == 422
+    with env() as db:
+        me = db.scalar(select(m.User).where(m.User.role == "admin"))
+        me_id = me.id
+    assert (
+        admin_client.put(
+            f"/api/v1/users/{me_id}/roles", json={"role": "viewer", "ssh_access": False}
+        ).status_code
+        == 409
+    )
 
 
 def test_inventory_boundary_cascade_and_profile_requirement(admin_client, target, env):
@@ -141,12 +210,11 @@ def test_inventory_boundary_cascade_and_profile_requirement(admin_client, target
     assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 409
     result = admin_client.post(
         "/api/v1/access/groups",
-        json={"name": "Fixture", "device_ids": [device_id], "user_ids": [user_id], "ssh_enabled": True},
+        json={"name": "Fixture", "device_ids": [device_id]},
     )
     assert result.status_code == 201
     assert admin_client.delete("/api/v1/access/groups/" + result.json()["id"]).status_code == 204
     with env() as db:
-        assert db.scalar(select(func.count()).select_from(m.AccessGroupUser)) == 0
         assert db.scalar(select(func.count()).select_from(m.AccessGroupDevice)) == 0
         device = db.get(m.Device, device_id)
         device.discovery_scope_id = None

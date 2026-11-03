@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from .. import models as m
 from ..core import db_session, session_factory, settings
@@ -60,30 +60,39 @@ def save_commands(payload: s.Commands, user=Depends(current_user), db=Depends(db
 @router.get("/devices")
 def devices(
     q: str = Query(default="", max_length=120),
-    kind: str = "",
+    filters: str = Query(default="[]", max_length=20000),
     offset: int = Query(default=0, ge=0),
     user=Depends(current_user),
     db=Depends(db_session),
 ):
-    stmt = select(m.Device).where(m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None))
-    if user.role != "admin":
-        stmt = stmt.where(m.Device.id.in_(svc.allowed_ids(db, user)))
-    if q:
-        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        stmt = stmt.where(
-            m.Device.name.ilike(f"%{escaped}%", escape="\\")
-            | m.Device.management_ip.ilike(f"%{escaped}%", escape="\\")
-        )
-    if kind:
-        stmt = stmt.where(m.Device.kind == kind)
-    items = list(db.scalars(stmt.order_by(m.Device.name, m.Device.id).offset(offset).limit(101)))
-    return {
-        "items": [
-            {"id": d.id, "name": d.name, "management_ip": d.management_ip, "kind": d.kind}
-            for d in items[:100]
-        ],
-        "has_more": len(items) > 100,
-    }
+    from ..inventory.management import query
+
+    result = query(db, "devices", limit=100, offset=offset, q=q, filters=filters)
+    return {**result, "has_more": offset + len(result["items"]) < result["total"]}
+
+
+@router.get("/device-selection")
+def device_selection(
+    q: str = Query(default="", max_length=120),
+    filters: str = Query(default="[]", max_length=20000),
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    from ..inventory.management import query
+
+    return query(db, "devices", q=q, filters=filters, ids_only=True)
+
+
+@router.get("/device-filter-values")
+def device_filter_values(
+    field: str,
+    q: str = Query(default="", max_length=120),
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    from ..inventory.management import query
+
+    return query(db, "devices", q=q, value_field=field)
 
 
 @router.get("/groups")
@@ -104,8 +113,6 @@ def save_group(id: str, payload: s.GroupInput, user=Depends(current_user), db=De
 @router.delete("/groups/{id}", status_code=204)
 def delete_group(id: str, user=Depends(current_user), db=Depends(db_session)):
     group = svc.owned_group(db, user, id)
-    if group.ssh_enabled and user.role != "admin":
-        raise HTTPException(403, "Yetkili grubu yalnız yönetici silebilir")
     db.execute(delete(m.AccessGroup).where(m.AccessGroup.id == group.id))
     audit(db, user, "access_group_deleted", "access_group", id, "Cihaz grubu silindi")
     db.commit()
@@ -114,7 +121,7 @@ def delete_group(id: str, user=Depends(current_user), db=Depends(db_session)):
 def connection_ready(db, user):
     if not svc.ssh_profile(db, user, private=True):
         raise HTTPException(
-            409, "Cihaz yetkisi → SSH Bağlantısı bölümünde kişisel bağlantı bilgilerinizi kaydedin"
+            409, "Profil → Cihaz yetkisi → SSH Bağlantısı bölümünde kişisel bağlantı bilgilerinizi kaydedin"
         )
 
 

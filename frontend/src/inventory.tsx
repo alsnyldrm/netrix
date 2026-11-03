@@ -151,15 +151,48 @@ function value(key: string, v: any) {
   if (typeof v === "boolean") return v ? "Etkin" : "Kapalı";
   return tag(String(v));
 }
+function FilterValue({
+  field,
+  value,
+  index,
+  onChange,
+}: {
+  field: string;
+  value: string;
+  index: number;
+  onChange: (v: string) => void;
+}) {
+  const deferred = useDeferredValue(value);
+  const options = useLiveQuery(
+    `/access/device-filter-values?field=${encodeURIComponent(field)}&q=${encodeURIComponent(deferred)}`,
+  );
+  return (
+    <>
+      <input
+        aria-label={`Koşul ${index + 1} değeri`}
+        list={`filter-values-${index}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <datalist id={`filter-values-${index}`}>
+        {options.data?.values.map((v: string) => (
+          <option key={v} value={v} />
+        ))}
+      </datalist>
+    </>
+  );
+}
 export function Filters({
   columns,
   wide = false,
+  valueSuggestions = false,
   rules,
   onSave,
   onClose,
 }: {
   columns: Column[];
   wide?: boolean;
+  valueSuggestions?: boolean;
   rules: Rule[];
   onSave: (r: Rule[]) => void;
   onClose: () => void;
@@ -232,11 +265,20 @@ export function Filters({
             </label>
             <label>
               Değer
-              <input
-                aria-label={`Koşul ${i + 1} değeri`}
-                value={r.value}
-                onChange={(e) => change(i, "value", e.target.value)}
-              />
+              {valueSuggestions ? (
+                <FilterValue
+                  field={r.field}
+                  value={r.value}
+                  index={i}
+                  onChange={(v) => change(i, "value", v)}
+                />
+              ) : (
+                <input
+                  aria-label={`Koşul ${i + 1} değeri`}
+                  value={r.value}
+                  onChange={(e) => change(i, "value", e.target.value)}
+                />
+              )}
             </label>
             <button
               type="button"

@@ -50,9 +50,7 @@ class Commands(Input):
 class GroupInput(Input):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=400)
-    device_ids: list[str] = Field(default_factory=list, max_length=1000)
-    user_ids: list[str] = Field(default_factory=list, max_length=200)
-    ssh_enabled: bool = False
+    device_ids: list[str] = Field(default_factory=list, max_length=10000)
 
 
 class SessionInput(Input):

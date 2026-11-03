@@ -1,4 +1,5 @@
-import { Profile, SSHSettings, AccessGroups } from "./user-workspace";
+import { UserRoleEditor } from "./identity-roles";
+import { Profile } from "./user-workspace";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
   applyPreferences,
@@ -160,20 +161,6 @@ export const PAGES: Page[] = [
     desc: "Ağınızdaki her bağlantı, tek bir bakışta.",
     group: "Genel bakış",
     icon: SquaresFour,
-  },
-  {
-    key: "ssh-settings",
-    title: "SSH Bağlantısı",
-    desc: "Cihaz bağlantılarınız için kişisel SSH hesabınız.",
-    group: "Cihaz yetkisi",
-    icon: Key,
-  },
-  {
-    key: "access-groups",
-    title: "Cihaz grupları",
-    desc: "Cihaz grupları ve kullanıcı bazında SSH erişimi.",
-    group: "Cihaz yetkisi",
-    icon: ShieldCheck,
   },
   {
     key: "devices",
@@ -767,14 +754,15 @@ export const PAGES: Page[] = [
   {
     key: "users",
     title: "Ekip & yetkiler",
-    desc: "Yönetici, operatör ve izleyici erişimlerini yönetin.",
+    desc: "Uygulama rollerini ve bağımsız SSH bağlantısı rolünü atayın.",
     group: "Yönetim",
     icon: Users,
     resource: "users",
     columns: [
       ["display_name", "Kullanıcı"],
       ["email", "E-posta"],
-      ["role", "Yetki"],
+      ["role", "Uygulama rolü"],
+      ["ssh_access", "SSH bağlantısı rolü"],
       ["is_active", "Etkin"],
     ],
     fields: [
@@ -785,7 +773,8 @@ export const PAGES: Page[] = [
         required: true,
         hint: "En az 12 karakter",
       }),
-      options("role", "Rol", ["viewer", "operator", "admin"]),
+      options("role", "Uygulama rolü", ["viewer", "operator", "admin"]),
+      f("ssh_access", "SSH bağlantısı rolü", { type: "checkbox" }),
     ],
   },
   {
@@ -846,7 +835,6 @@ const GROUPS = [
   "Firmware",
   "Konfigürasyon",
   "Operasyon",
-  "Cihaz yetkisi",
   "Yönetim",
 ];
 type Theme = "light" | "dark";
@@ -2402,6 +2390,7 @@ function App() {
     location.pathname,
   )?.[1];
   const [profileOpen, setProfileOpen] = useState(false);
+  const [roleUser, setRoleUser] = useState<Row | null>(null);
   const [user, setUser] = useState<Row | null>(null);
   const [boot, setBoot] = useState(true);
   const [current, setCurrent] = useState(
@@ -2754,6 +2743,12 @@ function App() {
     refs[resource]?.find((r) => r.id === id)?.display_name ||
     "—";
   const cell = (key: string, value: any, row: Row) => {
+    if (key === "ssh_access")
+      return row.role === "admin"
+        ? "Yönetici erişimi"
+        : value
+          ? "Atandı"
+          : "Atanmadı";
     if (key === "kind" && row.management_ip) return row.kind_name || tag(value);
     if (key.endsWith("_at")) return date(value);
     if (key === "speed_bps") return speed(value);
@@ -3149,11 +3144,7 @@ function App() {
                 </button>
               </div>
             )}
-            {page.key === "ssh-settings" ? (
-              <SSHSettings />
-            ) : page.key === "access-groups" ? (
-              <AccessGroups user={user} />
-            ) : page.key === "overview" ? (
+            {page.key === "overview" ? (
               <Overview
                 dashboard={dashboard}
                 refs={refs}
@@ -3545,6 +3536,15 @@ function App() {
                                         <Check size={18} />
                                       </button>
                                     )}
+                                  {page.key === "users" && isAdmin && (
+                                    <button
+                                      className="icon-button"
+                                      aria-label={`${row.display_name} rollerini düzenle`}
+                                      onClick={() => setRoleUser(row)}
+                                    >
+                                      <ShieldCheck size={18} />
+                                    </button>
+                                  )}
                                   {page.key === "users" &&
                                     isAdmin &&
                                     row.id !== user.id && (
@@ -3715,6 +3715,15 @@ function App() {
         </main>
       </div>
       <SSHWorkspace key={user.id} />
+      {roleUser && (
+        <UserRoleEditor
+          user={roleUser}
+          onClose={() => setRoleUser(null)}
+          onSaved={() => {
+            reload();
+          }}
+        />
+      )}
       {profileOpen && (
         <Profile
           user={user}

@@ -37,6 +37,7 @@ class User(Entity, Base):
     display_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(20), default="viewer")
+    ssh_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (CheckConstraint("role in ('admin','operator','viewer')", name="ck_user_role"),)
 
@@ -672,7 +673,6 @@ class AccessGroup(Entity, Base):
     owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(400), default="")
-    ssh_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_access_group_owner_name"),)
 
 
@@ -683,14 +683,4 @@ class AccessGroupDevice(Base):
     )
     device_id: Mapped[str] = mapped_column(
         ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True
-    )
-
-
-class AccessGroupUser(Base):
-    __tablename__ = "access_group_users"
-    group_id: Mapped[str] = mapped_column(
-        ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True
-    )
-    user_id: Mapped[str] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
     )

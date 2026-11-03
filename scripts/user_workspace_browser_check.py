@@ -39,9 +39,11 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
-    expect(page.locator(".ssh-launch-cell button")).to_have_count(20)
+    expect(page.locator(".ssh-launch-cell button")).to_have_count(25)
 
     def check(name, axe=True):
+        # Chromium needs a settled paint for inherited colors in nested native modals.
+        page.wait_for_timeout(400)
         assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth"), name
         if axe:
             page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
@@ -94,51 +96,95 @@ with sync_playwright() as p:
         expect(terminal_dialog).not_to_be_visible()
 
     page.set_viewport_size({"width": 1440, "height": 1000})
-    page.goto(BASE + "/#ssh-settings")
+    page.get_by_role("button", name="Profil", exact=True).click()
+    profile_dialog = page.get_by_role("dialog", name="Profil", exact=True)
+    assert page.locator(".sidebar").get_by_text("Cihaz yetkisi", exact=True).count() == 0
+    profile_dialog.get_by_role("button", name="SSH Bağlantısı", exact=True).click()
     expect(page.get_by_role("heading", name="Kişisel SSH bağlantısı")).to_be_visible()
+    expect(profile_dialog).to_contain_text("Ekip & yetkiler")
+    assert profile_dialog.get_by_text("Cihaz grubu yetkisi gereklidir.", exact=False).count() == 0
     for width in (1440, 375):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
         for theme in ("light", "dark"):
             page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
             check(f"ssh-settings-{width}-{theme}")
-        rects = page.locator(".access-settings .form-grid input").evaluate_all(
-            "els=>els.map(e=>{let r=e.getBoundingClientRect();return {y:r.y,h:r.height}})"
-        )
-        assert max(r["h"] for r in rects) - min(r["h"] for r in rects) < 1
     page.set_viewport_size({"width": 1440, "height": 1000})
-    page.get_by_label("Kullanıcı adı", exact=True).fill("fixture-updated")
-    page.get_by_role("button", name="Bağlantıyı kaydet", exact=True).click()
+    profile_dialog.get_by_label("Kullanıcı adı", exact=True).fill("fixture-updated")
+    profile_dialog.get_by_role("button", name="Bağlantıyı kaydet", exact=True).click()
     expect(page.get_by_text("Kişisel SSH bağlantınız kaydedildi.")).to_be_visible()
-    page.goto(BASE + "/#access-groups")
-    page.get_by_role("button", name="Grup oluştur", exact=True).click()
-    dialog = page.get_by_role("dialog")
+    profile_dialog.get_by_role("button", name="Cihaz grupları", exact=True).click()
+    profile_dialog.get_by_role("button", name="Grup oluştur", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Yeni cihaz grubu", exact=True)
     dialog.get_by_label("Grup adı", exact=True).fill("Access fixture group")
-    dialog.get_by_label("Cihaz ara", exact=True).fill("SW-01")
+    expect(dialog.locator(".group-device-list > label")).to_have_count(100)
+    dialog.get_by_label("Bu sayfayı seç", exact=True).check()
+    expect(dialog.get_by_role("heading", name="Cihazlar")).to_contain_text("100 seçili")
+    dialog.get_by_role("button", name="Sonraki", exact=True).click()
+    expect(dialog.get_by_label("Bu sayfayı seç", exact=True)).not_to_be_checked()
+    dialog.locator(".group-device-list input").first.check()
+    expect(dialog.get_by_role("heading", name="Cihazlar")).to_contain_text("101 seçili")
+    dialog.get_by_role("button", name="Seçimi temizle", exact=True).click()
+    dialog.get_by_role("button", name="Filtreler", exact=True).click()
+    filters = page.get_by_role("dialog", name="Filtreler", exact=True)
+    available = filters.get_by_label("Koşul 1 alanı", exact=True).locator("option").all_text_contents()
+    assert all(label in available for label in ["Model", "Üretici", "Versiyon"]), available
+    filters.get_by_label("Koşul 1 alanı", exact=True).select_option("model")
+    filters.get_by_label("Koşul 1 değeri", exact=True).fill("CX6200")
+    expect(filters.locator("datalist option[value=CX6200]")).to_have_count(1)
+    filters.get_by_role("button", name="Koşul ekle", exact=True).click()
+    filters.get_by_label("Koşul 2 alanı", exact=True).select_option("software_version")
+    filters.get_by_label("Koşul 2 değeri", exact=True).fill("10.13")
+    for width in (1440, 375):
+        page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
+        for theme in ("light", "dark"):
+            page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+            check(f"group-filters-{width}-{theme}")
+    filters.get_by_role("button", name="Filtreleri uygula", exact=True).click()
+    expect(dialog.get_by_role("button", name="Tüm eşleşenleri seç (150)", exact=True)).to_be_enabled()
+    dialog.get_by_role("button", name="Tüm eşleşenleri seç (150)", exact=True).click()
+    expect(dialog.get_by_role("heading", name="Cihazlar")).to_contain_text("150 seçili")
+    dialog.get_by_label("Tüm alanlarda ara", exact=True).fill("SW-01")
     expect(dialog.locator(".group-device-list > label")).to_have_count(1)
-    expect(dialog.locator(".group-device-list")).to_contain_text("SW-01")
-    dialog.locator(".group-device-list input").check()
-    dialog.get_by_label("Cihaz ara", exact=True).fill("SW-02")
-    expect(dialog.locator(".group-device-list > label")).to_have_count(1)
-    expect(dialog.locator(".group-device-list")).to_contain_text("SW-02")
-    dialog.locator(".group-device-list input").check()
-    dialog.get_by_label("Bu grupta SSH bağlantısını etkinleştir", exact=True).check()
-    dialog.locator(".group-user-list input").first.check()
+    expect(dialog.locator(".group-device-list input")).to_be_checked()
+    expect(dialog.get_by_role("heading", name="Cihazlar")).to_contain_text("150 seçili")
+    assert dialog.get_by_text("SSH Bağlantısı yetkisi", exact=True).count() == 0
     for width in (1440, 375):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
         for theme in ("light", "dark"):
             page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
             check(f"group-form-{width}-{theme}")
+        boxes = dialog.locator(".form-grid input").evaluate_all(
+            "es=>es.map(e=>e.getBoundingClientRect().height)"
+        )
+        assert max(boxes) - min(boxes) < 1, boxes
     dialog.get_by_role("button", name="Grubu kaydet", exact=True).click()
-    expect(page.locator(".access-group-cards")).to_contain_text("2 cihaz · 1 kullanıcı · SSH etkin")
-    page.set_viewport_size({"width": 1440, "height": 1000})
-    page.get_by_role("button", name="Access fixture group düzenle", exact=True).click()
-    dialog = page.get_by_role("dialog")
+    expect(profile_dialog.locator(".access-group-cards")).to_contain_text("150 cihaz")
+    profile_dialog.get_by_role("button", name="Access fixture group düzenle", exact=True).click()
+    dialog = page.get_by_role("dialog", name="Cihaz grubunu düzenle", exact=True)
+    expect(dialog.get_by_role("heading", name="Cihazlar")).to_contain_text("150 seçili")
     dialog.get_by_label("Grup adı", exact=True).fill("Updated group")
     dialog.get_by_role("button", name="Grubu kaydet", exact=True).click()
-    expect(page.locator(".access-group-cards")).to_contain_text("Updated group")
-    page.get_by_role("button", name="Updated group sil", exact=True).click()
+    expect(profile_dialog.locator(".access-group-cards")).to_contain_text("Updated group")
+    profile_dialog.get_by_role("button", name="Updated group sil", exact=True).click()
     page.get_by_role("button", name="Grubu sil", exact=True).click()
-    expect(page.locator(".access-group-cards article")).to_have_count(0)
+    expect(profile_dialog.locator(".access-group-cards article")).to_have_count(0)
+    profile_dialog.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    page.goto(BASE + "/#users")
+    page.get_by_role("button", name="Viewer Tester rollerini düzenle", exact=True).click()
+    roles = page.get_by_role("dialog", name="Kullanıcı rollerini düzenle", exact=True)
+    roles.get_by_label("SSH bağlantısı", exact=True).check()
+    for width in (1440, 375):
+        page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
+        for theme in ("light", "dark"):
+            page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+            check(f"user-roles-{width}-{theme}")
+    roles.get_by_role("button", name="Rolleri kaydet", exact=True).click()
+    expect(roles).not_to_be_visible()
+    result = page.request.get(BASE + "/api/v1/users").json()
+    viewer = next(u for u in result["items"] if u["email"] == "viewer@example.test")
+    assert viewer["ssh_access"] is True and viewer["role"] == "viewer"
+    page.set_viewport_size({"width": 1440, "height": 1000})
 
     page.goto(BASE + "/#devices")
     page.get_by_label("SW-01 seç", exact=True).check()

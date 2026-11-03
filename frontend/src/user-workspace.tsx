@@ -1,6 +1,7 @@
-import React, { useDeferredValue, useEffect, useState } from "react";
+import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   Check,
+  Funnel,
   Key,
   Palette,
   Clock,
@@ -12,6 +13,7 @@ import {
   MagnifyingGlass,
   ShieldCheck,
 } from "@phosphor-icons/react";
+import { Filters } from "./inventory";
 import { api, useLiveQuery } from "./data";
 import { Dialog, tag } from "./main";
 import {
@@ -68,27 +70,36 @@ export function Profile({
     ["palette", "Renk paleti", Palette],
     ["region", "Tarih, saat ve bölge", Clock],
     ["features", "Özellikler", SlidersHorizontal],
+    ["ssh", "SSH Bağlantısı", Key],
+    ["device-groups", "Cihaz grupları", ShieldCheck],
   ] as const;
   return (
     <Dialog title="Profil" onClose={onClose} wide>
       <div className="profile-layout">
         <nav className="profile-menu" aria-label="Profil bölümleri">
           {tabs.map(([id, name, Icon]) => (
-            <button
-              key={id}
-              className={tab === id ? "selected" : ""}
-              aria-current={tab === id ? "page" : undefined}
-              onClick={() => {
-                setTab(id);
-                setNotice("");
-              }}
-            >
-              <Icon size={20} />
-              <span>{name}</span>
-            </button>
+            <React.Fragment key={id}>
+              {id === "ssh" && (
+                <h3 className="profile-menu-group">Cihaz yetkisi</h3>
+              )}
+              <button
+                key={id}
+                className={tab === id ? "selected" : ""}
+                aria-current={tab === id ? "page" : undefined}
+                onClick={() => {
+                  setTab(id);
+                  setNotice("");
+                }}
+              >
+                <Icon size={20} />
+                <span>{name}</span>
+              </button>
+            </React.Fragment>
           ))}
         </nav>
         <section className="profile-content">
+          {tab === "ssh" && <SSHSettings />}
+          {tab === "device-groups" && <AccessGroups user={user} />}
           {tab === "account" && (
             <>
               <span className="eyebrow">Kişisel çalışma alanı</span>
@@ -438,8 +449,9 @@ export function SSHSettings() {
             </label>
           </details>
           <p className="muted">
-            Cihaz grubu yetkisi gereklidir. SSH host anahtarı, cihaz
-            envanterindeki güven ayarına göre doğrulanır.
+            SSH bağlantısı rolünü yöneticiniz Ekip & yetkiler bölümünden atar.
+            SSH host anahtarı, cihaz envanterindeki güven ayarına göre
+            doğrulanır.
           </p>
           <div className="access-actions">
             <button className="primary" disabled={busy}>
@@ -484,14 +496,13 @@ export function SSHSettings() {
   );
 }
 
+type FilterRule = { field: string; op: string; value: string; join: string };
 function GroupForm({
   group,
-  user,
   onClose,
   onSaved,
 }: {
   group: Row;
-  user: Row;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -499,26 +510,33 @@ function GroupForm({
     name: "",
     description: "",
     device_ids: [],
-    user_ids: [],
-    ssh_enabled: false,
     ...group,
   });
   const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("");
+  const [rules, setRules] = useState<FilterRule[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const deferred = useDeferredValue(query);
-  const devices = useLiveQuery(
-    `/access/devices?q=${encodeURIComponent(deferred)}&kind=${encodeURIComponent(kind)}&offset=${offset}`,
-  );
-  const users = useLiveQuery(user.role === "admin" ? "/users?limit=200" : null);
+  const params = `q=${encodeURIComponent(deferred)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
+  const devices = useLiveQuery(`/access/devices?${params}&offset=${offset}`);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const toggle = (key: string, id: string, checked: boolean) =>
+  const [selecting, setSelecting] = useState(false);
+  const pageCheck = useRef<HTMLInputElement>(null);
+  const items: Row[] = devices.data?.items || [];
+  const selected = new Set<string>(values.device_ids);
+  const checkedCount = items.filter((d) => selected.has(d.id)).length;
+  useEffect(() => {
+    if (pageCheck.current)
+      pageCheck.current.indeterminate =
+        checkedCount > 0 && checkedCount < items.length;
+  }, [checkedCount, items.length]);
+  const mergeSelection = (ids: string[], checked: boolean) =>
     setValues((v: Row) => ({
       ...v,
-      [key]: checked
-        ? [...new Set([...v[key], id])]
-        : v[key].filter((x: string) => x !== id),
+      device_ids: checked
+        ? [...new Set([...v.device_ids, ...ids])]
+        : v.device_ids.filter((id: string) => !ids.includes(id)),
     }));
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -532,8 +550,6 @@ function GroupForm({
           name: values.name,
           description: values.description,
           device_ids: values.device_ids,
-          user_ids: values.user_ids,
-          ssh_enabled: values.ssh_enabled,
         },
       );
       onSaved();
@@ -579,6 +595,7 @@ function GroupForm({
           <button
             type="button"
             className="text-button"
+            disabled={selecting}
             onClick={() => setValues({ ...values, device_ids: [] })}
           >
             Seçimi temizle
@@ -586,12 +603,13 @@ function GroupForm({
         </div>
         <div className="group-search">
           <label>
-            <span>Cihaz ara</span>
+            <span>Tüm alanlarda ara</span>
             <span className="search-input">
               <MagnifyingGlass size={18} />
               <input
+                maxLength={120}
                 value={query}
-                placeholder="Cihaz adı veya IP adresi"
+                placeholder="Cihaz adı, IP, model veya diğer alanlar"
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setOffset(0);
@@ -599,31 +617,75 @@ function GroupForm({
               />
             </span>
           </label>
-          <label>
-            Cihaz türü
-            <select
-              value={kind}
-              onChange={(e) => {
-                setKind(e.target.value);
-                setOffset(0);
-              }}
-            >
-              <option value="">Tüm türler</option>
-              {["switch", "router", "firewall", "server", "other"].map((v) => (
-                <option key={v} value={v}>
-                  {tag(v)}
-                </option>
-              ))}
-            </select>
-          </label>
           <button
             className="secondary"
             type="button"
-            onClick={() => {
-              setOffset(0);
+            disabled={!devices.data?.columns}
+            onClick={() => setFilterOpen(true)}
+          >
+            <Funnel size={18} />
+            Filtreler{rules.length > 0 ? ` (${rules.length})` : ""}
+          </button>
+        </div>
+        {rules.length > 0 && (
+          <div className="group-filter-summary">
+            <span>
+              {rules.length} koşul etkin · {devices.data?.total ?? "…"} eşleşen
+              cihaz
+            </span>
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setRules([]);
+                setOffset(0);
+              }}
+            >
+              Filtreleri temizle
+            </button>
+          </div>
+        )}
+        <div className="group-bulk-select">
+          <label className="checkbox-label">
+            <input
+              ref={pageCheck}
+              type="checkbox"
+              checked={items.length > 0 && checkedCount === items.length}
+              disabled={devices.loading || selecting || !items.length}
+              onChange={(e) =>
+                mergeSelection(
+                  items.map((d) => d.id),
+                  e.target.checked,
+                )
+              }
+            />
+            Bu sayfayı seç
+          </label>
+          <button
+            type="button"
+            className="secondary"
+            disabled={
+              devices.loading ||
+              selecting ||
+              deferred !== query ||
+              !devices.data?.total
+            }
+            onClick={async () => {
+              setSelecting(true);
+              setError("");
+              try {
+                const result = await api(`/access/device-selection?${params}`);
+                mergeSelection(result.ids, true);
+              } catch (e: any) {
+                setError(e.message);
+              } finally {
+                setSelecting(false);
+              }
             }}
           >
-            Ara / filtrele
+            {selecting
+              ? "Seçiliyor…"
+              : `Tüm eşleşenleri seç (${devices.data?.total ?? 0})`}
           </button>
         </div>
         {devices.error && (
@@ -631,34 +693,41 @@ function GroupForm({
             {devices.error}
           </p>
         )}
-        <div className="group-device-list">
+        <div
+          className="group-device-list"
+          aria-label="Gruba eklenecek cihazlar"
+          aria-busy={devices.loading}
+        >
           {devices.loading && <p role="status">Cihazlar yükleniyor…</p>}
-          {!devices.loading && !devices.data?.items.length && (
-            <p>Filtreye uygun yetkili cihaz bulunamadı.</p>
+          {!devices.loading && !items.length && (
+            <p>Filtreye uygun cihaz bulunamadı.</p>
           )}
-          {devices.data?.items.map((device: Row) => (
+          {items.map((device) => (
             <label key={device.id}>
               <input
                 type="checkbox"
-                disabled={devices.loading}
-                checked={values.device_ids.includes(device.id)}
-                onChange={(e) =>
-                  toggle("device_ids", device.id, e.target.checked)
-                }
+                disabled={devices.loading || selecting}
+                checked={selected.has(device.id)}
+                onChange={(e) => mergeSelection([device.id], e.target.checked)}
               />
               <span>
                 <b>{device.name}</b>
                 <small className="mono">{device.management_ip}</small>
+                <small>
+                  {[device.vendor, device.model, device.site_name]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </small>
               </span>
               <small>{tag(device.kind)}</small>
             </label>
           ))}
         </div>
-        <div className="access-actions">
+        <div className="access-actions group-pagination">
           <button
             type="button"
             className="secondary"
-            disabled={!offset}
+            disabled={!offset || devices.loading}
             onClick={() => setOffset(Math.max(0, offset - 100))}
           >
             Önceki
@@ -666,61 +735,16 @@ function GroupForm({
           <button
             type="button"
             className="secondary"
-            disabled={!devices.data?.has_more}
+            disabled={!devices.data?.has_more || devices.loading}
             onClick={() => setOffset(offset + 100)}
           >
             Sonraki
           </button>
-          <span className="muted">Arama değişince seçimleriniz korunur.</span>
+          <span className="muted">
+            {devices.data?.total ?? 0} cihaz · Arama ve sayfa değişince seçimler
+            korunur.
+          </span>
         </div>
-        {user.role === "admin" ? (
-          <fieldset className="group-authorization">
-            <legend>SSH Bağlantısı yetkisi</legend>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={values.ssh_enabled}
-                onChange={(e) =>
-                  setValues({ ...values, ssh_enabled: e.target.checked })
-                }
-              />
-              Bu grupta SSH bağlantısını etkinleştir
-            </label>
-            <p className="muted">
-              Seçtiğiniz kullanıcılar, bu gruptaki cihazlara kendi SSH
-              hesaplarıyla bağlanabilir.
-            </p>
-            {users.error && (
-              <p className="error" role="alert">
-                {users.error}
-              </p>
-            )}
-            <div className="group-user-list">
-              {users.data?.items
-                .filter((u: Row) => u.is_active)
-                .map((u: Row) => (
-                  <label key={u.id}>
-                    <input
-                      type="checkbox"
-                      checked={values.user_ids.includes(u.id)}
-                      onChange={(e) =>
-                        toggle("user_ids", u.id, e.target.checked)
-                      }
-                    />
-                    <span>
-                      {u.display_name}
-                      <small>{u.email}</small>
-                    </span>
-                  </label>
-                ))}
-            </div>
-          </fieldset>
-        ) : (
-          <p className="muted">
-            SSH bağlantı yetkisini yöneticiniz atar. Kendi yetkili
-            cihazlarınızla kişisel grup oluşturabilirsiniz.
-          </p>
-        )}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -730,11 +754,28 @@ function GroupForm({
           <button type="button" className="secondary" onClick={onClose}>
             Vazgeç
           </button>
-          <button className="primary" disabled={busy}>
+          <button className="primary" disabled={busy || selecting}>
             Grubu kaydet
           </button>
         </div>
       </form>
+      {filterOpen && (
+        <Filters
+          columns={devices.data?.columns || []}
+          rules={
+            rules.length
+              ? rules
+              : [{ field: "model", op: "eq", value: "", join: "and" }]
+          }
+          valueSuggestions
+          wide
+          onSave={(next) => {
+            setRules(next);
+            setOffset(0);
+          }}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
     </Dialog>
   );
 }
@@ -752,7 +793,7 @@ export function AccessGroups({ user }: { user: Row }) {
         <ShieldCheck size={26} />
         <div>
           <h2>Cihaz grupları</h2>
-          <p>Cihazları gruplayın ve kullanıcıların SSH erişimini yönetin.</p>
+          <p>Envanter cihazlarını kişisel gruplarınızda düzenleyin.</p>
         </div>
         <button className="primary" onClick={() => setEditing({})}>
           <Plus size={18} />
@@ -785,10 +826,7 @@ export function AccessGroups({ user }: { user: Row }) {
               <div>
                 <h3>{g.name}</h3>
                 <p>{g.description || "Açıklama eklenmedi"}</p>
-                <small>
-                  {g.device_ids.length} cihaz · {g.user_ids.length} kullanıcı ·
-                  SSH {g.ssh_enabled ? "etkin" : "kapalı"}
-                </small>
+                <small>{g.device_ids.length} cihaz</small>
               </div>
               <div className="access-actions">
                 <button
@@ -813,23 +851,19 @@ export function AccessGroups({ user }: { user: Row }) {
         <div className="access-empty">
           <Key size={28} />
           <h3>Henüz cihaz grubu yok</h3>
-          <p>İlk grubu oluşturun, cihazları seçin ve SSH yetkisini atayın.</p>
+          <p>İlk grubunuzu oluşturun ve cihazları filtreleyerek ekleyin.</p>
         </div>
       )}
       {editing && (
         <GroupForm
           group={editing}
-          user={user}
           onClose={() => setEditing(null)}
           onSaved={() => setRefresh((v) => v + 1)}
         />
       )}
       {deleting && (
         <Dialog title="Cihaz grubunu sil" onClose={() => setDeleting(null)}>
-          <p>
-            {deleting.name} grubu ve bu gruptan verilen SSH yetkileri
-            kaldırılacak.
-          </p>
+          <p>{deleting.name} kişisel grubu kaldırılacak.</p>
           <div className="dialog-actions">
             <button className="secondary" onClick={() => setDeleting(null)}>
               Vazgeç

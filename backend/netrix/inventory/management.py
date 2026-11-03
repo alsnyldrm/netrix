@@ -131,6 +131,8 @@ def query(
     sort_by="",
     sort_direction="asc",
     deleted=False,
+    ids_only=False,
+    value_field="",
 ):
     models = {
         "devices": m.Device,
@@ -396,6 +398,29 @@ def query(
         )
     if expression is not None:
         stmt = stmt.where(expression)
+    if ids_only:
+        if resource != "devices":
+            raise HTTPException(422, "Geçersiz seçim kaynağı")
+        ids = list(
+            db.scalars(
+                stmt.with_only_columns(model.id, maintain_column_froms=True).order_by(model.id).limit(10001)
+            )
+        )
+        if len(ids) > 10000:
+            raise HTTPException(422, "Bir grupta en fazla 10.000 cihaz seçilebilir; filtreyi daraltın")
+        return {"ids": ids, "total": len(ids)}
+    if value_field:
+        if resource != "devices" or value_field not in cols:
+            raise HTTPException(422, "Geçersiz filtre alanı")
+        column = cols[value_field]
+        values = db.scalars(
+            stmt.with_only_columns(column, maintain_column_froms=True)
+            .where(column.is_not(None))
+            .distinct()
+            .order_by(column)
+            .limit(200)
+        )
+        return {"values": [str(v) for v in values if str(v)]}
     if resource == "snapshots":
         cols["is_base"] = m.Snapshot.id == m.Device.base_snapshot_id
         if changed_only:

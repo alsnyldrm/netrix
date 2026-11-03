@@ -4,15 +4,15 @@ NETRIX'in envanter tablosundaki sol terminal butonu, seçilen cihaza kullanıcı
 
 ## Kullanım ve yetki
 
-1. **Cihaz yetkisi → SSH Bağlantısı** altında kullanıcı adı, şifre veya özel anahtar, port, isteğe bağlı anahtar parolası, ilk komut ve bağlantı zaman aşımı kaydedilir. Şifre alanını boş bırakmak mevcut şifreyi korur; **Kayıtlı bağlantıyı kaldır** bütün kişisel bağlantı bilgisini temizler. Sırlar API'den geri okunmaz.
-2. Yönetici **Cihaz grupları** altında cihazları seçer, SSH bağlantısını etkinleştirir ve erişecek kullanıcıları atar. Ad/IP araması, tür filtresi ve 100 cihazlık sayfalama vardır; filtre değişince önceki seçimler korunur. Grup üyelikleri mevcut envanter kimliklerini kullanır.
-3. Yöneticiler envanterdeki uygun cihazlara bağlanabilir. Diğer kullanıcılar, rollerinden bağımsız olarak, yalnız etkin grupların açıkça verdiği cihaz SSH yetkisini kullanabilir. Kendi yetkili cihazlarıyla kişisel gruplar oluşturabilirler; kendilerine veya başkasına erişim veremez, yetkili grubu düzenleyemezler. Normal envanter yazma ve yönetim yetkileri bu akıştan etkilenmez.
+1. **Profil → Cihaz yetkisi → SSH Bağlantısı** altında kullanıcı adı, şifre veya özel anahtar, port, isteğe bağlı anahtar parolası, ilk komut ve bağlantı zaman aşımı kaydedilir. Şifre alanını boş bırakmak mevcut şifreyi korur; **Kayıtlı bağlantıyı kaldır** bütün kişisel bağlantı bilgisini temizler. Sırlar API'den geri okunmaz.
+2. **Profil → Cihaz yetkisi → Cihaz grupları** kişisel cihaz listelerini tutar. Envanterdeki tüm güvenli alanlar (model, üretici, versiyon, tür, lokasyon, VRF vb.) aynı koşul sistemiyle filtrelenir. Alan değerleri mevcut kayıtlardan önerilir. Sayfadaki cihazlar veya filtreye uyanların tamamı topluca seçilebilir. Arama, filtre ve sayfa değişince seçimler korunur. Gruplar kullanıcı veya SSH yetkisi içermez; yöneticiler dahil yalnız sahibi tarafından görülür ve düzenlenir.
+3. Yönetici **Ekip & yetkiler** ekranında **Kullanıcı rollerini düzenle** ile bağımsız **SSH bağlantısı** rolünü atar veya kaldırır. Bu rol izleyici/operatör uygulama rolüne eklenebilir; envanterdeki uygun cihazlarda kişisel SSH bağlantısı ve toplu komut yetkisi verir. Yöneticiler bu yetkiyi zaten taşır. Rolü olmayan kullanıcı kendi cihaz gruplarını düzenleyebilir, SSH oturumu başlatamaz. Kullanıcı kendisine rol atayamaz; rol değişikliği yalnız yönetici API'sinden yapılır.
 4. Yalnız envantere ait, arşivlenmemiş, aktif veya bakım durumundaki cihazlara bağlantı açılır. Bağlantı mevcut keşif kapsamının etkinliğine veya tarama zamanlamasına bağlı değildir. Kullanıcıdan serbest hedef IP alınmaz.
 5. Cihazın mevcut `ssh_trust_host_key` tercihi uygulanır. Kapalı varsayılanda `known_hosts` doğrulaması zorunludur. Kişisel profil bu politikayı devre dışı bırakamaz.
 
 Terminal penceresinde hazır komut kitaplığı, tam ekran, küçültme ve yeni sekmeye aktarım vardır. Yeni sekme aynı SSH oturumunu alır; yeni cihaz bağlantısı veya ilk komut tekrarı oluşturmaz. Aynı oturumun önceki görüntüleyicisi devre dışı kalır. Başka hesap oturum kimliğini bilse de erişemez. Yeni sekme site oturum cookie'sini kullanır; parola veya token URL'ye konmaz.
 
-Alt şerit en fazla 15 küçültülmüş oturum tutar. Kullanıcı başına 16, uygulama genelinde 32 açık SSH oturumu vardır. Sekmeler de aynı sunucu sınırına tabidir. Terminal 15 dakika kullanıcı girdisi olmadığında, 4 saat sonunda veya 60 saniye görüntüleyici bulunmadığında kapanır. Sayfalar arasında gezinmek ve küçültmek bağlantıyı korur. Tarayıcı yenilemesi kalıcı oturum geri yükleme sağlamaz. Çıkış, kullanıcı pasifleştirme ve cihaz/grup yetkisinin kaldırılması en geç 10 saniyelik denetimle bağlantıyı sonlandırır; kullanıcı girdisinde en fazla iki saniyelik ek yetki önbelleği kullanılır.
+Alt şerit en fazla 15 küçültülmüş oturum tutar. Kullanıcı başına 16, uygulama genelinde 32 açık SSH oturumu vardır. Sekmeler de aynı sunucu sınırına tabidir. Terminal 15 dakika kullanıcı girdisi olmadığında, 4 saat sonunda veya 60 saniye görüntüleyici bulunmadığında kapanır. Sayfalar arasında gezinmek ve küçültmek bağlantıyı korur. Tarayıcı yenilemesi kalıcı oturum geri yükleme sağlamaz. Çıkış, kullanıcı pasifleştirme ve cihaz uygunluğunun veya SSH rolünün kaldırılması en geç 10 saniyelik denetimle bağlantıyı sonlandırır; kullanıcı girdisinde en fazla iki saniyelik ek yetki önbelleği kullanılır.
 
 ## Toplu komut
 
@@ -26,7 +26,7 @@ Komutlar ve başlangıç komutu otomatik yeniden denenmez. Redis teslimi bir kez
 
 ## Veri ve kaynak kullanımı
 
-MariaDB'de kullanıcı başına tek `user_workspaces` kaydı tutulur: küçük tercih JSON'u, Fernet ile şifreli SSH bilgileri ve en fazla 50 hazır komut. Grup tanımı, cihaz ve kullanıcı üyelikleri indeksli ayrı ilişkilerdir. Bağlantı/komut istekleri yalnız metadata audit kaydı oluşturur; komut metni, şifre, terminal çıktısı ve tuş vuruşları audit'e veya kalıcı iş tablosuna yazılmaz.
+MariaDB'de kullanıcı başına tek `user_workspaces` kaydı tutulur: küçük tercih JSON'u, Fernet ile şifreli SSH bilgileri ve en fazla 50 hazır komut. Grup tanımı ve cihaz üyelikleri indeksli ilişkilerdir. Grup en fazla 10.000 cihaz içerir. Tümünü seç işlemi yalnız kimlikleri sorgular; sonuçlar ve aramalar veritabanına yazılmaz. SSH rolü kullanıcı kaydında tek boolean alandır; eski grup-kullanıcı yetki tablosu kaldırılmıştır. Bağlantı/komut istekleri yalnız metadata audit kaydı oluşturur; komut metni, şifre, terminal çıktısı ve tuş vuruşları audit'e veya kalıcı iş tablosuna yazılmaz.
 
 Redis'teki terminal giriş/çıkış ve toplu komut/sonuç içeriği uygulama anahtarıyla şifrelenir. Giriş akışı 128 mesajla sınırlandırılır ve işlenen mesajlar silinir. Çıkış en fazla 128 adet 4 KiB metin parçasıdır; tarayıcı scrollback'i 1000 satırdır. Etkin kayıtlar en fazla dört saat, kapanan terminal ve toplu sonuçlar 10 dakika tutulur. Redis AOF fiziksel yeniden yazımına kadar şifreli eski blokları içerebilir; kalıcı terminal arşivi oluşturulmaz.
 
@@ -34,11 +34,11 @@ Terminal WebSocket'i aynı Origin, mevcut HttpOnly oturum cookie'si, oturum sahi
 
 ## Profil
 
-Sol alttaki kullanıcı adının altındaki **Profil** menüsü hesap bilgileri, altı kurumsal palet, tarih/saat/bölge ve özellikler içerir. Teknik kobalt, Atlantik, Ametist, Bakır, Orman ve Grafit paletlerinin açık/koyu değerleri ayrıdır. Saat dilimi geçerli IANA adıdır; UTC saklama değişmez, gösterim `Intl.DateTimeFormat` ile kullanıcı tercihine göre yapılır. Hazır komutlar, oturum şeridi, sıkı envanter tabloları ve azaltılmış hareket kişisel tercihlerdir; erişim yetkisi sağlamaz. Tercihler başka kullanıcıya taşınmaz.
+Sol alttaki kullanıcı adının altındaki **Profil** menüsü hesap bilgileri, altı kurumsal palet, tarih/saat/bölge ve özellikler ile Cihaz yetkisi alt menüsünü içerir. Teknik kobalt, Atlantik, Ametist, Bakır, Orman ve Grafit paletlerinin açık/koyu değerleri ayrıdır. Saat dilimi geçerli IANA adıdır; UTC saklama değişmez, gösterim `Intl.DateTimeFormat` ile kullanıcı tercihine göre yapılır. Hazır komutlar, oturum şeridi, sıkı envanter tabloları ve azaltılmış hareket kişisel tercihlerdir; erişim yetkisi sağlamaz. Tercihler başka kullanıcıya taşınmaz.
 
 ## Şema ve doğrulama
 
-Alembic `20261103_34` dört tablo ekler; mevcut cihaz, kullanıcı ve sır kayıtlarını dönüştürmez. Kayıtlı çalışma alanı veya grup varken downgrade veri kaybına karşı reddedilir. Önce kayıtlar açıkça kaldırılmalıdır.
+Alembic `20261103_34` çalışma alanı tablolarını ekler. `20261103_36`, eski etkin gruplarda yönetici tarafından açıkça yetkilendirilmiş kullanıcılara SSH rolünü aktarır, grup yetki sütununu ve grup-kullanıcı tablosunu kaldırır; cihaz üyelikleri, sahiplik ve şifreli bilgiler korunur. Önceki cihaz bazlı kapsam yeni bağımsız rol ile envanter kapsamına genişler. Atanmış SSH rolleri varken revision 35’e downgrade reddedilir. Kayıtlı çalışma alanı veya grup varken downgrade veri kaybına karşı reddedilir. Önce kayıtlar açıkça kaldırılmalıdır.
 
 - `tests/test_user_access.py`: şifreleme, sır yansıtmama, kullanıcı izolasyonu, yetki yükseltme reddi, envanter sınırı, kapasite, iptal ve çıktı sınırı.
 - `scripts/ssh_workspace_check.py`: yalnız loopback sahte SSH sunucusu ve boş test Redis ile gerçek SSH/WebSocket; host anahtarı, yanlış parola, ilk komut, terminal girdisi, sekme devri, toplu başarı/hata/süre aşımı ve teslim tekilliği.

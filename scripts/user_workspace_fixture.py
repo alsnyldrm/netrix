@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from contextlib import nullcontext
+from datetime import timedelta
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -19,7 +20,7 @@ os.environ.update(
 from netrix import main, services  # noqa: E402
 from netrix import models as m  # noqa: E402
 from netrix.access import ephemeral as e  # noqa: E402
-from netrix.core import Base, engine, session_factory  # noqa: E402
+from netrix.core import Base, engine, now, session_factory  # noqa: E402
 from netrix.identity.security import encrypt, hasher  # noqa: E402
 
 
@@ -140,15 +141,26 @@ with session_factory()() as db:
             ),
         )
     )
-    for n in range(20):
+    db.add(
+        m.User(
+            email="viewer@example.test",
+            display_name="Viewer Tester",
+            role="viewer",
+            password_hash=hasher.hash("browser-fixture-password"),
+        )
+    )
+    for n in range(225):
         db.add(
             m.Device(
                 name=f"SW-{n + 1:02}",
+                created_at=now() - timedelta(seconds=n),
                 management_ip=f"192.0.2.{n + 1}",
                 vrf_id=vrf.id,
                 discovery_scope_id=scope.id,
                 kind="switch",
                 vendor="Aruba",
+                model="CX6200" if n < 150 else "CX6300",
+                software_version="10.13",
                 adapter="aruba_2900",
             )
         )

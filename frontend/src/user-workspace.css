@@ -116,15 +116,15 @@
 .profile-content h3 {
   margin-bottom: 8px;
 }
-.profile-content form,
-.profile-content form label {
+.profile-content > form,
+.profile-content > form label {
   display: grid;
   gap: 16px;
 }
-.profile-content form label {
+.profile-content > form label {
   gap: 6px;
 }
-.profile-content form button {
+.profile-content > form button {
   justify-self: start;
 }
 .profile-details {
@@ -493,7 +493,8 @@
 .group-device-list > label > small {
   flex-basis: auto;
 }
-.dialog .profile-content form {
+.dialog .profile-content > form,
+.dialog .profile-content > .access-settings > form {
   padding: 0;
 }
 .dialog-actions {
@@ -516,4 +517,114 @@
 .group-search .search-input,
 .group-search .search-input input {
   background: var(--surface);
+}
+.profile-menu-group {
+  margin: 20px 12px 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.profile-content > .access-settings {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.profile-content .access-intro {
+  flex-wrap: wrap;
+}
+.profile-content .access-intro > div {
+  flex: 1;
+  min-width: 140px;
+}
+.profile-content .access-intro > button {
+  margin-left: 0;
+}
+.access-group-form .group-search {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+.group-bulk-select,
+.group-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.group-bulk-select .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  min-height: 44px;
+}
+.group-bulk-select input {
+  flex-shrink: 0;
+}
+.group-filter-summary {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+}
+.group-pagination .muted {
+  flex: 1;
+  min-width: 180px;
+}
+.user-role-form {
+  display: grid;
+  gap: 20px;
+}
+.user-role-form > label {
+  display: grid;
+  gap: 8px;
+}
+.user-role-form fieldset {
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.user-role-form .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.user-role-form fieldset p {
+  margin: 8px 0 0;
+}
+@media (max-width: 600px) {
+  .access-group-form .group-search {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .group-search > button,
+  .group-bulk-select > button {
+    width: 100%;
+    justify-content: center;
+  }
+  .profile-menu-group {
+    grid-column: 1 / -1;
+    margin-top: 12px;
+  }
+}
+.group-bulk-select .checkbox-label,
+.user-role-form .checkbox-label {
+  flex-wrap: nowrap;
+  align-content: center;
+}
+.group-bulk-select .checkbox-label {
+  padding-left: 16px;
+}
+.group-bulk-select input,
+.user-role-form input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.group-device-list b {
+  color: var(--text);
 }
