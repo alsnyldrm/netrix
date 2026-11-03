@@ -148,9 +148,10 @@
     overflow: hidden;
     box-shadow: var(--shadow-md);
   }
+  :root[data-design="orbit"] .topbar-region {
+    padding: 16px 24px 0 0;
+  }
   :root[data-design="orbit"] .topbar {
-    top: 16px;
-    margin: 16px 24px 0 0;
     border: 1px solid var(--border);
     border-radius: 20px;
     box-shadow: var(--shadow-sm);
@@ -258,8 +259,10 @@
   :root[data-design="panorama"] .nav-item.selected::before {
     display: none;
   }
-  :root[data-design="panorama"] .topbar {
+  :root[data-design="panorama"] .topbar-region {
     top: 146px;
+  }
+  :root[data-design="panorama"] .topbar {
     height: 52px;
   }
   :root[data-design="panorama"] .sidebar-collapse {

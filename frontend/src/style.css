@@ -859,10 +859,14 @@ textarea {
   display: flex;
   flex-direction: column;
 }
-.topbar {
+.topbar-region {
   position: sticky;
   top: 0;
   z-index: 20;
+  flex: none;
+  background: var(--bg);
+}
+.topbar {
   display: flex;
   align-items: center;
   gap: 12px;

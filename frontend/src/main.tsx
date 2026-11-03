@@ -3156,70 +3156,78 @@ function App() {
         onClick={() => setDrawer(false)}
       />
       <div className="main-shell">
-        <header className="topbar">
-          <button
-            className="icon-button sidebar-collapse"
-            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-            title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-            aria-expanded={!collapsed}
-            aria-controls="main-sidebar"
-            onClick={() => {
-              writePref("netrix-sidebar", collapsed ? "expanded" : "collapsed");
-              setCollapsed(!collapsed);
-            }}
-          >
-            <SidebarSimple size={20} aria-hidden="true" />
-          </button>
-          <button
-            className="icon-button menu-button"
-            aria-label="Menüyü aç"
-            aria-expanded={drawer}
-            onClick={() => setDrawer(true)}
-          >
-            <List size={20} />
-          </button>
-          <div className="breadcrumbs">
-            <span>{page.group}</span>
-            <CaretRight size={12} />
-            <b>{page.title}</b>
-          </div>
-          <div className="topbar-actions">
+        <div className="topbar-region">
+          <header className="topbar">
             <button
-              className="command-trigger"
-              aria-label="Komut paletini aç (Ctrl K)"
+              className="icon-button sidebar-collapse"
+              aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              aria-expanded={!collapsed}
+              aria-controls="main-sidebar"
               onClick={() => {
-                setCommandQuery("");
-                setCommand(true);
+                writePref(
+                  "netrix-sidebar",
+                  collapsed ? "expanded" : "collapsed",
+                );
+                setCollapsed(!collapsed);
               }}
             >
-              <MagnifyingGlass size={17} />
-              <span>Menü, ayar veya cihaz ara</span>
-              <kbd>Ctrl K</kbd>
+              <SidebarSimple size={20} aria-hidden="true" />
             </button>
-            <div className="connection-label" title="Canlı bildirim bağlantısı">
-              <span
-                className={"connection-dot " + (connected ? "online" : "")}
-              />
-              {connected ? "Bağlı" : "Yeniden bağlanıyor"}
-            </div>
-            <ThemeToggle theme={theme} onToggle={toggleTheme} />
             <button
-              className="icon-button"
-              aria-label={
-                refreshing ? "Veriler yenileniyor" : "Verileri yenile"
-              }
-              title="Açık sayfanın verilerini yenile"
-              disabled={refreshing}
-              aria-busy={refreshing}
-              onClick={refreshPage}
+              className="icon-button menu-button"
+              aria-label="Menüyü aç"
+              aria-expanded={drawer}
+              onClick={() => setDrawer(true)}
             >
-              <ArrowsClockwise
-                size={19}
-                className={refreshing ? "refresh-spinning" : undefined}
-              />
+              <List size={20} />
             </button>
-          </div>
-        </header>
+            <div className="breadcrumbs">
+              <span>{page.group}</span>
+              <CaretRight size={12} />
+              <b>{page.title}</b>
+            </div>
+            <div className="topbar-actions">
+              <button
+                className="command-trigger"
+                aria-label="Komut paletini aç (Ctrl K)"
+                onClick={() => {
+                  setCommandQuery("");
+                  setCommand(true);
+                }}
+              >
+                <MagnifyingGlass size={17} />
+                <span>Menü, ayar veya cihaz ara</span>
+                <kbd>Ctrl K</kbd>
+              </button>
+              <div
+                className="connection-label"
+                title="Canlı bildirim bağlantısı"
+              >
+                <span
+                  className={"connection-dot " + (connected ? "online" : "")}
+                />
+                {connected ? "Bağlı" : "Yeniden bağlanıyor"}
+              </div>
+              <ThemeToggle theme={theme} onToggle={toggleTheme} />
+              <button
+                className="icon-button"
+                aria-label={
+                  refreshing ? "Veriler yenileniyor" : "Verileri yenile"
+                }
+                title="Açık sayfanın verilerini yenile"
+                disabled={refreshing}
+                aria-busy={refreshing}
+                onClick={refreshPage}
+              >
+                <ArrowsClockwise
+                  size={19}
+                  className={refreshing ? "refresh-spinning" : undefined}
+                />
+              </button>
+            </div>
+          </header>
+        </div>
         <main id="main" tabIndex={-1}>
           <div className="page-view" key={current}>
             {page.key !== "overview" && (

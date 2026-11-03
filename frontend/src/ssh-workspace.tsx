@@ -319,9 +319,10 @@ function Terminal({
     <div
       className="ssh-terminal"
       style={{ background: appearance.background }}
-      ref={host}
       aria-label="SSH terminali"
-    />
+    >
+      <div className="ssh-terminal-screen" ref={host} />
+    </div>
   );
 }
 

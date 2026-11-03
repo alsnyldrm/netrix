@@ -122,6 +122,8 @@
   padding: 12px;
   overflow: hidden;
 }
+/* FitAddon measures its immediate parent; keep that host free of outer padding. */
+.ssh-terminal-screen,
 .ssh-terminal .xterm {
   height: 100%;
 }
