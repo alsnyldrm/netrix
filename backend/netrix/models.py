@@ -7,11 +7,13 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -48,6 +50,7 @@ class AuthSession(Base):
 
 class Audit(Entity, Base):
     __tablename__ = "audit_events"
+    __table_args__ = (Index("ix_audit_events_created_at", text("created_at DESC"), "id"),)
     actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(80))
     entity_type: Mapped[str] = mapped_column(String(60))
@@ -599,6 +602,7 @@ class Alert(Entity, Base):
 
 class Event(Entity, Base):
     __tablename__ = "change_events"
+    __table_args__ = (Index("ix_change_events_created_at", text("created_at DESC"), "id"),)
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(50))
     message: Mapped[str] = mapped_column(String(400))

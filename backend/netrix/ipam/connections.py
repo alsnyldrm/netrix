@@ -243,6 +243,7 @@ class Evidence:
         }
         self.snapshots = {}
         self.attached = {}
+        self.static = {}
         self.raw_neighbors = {}
         self.excluded_raw_neighbors = {}
         self.exclusions = defaultdict(list)
@@ -313,17 +314,158 @@ class Evidence:
             self.raw_neighbors[id] = accepted
             self.excluded_raw_neighbors[id] = excluded_rows
 
+    def _static_links(self, vrf_id, cutoff):
+        """Row-independent links, blockers and lookup indexes for one VRF/window."""
+        key = (vrf_id, cutoff)
+        if key in self.static:
+            return self.static[key]
+        snapshots = {
+            id: (o, p)
+            for id, (o, p) in self.snapshots.items()
+            if o.created_at >= cutoff and self.devices[id].vrf_id == vrf_id
+        }
+        links = []
+        for i, link in enumerate(self.links):
+            if (
+                self.devices[link.device_id].vrf_id != vrf_id
+                or not link.last_seen_at
+                or link.last_seen_at < cutoff
+            ):
+                continue
+            snapshot = snapshots.get(link.device_id)
+            if snapshot and snapshot[0].created_at >= link.last_seen_at:
+                data = snapshot[1]["evidence"]
+                complete = set(data.get("neighbor_protocols_complete") or [])
+                if data.get("failed"):
+                    continue
+                if set(link.source.split("+")) <= complete:
+                    from ..discovery.links import legacy_match
+
+                    if not any(legacy_match(link, n) for n in self.raw_neighbors.get(link.device_id, [])):
+                        continue
+            links.append(
+                (
+                    (0, i, 0, 0),
+                    (
+                        link.device_id,
+                        link.interface_name,
+                        link.remote_device_id,
+                        link.evidence or {},
+                        link.last_seen_at,
+                        link.id,
+                    ),
+                )
+            )
+        for s, (id, (obs, p)) in enumerate(snapshots.items()):
+            if p["evidence"].get("failed"):
+                continue
+            for j, neighbor in enumerate(self.raw_neighbors.get(id, [])):
+                port = neighbor["interface_name"]
+                if port in p["up"]:
+                    links.append(
+                        (
+                            (1, s, 0, j),
+                            (id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id),
+                        )
+                    )
+        blocked = set()
+        for id, (_, p) in snapshots.items():
+            for n in p["evidence"].get("neighbors", []):
+                for port in (
+                    n.get("interface_name"),
+                    (n.get("evidence", {}).get("local_aggregate") or {}).get("name"),
+                ):
+                    if port:
+                        blocked.add((id, port))
+        # Directory uplinks remain conservative blockers even if their direct
+        # identity was superseded by a newer snapshot.
+        for link in self.links:
+            if link.last_seen_at and link.last_seen_at >= cutoff:
+                blocked.add((link.device_id, link.interface_name))
+        records, by_address, by_mac, by_uuid = [], defaultdict(list), defaultdict(list), defaultdict(list)
+        for order, link in links:
+            record = self._link_record(order, link, snapshots)
+            if not record:
+                continue
+            blocked.update(record["blocks"])
+            records.append(record)
+            if record["down"]:
+                continue
+            index = len(records) - 1
+            for address in record["addresses"]:
+                by_address[address].append(index)
+            for value in record["macs"]:
+                by_mac[value].append(index)
+            if record["uuid"]:
+                by_uuid[record["uuid"]].append(index)
+        self.static[key] = {
+            "snapshots": snapshots,
+            "records": records,
+            "blocked": blocked,
+            "by_address": by_address,
+            "by_mac": by_mac,
+            "by_uuid": by_uuid,
+        }
+        return self.static[key]
+
+    def _link_record(self, order, link, snapshots):
+        id, port, remote, data, when, proof_id = link
+        if not port:
+            return None
+        aggregate = (data.get("local_aggregate") or {}).get("name")
+        lldp = data.get("lldp") or {}
+        chassis_mac = lldp_mac(lldp.get("chassis_id")) if lldp.get("chassis_subtype") == 4 else ""
+        advertised = {chassis_mac, lldp_mac(lldp.get("port_id")) if lldp.get("port_subtype") == 3 else ""} - {
+            ""
+        }
+        uuid = None
+        try:
+            if lldp.get("chassis_subtype") == 7:
+                uuid = str(UUID(lldp.get("chassis_id", "")))
+        except (ValueError, TypeError, AttributeError):
+            pass
+        snapshot = snapshots.get(id)
+        return {
+            "order": order,
+            "link": link,
+            "aggregate": aggregate,
+            "blocks": {(id, p) for p in (port, aggregate) if p},
+            "advertised": advertised,
+            "chassis_mac": chassis_mac or None,
+            "macs": advertised | ({chassis_mac} if chassis_mac else set()),
+            "uuid": uuid,
+            "addresses": {
+                address
+                for protocol in ("lldp", "cdp")
+                if (address := ip((data.get(protocol) or {}).get("management_address")))
+            },
+            "down": bool(snapshot and snapshot[0].created_at >= when and port in snapshot[1]["down"]),
+        }
+
+    def _candidate(self, record, nic, peer, uuid, host):
+        id, port, _, _, when, proof_id = record["link"]
+        return {
+            "device_id": id,
+            "device_name": self.devices[id].name,
+            "port": port,
+            "aggregate": record["aggregate"],
+            "source": "vcenter_host+neighbors" if nic else "ipam_ssh_neighbors" if peer else "neighbors",
+            "observed_at": when.isoformat(),
+            "evidence_id": proof_id,
+            "endpoint_identity": host["identity"] if nic else peer["identity"] if peer else uuid,
+            "nic": nic["device"] if nic else peer["nic"] if peer else "",
+            "mac_address": nic["mac_address"] if nic else peer["mac_address"] if peer else "",
+            "confidence": 0.95,
+        }
+
     def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway", host=None):
         from .protocol_peers import peer as protocol_peer
         from .vmware_hosts import nic_for_neighbor
 
         lifetime = timedelta(seconds=max(300, min(vlan.discovery_interval * 2, 86400)))
         cutoff = self.at - lifetime
-        snapshots = {
-            id: (o, p)
-            for id, (o, p) in self.snapshots.items()
-            if o.created_at >= cutoff and self.devices[id].vrf_id == row.vrf_id
-        }
+        static = self._static_links(row.vrf_id, cutoff)
+        snapshots = static["snapshots"]
         network = ipaddress.ip_network(vlan.cidr)
         gateway = []
         for id, (obs, p) in snapshots.items():
@@ -348,127 +490,59 @@ class Evidence:
                     )
         gateway_macs = {g["mac_address"] for g in gateway}
         macs = {identity_mac} if identity_mac else gateway_macs
-        links = []
-        for link in self.links:
-            if (
-                self.devices[link.device_id].vrf_id != row.vrf_id
-                or not link.last_seen_at
-                or link.last_seen_at < cutoff
-            ):
-                continue
-            snapshot = snapshots.get(link.device_id)
-            if snapshot and snapshot[0].created_at >= link.last_seen_at:
-                data = snapshot[1]["evidence"]
-                complete = set(data.get("neighbor_protocols_complete") or [])
-                if data.get("failed"):
-                    continue
-                if set(link.source.split("+")) <= complete:
-                    from ..discovery.links import legacy_match
-
-                    if not any(legacy_match(link, n) for n in self.raw_neighbors.get(link.device_id, [])):
-                        continue
-            links.append(
-                (
-                    link.device_id,
-                    link.interface_name,
-                    link.remote_device_id,
-                    link.evidence or {},
-                    link.last_seen_at,
-                    link.id,
-                )
-            )
-        for id, (obs, p) in snapshots.items():
+        records = static["records"]
+        blocked = static["blocked"]
+        extra = []
+        for s, (id, (obs, p)) in enumerate(snapshots.items()):
             if p["evidence"].get("failed"):
                 continue
-            up = p["up"]
-            raw = self.raw_neighbors.get(id, [])
-            raw = [
-                *raw,
-                *(
-                    n
-                    for n in self.excluded_raw_neighbors.get(id, [])
-                    if protocol_peer(n.get("evidence") or {}, row.address)
-                ),
-            ]
+            excluded = self.excluded_raw_neighbors.get(id, [])
+            raw = [(0, n) for n in excluded if protocol_peer(n.get("evidence") or {}, row.address)]
             if host:
                 # Fresh protocol evidence plus authenticated VMware NIC ownership
                 # is independent of historical directory visibility. No link is restored.
-                raw = [
-                    *raw,
-                    *(
-                        n
-                        for n in self.excluded_raw_neighbors.get(id, [])
-                        if nic_for_neighbor(host, n.get("evidence") or {})
-                    ),
-                ]
-            for neighbor in raw:
+                raw += [(1, n) for n in excluded if nic_for_neighbor(host, n.get("evidence") or {})]
+            for j, (part, neighbor) in enumerate(raw):
                 port = neighbor["interface_name"]
-                if port not in up:
-                    continue
-                links.append((id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id))
+                if port in p["up"]:
+                    link = (id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id)
+                    record = self._link_record((1, s, 1 + part, j), link, snapshots)
+                    if record:
+                        extra.append(record)
+        if extra:
+            blocked = set(blocked)
+            for record in extra:
+                blocked.update(record["blocks"])
+        if host:
+            # Any typed NIC/chassis can match a VMware host: evaluate every link.
+            relevant = [r for r in records if not r["down"]]
+        else:
+            # Without a host only an advertised address or MAC can make a link
+            # direct; other links matter solely as members of a proven identity.
+            indexes = set(static["by_address"].get(row.address, ()))
+            for value in macs:
+                indexes.update(static["by_mac"].get(value, ()))
+            relevant = [records[i] for i in indexes]
+        relevant += [r for r in extra if not r["down"]]
+        relevant.sort(key=lambda r: r["order"])
+        seen = {r["order"] for r in relevant}
         candidates = {}
-        blocked = set()
-        for id, (_, p) in snapshots.items():
-            for n in p["evidence"].get("neighbors", []):
-                for port in (
-                    n.get("interface_name"),
-                    (n.get("evidence", {}).get("local_aggregate") or {}).get("name"),
-                ):
-                    if port:
-                        blocked.add((id, port))
-        # Directory uplinks remain conservative blockers even if their direct
-        # identity was superseded by a newer snapshot.
-        for link in self.links:
-            if link.last_seen_at and link.last_seen_at >= cutoff:
-                blocked.add((link.device_id, link.interface_name))
         identities = defaultdict(list)
         direct = []
         identity_conflict = False
         conflicting_identities = []
-        for id, port, remote, data, when, proof_id in links:
-            if not port:
-                continue
-            aggregate = (data.get("local_aggregate") or {}).get("name")
-            blocked.update((id, p) for p in (port, aggregate) if p)
-            lldp = data.get("lldp") or {}
-            advertised = {
-                lldp_mac(lldp.get("chassis_id")) if lldp.get("chassis_subtype") == 4 else "",
-                lldp_mac(lldp.get("port_id")) if lldp.get("port_subtype") == 3 else "",
-            } - {""}
+        for record in relevant:
+            _, _, remote, data, _, _ = record["link"]
+            advertised = record["advertised"]
             nic = nic_for_neighbor(host, data)
             peer = protocol_peer(data, row.address)
-            address_match = any(
-                ip((data.get(protocol) or {}).get("management_address")) == row.address
-                for protocol in ("lldp", "cdp")
-            )
-            snapshot = snapshots.get(id)
-            if snapshot and snapshot[0].created_at >= when and port in snapshot[1]["down"]:
-                continue
-            uuid = None
-            try:
-                if lldp.get("chassis_subtype") == 7:
-                    uuid = str(UUID(lldp.get("chassis_id", "")))
-            except (ValueError, TypeError, AttributeError):
-                pass
-            if not uuid and lldp.get("chassis_subtype") == 4:
-                chassis_mac = lldp_mac(lldp.get("chassis_id"))
-                if chassis_mac and chassis_mac in macs:
-                    uuid = "lldp-mac:" + chassis_mac
-            candidate = {
-                "device_id": id,
-                "device_name": self.devices[id].name,
-                "port": port,
-                "aggregate": aggregate,
-                "source": "vcenter_host+neighbors" if nic else "ipam_ssh_neighbors" if peer else "neighbors",
-                "observed_at": when.isoformat(),
-                "evidence_id": proof_id,
-                "endpoint_identity": host["identity"] if nic else peer["identity"] if peer else uuid,
-                "nic": nic["device"] if nic else peer["nic"] if peer else "",
-                "mac_address": nic["mac_address"] if nic else peer["mac_address"] if peer else "",
-                "confidence": 0.95,
-            }
+            address_match = row.address in record["addresses"]
+            uuid = record["uuid"]
+            if not uuid and record["chassis_mac"] and record["chassis_mac"] in macs:
+                uuid = "lldp-mac:" + record["chassis_mac"]
+            candidate = self._candidate(record, nic, peer, uuid, host)
             if candidate["endpoint_identity"]:
-                identities[candidate["endpoint_identity"]].append(candidate)
+                identities[candidate["endpoint_identity"]].append((record["order"], candidate))
             if nic or peer or address_match or (len(macs) == 1 and advertised & macs):
                 if (
                     not nic
@@ -484,6 +558,16 @@ class Evidence:
                 # is the requested IP itself.
                 if remote not in self.devices or address_match:
                     direct.append(candidate)
+        # Links outside the row's address/MAC indexes are never direct, but a
+        # typed chassis UUID still groups them with a proven candidate.
+        for key in {c["endpoint_identity"] for c in direct} - {None}:
+            for i in static["by_uuid"].get(key, ()):
+                record = records[i]
+                if record["order"] not in seen:
+                    identities[key].append((record["order"], self._candidate(record, None, None, key, host)))
+        identities = defaultdict(
+            list, {k: [c for _, c in sorted(v, key=lambda x: x[0])] for k, v in identities.items()}
+        )
         proven_identities = {c["endpoint_identity"] for c in direct} - {None}
         identity_conflict = any(not key or key not in proven_identities for key in conflicting_identities)
         if host:

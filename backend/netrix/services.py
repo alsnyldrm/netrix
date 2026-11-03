@@ -407,9 +407,9 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     # These fields are never serialized in list responses. Avoid transferring
     # encrypted configs and full source snapshots just to discard them in Python.
     hidden = HIDDEN | ({"evidence"} if model is m.Integration else set())
-    stmt = stmt.options(*(defer(getattr(model, key)) for key in hidden if hasattr(model, key)))
+    options = [defer(getattr(model, key)) for key in hidden if hasattr(model, key)]
     if model is m.Scope:
-        stmt = stmt.options(selectinload(m.Scope.profiles))
+        options.append(selectinload(m.Scope.profiles))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "observations":
@@ -448,12 +448,13 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
             )
     if device_id and hasattr(model, "device_id"):
         stmt = stmt.where(model.device_id == device_id)
-    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    # Count primary keys only: a derived table of full rows copies every JSON column.
+    total = db.scalar(select(func.count()).select_from(stmt.with_only_columns(model.id).subquery()))
     if name == "vlans":
         stmt = stmt.order_by(m.VLAN.vid, m.VLAN.domain, m.VLAN.id)
     else:
         stmt = stmt.order_by(model.created_at.desc(), model.id)
-    rows = db.scalars(stmt.offset(offset).limit(limit)).all()
+    rows = db.scalars(stmt.options(*options).offset(offset).limit(limit)).all()
     items = [serialize(row) for row in rows]
     if name == "jobs":
         from .job_details import summaries
