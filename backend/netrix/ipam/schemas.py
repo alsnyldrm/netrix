@@ -2,9 +2,28 @@ import ipaddress
 import re
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from ..schemas import Input
+
+
+class ScanGroupInput(Input):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=400)
+    vlan_ids: list[str] = Field(min_length=1, max_length=4096)
+    enabled: bool = True
+    frequency: Literal["daily", "weekly", "monthly"]
+    repeat_every: int = Field(default=1, ge=1, le=365)
+    start_at: AwareDatetime
+    timezone: Literal["Europe/Istanbul"] = "Europe/Istanbul"
+    run_limit: int | None = Field(default=None, ge=1, le=100000)
+
+    @field_validator("start_at")
+    @classmethod
+    def valid_year(cls, value):
+        if not 2000 <= value.year <= 2100:
+            raise ValueError("Başlangıç tarihi 2000–2100 arasında olmalı")
+        return value
 
 
 class DNSInput(Input):

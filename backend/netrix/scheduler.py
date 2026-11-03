@@ -16,7 +16,11 @@ log = logging.getLogger("netrix.scheduler")
 
 
 def tick():
+    from .ipam.scan_schedules import dispatch_due
+
+    dispatch_due()
     with session_factory()() as db:
+        grouped_vlans = set(db.scalars(select(m.IPAMScanMember.vlan_id)))
         for config in db.scalars(
             select(m.Integration).where(m.Integration.enabled.is_(True), m.Integration.interval_seconds > 0)
         ):
@@ -33,7 +37,7 @@ def tick():
                 ("ipam_ping", prefix.ping_enabled, prefix.ping_interval, prefix.last_ping_at),
                 (
                     "ipam_discover",
-                    prefix.discovery_enabled,
+                    prefix.discovery_enabled and prefix.id not in grouped_vlans,
                     prefix.discovery_interval,
                     prefix.last_discovery_at,
                 ),

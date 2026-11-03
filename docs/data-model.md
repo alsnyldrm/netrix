@@ -189,6 +189,10 @@ Kabinet yazımlarında numara, ana lokasyon, o lokasyona bağlı oda ve U kapasi
 
 Proje sahibinin mevcut Sunucu Odası için istediği L-0/A ve aktif kabinet ataması `scripts/assign_server_room.py` ile açıkça bir kez uygulanır; boş kuruluma oda/cihaz eklemez. Şema downgrade'i oda ayrıntısı veya odalar arasında tekrar eden kabinet numarası varken veri kaybını engeller.
 
+## VLAN tam tarama grupları — 3 Kasım 2026
+
+Alembic `20261103_35`, `ipam_scan_groups` (takvim, başlangıç/sonraki UTC zamanları, sayaç, sınır ve sürüm), `ipam_scan_members` (grup/VLAN FK; VLAN başına UNIQUE) ve `ipam_scan_runs` (sürüm/tarih başına UNIQUE, iş kimlikleri ve başarısız dağıtım nedenleri JSON) tablolarını ekler. Grup/VLAN silinmesinde üyelikler, grup silinmesinde dağıtım geçmişi CASCADE ile temizlenir; asıl VLAN işleri bağımsız korunur. Etkinlik/sonraki zaman indeksi zamanı gelmiş grupları seçer. Tarih hesapları yerel takvimden UTC'ye çevrilir; süre sınırları CHECK ve Pydantic ile doğrulanır. Grup varken veri kaybettiren downgrade engellenir. Davranış ve API sözleşmesi [IPAM kaynakları ve eşleştirme](ipam-integrations.md) belgesindedir.
+
 ## Firmware — 2 Kasım 2026
 
 Alembic `20261102_32`, `firmware_images`, `firmware_groups`, `firmware_group_members`, `firmware_plans` ve `firmware_targets` tablolarını ekler. Cihazlar ortak `devices` kimliğini kullanır; yedekleme grupları ayrı kalır. Grup üyeliği bileşik PK, planda cihaz tekilliği UNIQUE, etkin cihaz rezervasyonu nullable UNIQUE, aile/durum/eşzamanlılık sınırları CHECK ve ilişkiler indeksli FK ile korunur. Planların adları, sırası, imajları ve üyeleri JSON snapshot'ıdır; dosyaların kendisi volume'dadır. Dosya hash'i, boyutu ve açık uyumluluk metadata'sı MariaDB'de tutulur.

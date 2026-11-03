@@ -216,6 +216,50 @@ class VLAN(Entity, Base):
     )
 
 
+class IPAMScanGroup(Entity, Base):
+    __tablename__ = "ipam_scan_groups"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    description: Mapped[str] = mapped_column(String(400), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    frequency: Mapped[str] = mapped_column(String(10))
+    repeat_every: Mapped[int] = mapped_column(Integer, default=1)
+    timezone: Mapped[str] = mapped_column(String(60), default="Europe/Istanbul")
+    start_at: Mapped[object] = mapped_column(UTCDateTime())
+    next_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    run_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    generation: Mapped[int] = mapped_column(Integer, default=1)
+    last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (
+        CheckConstraint("frequency in ('daily','weekly','monthly')", name="ck_ipam_scan_frequency"),
+        CheckConstraint("repeat_every >= 1 AND repeat_every <= 365", name="ck_ipam_scan_every"),
+        CheckConstraint(
+            "run_count >= 0 AND (run_limit IS NULL OR run_limit >= 1)", name="ck_ipam_scan_count"
+        ),
+        Index("ix_ipam_scan_due", "enabled", "next_run_at"),
+    )
+
+
+class IPAMScanMember(Base):
+    __tablename__ = "ipam_scan_members"
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("ipam_scan_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    vlan_id: Mapped[str] = mapped_column(
+        ForeignKey("vlans.id", ondelete="CASCADE"), primary_key=True, unique=True
+    )
+
+
+class IPAMScanRun(Entity, Base):
+    __tablename__ = "ipam_scan_runs"
+    group_id: Mapped[str] = mapped_column(ForeignKey("ipam_scan_groups.id", ondelete="CASCADE"), index=True)
+    scheduled_for: Mapped[object] = mapped_column(UTCDateTime())
+    generation: Mapped[int] = mapped_column(Integer)
+    jobs: Mapped[list] = mapped_column(JSON, default=list)
+    errors: Mapped[list] = mapped_column(JSON, default=list)
+    __table_args__ = (UniqueConstraint("group_id", "generation", "scheduled_for", name="uq_ipam_scan_slot"),)
+
+
 class Credential(Entity, Base):
     __tablename__ = "credentials"
     name: Mapped[str] = mapped_column(String(120), unique=True)
@@ -634,11 +678,19 @@ class AccessGroup(Entity, Base):
 
 class AccessGroupDevice(Base):
     __tablename__ = "access_group_devices"
-    group_id: Mapped[str] = mapped_column(ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    device_id: Mapped[str] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
 
 
 class AccessGroupUser(Base):
     __tablename__ = "access_group_users"
-    group_id: Mapped[str] = mapped_column(ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("access_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
+    )

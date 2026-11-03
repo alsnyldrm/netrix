@@ -111,6 +111,7 @@ import {
 } from "./location-choices";
 
 const FirmwareWorkspace = React.lazy(() => import("./firmware"));
+const IPAMSettings = React.lazy(() => import("./ipam-settings"));
 
 type Row = Record<string, any>;
 type Field = {
@@ -446,6 +447,13 @@ export const PAGES: Page[] = [
       f("name", "VRF adı", { required: true }),
       f("description", "Açıklama"),
     ],
+  },
+  {
+    key: "ipam-settings",
+    title: "Ayarlar",
+    desc: "VLAN grupları ve zamanlanmış tam taramalar.",
+    group: "IP adres yönetimi",
+    icon: GearSix,
   },
   {
     key: "discovery",
@@ -3162,6 +3170,12 @@ function App() {
                   user={user!}
                   refresh={refresh}
                 />
+              </React.Suspense>
+            ) : page.key === "ipam-settings" ? (
+              <React.Suspense
+                fallback={<p role="status">Tarama ayarları yükleniyor…</p>}
+              >
+                <IPAMSettings user={user!} refresh={refresh} />
               </React.Suspense>
             ) : page.key === "vlans" ? (
               <IPAMWorkspace
