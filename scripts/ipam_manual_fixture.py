@@ -35,9 +35,16 @@ with session_factory()() as db:
         db.flush()
         db.add(m.Cabinet(name="02", site_id=site.id, sub_site_id=room.id, units=42))
         rooms.append(room)
+    switch = db.scalar(select(m.Device).where(m.Device.name == "Switch 1"))
+    switch.site_id = site.id
+    interface = m.Interface(device_id=switch.id, name="1/1/7")
+    db.add(interface)
+    db.flush()
     for last in (11, 12):
         row = observe(db, vlan, f"192.0.2.{last}", "icmp", vlan.id, {"reachability": "reachable"})
         row.institution_id, row.site_id, row.sub_site_id = site.institution_id, site.id, rooms[0].id
+        if last == 11:
+            row.device_id, row.interface_id, row.is_gateway = switch.id, interface.id, True
         row.hostname, row.operating_system, row.cabinet = f"MANUAL-FW-{last}", "FortiOS", "02"
         observe(db, vlan, row.address, "dns", vlan.dns_server_id, {"hostname": f"dns-{last}.example.test"})
     db.add(m.OperatingSystem(name="FortiOS"))

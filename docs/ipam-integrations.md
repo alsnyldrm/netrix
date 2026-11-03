@@ -20,6 +20,12 @@ Proje sahibinin talebiyle kaydedilmiş manuel hostname ve işletim sistemi liste
 
 Düzenleyici yalnız `managed` değerlerini düzenler; dokunulmadan kaydetmek otomatik adı veya işletim sistemini manuel değere dönüştürmez. Kabinet seçimi lokasyon/kat/bölüm/oda/kabinet yoluyla, oda seçimi kat/bölüm/oda yoluyla aranabilir. Aynı numaralı kabinetler seçenek kimlikleriyle ayrılır; kabinet seçimi kendi kurum/lokasyon/oda ilişkisini birlikte günceller. Eski belirsiz kabinet notu keyfi bir odaya atanmaz. Regresyonlar: `test_ipam_manual_display.py`, `scripts/ipam_manual_browser_check.py`.
 
+Kaydedilmiş kurum/lokasyon/oda ilişkileri `manual_location` ile ayrıca döner. Fiziksel yerleşim yoksa ayrıntı tablosu bu açık seçimin kat/bölüm/oda/kabinet bilgisini **Manuel konum bilgisi** olarak gösterir; U boş kalır. Yalnız kabinet notundan oda veya U tahmin edilmez. Liste kabinet hücresinde tam konum yolunu gösterir; genel arama bu yolu da kapsar. Fiziksel yerleşim ve doğrulanmış VMware `Sanal` gösterimi önceliklidir.
+
+Kaydedilmiş bağlı cihaz/arayüz `manual_connection` içinde ayrı okunur. Güncel otomatik bağlantı yoksa ve kanıtlar çelişmiyorsa liste/ayrıntıda **Manuel** etiketiyle gösterilir; bu seçim otomatik bağlantı, MAC, FDB veya komşuluk kanıtına dönüşmez. Güncel otomatik bağlantı varsa onun gösterimi korunur. Seçili aktif arayüz, yönetilen arayüz listesinin dışında kalmışsa düzenleyicide mevcut seçim olarak korunur. Arşivlenmiş cihaz/silinmiş arayüz bağlantısı yeniden geçerli gösterilmez.
+
+Eski sütun tercihleri bir kez yükseltilerek hostname/işletim sistemi/kabinet/lokasyon alanlarını görünür kılar. Sonraki sütun seçimleri korunur; IP kaydını kaydetmek dolu manuel alanların sütunlarını hemen görünür yapar. Form açıklamaları kontrolün altında ayrı grid satırındadır; işletim sistemi, oda/kabinet ve gateway kutusu aynı standart yüksekliktedir.
+
 VMware sanal makinesi olduğu güncel eşleşmeyle doğrulanan IP adreslerinde Kabinet no `Sanal` gösterilir. Bu türetilmiş değer liste, ayrıntı ve düzenleme ekranında aynıdır; manuel kabinet kaydı korunur. Süresi dolmuş VMware gözlemi bu gösterimi oluşturmaz. Hostname ile doğrulanmamış ve gateway MAC ile çelişen VMware gözlemi de kullanılmaz.
 
 ## Bağlantı eşleştirmesi

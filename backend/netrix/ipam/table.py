@@ -58,6 +58,14 @@ def normalized(value):
 
 def cell(row, key):
     value = row.get(key, "")
+    if (
+        not value
+        and key in ("connected_device", "connected_port")
+        and not row.get("connection_ambiguous")
+        and not row.get("connected_device")
+    ):
+        manual = row.get("manual_connection") or {}
+        value = manual.get("device_name" if key == "connected_device" else "port", "")
     if isinstance(value, list):
         value = " ".join(LABELS.get(v, v) for v in value)
     return normalized(LABELS.get(str(value), value))
@@ -88,6 +96,8 @@ def rules_from(raw):
 def matches(row, q, rules):
     # Every word can occur in any visible or hidden data column.
     haystack = " ".join(cell(row, key) for key in COLUMNS)
+    if row.get("manual_location"):
+        haystack += " " + " ".join(normalized(v) for v in row["manual_location"].values())
     if not all(word in haystack for word in normalized(q).split()):
         return False
     result = None

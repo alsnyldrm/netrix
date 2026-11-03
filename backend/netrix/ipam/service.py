@@ -337,22 +337,48 @@ def vmware_observations(obs, hostname, address, physical):
 
 
 def enrich(db, rows, *, details=True, include_options=False):
-    from .racks import address_locations, position_label
+    from .racks import address_locations, manual_location, position_label
 
     if not rows:
         return []
     grouped = observations(db, rows)
     locations = address_locations(db, rows)
-    sites = dict(db.execute(select(m.Site.id, m.Site.name)).all())
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
+    site_ids = {id for row in rows for id in (row.site_id, row.sub_site_id) if id}
+    site_ids.update(p.site_id for p in prefixes.values() if p.site_id)
+    sites = {site.id: site for site in db.scalars(select(m.Site).where(m.Site.id.in_(site_ids)))}
     from .connections import Evidence
 
     network_evidence = Evidence(db, {r.vrf_id for r in rows})
+    manual_connections = (
+        {
+            address_id: {"device_name": device_name, "port": port or ""}
+            for address_id, device_name, port in db.execute(
+                select(m.IPAddress.id, m.Device.name, m.Interface.name)
+                .join(m.Device, m.Device.id == m.IPAddress.device_id)
+                .outerjoin(
+                    m.Interface,
+                    (m.Interface.id == m.IPAddress.interface_id)
+                    & (m.Interface.device_id == m.Device.id)
+                    & m.Interface.is_deleted.is_(False),
+                )
+                .where(
+                    m.IPAddress.id.in_([r.id for r in rows]),
+                    m.Device.archived.is_(False),
+                    m.Device.vrf_id == m.IPAddress.vrf_id,
+                )
+            )
+        }
+        if any(r.device_id for r in rows)
+        else {}
+    )
     result = []
 
     for row in rows:
         item = serialize(row)
         item["managed"] = {k: item[k] for k in ("hostname", "operating_system", "location", "cabinet")}
+        item["manual_location"] = manual_location(row, sites)
+        item["manual_connection"] = manual_connections.get(row.id)
         item["rack_location"] = locations.get(row.id)
         item["rack_position"] = position_label(item["rack_location"])
         item["cabinet"] = item["rack_position"] or item["cabinet"]
@@ -439,9 +465,9 @@ def enrich(db, rows, *, details=True, include_options=False):
                 item[field] = value
                 item["field_sources"][field] = "manual"
         item["location"] = (
-            sites.get(row.sub_site_id or row.site_id)
+            getattr(sites.get(row.sub_site_id or row.site_id), "name", "")
             or item["location"]
-            or sites.get(prefixes[row.vlan_id].site_id, "")
+            or getattr(sites.get(prefixes[row.vlan_id].site_id), "name", "")
         )
         item["last_observed_at"] = obs[0].observed_at.isoformat() if obs else None
         item["stale"] = bool(obs and not recent)

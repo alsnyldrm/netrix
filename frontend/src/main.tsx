@@ -1683,6 +1683,19 @@ function GenericResourceForm({
                       }
                     >
                       {field.ref && <option value="">Seçiniz</option>}
+                      {page.key === "addresses" &&
+                        field.key === "interface_id" &&
+                        values.device_id === row?.device_id &&
+                        values.interface_id === row?.interface_id &&
+                        values.interface_id &&
+                        row?.manual_connection?.port &&
+                        !resourceChoices(field, refs, values, page.key).some(
+                          (option) => option.id === values.interface_id,
+                        ) && (
+                          <option value={values.interface_id}>
+                            {row.manual_connection.port}
+                          </option>
+                        )}
                       {(field.ref
                         ? resourceChoices(field, refs, values, page.key)
                             .filter(
@@ -3755,6 +3768,10 @@ function App() {
           }
           onClose={() => setForm(null)}
           onSaved={(saved) => {
+            if (form.page.key === "addresses")
+              window.dispatchEvent(
+                new CustomEvent("netrix:ipam-saved", { detail: saved }),
+              );
             reload();
             notify(
               "Kayıt kaydedildi. " + (saved.identification?.message || ""),

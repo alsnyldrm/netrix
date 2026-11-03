@@ -43,6 +43,23 @@ def address_locations(db, rows):
     return result
 
 
+def manual_location(row, sites):
+    """Explicitly selected location IDs are metadata, not a physical U placement."""
+    site, room = sites.get(row.site_id), sites.get(row.sub_site_id)
+    if room and (not site or room.parent_id != site.id):
+        room = None
+    if not site and not room:
+        return None
+    return {
+        "site_name": site.name if site else None,
+        "floor_number": room.floor_number if room else None,
+        "department_name": room.department_name if room else None,
+        "room_name": room.name if room else None,
+        "cabinet_number": row.cabinet,
+        "start_unit": None,
+    }
+
+
 def position_label(location):
     if not location:
         return ""

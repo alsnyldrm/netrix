@@ -1901,6 +1901,7 @@ tbody tr:last-child td {
 .form-field > textarea,
 .form-field > .checkbox-control {
   grid-row: 2;
+  align-self: start;
 }
 .form-field > small {
   grid-row: 3;

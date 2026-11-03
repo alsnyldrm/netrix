@@ -54,3 +54,70 @@ def test_display_name_never_substitutes_for_dns_in_vm_identity(network, vm_hostn
     assert row["field_sources"]["hostname"] == "manual"
     if expected_mac == VM_MAC:
         assert row["connected_device"] == "VM-DS" and row["connected_port"] == "89"
+
+
+def test_selected_room_and_manual_connection_remain_explicit_metadata(network, admin_client, institution):
+    from test_ipam_hierarchy import site
+
+    sf, vlan_id, row_id, devices = network
+    c = admin_client
+    campus = site(c, institution, name="FBU-F")
+    room = site(c, institution, name="Sunucu Odası", parent_id=campus["id"])
+    with sf() as db:
+        row = db.get(m.IPAddress, row_id)
+        row.institution_id, row.site_id, row.sub_site_id = institution["id"], campus["id"], room["id"]
+        row.cabinet = "02"
+        row.device_id = devices[0]
+        interface = m.Interface(device_id=devices[0], name="MANUAL-A2")
+        db.add(interface)
+        db.flush()
+        row.interface_id = interface.id
+        db.commit()
+    expected = {
+        "site_name": "FBU-F",
+        "floor_number": "L-0",
+        "department_name": "A",
+        "room_name": "Sunucu Odası",
+        "cabinet_number": "02",
+        "start_unit": None,
+    }
+    for row in (
+        read(network),
+        c.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params={"q": "FBU-F L-0 Sunucu"}).json()["items"][0],
+        c.get(f"/api/v1/ipam/addresses/{row_id}").json(),
+    ):
+        assert row["manual_location"] == expected
+        assert row["rack_location"] is None and row["rack_position"] == ""
+        assert row["manual_connection"] == {"device_name": "Gateway", "port": "MANUAL-A2"}
+        # An explicit selection never supersedes proven automatic links.
+        assert row["connected_device"] == "Access" and row["connected_port"] == "Gi1/0/1"
+    # A number on its own cannot identify a room or a physical placement.
+    with sf() as db:
+        row = db.get(m.IPAddress, row_id)
+        row.site_id = row.sub_site_id = row.device_id = row.interface_id = None
+        db.commit()
+    row = read(network)
+    assert row["manual_location"] is None and row["manual_connection"] is None
+    assert row["cabinet"] == "02"
+
+
+def test_manual_connection_is_searchable_without_becoming_automatic(network, admin_client):
+    sf, vlan_id, row_id, devices = network
+    with sf() as db:
+        row = db.get(m.IPAddress, row_id)
+        row.device_id = devices[0]
+        interface = m.Interface(device_id=devices[0], name="MANUAL-A2")
+        db.add(interface)
+        db.flush()
+        row.interface_id = interface.id
+        # No current automatic evidence: manual data must remain separately identified.
+        db.query(m.Observation).delete()
+        db.query(m.Link).delete()
+        db.commit()
+    response = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params={"q": "Gateway MANUAL-A2"})
+    assert response.status_code == 200
+    row = next(r for r in response.json()["items"] if r["id"] == row_id)
+    assert row["connected_device"] == "" and row["connected_port"] == ""
+    assert not row["connection_ambiguous"]
+    assert row["manual_connection"] == {"device_name": "Gateway", "port": "MANUAL-A2"}
+    assert row["rack_location"] is None

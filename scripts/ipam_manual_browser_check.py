@@ -17,16 +17,56 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
-    page.goto(BASE + "/#vlans")
+    user = page.request.get(BASE + "/api/v1/auth/me").json()
+    page.evaluate(
+        "id=>{localStorage.setItem(`netrix.ipam.columns.${id}`,JSON.stringify(['address','hostname','mac_address','connected_device','connected_port']));localStorage.removeItem(`netrix.ipam.columns.${id}.v2`)}",
+        user["id"],
+    )
+    page.reload()
     page.wait_for_load_state("networkidle")
     page.screenshot(path="/tmp/netrix-manual-list-diagnostic.png", full_page=True)
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     expect(page.get_by_role("cell", name="MANUAL-FW-11", exact=True)).to_be_visible()
     expect(page.get_by_role("cell", name="MANUAL-FW-12", exact=True)).to_be_visible()
+    expect(page.get_by_role("columnheader", name="İşletim sistemi", exact=True)).to_be_visible()
+    expect(page.get_by_role("columnheader", name="Kabinet no", exact=True)).to_be_visible()
+    expect(page.get_by_role("cell", name="Switch 1 Manuel", exact=True)).to_be_visible()
+    expect(page.get_by_role("cell", name="1/1/7 Manuel", exact=True)).to_be_visible()
+    page.get_by_role("button", name="192.0.2.11", exact=True).click()
+    detail_dialog = page.get_by_role("dialog")
+    table = detail_dialog.get_by_role("table", name="Kabinet yerleşimi", exact=True)
+    expect(table.get_by_role("row").nth(1).get_by_role("cell")).to_have_text(
+        ["FBU-F", "L-0", "A", "Sunucu Odası", "02", "—"]
+    )
+    expect(detail_dialog.get_by_text("Manuel konum bilgisi", exact=False)).to_be_visible()
+    for width, height in ((1440, 1000), (375, 812)):
+        page.set_viewport_size({"width": width, "height": height})
+        for theme in ("dark", "light"):
+            page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+            table.scroll_into_view_if_needed()
+            assert detail_dialog.evaluate("e=>e.scrollWidth<=e.clientWidth")
+            page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
+            assert not page.evaluate(
+                "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>v.id)"
+            )
+            page.screenshot(path=f"/tmp/netrix-manual-detail-{width}-{theme}.png")
+    detail_dialog.get_by_role("button", name="Pencereyi kapat", exact=True).click()
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    # A user's new column choices persist, but saving metadata reveals its columns immediately.
+    page.get_by_role("button", name="Sütunlar", exact=True).click()
+    columns_dialog = page.get_by_role("dialog")
+    columns_dialog.get_by_role("checkbox", name="İşletim sistemi", exact=True).uncheck()
+    columns_dialog.get_by_role("button", name="Sütunları uygula", exact=True).click()
+    expect(page.get_by_role("columnheader", name="İşletim sistemi", exact=True)).to_have_count(0)
+    page.reload()
+    page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
+    expect(page.get_by_role("columnheader", name="İşletim sistemi", exact=True)).to_have_count(0)
     page.get_by_role("button", name="192.0.2.11 düzenle", exact=True).click()
     dialog = page.get_by_role("dialog")
     room = dialog.get_by_role("combobox", name="Oda", exact=True)
     cabinet = dialog.get_by_role("combobox", name="Kabinet no", exact=True)
+    interface = dialog.get_by_role("combobox", name="Arayüz", exact=True)
+    expect(interface.locator("option:checked")).to_have_text("1/1/7")
     expect(room).to_have_value("L-0/A/Sunucu Odası")
     expect(cabinet).to_have_value("FBU-F / L-0/A/Sunucu Odası / Kabin 02")
     room.fill("L-1 B")
@@ -63,6 +103,14 @@ with sync_playwright() as p:
                     for e in (cabinet, dialog.get_by_role("combobox", name="İşletim sistemi", exact=True))
                 ]
                 assert abs(boxes[0]["width"] - boxes[1]["width"]) < 1
+                controls = [
+                    cabinet,
+                    room,
+                    dialog.get_by_role("combobox", name="İşletim sistemi", exact=True),
+                    dialog.locator(".checkbox-control"),
+                ]
+                heights = [control.bounding_box()["height"] for control in controls]
+                assert all(abs(height - 40) < 1 for height in heights), (width, theme, heights)
                 if width == 1440:
                     assert abs(boxes[0]["y"] - boxes[1]["y"]) < 1
                 page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
@@ -88,12 +136,21 @@ with sync_playwright() as p:
     assert payload["cabinet"] == "02" and payload["operating_system"] == "Linux"
     row_id = response.value.json()["id"]
     expect(page.get_by_role("cell", name="CHANGED-FW-11", exact=True)).to_be_visible()
+    expect(page.get_by_role("columnheader", name="İşletim sistemi", exact=True)).to_be_visible()
+    expect(page.get_by_role("cell", name="Linux", exact=True)).to_be_visible()
+    page.get_by_role("button", name="192.0.2.11", exact=True).click()
+    saved_location = page.get_by_role("dialog").get_by_role("table", name="Kabinet yerleşimi", exact=True)
+    expect(saved_location.get_by_role("row").nth(1).get_by_role("cell")).to_have_text(
+        ["FBU-F", "L-1", "B", "Elektrik Odası", "02", "—"]
+    )
+    page.get_by_role("dialog").get_by_role("button", name="Pencereyi kapat", exact=True).click()
     page.reload()
     page.wait_for_load_state("networkidle")
     page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
     page.get_by_role("button", name="192.0.2.11 düzenle", exact=True).click()
     expect(room).to_have_value("L-1/B/Elektrik Odası")
     expect(cabinet).to_have_value("FBU-F / L-1/B/Elektrik Odası / Kabin 02")
+    expect(interface.locator("option:checked")).to_have_text("1/1/7")
     # Clearing manual data restores DNS, while saving an untouched edit must not pin it.
     dialog.get_by_role("textbox", name="Hostname", exact=True).fill("")
     dialog.get_by_role("combobox", name="İşletim sistemi", exact=True).select_option("")

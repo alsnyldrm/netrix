@@ -215,10 +215,18 @@ function VLANSettings({
   );
 }
 
+// A selected connection remains visibly manual; it never becomes protocol evidence.
+const manualConnection = (row: Row) =>
+  !row.connected_device && !row.connection_ambiguous
+    ? row.manual_connection
+    : null;
+
 function AddressDetail({ row, close }: { row: Row; close: () => void }) {
   const query = useLiveQuery<Row>("/ipam/addresses/" + row.id);
   const detail = query.data || row;
   const error = query.error;
+  const manual = manualConnection(detail);
+  const location = detail.rack_location || detail.manual_location;
   return (
     <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} wide>
       <div className="ipam-form">
@@ -242,12 +250,20 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
                   {detail.is_gateway ? "Evet" : "Hayır"}
                 </span>,
               ],
-              ["Bağlı switch", detail.connected_device],
+              [
+                "Bağlı switch",
+                detail.connected_device || manual?.device_name,
+                manual ? "manual" : "",
+              ],
               [
                 "Port grubu / Sanal ağ",
                 detail.connection_type === "vcenter" ? detail.network : "",
               ],
-              ["Bağlı port", detail.connected_port],
+              [
+                "Bağlı port",
+                detail.connected_port || manual?.port,
+                manual?.port ? "manual" : "",
+              ],
               [
                 "İşletim sistemi",
                 detail.operating_system,
@@ -349,46 +365,53 @@ function AddressDetail({ row, close }: { row: Row; close: () => void }) {
             <h3>Kabinet yerleşimi</h3>
             {detail.cabinet === "Sanal" ? (
               <p className="ipam-hint">Sanal</p>
-            ) : detail.rack_location ? (
-              <div
-                className="table-scroll"
-                tabIndex={0}
-                role="region"
-                aria-label="Kabinet yerleşim tablosu"
-              >
-                <table aria-label="Kabinet yerleşimi">
-                  <thead>
-                    <tr>
-                      {[
-                        "Lokasyon",
-                        "Kat",
-                        "Bölüm",
-                        "Oda ismi",
-                        "Kabin",
-                        "U no",
-                      ].map((label) => (
-                        <th key={label} scope="col">
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr>
-                      {[
-                        detail.rack_location.site_name,
-                        detail.rack_location.floor_number,
-                        detail.rack_location.department_name,
-                        detail.rack_location.room_name,
-                        detail.rack_location.cabinet_number,
-                        `${detail.rack_location.start_unit}U`,
-                      ].map((value, index) => (
-                        <td key={index}>{value || "—"}</td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+            ) : location ? (
+              <>
+                {!detail.rack_location && (
+                  <p className="ipam-hint">
+                    Manuel konum bilgisi · U yerleşimi tanımlanmamış.
+                  </p>
+                )}
+                <div
+                  className="table-scroll"
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Kabinet yerleşim tablosu"
+                >
+                  <table aria-label="Kabinet yerleşimi">
+                    <thead>
+                      <tr>
+                        {[
+                          "Lokasyon",
+                          "Kat",
+                          "Bölüm",
+                          "Oda ismi",
+                          "Kabin",
+                          "U no",
+                        ].map((label) => (
+                          <th key={label} scope="col">
+                            {label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        {[
+                          location.site_name,
+                          location.floor_number,
+                          location.department_name,
+                          location.room_name,
+                          location.cabinet_number,
+                          location.start_unit ? `${location.start_unit}U` : "",
+                        ].map((value, index) => (
+                          <td key={index}>{value || "—"}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </>
             ) : (
               <p className="ipam-hint">
                 {detail.cabinet
@@ -534,7 +557,8 @@ export function IPAMWorkspace({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteVLANs, setDeleteVLANs] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
-  const storageKey = `netrix.ipam.columns.${user.id}`;
+  const legacyStorageKey = `netrix.ipam.columns.${user.id}`;
+  const storageKey = `${legacyStorageKey}.v2`;
   const defaults = [
     "address",
     "hostname",
@@ -552,11 +576,49 @@ export function IPAMWorkspace({
   const [shown, setShown] = useState<string[]>(() => {
     try {
       const value = JSON.parse(localStorage.getItem(storageKey) || "null");
-      return Array.isArray(value) && value.length ? value : defaults;
+      if (Array.isArray(value) && value.length) return value;
+      const legacy = JSON.parse(
+        localStorage.getItem(legacyStorageKey) || "null",
+      );
+      // Upgrade old layouts once so saved metadata is visible; subsequent choices persist.
+      return Array.isArray(legacy) && legacy.length
+        ? [
+            ...new Set([
+              ...legacy,
+              "hostname",
+              "operating_system",
+              "cabinet",
+              "location",
+            ]),
+          ]
+        : defaults;
     } catch {
       return defaults;
     }
   });
+  useEffect(() => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(shown));
+    } catch {
+      // Storage may be disabled; keep the current session's column choices.
+    }
+  }, [shown, storageKey]);
+  useEffect(() => {
+    const revealSaved = (event: Event) => {
+      const saved = (event as CustomEvent<Row>).detail;
+      const fields = [
+        saved.hostname && "hostname",
+        saved.operating_system && "operating_system",
+        saved.cabinet && "cabinet",
+        (saved.site_id || saved.sub_site_id || saved.location) && "location",
+        saved.device_id && "connected_device",
+        saved.interface_id && "connected_port",
+      ].filter(Boolean) as string[];
+      setShown((current) => [...new Set([...current, ...fields])]);
+    };
+    window.addEventListener("netrix:ipam-saved", revealSaved);
+    return () => window.removeEventListener("netrix:ipam-saved", revealSaved);
+  }, []);
   const canWrite = user.role !== "viewer";
   const isBlocks = page === "vlans" && !prefix;
   const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
@@ -698,7 +760,8 @@ export function IPAMWorkspace({
     }
     if (key === "status") return stateName(r.status);
     if (key === "sources") return r.sources?.map(sourceName).join(", ") || "—";
-    if (["connected_device", "connected_port"].includes(key))
+    if (["connected_device", "connected_port"].includes(key)) {
+      const manual = manualConnection(r);
       return (
         <>
           {r.connection_groups?.length ? (
@@ -712,13 +775,48 @@ export function IPAMWorkspace({
               ))}
             </span>
           ) : (
-            r[key] || "—"
+            r[key] ||
+            (manual && (
+              <>
+                {key === "connected_device"
+                  ? manual.device_name
+                  : manual.port || "—"}
+                {(key === "connected_device" || manual.port) && (
+                  <small className="ipam-sub">Manuel</small>
+                )}
+              </>
+            )) ||
+            "—"
           )}
           {key === "connected_device" && r.connection_ambiguous && (
             <small className="ipam-sub">Bağlantı doğrulanamadı</small>
           )}
         </>
       );
+    }
+    if (
+      key === "cabinet" &&
+      r.manual_location &&
+      !r.rack_location &&
+      r.cabinet !== "Sanal"
+    ) {
+      const place = r.manual_location;
+      return (
+        <>
+          {r.cabinet || "—"}
+          <small className="ipam-sub">
+            {[
+              place.site_name,
+              place.floor_number,
+              place.department_name,
+              place.room_name,
+            ]
+              .filter(Boolean)
+              .join(" / ")}
+          </small>
+        </>
+      );
+    }
     return r[key] || "—";
   };
   return (
@@ -1187,7 +1285,6 @@ export function IPAMWorkspace({
           onClose={() => setColumnOpen(false)}
           onSave={(v) => {
             setShown(v);
-            localStorage.setItem(storageKey, JSON.stringify(v));
           }}
         />
       )}
