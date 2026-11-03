@@ -669,14 +669,18 @@ def enqueue(db, kind, target_id, user=None, *, commit=True, ipam_origin=None):
     return job
 
 
-def publish(*, ping_vlan=None):
+def publish(*, ping_vlan=None, ipam_vlan=None):
     # DB is the durable outbox/queue; Redis is a wake-up hint, never the source of truth.
     try:
         client = redis_client()
         client.incr("netrix:ipam:revision")
         client.publish(
             "netrix:events",
-            json.dumps({"type": "ipam_ping", "vlan_id": ping_vlan}) if ping_vlan else "refresh",
+            json.dumps({"type": "ipam_ping", "vlan_id": ping_vlan})
+            if ping_vlan
+            else json.dumps({"type": "ipam_update", "vlan_id": ipam_vlan})
+            if ipam_vlan
+            else "refresh",
         )
     except Exception:
         pass

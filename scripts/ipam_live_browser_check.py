@@ -83,9 +83,31 @@ with sync_playwright() as p:
         expect(button).to_be_disabled()
         page.get_by_role("button", name="İptal et", exact=True).click()
         expect(button).to_be_enabled(timeout=5000)
+    page.get_by_role("button", name="Yalnızca aktif IP’ler", exact=True).click()
+    # A completed IP is inserted/updated while a fixture scan deliberately stays running.
+    for width, hostname in ((1440, "ready-13.example.test"), (375, "updated-13.example.test")):
+        page.set_viewport_size({"width": width, "height": 1000})
+        result = page.request.post(
+            BASE + "/fixture/scan-result?hostname=" + hostname, headers={"X-Netrix-Request": "1"}
+        ).json()
+        sockets[-1].send(json.dumps({"type": "ipam_update", "vlan_id": result["vlan_id"]}))
+        streamed = page.get_by_role("row").filter(
+            has=page.get_by_role("button", name="192.0.2.13", exact=True)
+        )
+        expect(streamed).to_contain_text(hostname, timeout=3000)
+        assert page.request.get(BASE + "/api/v1/jobs/" + result["job_id"]).json()["status"] == "running"
+        page.evaluate("window.scrollTo(0,0)")
+        page.screenshot(path=f"/tmp/netrix-incremental-{width}.png", full_page=True)
+    page.get_by_role("button", name="192.0.2.13", exact=True).click()
+    dialog = page.get_by_role("dialog")
+    result = page.request.post(
+        BASE + "/fixture/scan-result?hostname=detail-updated.example.test", headers={"X-Netrix-Request": "1"}
+    ).json()
+    sockets[-1].send(json.dumps({"type": "ipam_update", "vlan_id": result["vlan_id"]}))
+    expect(dialog.locator(".ipam-summary")).to_contain_text("detail-updated.example.test", timeout=3000)
     assert len(collectors) == 2, collectors
     assert not errors, errors
     print(
-        "PASS: no scan on navigation, explicit Tara/Ping enqueue and cancel, pushed active/passive status in list and detail, DB fallback, desktop/mobile/landscape and axe"
+        "PASS: no scan on navigation, explicit Tara/Ping enqueue and cancel, incremental insert/update during running scan, pushed active/passive status in list and detail, DB fallback, desktop/mobile/landscape and axe"
     )
     browser.close()

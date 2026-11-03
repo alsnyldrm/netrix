@@ -2788,9 +2788,9 @@ function App() {
       socket.onmessage = (e) => {
         const event = JSON.parse(e.data);
         if (event.type === "refresh") liveRefresh();
-        else if (event.type === "ipam_ping")
+        else if (["ipam_ping", "ipam_update"].includes(event.type))
           window.dispatchEvent(
-            new CustomEvent("netrix:ipam-ping", { detail: event.vlan_id }),
+            new CustomEvent("netrix:ipam-update", { detail: event.vlan_id }),
           );
       };
       socket.onclose = () => {

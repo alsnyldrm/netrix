@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from contextlib import aclosing
 from datetime import timedelta
 
 from fastapi import HTTPException
@@ -28,6 +29,26 @@ from .service import (
 KINDS = ("ipam_ping", "ipam_discover", "integration")
 SCAN_BATCH_SIZE = 32
 SOURCE_WAIT_SECONDS = 900
+
+
+async def completed_batches(probes):
+    """Persist ready results within 200 ms without waiting for slow peers (at most 32 tasks)."""
+    tasks = {asyncio.create_task(probe) for probe in probes}
+    pending = tasks.copy()
+    try:
+        if not pending:
+            yield []
+        while pending:
+            ready, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            if pending:
+                extra, pending = await asyncio.wait(pending, timeout=0.2)
+                ready |= extra
+            yield [task.result() for task in ready]
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def scan_phase(job_id, phase, **result):
@@ -90,27 +111,32 @@ async def complete_dns(job_id, started_at):
         )
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
         batch = addresses[start : start + SCAN_BATCH_SIZE]
-        values = await asyncio.gather(*(adapters.reverse_dns(address, dns) for address in batch))
-        with session_factory()() as db:
-            job = get(db, m.Job, job_id)
-            if job.cancel_requested:
-                raise Cancelled()
-            vlan = get(db, m.VLAN, job.target_id)
-            # A DNS selection changed during the scan: do not attach the old answer.
-            if vlan.dns_server_id != (dns.id if dns else None):
-                raise Cancelled()
-            for address, hostname in zip(batch, values):
-                observe(
-                    db,
-                    vlan,
-                    address,
-                    "dns",
-                    dns.id if dns else "system",
-                    {"hostname": hostname, "present": bool(hostname)},
-                    create=False,
-                )
-            db.commit()
-        publish()
+
+        async def resolve(address):
+            return address, await adapters.reverse_dns(address, dns)
+
+        async with aclosing(completed_batches(resolve(address) for address in batch)) as results:
+            async for values in results:
+                with session_factory()() as db:
+                    job = get(db, m.Job, job_id)
+                    if job.cancel_requested:
+                        raise Cancelled()
+                    vlan = get(db, m.VLAN, job.target_id)
+                    # A DNS selection changed during the scan: do not attach the old answer.
+                    if vlan.dns_server_id != (dns.id if dns else None):
+                        raise Cancelled()
+                    for address, hostname in values:
+                        observe(
+                            db,
+                            vlan,
+                            address,
+                            "dns",
+                            dns.id if dns else "system",
+                            {"hostname": hostname, "present": bool(hostname)},
+                            create=False,
+                        )
+                    db.commit()
+                publish(ipam_vlan=vlan.id)
     return len(addresses)
 
 
@@ -192,39 +218,44 @@ async def scan(job_id, collector=None):
             prefix = get(db, m.VLAN, job.target_id)
             scope = scan_boundary(db, prefix)
             batch = [address for address in batch if in_scope(address, scope)]
-        values = await asyncio.gather(*(probe(address) for address in batch))
-        with session_factory()() as db:
-            job = get(db, m.Job, job_id)
-            if job.cancel_requested:
-                raise Cancelled()
-            prefix = get(db, m.VLAN, job.target_id)
-            scope = scan_boundary(db, prefix)
-            for address, up, hostname in values:
-                if not in_scope(address, scope):
-                    continue
-                reached += int(up)
-                observe(
-                    db,
-                    prefix,
-                    address,
-                    "icmp",
-                    prefix.id,
-                    {"reachability": "reachable" if up else "no_reply"},
-                    create=up and discover,
-                )
-                if discover and (hostname or up):
-                    observe(
-                        db,
-                        prefix,
-                        address,
-                        "dns",
-                        dns.id if dns else "system",
-                        {"hostname": hostname, "present": bool(hostname)},
-                        create=False,
-                    )
-            job.progress = min(start + SCAN_BATCH_SIZE, len(addresses))
-            db.commit()
-        publish() if discover else publish(ping_vlan=prefix.id)
+        processed = min(start + SCAN_BATCH_SIZE, len(addresses)) - len(batch)
+        async with aclosing(completed_batches(probe(address) for address in batch)) as results:
+            async for values in results:
+                with session_factory()() as db:
+                    job = get(db, m.Job, job_id)
+                    if job.cancel_requested:
+                        raise Cancelled()
+                    prefix = get(db, m.VLAN, job.target_id)
+                    scope = scan_boundary(db, prefix)
+                    if discover and prefix.dns_server_id != (dns.id if dns else None):
+                        raise Cancelled()
+                    for address, up, hostname in values:
+                        if not in_scope(address, scope):
+                            continue
+                        reached += int(up)
+                        observe(
+                            db,
+                            prefix,
+                            address,
+                            "icmp",
+                            prefix.id,
+                            {"reachability": "reachable" if up else "no_reply"},
+                            create=up and discover,
+                        )
+                        if discover and (hostname or up):
+                            observe(
+                                db,
+                                prefix,
+                                address,
+                                "dns",
+                                dns.id if dns else "system",
+                                {"hostname": hostname, "present": bool(hostname)},
+                                create=False,
+                            )
+                    processed += len(values)
+                    job.progress = processed
+                    db.commit()
+                publish(ipam_vlan=prefix.id) if discover else publish(ping_vlan=prefix.id)
     source_jobs = []
     network_result = None
     source_statuses = {}

@@ -246,7 +246,8 @@ def test_short_ping_interval_is_saved_without_activating_sources(admin_client, i
     )
 
 
-def test_ping_notification_is_forwarded_without_collecting(admin_client, inventory, monkeypatch):
+@pytest.mark.parametrize("event_type", ["ipam_ping", "ipam_update"])
+def test_ping_notification_is_forwarded_without_collecting(admin_client, inventory, monkeypatch, event_type):
     import json
     from types import SimpleNamespace
 
@@ -262,8 +263,8 @@ def test_ping_notification_is_forwarded_without_collecting(admin_client, invento
             pass
 
         def get_message(self, **kwargs):
-            return {"data": json.dumps({"type": "ipam_ping", "vlan_id": vlan["id"]})}
+            return {"data": json.dumps({"type": event_type, "vlan_id": vlan["id"]})}
 
     monkeypatch.setattr(main, "redis_client", lambda: SimpleNamespace(pubsub=Subscription))
     with admin_client.websocket_connect("/api/v1/ws", headers={"origin": "http://testserver"}) as socket:
-        assert socket.receive_json() == {"type": "ipam_ping", "vlan_id": vlan["id"]}
+        assert socket.receive_json() == {"type": event_type, "vlan_id": vlan["id"]}

@@ -37,6 +37,24 @@ def fake_ping(reachable: bool):
     return result(reachable)
 
 
+@main.app.post("/fixture/scan-result")
+def fake_scan_result(hostname: str):
+    with session_factory()() as db:
+        vlan = db.scalar(select(m.VLAN))
+        row = observe(db, vlan, "192.0.2.13", "icmp", vlan.id, {"reachability": "reachable"})
+        observe(db, vlan, row.address, "dns", vlan.dns_server_id or "system", {"hostname": hostname})
+        job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover", m.Job.status == "running"))
+        if not job:
+            job = m.Job(kind="ipam_discover", target_id=vlan.id, status="running", total=254)
+            db.add(job)
+        job.progress = (job.progress or 0) + 1
+        job.result = {"ipam_origin": "schedule", "scan_phase": "addresses"}
+        db.commit()
+        result = {"vlan_id": vlan.id, "job_id": job.id, "row_id": row.id}
+    services.publish(ipam_vlan=result["vlan_id"])
+    return result
+
+
 if __name__ == "__main__":
     import uvicorn
 

@@ -10,7 +10,7 @@ from ..core import now, session_factory
 from ..discovery.neighbor_detail import AOS_SWITCH, enrich_neighbors
 from ..discovery.protocols import NetworkError, fetch_neighbor_detail
 from ..identity.security import secret_data
-from ..services import get
+from ..services import get, publish
 from .connections import network_device
 
 
@@ -150,6 +150,7 @@ async def refresh(job_id, collector, *, detail_reader=None):
                 observation.evidence = {**data, "read_context": context}
                 observation.created_at = now()
                 db.commit()
+            publish(ipam_vlan=job.target_id)
             return success
 
     tasks = [asyncio.create_task(read(id)) for id in ids]

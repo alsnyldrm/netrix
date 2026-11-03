@@ -721,10 +721,10 @@ async def websocket(ws: WebSocket):
                     data = json.loads(message.get("data", ""))
                     if (
                         isinstance(data, dict)
-                        and data.get("type") == "ipam_ping"
+                        and data.get("type") in ("ipam_ping", "ipam_update")
                         and isinstance(data.get("vlan_id"), str)
                     ):
-                        event = {"type": "ipam_ping", "vlan_id": data["vlan_id"]}
+                        event = {"type": data["type"], "vlan_id": data["vlan_id"]}
                 except (ValueError, TypeError):
                     pass
                 await ws.send_json(event)

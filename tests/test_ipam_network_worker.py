@@ -169,3 +169,40 @@ async def test_restart_reuses_only_fresh_success_from_same_job_and_connection(ne
         other_id = other.id
     await refresh(other_id, collector)
     assert len(calls) == 8
+
+
+async def test_finished_device_notifies_before_other_switches_finish(network, monkeypatch):
+    from netrix.ipam import network as reader
+
+    sf, vlan_id, _, _ = network
+    with sf() as db:
+        job = m.Job(kind="ipam_discover", target_id=vlan_id)
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    slow, notified = asyncio.Event(), asyncio.Event()
+    publish = reader.publish
+
+    def report(**kwargs):
+        publish(**kwargs)
+        assert kwargs == {"ipam_vlan": vlan_id}
+        with sf() as db:
+            assert db.scalar(select(m.Observation.id).where(m.Observation.job_id == job_id))
+        notified.set()
+
+    async def collect(host, *_):
+        if host.endswith(".3"):
+            await slow.wait()
+        return {"tables": {}, "interfaces": []}
+
+    monkeypatch.setattr(reader, "publish", report)
+    task = asyncio.create_task(refresh(job_id, SimpleNamespace(ipam=collect)))
+    try:
+        await asyncio.wait_for(notified.wait(), 2)
+        assert not task.done()
+        slow.set()
+        await asyncio.wait_for(task, 2)
+    finally:
+        slow.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

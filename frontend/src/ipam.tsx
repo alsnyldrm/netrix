@@ -199,7 +199,7 @@ const manualConnection = (row: Row) =>
     ? row.manual_connection
     : null;
 
-function usePingUpdates(vlanId?: string) {
+function useIPAMUpdates(vlanId?: string) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const update = () => {
@@ -208,12 +208,12 @@ function usePingUpdates(vlanId?: string) {
     const received = (event: Event) => {
       if (!vlanId || (event as CustomEvent<string>).detail === vlanId) update();
     };
-    window.addEventListener("netrix:ipam-ping", received);
+    window.addEventListener("netrix:ipam-update", received);
     document.addEventListener("visibilitychange", update);
     const timer = setInterval(update, 10000);
     return () => {
       clearInterval(timer);
-      window.removeEventListener("netrix:ipam-ping", received);
+      window.removeEventListener("netrix:ipam-update", received);
       document.removeEventListener("visibilitychange", update);
     };
   }, [vlanId]);
@@ -221,8 +221,8 @@ function usePingUpdates(vlanId?: string) {
 }
 
 function AddressDetail({ row, close }: { row: Row; close: () => void }) {
-  const pingRevision = usePingUpdates(row.vlan_id);
-  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id, pingRevision);
+  const ipamRevision = useIPAMUpdates(row.vlan_id);
+  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id, ipamRevision);
   const detail = query.data || row;
   const error = query.error;
   const manual = manualConnection(detail);
@@ -635,16 +635,16 @@ export function IPAMWorkspace({
   const path = prefix
     ? `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`
     : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
-  const pingRevision = usePingUpdates(prefix?.id);
+  const ipamRevision = useIPAMUpdates(prefix?.id);
   const listing = useLiveQuery(
     path,
-    refresh + pingRevision + scanRevision,
+    refresh + ipamRevision + scanRevision,
     undefined,
     query ? 200 : 0,
   );
   const latestScan = useLiveQuery<Row | null>(
     prefix ? `/ipam/vlans/${prefix.id}/scan` : null,
-    refresh,
+    refresh + ipamRevision,
   );
   const rows: Row[] = listing.data?.items || [];
   const total = String(listing.data?.total || 0);
