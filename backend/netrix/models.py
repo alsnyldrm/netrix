@@ -64,6 +64,7 @@ class Audit(Entity, Base):
     entity_type: Mapped[str] = mapped_column(String(60))
     entity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     summary: Mapped[str] = mapped_column(String(400))
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class Institution(Entity, Base):

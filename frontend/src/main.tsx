@@ -23,6 +23,7 @@ import {
 import { WorkspaceSearch } from "./workspace-search";
 export { api } from "./data";
 import { JobDetails } from "./job-details";
+import { AuditDetails, AuditSummary } from "./audit-details";
 import { DiscoveryScopeForm } from "./discovery-scope-form";
 import { DeviceConnections } from "./device-connections";
 import { Topology, TopologyConnections } from "./topology";
@@ -741,15 +742,16 @@ export const PAGES: Page[] = [
   {
     key: "audit",
     title: "Denetim izi",
-    desc: "Kim, ne zaman, hangi işlemi yaptı.",
+    desc: "Tüm kullanıcıların uygulamadaki işlemleri ve yaptıkları değişiklikler.",
     group: "Yönetim",
     icon: ShieldCheck,
     resource: "audit",
     columns: [
       ["created_at", "Zaman"],
-      ["actor_id", "Kullanıcı"],
-      ["action", "İşlem"],
-      ["entity_type", "Kaynak"],
+      ["actor_name", "Kullanıcı"],
+      ["action_label", "İşlem"],
+      ["resource_label", "Kaynak"],
+      ["target_label", "Etkilenen kayıt"],
       ["summary", "Açıklama"],
     ],
   },
@@ -2405,6 +2407,7 @@ function App() {
   const [settingsSection, setSettingsSection] = useState("");
   const [shortcutVLAN, setShortcutVLAN] = useState<Row | null>(null);
   const [jobDetail, setJobDetail] = useState<Row | null>(null);
+  const [auditDetail, setAuditDetail] = useState<Row | null>(null);
   const [jobModal, setJobModal] = useState(false);
   const [configCompare, setConfigCompare] = useState<Row | null>(null);
   const [configurationDevice, setConfigurationDevice] = useState<Row | null>(
@@ -3412,7 +3415,12 @@ function App() {
                     </p>
                   </div>
                 )}
-                <section className="panel table-panel">
+                <section
+                  className={
+                    "panel table-panel" +
+                    (page.key === "audit" ? " audit-panel" : "")
+                  }
+                >
                   <div className="toolbar">
                     <div className="table-title">
                       <page.icon size={19} />
@@ -3438,7 +3446,16 @@ function App() {
                       Kayıtlar yükleniyor…
                     </div>
                   ) : items.length ? (
-                    <div className="table-scroll">
+                    <div
+                      className="table-scroll"
+                      tabIndex={page.key === "audit" ? 0 : undefined}
+                      role={page.key === "audit" ? "region" : undefined}
+                      aria-label={
+                        page.key === "audit"
+                          ? "Tüm kullanıcıların denetim izi"
+                          : undefined
+                      }
+                    >
                       <table>
                         <thead>
                           <tr>
@@ -3465,7 +3482,16 @@ function App() {
                                       : ""
                                   }
                                 >
-                                  {key === "kind" && page.key === "jobs" ? (
+                                  {page.key === "audit" &&
+                                  key === "actor_name" ? (
+                                    <div className="audit-actor">
+                                      <span>{row.actor_name}</span>
+                                      <small>{row.actor_email}</small>
+                                    </div>
+                                  ) : page.key === "audit" &&
+                                    key === "summary" ? (
+                                    <AuditSummary row={row} />
+                                  ) : key === "kind" && page.key === "jobs" ? (
                                     <button
                                       className="job-name-button"
                                       onClick={() => setJobDetail(row)}
@@ -3710,14 +3736,16 @@ function App() {
                                         className="icon-button"
                                         aria-label="Kayıt ayrıntıları"
                                         onClick={() =>
-                                          setConfig({
-                                            title: "Kayıt ayrıntıları",
-                                            content: JSON.stringify(
-                                              row,
-                                              null,
-                                              2,
-                                            ),
-                                          })
+                                          page.key === "audit"
+                                            ? setAuditDetail(row)
+                                            : setConfig({
+                                                title: "Kayıt ayrıntıları",
+                                                content: JSON.stringify(
+                                                  row,
+                                                  null,
+                                                  2,
+                                                ),
+                                              })
                                         }
                                       >
                                         <Eye size={17} />
@@ -4099,6 +4127,9 @@ function App() {
       )}
       {jobDetail && (
         <JobDetails job={jobDetail} onClose={() => setJobDetail(null)} />
+      )}
+      {auditDetail && (
+        <AuditDetails row={auditDetail} onClose={() => setAuditDetail(null)} />
       )}
       {config && canWrite && (
         <Dialog title={config.title} onClose={() => setConfig(null)} wide>

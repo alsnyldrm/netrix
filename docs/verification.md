@@ -1,5 +1,13 @@
 # NETRIX doğrulama kaydı — 29 Ekim 2026
 
+## Tüm kullanıcıların denetim izi — 4 Kasım 2026
+
+- Denetim izi tüm kullanıcıların kimlikli işlemlerini listeler; aktörü olmayan zamanlayıcı/worker kayıtları silinmeden liste dışında kalır. Yeni yazma isteklerinde merkezi ORM yakalaması ve modüllerin açıklamaları aynı transaction'da birleştirilir. Kullanıcı adı/e-posta ve hedef adı işlem anında korunur; izinli alanların önceki/sonraki değerleri nullable JSON içindedir. Sırlar, parola özetleri, ham komutlar ve konfigürasyon içerikleri kopyalanmaz. Eski kayıtlara kaydedilmemiş farklar üretilmez.
+- `20261104_46` migration'ı, önceki firmware migration'ının üzerine tek head olarak eklendi. İzole MariaDB'de upgrade/downgrade/upgrade, eski kayıtların korunması, JSON farkları, Türkçe hedef/kullanıcı araması, wildcard kaçışı, UTC ve rollback doğrulandı. Üretim cihazında tarama veya entegrasyon eşitlemesi tetiklenmedi.
+- İki kullanıcı, operatör/yönetici erişimi, silinmiş hedef, kullanıcı adı değişse de aktör snapshot'ı, sırların dışarı çıkmaması, başarısız işlem/rollback, rol değişimi, kişisel tercihler ve tarama grubu için on yeni regresyon testi eklendi. Güncel IP tek-adres ve firmware kontrol akışlarıyla 31 test; görev açıklaması/ilk VLAN işi/arka plan dağıtımıyla 30 test; güncel kişisel tercihlerle 26 test geçti. Kontroller örtüşen testler içerir; toplam olarak toplanmamıştır.
+- Yerel fixture API ile 1440 ve 375 px, açık/koyu temalarda ana tablo ve alan karşılaştırması kontrol edildi. Sütun eksenleri, mobil taşma olmaması, önceki/yeni değerin görünürlüğü, arama/boş durum, eski kayıt açıklaması, Escape ve odağın geri dönmesi doğrulandı. Sekiz Axe WCAG A/AA kontrolünde ihlal, JavaScript hatası veya giriş sonrası yazma isteği yok. Ekran görüntüleri animasyonlar tamamlandıktan sonra incelendi. Ruff, diff kontrolü ve TypeScript/Vite üretim derlemesi geçti; mevcut bundle boyutu uyarısı sürüyor.
+- İlk geniş regresyon koşusu 1.128 başarılı ve bir başarısız testle tamamlandı. `test_vlan_creation_queues_only_independent_scan`, ilk VLAN tarama işi için eski “hiç görev yok” beklentisi nedeniyle başarısızdır. Aynı hata değişiklik öncesi Git sürümünün ayrı, geçici kopyasında da yeniden üretildi. Yeni VLAN için bir kez ilk tam tarama kuyruğu sözleşmesi korunmuştur; sonraki sürüm birleştirmeleri yukarıdaki hedefli kontrollerle doğrulanmıştır.
+
 ## Yedek terminal boşlukları — 31 Ekim 2026
 
 - Üretimdeki AOS-S yedeklerinde ekran yenileme sınırlarına denk gelen üçlü boş satırlar gözlendi. Sebep: her ilk-sütun ANSI imleç hareketinin koşulsuz satır sonuna dönüştürülmesi. İçerik/sırlar teşhis çıktısına yazılmadı.

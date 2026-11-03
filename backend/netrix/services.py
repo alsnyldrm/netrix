@@ -367,13 +367,20 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         db.expire(row, ["profiles"])
     if name == "devices":
         db.expire(row, ["device_type"])
+    from .identity.audit_read import RESOURCE_LABELS
+
+    target_label = next(
+        (str(getattr(row, key)) for key in ("name", "address", "display_name") if getattr(row, key, None)),
+        row.id,
+    )
     audit(
         db,
         user,
         "update" if row_id else "create",
         name,
         row.id,
-        f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
+        f"{RESOURCE_LABELS.get(name, 'Kayıt')} “{target_label}” "
+        + ("güncellendi" if row_id else "oluşturuldu"),
     )
     identification = None
     if identify_changed:
@@ -418,6 +425,10 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
 
 
 def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
+    if name == "audit":
+        from .identity.audit_read import list_entries
+
+        return list_entries(db, limit, offset, q)
     if name not in RESOURCES:
         raise HTTPException(404, "Kaynak bulunamadı")
     model = RESOURCES[name][0]
@@ -533,8 +544,19 @@ def delete_resource(db, name, id, user):
         row.backup_interval = 0
     else:
         db.delete(row)
+    from .identity.audit_read import RESOURCE_LABELS
+
+    target_label = next(
+        (str(getattr(row, key)) for key in ("name", "address", "display_name") if getattr(row, key, None)), id
+    )
     audit(
-        db, user, "archive" if name == "devices" else "delete", name, id, f"{name}: kayıt arşivlendi/silindi"
+        db,
+        user,
+        "archive" if name == "devices" else "delete",
+        name,
+        id,
+        f"{RESOURCE_LABELS.get(name, 'Kayıt')} “{target_label}” "
+        + ("arşivlendi" if name == "devices" else "silindi"),
     )
     db.commit()
     publish()
@@ -674,7 +696,18 @@ def enqueue(db, kind, target_id, user=None, *, commit=True, ipam_origin=None):
             job.result = {**job.result, "address_scope": [target.address, target.vrf_id, target.vlan_id]}
     db.add(job)
     db.flush()
-    audit(db, user, "enqueue", "jobs", job.id, f"{kind} görevi kuyruğa alındı")
+    from .identity.audit import record
+    from .job_details import DESCRIPTIONS, target_label
+
+    entry = record(
+        db,
+        user,
+        "enqueue",
+        "jobs",
+        job.id,
+        DESCRIPTIONS.get(kind, ("Uygulama görevi", ""))[0] + " kuyruğa alındı",
+    )
+    entry.details = {**entry.details, "target": target_label(target)}
     if commit:
         db.commit()
         publish(ping_vlan=target_id) if kind == "ipam_ping" else publish()

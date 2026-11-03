@@ -667,6 +667,10 @@ def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_s
         raise HTTPException(404, "Kaynak bulunamadı")
     if resource in ("users", "audit") and not is_admin(user):
         raise HTTPException(403, "Yönetici yetkisi gerekli")
+    if resource == "audit":
+        from .identity.audit_read import enrich
+
+        return enrich(db, [svc.get(db, m.Audit, id)])[0]
     if resource == "links":
         from .discovery.visibility import inventory_links
 

@@ -9,7 +9,8 @@ from cryptography.fernet import Fernet
 from fastapi import Depends, HTTPException, Request
 
 from ..core import db_session, now, settings
-from ..models import Audit, AuthSession, User
+from ..models import AuthSession, User
+from .audit import record
 from .permissions import can_operate, can_ssh, is_admin, is_super_admin
 
 hasher = PasswordHasher()
@@ -53,6 +54,8 @@ def current_user(request: Request, db=Depends(db_session)):
     user = session_user(db, request.cookies.get("netrix_session"))
     if not user:
         raise HTTPException(401, "Oturum açmanız gerekiyor")
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        db.info["audit_actor"] = user
     return user
 
 
@@ -81,15 +84,7 @@ def ssh_user(user=Depends(current_user)):
 
 
 def audit(db, user, action, entity_type, entity_id, summary):
-    db.add(
-        Audit(
-            actor_id=user.id if user else None,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            summary=summary[:400],
-        )
-    )
+    record(db, user, action, entity_type, entity_id, summary)
 
 
 def issue_session(db, user):
