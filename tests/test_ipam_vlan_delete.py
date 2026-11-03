@@ -4,7 +4,7 @@ import pytest
 from netrix import models as m
 from netrix import worker
 from sqlalchemy import select
-from test_ipam_workspace import integration, prefix
+from test_ipam_workspace import integration, prefix, timer_job
 
 
 def confirmation(client, ids):
@@ -44,6 +44,7 @@ def test_atomic_delete_keeps_inventory_and_integrations(admin_client, inventory,
 def test_deletion_cancels_vlan_jobs_only(admin_client, inventory, env, status):
     p = prefix(admin_client, inventory)
     source = integration(admin_client, p)
+    timer_job("ipam_discover", p["id"])
     with env() as db:
         job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover", m.Job.target_id == p["id"]))
         job.status = status
@@ -109,7 +110,7 @@ async def test_delete_during_ping_drops_inflight_results(admin_client, inventory
     from netrix.ipam import adapters
 
     p = prefix(admin_client, inventory)
-    task = admin_client.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    task = timer_job("ipam_discover", p["id"])
     deleted = False
 
     async def ping(address):

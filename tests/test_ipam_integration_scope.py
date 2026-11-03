@@ -3,7 +3,7 @@ from netrix import models as m
 from netrix import scheduler
 from netrix.ipam import adapters
 from sqlalchemy import select
-from test_ipam_workspace import integration, prefix
+from test_ipam_workspace import integration, prefix, timer_job
 from test_vlan_scan_pipeline import run_scan
 
 
@@ -39,15 +39,13 @@ async def test_vlan_scan_uses_dhcp_and_vmware_without_additional_authorization(
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "windows_dhcp", lambda *_: [])
     monkeypatch.setattr(adapters, "vcenter_records", lambda *_: [])
-    job = admin_client.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    job = timer_job("ipam_discover", p["id"])
     await run_scan(env, monkeypatch, job["id"])
     with env() as db:
         result = db.get(m.Job, job["id"])
         assert result.status == "succeeded"
         assert {db.get(m.Job, id).target_id for id in result.result["source_jobs"]} == {vc["id"], dhcp["id"]}
-    saved = admin_client.put(
-        f"/api/v1/ipam/vlans/{p['id']}/settings", json={"discovery_enabled": True, "ping_enabled": True}
-    )
+    saved = admin_client.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"ping_enabled": True})
     assert saved.status_code == 200 and "scan_authorized" not in saved.json()
     scheduler.tick()
     with env() as db:

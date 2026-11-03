@@ -15,38 +15,25 @@ stop = False
 log = logging.getLogger("netrix.scheduler")
 
 
-def tick():
-    from .ipam.scan_schedules import dispatch_due
-
-    dispatch_due()
+def dispatch_pings(at=None):
+    """An independent ICMP clock; no client page can dispatch this work."""
+    at = at or now()
     with session_factory()() as db:
-        grouped_vlans = set(db.scalars(select(m.IPAMScanMember.vlan_id)))
-        for config in db.scalars(
-            select(m.Integration).where(m.Integration.enabled.is_(True), m.Integration.interval_seconds > 0)
-        ):
-            if (
-                not config.last_run_at
-                or (now() - config.last_run_at).total_seconds() >= config.interval_seconds
-            ):
+        for vlan in db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None), m.VLAN.ping_enabled.is_(True))):
+            if not vlan.last_ping_at or (at - vlan.last_ping_at).total_seconds() >= vlan.ping_interval:
                 try:
-                    enqueue(db, "integration", config.id)
+                    enqueue(db, "ipam_ping", vlan.id, ipam_origin="ping_timer")
                 except HTTPException:
                     db.rollback()
-        for prefix in db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))):
-            for kind, enabled, interval, last in (
-                ("ipam_ping", prefix.ping_enabled, prefix.ping_interval, prefix.last_ping_at),
-                (
-                    "ipam_discover",
-                    prefix.discovery_enabled and prefix.id not in grouped_vlans,
-                    prefix.discovery_interval,
-                    prefix.last_discovery_at,
-                ),
-            ):
-                if enabled and (not last or (now() - last).total_seconds() >= interval):
-                    try:
-                        enqueue(db, kind, prefix.id)
-                    except HTTPException:
-                        db.rollback()
+
+
+def tick(*, include_ping=True):
+    from .ipam.scan_schedules import dispatch_due
+
+    if include_ping:
+        dispatch_pings()
+    dispatch_due()
+    with session_factory()() as db:
         for scope in db.scalars(
             select(m.Scope).where(m.Scope.enabled.is_(True), m.Scope.interval_seconds > 0)
         ):
@@ -84,13 +71,17 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
+    next_maintenance = 0.0
     while not stop:
         heartbeat("scheduler")
         try:
-            tick()
+            dispatch_pings()
+            if time.monotonic() >= next_maintenance:
+                tick(include_ping=False)
+                next_maintenance = time.monotonic() + 15
         except Exception as exc:
             log.warning("scheduler_cycle_failed error_class=%s", type(exc).__name__)
-        for _ in range(15):
+        for _ in range(5):
             if stop:
                 break
             time.sleep(1)

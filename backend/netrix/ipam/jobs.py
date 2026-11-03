@@ -168,7 +168,7 @@ async def scan(job_id, collector=None):
         prefix = get(db, m.VLAN, job.target_id)
         discover = job.kind == "ipam_discover"
         addresses = targets(db, prefix, discover)
-        dns = db.get(m.DNSServer, prefix.dns_server_id) if prefix.dns_server_id else None
+        dns = db.get(m.DNSServer, prefix.dns_server_id) if discover and prefix.dns_server_id else None
         job.total = len(addresses)
         setattr(prefix, "last_discovery_at" if discover else "last_ping_at", now())
         db.commit()
@@ -181,7 +181,7 @@ async def scan(job_id, collector=None):
 
         async def probe(address):
             up = await adapters.ping(address)
-            hostname = await adapters.reverse_dns(address, dns) if up or not discover else ""
+            hostname = await adapters.reverse_dns(address, dns) if discover and up else ""
             return address, up, hostname
 
         with session_factory()() as db:
@@ -211,7 +211,7 @@ async def scan(job_id, collector=None):
                     {"reachability": "reachable" if up else "no_reply"},
                     create=up and discover,
                 )
-                if hostname or up or not discover:
+                if discover and (hostname or up):
                     observe(
                         db,
                         prefix,
@@ -223,9 +223,8 @@ async def scan(job_id, collector=None):
                     )
             job.progress = min(start + SCAN_BATCH_SIZE, len(addresses))
             db.commit()
-        publish()
+        publish() if discover else publish(ping_vlan=prefix.id)
     source_jobs = []
-    followup_ids = []
     network_result = None
     source_statuses = {}
     matching = None
@@ -242,11 +241,8 @@ async def scan(job_id, collector=None):
                     raise Cancelled()
                 current = get(db, m.VLAN, prefix.id)
                 scan_boundary(db, current)
-                followups = {
-                    j.target_id: j for j in db.scalars(select(m.Job).where(m.Job.id.in_(followup_ids)))
-                }
                 ids = [
-                    (followups.get(config.id) or enqueue(db, "integration", config.id, commit=False)).id
+                    enqueue(db, "integration", config.id, commit=False, ipam_origin="scheduled_source").id
                     for config in db.scalars(
                         select(m.Integration).where(
                             m.Integration.enabled.is_(True), m.Integration.kind == kind
@@ -257,12 +253,6 @@ async def scan(job_id, collector=None):
                 db.commit()
             scan_phase(job_id, phase, network=network_result, source_jobs=source_jobs)
             source_statuses.update(await wait_for_sources(job_id, ids))
-            with session_factory()() as db:
-                followup_ids = [
-                    child
-                    for source in db.scalars(select(m.Job).where(m.Job.id.in_(ids)))
-                    for child in source.result.get("source_jobs", [])
-                ]
         scan_phase(job_id, "dns", source_statuses=source_statuses)
         await complete_dns(job_id, started_at)
         scan_phase(job_id, "matching")
@@ -482,15 +472,7 @@ async def integration(job_id, collector=None):
                     old.data = {**old.data, "present": False}
                     old.observed_at = now()
         source_jobs = []
-        if current.kind == "windows_dhcp":
-            # Refresh VM information after reservations exist, using already enabled integrations only.
-            for config in db.scalars(
-                select(m.Integration).where(m.Integration.kind == "vcenter", m.Integration.enabled.is_(True))
-            ):
-                source_jobs.append(enqueue(db, "integration", config.id, commit=False).id)
         current.last_success_at = now()
-        for vlan in prefixes:
-            enqueue(db, "ipam_ping", vlan.id, commit=False)
         job.total = job.progress = len(records)
         db.commit()
     publish()

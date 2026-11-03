@@ -203,8 +203,8 @@ class VLAN(Entity, Base):
     description: Mapped[str] = mapped_column(String(400), default="")
     dns_server_id: Mapped[str | None] = mapped_column(ForeignKey("dns_servers.id"), index=True)
     warning_threshold: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
-    ping_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
-    ping_interval: Mapped[int] = mapped_column(Integer, default=300, server_default="300")
+    ping_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    ping_interval: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
     discovery_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     discovery_interval: Mapped[int] = mapped_column(Integer, default=3600, server_default="3600")
     last_ping_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -213,7 +213,7 @@ class VLAN(Entity, Base):
         UniqueConstraint("domain", "vid"),
         UniqueConstraint("vrf_id", "cidr"),
         CheckConstraint("warning_threshold >= 1 AND warning_threshold <= 100", name="ck_vlan_threshold"),
-        CheckConstraint("ping_interval >= 30 AND discovery_interval >= 60", name="ck_vlan_intervals"),
+        CheckConstraint("ping_interval >= 10 AND discovery_interval >= 60", name="ck_vlan_intervals"),
         CheckConstraint("vid >= 1 AND vid <= 4094", name="ck_vlan_vid"),
     )
 

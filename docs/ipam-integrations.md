@@ -1,5 +1,15 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Zamanlama dışında kaynak sorgusu yok — 3 Kasım 2026
+
+Tam VLAN taraması yalnız **IP adres yönetimi → Ayarlar → Tarama** grubunun günlük/haftalık/aylık zamanlamasından başlar. Sayfa/ayrıntı açmak, aramak, filtrelemek, yenilemek ve VLAN kaydetmek iş kuyruğuna kaynak okuması eklemez. Manuel `discover`, `ping` ve entegrasyon `sync` çağrıları HTTP 409 döner. Eski VLAN `discovery_enabled` ve bağımsız entegrasyon `interval_seconds` zamanlamaları devreden çıkarılmıştır; API bunların yeniden etkinleştirilmesini reddeder. Etkin kaynak yalnız zamanlanmış tam taramada okunur.
+
+Periyodik ping varsayılan 30 saniyedir (VLAN ayarından 10–86.400 saniye); kullanıcı sayfasından bağımsızdır ve yalnız kayıtlı IP'lere ICMP gönderir. DNS/VMware/DHCP/SNMP/SSH/API okuması veya yeni IP keşfi yapmaz; önceki kaynak bilgileri korunur. Zamanlayıcı ping son başlangıç tarihini beş saniyelik kontrollerle izler. Aynı VLAN için aktif ping işi tekildir; uzun süren tur üstüne ikinci tur bindirilmez. İki ayrı ping worker slotu, dört genel slot ve iki tam tarama sınırı içinde çalışır; aynı VLAN'ın tam taraması ping'i bloke etmez. Hedefler 32'lik sınırlı partilerdedir; her parti commit edildikten sonra durum yayımlanır. Süreyi aşan tur yoğunluğu sonraki başlangıcı geciktirebilir; eski sonuç yeni ping yanıtı gibi yazılmaz.
+
+Ping bildirimi `ipam_ping`/VLAN kimliği taşır. Açık IPAM listesi ve ayrıntısı yalnız kendi DB yanıtını yeniler; oda/cihaz referanslarını yeniden toplamaz. Görünür sayfada 10 saniyelik DB yenilemesi kopuk WebSocket için yedektir; geri dönüldüğünde DB yanıtı hemen okunur. Bu GET istekleri gerçek kaynak veya ping isteği değildir.
+
+Kuyruk işleri iç `ipam_origin` alanıyla `schedule`, `scheduled_source` veya `ping_timer` kökenini taşır. HTTP isteği bu kökeni ayarlayamaz; worker kökensiz eski işleri ağ erişiminden önce iptal eder. `20261103_41` mevcut CIDR'lı VLAN'ları 30 saniyelik ping'e geçirir, eski aralıkları kapatır ve zamanlama geçmişinde kanıtı bulunmayan bekleyen/eski çalışan IPAM işlerini iptal eder. Tarama grupları/tarihleri/sayaçları ve bunlara ait kaynak işleri korunur; migration tarama başlatmaz. Geri dönüş kapatılmış aralıkları veya iptal edilen işleri yeniden etkinleştirmez; 30 saniyeden kısa ping ayarı varken eski CHECK'e dönüş durdurulur. Testler: `test_ipam_schedule_only.py`, `ipam_live_browser_check.py`, `ipam_schedule_mariadb_check.py`.
+
 ## Kalıcı veri sözleşmesi — 1 Kasım 2026
 
 IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu sözleşme proje sahibinin açık yeni talebi olmadan değiştirilemez. IPAM yalnızca VLAN içindeki IP kayıtlarını yönetir; bir IP gözlemi cihaz envanterine veya Komşuluklar'a kayıt eklemez. Envanter → Ağ keşfi, IPAM taramasını tetiklemez ve keşif gözlemleri IPAM alanlarını beslemez.
@@ -74,7 +84,7 @@ Envanter keşfi ve IPAM taraması birlikte en fazla iki worker yuvası kullanır
 
 ## Gruplu tam tarama zamanlaması — 3 Kasım 2026
 
-IP adres yönetimi → Ayarlar → Tarama ekranında ad/açıklama ile grup oluşturulur ve CIDR tanımlı VLAN'lar seçilir. Bir VLAN tek tarama grubuna bağlıdır. Grup üyeliği varken eski VLAN `discovery_enabled` zamanlaması uygulanmaz; etkin/duraklatılmış/tamamlanmış grup tam taramanın sahibidir. Ayrı ping takvimi ve kullanıcı tarafından başlatılan Tara davranışı korunur. Grup silinirse kendi VLAN tam tarama ayarları yeniden geçerlidir; VLAN/IP kayıtları ve başlamış işler silinmez.
+IP adres yönetimi → Ayarlar → Tarama ekranında ad/açıklama ile grup oluşturulur ve CIDR tanımlı VLAN'lar seçilir. Bir VLAN tek tarama grubuna bağlıdır. Eski VLAN `discovery_enabled` zamanlaması hiçbir VLAN için uygulanmaz; tam taramanın sahibi gruptur. Bağımsız ICMP takvimi sürer; manuel Tara davranışı kapalıdır. Grup silinirse eski VLAN tam tarama ayarları yeniden etkinleşmez; VLAN/IP kayıtları ve başlamış işler silinmez.
 
 Günlük/haftalık/aylık tekrar, her kaç dönem çalışacağı (1–365), saat dilimli başlangıç ve isteğe bağlı toplam çalışma sınırı (1–100.000; boşsa sürekli) saklanır. Arayüz tarih girişini ve gösterimini Türkiye saatinde yapar. Haftalık tarama başlangıcın hafta gününü; aylık tarama başlangıcın ay gününü kullanır. O günün bulunmadığı aylarda son gün seçilir; sonraki aylarda özgün gün korunur. Zamanlama alanı değişirse sayaç sıfırlanır ve yeni sürüm açılır; üyelik/açıklama veya etkinlik değişikliği sayacı sıfırlamaz. Kullanıcı açıkça geçmiş başlangıç seçerse sonraki zamanlayıcı turunda bir kez çalışır.
 
@@ -88,7 +98,7 @@ API: `GET/POST /api/v1/ipam/scan-groups`, `PUT/DELETE /{id}`, `GET /{id}/runs`. 
 
 Yönetim → Entegrasyonlar yalnızca VMware vCenter ve Microsoft Windows DHCP içerir. Entegrasyonlar bütün IPAM VLAN'larına hizmet eder; ayrı yetkili ağ blokları listesi yoktur. Switch/router/gateway erişimi mevcut envanter cihazının şifreli profiliyle yapılır; yinelenen switch entegrasyonu oluşturulmaz.
 
-VMware IP/MAC, işletim sistemi, güç durumu, VM/NIC ve sanal switch/port grubu kanıtını; DHCP rezervasyon ve aktif kiralamaları sağlar. Aynı adres farklı VRF'lerde belirsizse otomatik VLAN ataması yapılmaz. Başarılı eşitleme, VLAN'daki kayıtlı IP'ler için ping/DNS kontrolünü kuyruğa alır. Sırlar API ve loglara dönmez.
+VMware IP/MAC, işletim sistemi, güç durumu, VM/NIC ve sanal switch/port grubu kanıtını; DHCP rezervasyon ve aktif kiralamaları sağlar. Aynı adres farklı VRF'lerde belirsizse otomatik VLAN ataması yapılmaz. Eşitleme, zamanlanmış tam taramanın kaynak adımıdır; bittiğinde bağımsız ping/DNS işi veya başka bir eşitleme başlatmaz. Sırlar API ve loglara dönmez.
 
 ## Silme ve menü sınırı
 

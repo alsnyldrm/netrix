@@ -80,9 +80,9 @@ class VLANInput(Input):
     dns_server_id: str | None = None
     description: str = Field(default="", max_length=400)
     warning_threshold: int = Field(default=80, ge=1, le=100)
-    ping_enabled: bool = False
-    ping_interval: int = Field(default=300, ge=30, le=86400)
-    discovery_enabled: bool = False
+    ping_enabled: bool = True
+    ping_interval: int = Field(default=30, ge=10, le=86400)
+    discovery_enabled: Literal[False] = False
     discovery_interval: int = Field(default=3600, ge=60, le=2592000)
 
     @field_validator("cidr")

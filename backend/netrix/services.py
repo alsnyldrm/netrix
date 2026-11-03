@@ -274,9 +274,10 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             for key in (*IDENTITY_CONNECTION_FIELDS, "vendor", "model", "kind", "lifecycle_status")
         )
     )
-    replay_prefix = name == "vlans" and (
-        not row_id or row.cidr != data["cidr"] or row.vrf_id != data["vrf_id"]
-    )
+    if name == "vlans" and row_id:
+        for key in ("ping_enabled", "ping_interval"):
+            if key not in value.model_fields_set:
+                data[key] = getattr(row, key)
     if name == "addresses" and row_id:
         if "mac_address" not in value.model_fields_set:
             data["mac_address"] = row.mac_address
@@ -364,8 +365,6 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         row.id,
         f"{name}: kayıt güncellendi" if row_id else f"{name}: kayıt oluşturuldu",
     )
-    if replay_prefix:
-        enqueue(db, "ipam_discover", row.id, user, commit=False)
     identification = None
     if identify_changed:
         try:
@@ -584,12 +583,17 @@ def backup_profile(db, device):
     return require_ssh_backup(device, profile)
 
 
-def enqueue(db, kind, target_id, user=None, *, commit=True):
+def enqueue(db, kind, target_id, user=None, *, commit=True, ipam_origin=None):
     from .ipam.jobs import KINDS, validate_target
 
     if kind not in (*KINDS, "discovery", "backup", "compare", "identify", *CONNECTION_TESTS):
         raise HTTPException(422, "Geçersiz görev türü")
     if kind in KINDS:
+        origins = {"ipam_ping": "ping_timer", "ipam_discover": "schedule", "integration": "scheduled_source"}
+        if ipam_origin != origins[kind]:
+            raise HTTPException(
+                409, "IPAM kaynakları yalnızca zamanlamadan, ping yalnızca periyodik kontrolden çalışır"
+            )
         target = validate_target(db, kind, target_id)
     elif kind == "discovery":
         target = get(db, m.Scope, target_id)
@@ -639,21 +643,26 @@ def enqueue(db, kind, target_id, user=None, *, commit=True):
     if existing:
         return existing
     job = m.Job(kind=kind, target_id=target_id, active_key=key, requested_by=user.id if user else None)
+    if kind in KINDS:
+        job.result = {"ipam_origin": ipam_origin}
     db.add(job)
     db.flush()
     audit(db, user, "enqueue", "jobs", job.id, f"{kind} görevi kuyruğa alındı")
     if commit:
         db.commit()
-        publish()
+        publish(ping_vlan=target_id) if kind == "ipam_ping" else publish()
     return job
 
 
-def publish():
+def publish(*, ping_vlan=None):
     # DB is the durable outbox/queue; Redis is a wake-up hint, never the source of truth.
     try:
         client = redis_client()
         client.incr("netrix:ipam:revision")
-        client.publish("netrix:events", "refresh")
+        client.publish(
+            "netrix:events",
+            json.dumps({"type": "ipam_ping", "vlan_id": ping_vlan}) if ping_vlan else "refresh",
+        )
     except Exception:
         pass
 

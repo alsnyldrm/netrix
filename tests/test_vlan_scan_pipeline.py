@@ -7,7 +7,7 @@ from netrix import models as m
 from netrix import worker
 from netrix.ipam import adapters, jobs, service
 from sqlalchemy import select
-from test_ipam_workspace import integration, prefix
+from test_ipam_workspace import integration, prefix, timer_job
 
 
 async def run_scan(env, monkeypatch, id, *, check=None):
@@ -52,9 +52,9 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(admin_client, i
         )
         db.add_all([gateway, switch])
         db.commit()
-    initial = admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/scan").json()
+    initial = timer_job("ipam_discover", vlan["id"])
     assert initial["kind"] == "ipam_discover" and initial["status"] == "queued"
-    assert admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/discover").json()["id"] == initial["id"]
+    assert timer_job("ipam_discover", vlan["id"])["id"] == initial["id"]
     phases = set()
     calls = []
 
@@ -154,7 +154,7 @@ async def test_source_wait_reports_failure_timeout_missing_and_cancellation(
     from netrix.worker import Cancelled
 
     vlan = prefix(admin_client, inventory)
-    parent = admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/scan").json()
+    parent = timer_job("ipam_discover", vlan["id"])
     with env() as db:
         failed = m.Job(kind="integration", target_id="source", status="failed")
         pending = m.Job(kind="integration", target_id="other", status="queued")

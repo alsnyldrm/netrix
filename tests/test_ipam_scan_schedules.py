@@ -156,10 +156,10 @@ def test_scheduler_group_owns_full_scan_but_not_ping(setup, monkeypatch):
             row.discovery_enabled = row.ping_enabled = True
         db.commit()
     calls = []
-    monkeypatch.setattr(scheduler, "enqueue", lambda db, kind, id: calls.append((kind, id)))
+    monkeypatch.setattr(scheduler, "enqueue", lambda db, kind, id, **kwargs: calls.append((kind, id)))
     scheduler.tick()
     assert ("ipam_discover", payload["vlan_ids"][0]) not in calls
-    assert ("ipam_discover", payload["vlan_ids"][1]) in calls
+    assert ("ipam_discover", payload["vlan_ids"][1]) not in calls
     assert all(("ipam_ping", id) in calls for id in payload["vlan_ids"])
 
 

@@ -46,6 +46,7 @@ from .services import (
 log = logging.getLogger("netrix.worker")
 stop = False
 BACKGROUND_CAPACITY = 4
+PING_CAPACITY = 2
 DISCOVERY_CAPACITY = 2
 DISCOVERY_TARGETS = 16
 
@@ -481,7 +482,7 @@ async def collect_backup(job_id):
     return {"saved": True}
 
 
-def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
+def claim(interactive=None, *, exclude_kinds=(), exclude_targets=(), include_kinds=()):
     lane = (
         [] if interactive is None else [interactive_condition() if interactive else ~interactive_condition()]
     )
@@ -519,6 +520,8 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
                 )
             ),
         ]
+        if include_kinds:
+            eligible.append(m.Job.kind.in_(include_kinds))
         if exclude_kinds:
             eligible.append(m.Job.kind.not_in(exclude_kinds))
         if exclude_targets:
@@ -549,7 +552,7 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=()):
             job.error = ""
             job.result = {**job.result, "started_at": job.result.get("started_at") or now().isoformat()}
             db.commit()
-            publish()
+            publish(ping_vlan=job.target_id) if job.kind == "ipam_ping" else publish()
             return job.id
         db.commit()
         return None
@@ -560,6 +563,12 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     with session_factory()() as db:
         initial = get(db, m.Job, job_id)
         kind, interactive = initial.kind, initial.result.get("interactive", False)
+        origins = {"ipam_ping": "ping_timer", "ipam_discover": "schedule", "integration": "scheduled_source"}
+        if kind in origins and initial.result.get("ipam_origin") != origins[kind]:
+            initial.status, initial.active_key, initial.finished_at = "cancelled", None, now()
+            initial.error = "Zamanlama dışı IPAM işi iptal edildi"
+            db.commit()
+            return
     from .configuration.management import compare_live
     from .ipam.jobs import KINDS
     from .ipam.jobs import execute as execute_ipam
@@ -682,7 +691,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     finally:
         if not task.done():
             task.cancel()
-        publish()
+        publish(ping_vlan=initial.target_id) if kind == "ipam_ping" else publish()
 
 
 def heartbeat(role):
@@ -710,12 +719,31 @@ async def worker_loop():
                                 "background_task_failed error_class=%s", type(task.exception()).__name__
                             )
                         del tasks[task]
-                while not stop and len(tasks) < BACKGROUND_CAPACITY:
+                while not stop and sum(kind == "ipam_ping" for kind, _ in tasks.values()) < PING_CAPACITY:
+                    ping_id = claim(
+                        interactive=False,
+                        include_kinds=("ipam_ping",),
+                        exclude_targets=tuple(
+                            target for kind, target in tasks.values() if kind == "ipam_ping"
+                        ),
+                    )
+                    if not ping_id:
+                        break
+                    with session_factory()() as db:
+                        ping_target = get(db, m.Job, ping_id).target_id
+                    tasks[asyncio.create_task(execute(ping_id))] = ("ipam_ping", ping_target)
+                while (
+                    not stop and sum(kind != "ipam_ping" for kind, _ in tasks.values()) < BACKGROUND_CAPACITY
+                ):
                     scans = sum(kind in ("discovery", "ipam_discover") for kind, _ in tasks.values())
                     job_id = claim(
                         interactive=False,
-                        exclude_kinds=("discovery", "ipam_discover") if scans >= DISCOVERY_CAPACITY else (),
-                        exclude_targets=tuple(target for _, target in tasks.values() if target),
+                        exclude_kinds=("ipam_ping", "discovery", "ipam_discover")
+                        if scans >= DISCOVERY_CAPACITY
+                        else ("ipam_ping",),
+                        exclude_targets=tuple(
+                            target for kind, target in tasks.values() if target and kind != "ipam_ping"
+                        ),
                     )
                     if not job_id:
                         break

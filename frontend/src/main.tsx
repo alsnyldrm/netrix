@@ -2760,7 +2760,12 @@ function App() {
       );
       socket.onopen = () => setConnected(true);
       socket.onmessage = (e) => {
-        if (JSON.parse(e.data).type === "refresh") liveRefresh();
+        const event = JSON.parse(e.data);
+        if (event.type === "refresh") liveRefresh();
+        else if (event.type === "ipam_ping")
+          window.dispatchEvent(
+            new CustomEvent("netrix:ipam-ping", { detail: event.vlan_id }),
+          );
       };
       socket.onclose = () => {
         setConnected(false);

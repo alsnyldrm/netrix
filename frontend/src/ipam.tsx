@@ -63,8 +63,6 @@ const settingsKeys = [
   "warning_threshold",
   "ping_enabled",
   "ping_interval",
-  "discovery_enabled",
-  "discovery_interval",
 ];
 function ErrorNote({ error }: { error: string }) {
   return error ? (
@@ -160,23 +158,11 @@ function VLANSettings({
           <Field label="Ping aralığı (saniye)">
             <input
               type="number"
-              min="30"
+              min="10"
               max="86400"
               required
               value={values.ping_interval}
               onChange={(e) => set("ping_interval", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Yeni sunucu keşif aralığı (saniye)">
-            <input
-              type="number"
-              min="60"
-              max="2592000"
-              required
-              value={values.discovery_interval}
-              onChange={(e) =>
-                set("discovery_interval", Number(e.target.value))
-              }
             />
           </Field>
           <label className="ipam-check">
@@ -187,20 +173,11 @@ function VLANSettings({
             />
             <span>IP durumunu düzenli kontrol et</span>
           </label>
-          <label className="ipam-check">
-            <input
-              type="checkbox"
-              checked={values.discovery_enabled}
-              onChange={(e) => set("discovery_enabled", e.target.checked)}
-            />
-            <span>Yeni sunucuları düzenli ekle</span>
-          </label>
         </div>
         <p className="ipam-hint">
-          Ping kayıtlı IP’leri kontrol eder. Yeni sunucu keşfi VLAN’ın IP
-          bloğunu tarar ve DNS’ten isimleri alır. MAC ve bağlantı bilgileri IPAM
-          entegrasyonlarıyla tamamlanır. Yanıt alınamaması IP’nin boş veya
-          cihazın kapalı olduğunu kanıtlamaz.
+          Ping yalnız kayıtlı IP’lere ICMP gönderir; sayfa açılışından bağımsız
+          çalışır. DNS, VMware, DHCP, switch ve gateway okumaları yalnız Ayarlar
+          → Tarama gruplarındaki zamanlanmış tam taramada yapılır.
         </p>
         <div className="ipam-actions">
           <button type="button" className="secondary" onClick={close}>
@@ -221,8 +198,30 @@ const manualConnection = (row: Row) =>
     ? row.manual_connection
     : null;
 
+function usePingUpdates(vlanId?: string) {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const update = () => {
+      if (!document.hidden) setRevision((value) => value + 1);
+    };
+    const received = (event: Event) => {
+      if (!vlanId || (event as CustomEvent<string>).detail === vlanId) update();
+    };
+    window.addEventListener("netrix:ipam-ping", received);
+    document.addEventListener("visibilitychange", update);
+    const timer = setInterval(update, 10000);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("netrix:ipam-ping", received);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [vlanId]);
+  return revision;
+}
+
 function AddressDetail({ row, close }: { row: Row; close: () => void }) {
-  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id);
+  const pingRevision = usePingUpdates(row.vlan_id);
+  const query = useLiveQuery<Row>("/ipam/addresses/" + row.id, pingRevision);
   const detail = query.data || row;
   const error = query.error;
   const manual = manualConnection(detail);
@@ -559,6 +558,7 @@ export function IPAMWorkspace({
   const [settings, setSettings] = useState<Row | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [job, setJob] = useState<Row | null>(null);
+  const [scanRevision, setScanRevision] = useState(0);
   const [rules, setRules] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
@@ -634,7 +634,13 @@ export function IPAMWorkspace({
   const path = prefix
     ? `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`
     : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
-  const listing = useLiveQuery(path, refresh, undefined, query ? 200 : 0);
+  const pingRevision = usePingUpdates(prefix?.id);
+  const listing = useLiveQuery(
+    path,
+    refresh + pingRevision + scanRevision,
+    undefined,
+    query ? 200 : 0,
+  );
   const latestScan = useLiveQuery<Row | null>(
     prefix ? `/ipam/vlans/${prefix.id}/scan` : null,
     refresh,
@@ -681,7 +687,7 @@ export function IPAMWorkspace({
         const next = await api("/jobs/" + job.id);
         if (active) {
           setJob(next);
-          onSaved();
+          setScanRevision((value) => value + 1);
         }
       } catch (e: any) {
         if (active) setError(e.message);
@@ -692,18 +698,6 @@ export function IPAMWorkspace({
       clearTimeout(timer);
     };
   }, [job]);
-  const trigger = async (action: string) => {
-    if (!prefix) return;
-    setBusy(true);
-    setError("");
-    try {
-      setJob(await api(`/ipam/vlans/${prefix.id}/${action}`, "POST"));
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
     setJob(null);
@@ -860,29 +854,14 @@ export function IPAMWorkspace({
               </span>
             </div>
           </div>
-          {canWrite && (
-            <div className="ipam-scan-actions">
-              <button
-                className="secondary"
-                disabled={busy || jobActive}
-                title="Kayıtlı IP’lere ping gönder"
-                onClick={() => trigger("ping")}
-              >
-                <Waveform size={17} aria-hidden="true" />
-                Ping
-              </button>
-              <button
-                className="primary"
-                disabled={busy || jobActive}
-                aria-busy={busy || jobActive}
-                title="VLAN’ı tara ve kaynak bilgilerini eşleştir"
-                onClick={() => trigger("discover")}
-              >
-                <Broadcast size={17} aria-hidden="true" />
-                Tara
-              </button>
-            </div>
-          )}
+          <div className="ipam-schedule-note">
+            <span>Tam tarama: zamanlama</span>
+            <small>
+              {prefix.ping_enabled
+                ? `Ping: ${prefix.ping_interval || 30} sn`
+                : "Ping kapalı"}
+            </small>
+          </div>
         </section>
       )}
       {prefix && job && job.target_id === prefix.id && (
@@ -1559,7 +1538,9 @@ export function Integrations({
           k,
           k === "username" || k === "password"
             ? ""
-            : (r[k] ?? (integrationDefaults as Row)[k]),
+            : k === "interval_seconds"
+              ? 0
+              : (r[k] ?? (integrationDefaults as Row)[k]),
         ]),
       ),
     );
@@ -1652,36 +1633,11 @@ export function Integrations({
                   <td>
                     {r.host}:{r.port}
                   </td>
-                  <td>
-                    {r.interval_seconds ? `${r.interval_seconds} sn` : "Manuel"}
-                  </td>
+                  <td>Zamanlanmış VLAN taraması</td>
                   <td>{date(r.last_success_at)}</td>
                   <td>
                     {user.role === "admin" && (
                       <div className="ipam-actions">
-                        <button
-                          className="secondary"
-                          disabled={!r.enabled || busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            setError("");
-                            try {
-                              setJob(
-                                await api(
-                                  "/integrations/" + r.id + "/sync",
-                                  "POST",
-                                ),
-                              );
-                            } catch (e: any) {
-                              setError(e.message);
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
-                          <ArrowsClockwise size={16} aria-hidden="true" />
-                          Şimdi eşitle
-                        </button>
                         <button
                           className="icon-button"
                           aria-label={`${r.name} düzenle`}
@@ -1830,18 +1786,10 @@ export function Integrations({
                   </Field>
                 </>
               )}
-              <Field label="Eşitleme aralığı (sn; 0 = manuel)">
-                <input
-                  type="number"
-                  min="0"
-                  max="2592000"
-                  required
-                  value={values.interval_seconds}
-                  onChange={(e) =>
-                    set("interval_seconds", Number(e.target.value))
-                  }
-                />
-              </Field>
+              <p className="ipam-hint">
+                Bu kaynak yalnız Ayarlar → Tarama gruplarının zamanlamasıyla
+                okunur.
+              </p>
               <label className="ipam-check">
                 <input
                   type="checkbox"

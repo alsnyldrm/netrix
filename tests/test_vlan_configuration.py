@@ -7,6 +7,7 @@ from netrix.core import now
 from netrix.identity.security import encrypt
 from netrix.ipam import jobs
 from sqlalchemy import select
+from test_ipam_workspace import timer_job
 
 
 def vlan(client, **extra):
@@ -42,12 +43,12 @@ def snapshot(db, d, content, offset=0):
     return row
 
 
-def test_vlan_owns_ipam_and_queues_without_scope_or_credentials(admin_client, env):
+def test_vlan_owns_ipam_without_scanning_on_save(admin_client, env):
     row = vlan(admin_client)
     with env() as db:
         assert not list(db.scalars(select(m.Scope)))
         job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover"))
-        assert job.target_id == row["id"]
+        assert job is None
         assert not list(db.scalars(select(m.Device)))
     result = admin_client.get("/api/v1/ipam/vlans/" + row["id"] + "/addresses").json()
     assert result["total"] == "4" and len(result["items"]) == 4
@@ -61,9 +62,7 @@ async def test_scan_dns_and_integration_do_not_create_inventory(admin_client, en
     row = vlan(admin_client)
     monkeypatch.setattr(jobs.adapters, "ping", async_value(True))
     monkeypatch.setattr(jobs.adapters, "reverse_dns", async_value("server.example"))
-    with env() as db:
-        job = db.scalar(select(m.Job).where(m.Job.kind == "ipam_discover"))
-        job_id = job.id
+    job_id = timer_job("ipam_discover", row["id"])["id"]
     result = await jobs.scan(job_id)
     assert result["reachable"] == 2
     with env() as db:
@@ -95,7 +94,7 @@ def test_integration_applies_to_all_vlans_without_block_permissions(admin_client
     )
     assert result.status_code == 201, result.text
     assert "prefix_ids" not in result.json() and "vlan_ids" not in result.json()
-    assert admin_client.post("/api/v1/integrations/" + result.json()["id"] + "/sync").status_code == 202
+    assert admin_client.post("/api/v1/integrations/" + result.json()["id"] + "/sync").status_code == 409
 
 
 def test_inventory_accepts_only_its_own_discovered_devices(admin_client, inventory, env):

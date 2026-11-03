@@ -187,7 +187,7 @@ def dispatch_due(at=None):
             for vlan_id in ids:
                 try:
                     with db.begin_nested():
-                        job = enqueue(db, "ipam_discover", vlan_id, commit=False)
+                        job = enqueue(db, "ipam_discover", vlan_id, commit=False, ipam_origin="schedule")
                         vlan = db.get(m.VLAN, vlan_id)
                         jobs.append(
                             {

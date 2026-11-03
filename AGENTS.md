@@ -133,3 +133,11 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 - IPAM, kayıtlı envanter gateway/switch profilleriyle worker'da bağımsız kanıt okuyabilir. Envanter Ağ keşfi sonuçları IPAM'a aktarılmaz; IPAM okuması envanteri ve topolojiyi değiştirmez.
 - VRF/VLAN ve FDB kimliği ayrımını, güncelliği, uplink elemesini, çoklu NIC kanıtını ve çakışmaları koru. Belirsiz cihaz/port adaylarından keyfi seçim yapma.
 - Kaynak sözleşmesinin ayrıntıları ve zorunlu regresyon testleri: [IPAM kaynakları ve eşleştirme](docs/ipam-integrations.md).
+
+## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
+
+- IPAM tam kaynak toplaması yalnız Ayarlar → Tarama gruplarının zamanlamasından başlar. VLAN/IP sayfası açılışı, yenileme, kayıt oluşturma/düzenleme ve manuel API çağrıları tarama ya da entegrasyon eşitlemesi başlatmaz.
+- DNS, VMware, DHCP, gateway ve switch okumaları zamanlanmış tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
+- Ping ayrı periyodik ICMP işidir: varsayılan 30 saniye, yapılandırılabilir en az 10 saniye. Kayıtlı IP'leri kontrol eder; DNS veya başka bir kaynak okumaz. Tarayıcı açık olmasa da çalışır, uzun tam taramayla aynı VLAN üzerinde eşzamanlı yürüyebilir.
+- Ping sonucu açık liste/ayrıntıya WebSocket bildirimiyle yansır. Bağlantı yoksa görünür IPAM ekranı 10 saniyede bir yalnız veritabanından yenilenir; bu yenileme ping veya tam tarama tetiklemez.
+- Bu davranışı doğrularken gerçek ağda tarama/entegrasyon eşitlemesi başlatma; sahte protokol istemcileri ve yerel fixture kullan. Ayrıntılar [IPAM davranışında](docs/ipam-integrations.md).

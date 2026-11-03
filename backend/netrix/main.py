@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import secrets
 import time
@@ -705,7 +706,18 @@ async def websocket(ws: WebSocket):
         while True:
             message = await asyncio.to_thread(sub.get_message, ignore_subscribe_messages=True, timeout=1)
             if message:
-                await ws.send_json({"type": "refresh"})
+                event = {"type": "refresh"}
+                try:
+                    data = json.loads(message.get("data", ""))
+                    if (
+                        isinstance(data, dict)
+                        and data.get("type") == "ipam_ping"
+                        and isinstance(data.get("vlan_id"), str)
+                    ):
+                        event = {"type": "ipam_ping", "vlan_id": data["vlan_id"]}
+                except (ValueError, TypeError):
+                    pass
+                await ws.send_json(event)
             if time.monotonic() - checked > 20:
                 with session_factory()() as db:
                     if not session_user(db, ws.cookies.get("netrix_session")):

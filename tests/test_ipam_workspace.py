@@ -5,11 +5,18 @@ from types import SimpleNamespace
 import pytest
 from conftest import vlan_payload
 from netrix import models as m
-from netrix import worker
-from netrix.core import now
+from netrix import services, worker
+from netrix.core import now, session_factory
 from netrix.identity.security import decrypt
 from netrix.ipam import adapters, service
 from sqlalchemy import func, select
+
+
+def timer_job(kind, target):
+    """Exercise a worker job with trusted scheduler provenance; no external network."""
+    origin = {"ipam_discover": "schedule", "ipam_ping": "ping_timer", "integration": "scheduled_source"}[kind]
+    with session_factory()() as db:
+        return services.serialize(services.enqueue(db, kind, target, ipam_origin=origin))
 
 
 def prefix(client, inventory, cidr="192.0.2.0/30"):
@@ -64,7 +71,7 @@ def test_all_addresses_ipv6_and_managed_metadata(admin_client, inventory):
 def test_vlan_settings_ignore_inventory_exclusions_and_deduplicate(admin_client, inventory, env):
     c = admin_client
     p = prefix(c, inventory)
-    assert c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").status_code == 202
+    assert c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").status_code == 409
     assert c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"ping_enabled": True}).status_code == 200
     assert (
         c.put(
@@ -72,7 +79,7 @@ def test_vlan_settings_ignore_inventory_exclusions_and_deduplicate(admin_client,
             json={
                 "warning_threshold": 50,
                 "ping_enabled": True,
-                "discovery_enabled": True,
+                "discovery_enabled": False,
             },
         ).status_code
         == 200
@@ -82,8 +89,8 @@ def test_vlan_settings_ignore_inventory_exclusions_and_deduplicate(admin_client,
         scope.exclusions = ["192.0.2.2/32"]
         db.commit()
         assert service.targets(db, db.get(m.VLAN, p["id"]), True) == ["192.0.2.1", "192.0.2.2"]
-    a = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
-    b = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    a = timer_job("ipam_discover", p["id"])
+    b = timer_job("ipam_discover", p["id"])
     assert a["id"] == b["id"]
     c.post("/api/v1/addresses", json={"address": "192.0.2.1", "vlan_id": p["id"], "vrf_id": p["vrf_id"]})
     assert c.get("/api/v1/vlans").json()["items"][0]["threshold_exceeded"] is False
@@ -116,7 +123,7 @@ async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(
 
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns_query)
-    job = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    job = timer_job("ipam_discover", p["id"])
     await worker.execute(job["id"])
     result = c.get("/api/v1/jobs/" + job["id"]).json()
     assert result["status"] == "succeeded", result
@@ -169,13 +176,13 @@ async def test_integration_atomic_scope_manual_preservation_and_idempotency(
 
     monkeypatch.setattr(adapters, "vcenter_records", reader)
     for _ in range(2):
-        job = c.post("/api/v1/integrations/" + config["id"] + "/sync").json()
+        job = timer_job("integration", config["id"])
         await worker.execute(job["id"])
         result = c.get("/api/v1/jobs/" + job["id"]).json()
         assert result["status"] == "succeeded", result
         assert result["result"]["outside_vlans"] == 1
     value = c.get("/api/v1/ipam/addresses/" + row["id"]).json()
-    assert value["hostname"] == "" and value["operating_system"] == "Linux"
+    assert value["hostname"] == "managed" and value["operating_system"] == "managed-os"
     assert value["managed"]["hostname"] == "managed" and value["managed"]["operating_system"] == "managed-os"
     assert value["observations"][0]["data"]["hostname"] == "observed"
     assert len(value["integrations"]) == 1
@@ -281,7 +288,7 @@ async def test_scan_cancel_does_not_start_ping(admin_client, inventory, env, mon
     c = admin_client
     p = prefix(c, inventory)
     c.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={})
-    job = c.post(f"/api/v1/ipam/vlans/{p['id']}/discover").json()
+    job = timer_job("ipam_discover", p["id"])
     c.post("/api/v1/jobs/" + job["id"] + "/cancel")
 
     async def forbidden(address):
@@ -327,12 +334,11 @@ async def test_dhcp_reservation_matches_vcenter_mac_without_guest_ip(
             }
         ],
     )
-    task = c.post("/api/v1/integrations/" + dhcp["id"] + "/sync").json()
+    task = timer_job("integration", dhcp["id"])
     await worker.execute(task["id"])
     with env() as db:
-        followup = db.scalar(select(m.Job).where(m.Job.target_id == vc["id"]))
-        assert followup and followup.status == "queued"
-        followup_id = followup.id
+        assert db.scalar(select(m.Job).where(m.Job.target_id == vc["id"])) is None
+    followup_id = timer_job("integration", vc["id"])["id"]
     await worker.execute(followup_id)
     result = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["items"]
     assert len(result) == 1 and result[0]["status"] == "reserved"
@@ -396,14 +402,14 @@ def test_integration_settings_keep_encrypted_credentials(admin_client, inventory
         key: config[key]
         for key in ("name", "kind", "host", "port", "enabled", "verify_tls", "interval_seconds")
     }
-    payload.update(name="Updated integration", interval_seconds=120, username="", password="")
+    payload.update(name="Updated integration", interval_seconds=0, username="", password="")
     url = "/api/v1/integrations/" + config["id"]
     response = admin_client.put(url, json=payload)
     assert response.status_code == 200, response.text
     with env() as db:
         stored = db.get(m.Integration, config["id"])
         assert stored.encrypted_secret == original
-        assert stored.interval_seconds == 120
+        assert stored.interval_seconds == 0
     # A partial credential replacement must not erase either saved value.
     assert admin_client.put(url, json={**payload, "username": "replacement"}).status_code == 422
     with env() as db:

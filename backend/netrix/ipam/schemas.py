@@ -40,9 +40,9 @@ class DNSInput(Input):
 class VLANSettings(Input):
     dns_server_id: str | None = None
     warning_threshold: int = Field(default=80, ge=1, le=100)
-    ping_enabled: bool = False
-    ping_interval: int = Field(default=300, ge=30, le=86400)
-    discovery_enabled: bool = False
+    ping_enabled: bool = True
+    ping_interval: int = Field(default=30, ge=10, le=86400)
+    discovery_enabled: Literal[False] = False
     discovery_interval: int = Field(default=3600, ge=60, le=2592000)
 
 
@@ -55,7 +55,7 @@ class IntegrationInput(Input):
     password: str = Field(default="", max_length=2000)
     enabled: bool = False
     verify_tls: bool = True
-    interval_seconds: int = Field(default=0, ge=0, le=2592000)
+    interval_seconds: Literal[0] = 0
 
     @field_validator("host")
     @classmethod
