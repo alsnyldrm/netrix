@@ -747,3 +747,33 @@ class AccessGroupDevice(Base):
             ondelete="CASCADE",
         ),
     )
+
+
+class SwitchMacSnapshot(Entity, Base):
+    __tablename__ = "switch_mac_snapshots"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), unique=True)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    observed_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    attempted_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    healthy: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_class: Mapped[str] = mapped_column(String(80), default="")
+    entry_count: Mapped[int] = mapped_column(Integer, default=0)
+    read_context: Mapped[list] = mapped_column(JSON, default=list)
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    __table_args__ = (CheckConstraint("entry_count >= 0", name="ck_switch_mac_count"),)
+
+
+class SwitchMacEntry(Entity, Base):
+    __tablename__ = "switch_mac_entries"
+    snapshot_id: Mapped[str] = mapped_column(ForeignKey("switch_mac_snapshots.id", ondelete="CASCADE"))
+    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"))
+    vlan_vid: Mapped[int] = mapped_column(Integer)
+    mac_address: Mapped[str] = mapped_column(String(17))
+    port: Mapped[str] = mapped_column(String(190))
+    if_index: Mapped[int] = mapped_column(Integer)
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "vlan_vid", "mac_address", "port", name="uq_switch_mac_binding"),
+        Index("ix_switch_mac_lookup", "vrf_id", "vlan_vid", "mac_address"),
+        CheckConstraint("vlan_vid >= 1 AND vlan_vid <= 4094", name="ck_switch_mac_vlan"),
+        CheckConstraint("if_index > 0", name="ck_switch_mac_ifindex"),
+    )

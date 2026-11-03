@@ -193,6 +193,10 @@ Proje sahibinin mevcut Sunucu Odası için istediği L-0/A ve aktif kabinet atam
 
 ## VLAN tam tarama grupları — 3 Kasım 2026
 
+### Bağımsız switch MAC önbelleği
+
+Alembic `20261103_44`, `switch_mac_snapshots` ve `switch_mac_entries` tablolarını ekler. Snapshot switch başına UNIQUE `device_id`, son iş FK'si, UTC `DATETIME(6)` gözlem/deneme zamanları, sağlık/hata sınıfı, kaynak bağlamı ve eksiksiz protokol kanıtını tutar. Switch silinince snapshot ve bağları CASCADE; iş silinince snapshot'ın `job_id` alanı SET NULL olur. Bağ tablosunda VRF FK, VLAN VID, normalize MAC, port adı ve ifIndex bulunur. `UNIQUE(snapshot_id,vlan_vid,mac_address,port)` aynı bağın çoğalmasını önler; `(vrf_id,vlan_vid,mac_address)` indeksi salt okunur IPAM fallback aramasını karşılar. VID/ifIndex/satır sayısı CHECK kısıtlarıyla doğrulanır. Önceki başarısız snapshot satırları silinmez; sağlık ve yedi saatlik tazelik koşullarıyla kullanımdan çıkarılır. Migration ağ okuması veya backfill yapmaz; snapshot varken veri kaybettirecek downgrade'i durdurur. Takvim ve eşleştirme kuralları [IPAM kaynakları ve eşleştirme](ipam-integrations.md#bağımsız-switch-mac-önbelleği--3-kasım-2026) belgesindedir.
+
 Alembic `20261103_35`, `ipam_scan_groups` (takvim, başlangıç/sonraki UTC zamanları, sayaç, sınır ve sürüm), `ipam_scan_members` (grup/VLAN FK; VLAN başına UNIQUE) ve `ipam_scan_runs` (sürüm/tarih başına UNIQUE, iş kimlikleri ve başarısız dağıtım nedenleri JSON) tablolarını ekler. Grup/VLAN silinmesinde üyelikler, grup silinmesinde dağıtım geçmişi CASCADE ile temizlenir; asıl VLAN işleri bağımsız korunur. Etkinlik/sonraki zaman indeksi zamanı gelmiş grupları seçer. Tarih hesapları yerel takvimden UTC'ye çevrilir; süre sınırları CHECK ve Pydantic ile doğrulanır. Grup varken veri kaybettiren downgrade engellenir. Davranış ve API sözleşmesi [IPAM kaynakları ve eşleştirme](ipam-integrations.md) belgesindedir.
 
 ## Firmware — 2 Kasım 2026

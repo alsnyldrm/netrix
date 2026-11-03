@@ -205,15 +205,15 @@ _projections_lock = threading.Lock()
 PROJECTION_CACHE_LIMIT = 1024
 
 
-def projections(db, rows):
+def projections(db, rows, *, model=m.Observation):
     keys = {row.id: (row.id, row.updated_at) for row in rows}
     with _projections_lock:
         found = {id: _projections[key] for id, key in keys.items() if key in _projections}
     missing = [id for id in keys if id not in found]
     for start in range(0, len(missing), 50):
         for row in db.execute(
-            select(m.Observation.id, m.Observation.updated_at, m.Observation.evidence).where(
-                m.Observation.id.in_(missing[start : start + 50])
+            select(model.id, model.updated_at, model.evidence).where(
+                model.id.in_(missing[start : start + 50])
             )
         ):
             projected = project(row.evidence or {})
@@ -296,12 +296,16 @@ class Evidence:
                 )
             )
         )
-        from ..discovery.link_deletions import matches as excluded_match
 
         for link in db.scalars(
             select(m.Link).where(m.Link.device_id.in_(self.devices), m.Link.auto_add_excluded.is_(True))
         ):
             self.exclusions[(link.device_id, link.interface_name)].append(link)
+        self.refresh_neighbors()
+
+    def refresh_neighbors(self):
+        from ..discovery.link_deletions import matches as excluded_match
+
         for id, (obs, projected) in self.snapshots.items():
             accepted = []
             excluded_rows = []

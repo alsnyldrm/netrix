@@ -136,6 +136,8 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 ## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
 
+- Ek switch MAC önbelleği, proje sahibinin yeni talebiyle tam VLAN taramasından bağımsız olarak Türkiye saatiyle 00:00/06:00/12:00/18:00'de ve yetkili kullanıcının açık eylemiyle toplanır. Mevcut eşleştirme önceliklidir; yeni tablo yalnız kanıtlı gateway MAC'i bulunan ve mevcut bağlantısı olmayan IP'lerde kullanılır. Bu akışı değiştirirken [switch MAC önbelleği sözleşmesini](docs/ipam-integrations.md#bağımsız-switch-mac-önbelleği--3-kasım-2026) oku. Sayfa açılışı pasif kalır.
+
 - IPAM tam kaynak toplaması Ayarlar → Tarama gruplarının zamanlaması veya yetkili kullanıcının VLAN içindeki **Tara** düğmesiyle başlar. VLAN/IP sayfası açılışı, yenileme ve mevcut kayıtları düzenleme tarama başlatmaz. Yeni VLAN oluşturulduğunda ilk tam tarama aynı transaction içinde bir kez kuyruğa eklenir; API kaynak okumalarını beklemez.
 - DNS, VMware, DHCP, gateway ve switch okumaları tam taramanın kaynak işleridir. Bağımsız entegrasyon aralıkları ve eski VLAN keşif aralıkları kullanılmaz.
 - VLAN içindeki **Ping** düğmesi yetkili kullanıcının kayıtlı IP’ler için yalnız ICMP işi başlatmasını sağlar. Ping ayrıca ayrı periyodik ICMP işidir: varsayılan 30 saniye, yapılandırılabilir en az 10 saniye. Kayıtlı IP'leri kontrol eder; DNS veya başka bir kaynak okumaz. Tarayıcı açık olmasa da çalışır, uzun tam taramayla aynı VLAN üzerinde eşzamanlı yürüyebilir.

@@ -575,8 +575,10 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     from .configuration.management import compare_live
     from .ipam.jobs import KINDS
     from .ipam.jobs import execute as execute_ipam
+    from .ipam.mac_cache import KIND as MAC_KIND
+    from .ipam.mac_cache import scan as scan_macs
 
-    if kind not in (*KINDS, "compare", "discovery", "identify", "backup", *CONNECTION_TESTS):
+    if kind not in (*KINDS, MAC_KIND, "compare", "discovery", "identify", "backup", *CONNECTION_TESTS):
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
             job.status, job.active_key, job.finished_at = "cancelled", None, now()
@@ -585,7 +587,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         return
 
     task = asyncio.create_task(
-        execute_ipam(job_id, kind, collector)
+        scan_macs(job_id, collector)
+        if kind == MAC_KIND
+        else execute_ipam(job_id, kind, collector)
         if kind in KINDS
         else compare_live(job_id)
         if kind == "compare"
@@ -637,6 +641,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.error = "" if complete else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
+            elif kind == MAC_KIND and result.get("failed"):
+                job.status = "partial" if result.get("read") else "failed"
+                job.error = "Bazı switch MAC kaynakları okunamadı; kaynak ve SNMP profillerini kontrol edin."
             elif kind == "ipam_discover" and (
                 (result.get("network") or {}).get("failed") or result.get("source_failed")
             ):

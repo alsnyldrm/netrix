@@ -35,6 +35,7 @@ const sourceName = (v: string) =>
     windows_dhcp: "Windows DHCP",
     dns: "DNS",
     icmp: "Ping",
+    switch_mac_cache: "Switch MAC tablosu",
     gateway: "Gateway ARP/NDP",
     neighbors: "Komşuluklar",
     "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
@@ -206,7 +207,12 @@ function useIPAMUpdates(vlanId?: string) {
       if (!document.hidden) setRevision((value) => value + 1);
     };
     const received = (event: Event) => {
-      if (!vlanId || (event as CustomEvent<string>).detail === vlanId) update();
+      if (
+        !vlanId ||
+        (event as CustomEvent<string>).detail === vlanId ||
+        (event as CustomEvent<string>).detail === "*"
+      )
+        update();
     };
     window.addEventListener("netrix:ipam-update", received);
     document.addEventListener("visibilitychange", update);

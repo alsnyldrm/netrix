@@ -33,6 +33,10 @@ def tick(*, include_ping=True):
     if include_ping:
         dispatch_pings()
     dispatch_due()
+    from .ipam.mac_cache import enqueue as enqueue_switch_macs
+
+    with session_factory()() as db:
+        enqueue_switch_macs(db, scheduled_at=now())
     with session_factory()() as db:
         for scope in db.scalars(
             select(m.Scope).where(m.Scope.enabled.is_(True), m.Scope.interval_seconds > 0)

@@ -126,6 +126,9 @@ class SNMPCollector:
     async def ipam(self, host, port, secret):
         return await self._collect(host, port, secret, ipam_only=True)
 
+    async def switch_macs(self, host, port, secret):
+        return await self._collect(host, port, secret, ipam_only=True, mac_only=True)
+
     async def collect(self, host, port, secret):
         return await self._collect(host, port, secret)
 
@@ -150,6 +153,7 @@ class SNMPCollector:
         probe_only=False,
         fast_probe=False,
         ipam_only=False,
+        mac_only=False,
         version_only=False,
     ):
         snmp = SnmpEngine()
@@ -173,7 +177,10 @@ class SNMPCollector:
             context = ContextData()
             tables, unsupported = {}, []
             async with asyncio.timeout(30 if version_only else 180):
-                system_oids = {**SYSTEM, **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only else {})}
+                system_oids = {
+                    **SYSTEM,
+                    **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only and not mac_only else {}),
+                }
                 error, status, _, values = await get_cmd(
                     snmp,
                     auth,
@@ -211,8 +218,13 @@ class SNMPCollector:
                     fields = snmp_identity(system, {})
                     if fields.get("software_version"):
                         return {"identity": {"software_version": fields["software_version"]}}
-                limit = 16384 if ipam_only else 2048
-                for key, oid in (IPAM_TABLES if ipam_only else TABLES).items():
+                limit = 65536 if mac_only else 16384 if ipam_only else 2048
+                selected_tables = IPAM_TABLES if ipam_only else TABLES
+                if mac_only:
+                    selected_tables = {
+                        k: v for k, v in selected_tables.items() if not k.startswith(("arp_", "ndp_", "ip_"))
+                    }
+                for key, oid in selected_tables.items():
                     if version_only and key not in ("entity_class", "entity_software"):
                         continue
                     if identity_only and not key.startswith("entity_"):
@@ -243,6 +255,8 @@ class SNMPCollector:
                                 continue
                             index = str(binding[0])[len(oid) + 1 :]
                             table[index] = binding[1]
+                    if mac_only and len(table) >= limit:
+                        unsupported.append(key)
                     tables[key] = table
                 for key, table in tables.items():
                     if len(table) >= limit:
@@ -278,7 +292,7 @@ class SNMPCollector:
                         for i, v in tables[key].items()
                     }
                     for key in (
-                        tuple(IPAM_TABLES)
+                        tuple(selected_tables)
                         if ipam_only
                         else ("arp_mac", "ndp_mac", "fdb_port", "bridge_ifindex", "vlan_fdb_port")
                     )

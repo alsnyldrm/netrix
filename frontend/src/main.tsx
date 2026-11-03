@@ -943,6 +943,7 @@ const LABELS: Record<string, string> = {
   compare: "Aktif config karşılaştırması",
   integration: "Entegrasyon eşitleme",
   ipam_ping: "IP durum kontrolü",
+  switch_mac_scan: "Switch MAC tablosu taraması",
   ipam_discover: "Yeni IP keşfi",
   inventory_import: "Envanter gözlem aktarımı",
   identify: "Cihaz bilgisi sorgusu",

@@ -533,9 +533,6 @@ def enrich(db, rows, *, details=True, include_options=False):
             from .jobs import connection_options
 
             item.update(connection_options(db, row, obs=vm_observations))
-        if not details:
-            item.pop("connections", None)
-            item.pop("gateway_evidence", None)
         item["sources"] = sorted(
             set(item["sources"])
             | ({"gateway"} if physical["gateway_evidence"] else set())
@@ -562,6 +559,13 @@ def enrich(db, rows, *, details=True, include_options=False):
         item["cidr"] = prefixes[row.vlan_id].cidr
         item["availability"] = ping_availability(obs)
         result.append(item)
+    from .mac_cache import fallback
+
+    result = fallback(db, rows, result, prefixes, network_evidence)
+    if not details:
+        for item in result:
+            item.pop("connections", None)
+            item.pop("gateway_evidence", None)
     return result
 
 
