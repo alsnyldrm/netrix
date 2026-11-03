@@ -351,6 +351,31 @@ def vmware_observations(obs, hostname, address, physical):
     ], ""
 
 
+def dhcp_hostname(obs, identity_mac):
+    """Display a current DHCP name only when its client MAC agrees with proven identity."""
+    if not identity_mac:
+        return ""
+    current = [
+        o
+        for o in obs
+        if o.source == "windows_dhcp"
+        and o.observed_at >= now() - timedelta(hours=24)
+        and o.data.get("present", True)
+        and (
+            o.data.get("reserved") is True
+            or str(o.data.get("lease_state") or "").strip().casefold() in ("active", "activereservation")
+        )
+    ]
+    if {normalized_mac(o.data.get("mac_address")) for o in current} != {identity_mac}:
+        return ""
+    names = {}
+    for observation in sorted(current, key=lambda o: o.observed_at, reverse=True):
+        name = (observation.data.get("hostname") or "").strip().rstrip(".")
+        if name:
+            names.setdefault(normalized_hostname(name), name)
+    return next(iter(names.values())) if len(names) == 1 else ""
+
+
 def enrich(db, rows, *, details=True, include_options=False):
     from .racks import address_locations, manual_location, position_label
 
@@ -480,6 +505,10 @@ def enrich(db, rows, *, details=True, include_options=False):
             if len(names) == 1:
                 item["hostname"] = next(iter(names.values()))
                 hostname_source = "vcenter"
+        if not item["hostname"] and not item["mac_conflict"]:
+            item["hostname"] = dhcp_hostname(obs, item["mac_address"])
+            if item["hostname"]:
+                hostname_source = "windows_dhcp"
         item["field_sources"] = {
             "hostname": hostname_source,
             "mac_address": "vcenter" if vm_mac else "gateway" if item["mac_address"] else "",

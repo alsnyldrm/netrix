@@ -16,17 +16,23 @@ IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu
 
 | IP alanı | Otomatik kaynak |
 | --- | --- |
-| Hostname | Önce VLAN'ın seçili DNS kaynağı (seçim yoksa sistem PTR); DNS adı yoksa güncel, tekil IP/NIC ile doğrulanmış VMware VM adı |
+| Hostname | Önce VLAN'ın seçili DNS kaynağı (seçim yoksa sistem PTR); DNS adı yoksa güncel, tekil IP/NIC ile doğrulanmış VMware VM adı; o da yoksa kanıtlı MAC ile eşleşen DHCP adı |
 | MAC | DNS hostname'i veya açık guest IP ile doğrulanan tekil VMware VM/NIC; bu eşleşme yoksa aynı VRF ve VLAN CIDR'ına doğrudan bağlı gateway arayüzünün ARP/NDP tablosu |
 | Bağlı cihaz / Port | Bağlantı → Komşuluklar'ın güncel LLDP/CDP kanıtı; gateway MAC'i ile VLAN'a ait switch FDB eşleştirmesi; VMware VM'lerinde entegrasyonun doğruladığı sanal switch/NIC portu |
 | İşletim sistemi | Yönetim → Entegrasyonlar → VMware |
 | Kabin No | Aynı VRF/IP ile cihazın kendi kabinet yerleşimi; oda katı/bölümü/kabinet numarası/başlangıç U (`L-0/A/4/13U`) |
 
-DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. DHCP ismi ve doğrulanmamış VMware adı DNS yerine; DHCP MAC'i otomatik MAC alanında; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. DNS hostname'i veya çelişkisiz doğrudan guest IP VMware'de tekil VM/NIC olarak doğrulanırsa MAC önceliği VMware'dedir; bu istisnalar dışındaki kayıtlar gateway kuralını kullanır. Kaynağı olmayan otomatik değer boştur.
+DHCP kiralamaları/rezervasyonları IP kaydı ve VMware NIC eşleşmesi için yardımcı kanıttır. Doğrulanmamış DHCP/VMware adı DNS yerine; DHCP MAC'i otomatik MAC alanında; cihaz adına bakılarak tahmin edilmiş bir işletim sistemi VMware yerine gösterilmez. DNS hostname'i veya çelişkisiz doğrudan guest IP VMware'de tekil VM/NIC olarak doğrulanırsa MAC önceliği VMware'dedir; bu istisnalar dışındaki kayıtlar gateway kuralını kullanır. Kaynağı olmayan otomatik değer boştur.
 
 ### DNS adı olmayan doğrulanmış VM — 3 Kasım 2026
 
 Kullanıcının yeni talebiyle DNS gözlemi boş, olumsuz, bulunamıyor veya süresi dolmuşsa doğrulanmış VM/NIC gözlemindeki ad otomatik Hostname alanında gösterilir (`field_sources.hostname=vcenter`). Bunun için MAC seçiminde kullanılan güncel ve çelişkisiz doğrudan guest IP kanıtı gerekir; aynı seçilmiş NIC'in adları normalize edildiğinde tekil olmalıdır. Sadece kaynak gözlemleri tablosunda görünen, eski, emekliye ayrılmış veya başka IP'den `matched_by` ile taşınmış bir ad bu önceliği kazanmaz. DNS adı yeniden bulunduğunda DNS, manuel ad girildiğinde manuel değer önceliklidir. VMware adı DNS eşleştirmesine veya yönetilen `ip_addresses.hostname` alanına kopyalanmaz; IP/NIC çözümlemesi fallback adı uygulanmadan tamamlanır. Liste, ayrıntı, genel arama ve gelişmiş filtre aynı türetilmiş Hostname/MAC/OS değerlerini kullanır. Mevcut kayıtlar yeniden tarama gerektirmeden düzelir; sonraki zamanlanmış snapshot'ta kaybolan/çelişen VM kanıtı fallback adı geçersiz kılar. Fiziksel ESXi hostunun DNS sözleşmesi değişmez.
+
+### DHCP adı ve Q-BRIDGE portu — 3 Kasım 2026
+
+DNS ve doğrulanmış VMware adı yokken, güncel DHCP rezervasyonu veya `Active`/`ActiveReservation` kiralamasının adı gösterilir. DHCP'nin geçerli MAC'i mevcut otomatik gateway/VMware kimliğiyle eşleşmeli; birden fazla DHCP kaynağındaki MAC/ad çakışmasında ad seçilmez. Eski, `present=false`, süresi dolmuş/pasif kiralama ve kanıtsız DHCP MAC'i hostname kaynağı değildir. Kaynak `windows_dhcp` olarak işaretlenir; MAC gateway/VMware'den, işletim sistemi VMware'den gelmeye devam eder. Manuel/DNS/VMware ad önceliği korunur. Gelecek zamanlanmış DHCP snapshot'ları kaybolan kayıtları emekliye ayırır; adlar manuel alanlara kopyalanmaz.
+
+Q-BRIDGE `other(1)` durumu tek başına geçersiz kayıt değildir: [RFC 4363, dot1qTpFdbPort/dot1qTpFdbStatus](https://www.rfc-editor.org/rfc/rfc4363.html#page-50) açık, sıfır olmayan port değerinin learned(3) dışındaki durumlarda da bildirilmesine izin verir. `other(1)`, learned(3) ve mgmt(5) kayıtları ancak geçerli bridge port (1–65535), açık/adı çözülmüş arayüz, tekil VLAN→FDB eşlemesi ve güncel eksiksiz snapshot ile değerlendirilir. Invalid(2), self(4), eksik/bilinmeyen durumlar kullanılmaz. `other(1)` MAC'leri portun MAC nüfusuna da katılır; çok MAC'li/transit port tek uç gibi seçilmez. Komşuluk/uplink elemesi ve bağımsız aday çakışması korunur. Değişiklik mevcut kayıtlı switch tablolarını da doğru yorumlar; yeni kaynak sorgusu başlatmaz. Sonraki okuma yalnız grup zamanlamasıyla worker'da yapılır. Regresyonlar: `test_ipam_dhcp_switch.py`, `test_ipam_source_contract.py`, `test_ipam_network_worker.py`.
 
 ### Manuel bilgilerin gösterimi — 3 Kasım 2026
 

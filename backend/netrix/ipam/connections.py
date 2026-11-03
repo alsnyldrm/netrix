@@ -115,7 +115,11 @@ def project(evidence):
         for index, bridge in tables.get("vlan_fdb_port", {}).items():
             try:
                 fid, *octets = index.split(".")
-                if len(octets) != 6 or tables.get("vlan_fdb_status", {}).get(index) not in ("3", "5"):
+                # RFC 4363 permits a learned port even with status other(1).
+                # Invalid(2), self(4) and unknown/missing statuses prove no endpoint.
+                if len(octets) != 6 or tables.get("vlan_fdb_status", {}).get(index) not in ("1", "3", "5"):
+                    continue
+                if not (1 <= (integer(bridge) or 0) <= 65535):
                     continue
                 mac = bytes(int(v) for v in octets).hex(":")
                 interface = interfaces.get(integer(tables.get("bridge_ifindex", {}).get(str(bridge))))
