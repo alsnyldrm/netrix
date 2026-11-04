@@ -120,6 +120,7 @@ def test_viewer_cannot_assign(admin_client, allocation, env):
         db.scalar(select(m.User)).role = "viewer"
         db.commit()
     assert admin_client.get(path(allocation)).status_code == 200
+    assert admin_client.get(path(allocation, "inspection")).status_code == 200
     assert (
         admin_client.post(
             path(allocation, "addresses"),
@@ -131,3 +132,48 @@ def test_viewer_cannot_assign(admin_client, allocation, env):
         ).status_code
         == 403
     )
+
+
+def test_inspection_agrees_with_vacant_choices_and_refreshes_ping(admin_client, allocation, env):
+    url = path(allocation, "inspection")
+    page = admin_client.get(url).json()
+    assert page["capacity"] == "6" and page["occupied"] == 3 and page["free"] == 3
+    assert [r["address"] for r in page["items"] if r["state"] == "occupied"] == [
+        "192.0.2.1",
+        "192.0.2.3",
+        "192.0.2.4",
+    ]
+    free = admin_client.get(path(allocation)).json()["items"]
+    assert {r["address"] for r in free} == {r["address"] for r in page["items"] if r["state"] == "free"}
+    assert page["items"][0]["id"] and page["items"][-1]["id"] is None
+    with env() as db:
+        vlan = db.get(m.VLAN, allocation["id"])
+        observe(db, vlan, "192.0.2.2", "icmp", vlan.id, {"reachability": "reachable"})
+        db.commit()
+    assert admin_client.get(url).json()["items"][1]["state"] == "occupied"
+    assert admin_client.get(url, params={"limit": 2}).json()["next_offset"] == "3"
+    assert admin_client.get(url, params={"limit": 2, "offset": "3"}).json()["previous_offset"] == "1"
+    for params in (
+        {"offset": "-1"},
+        {"offset": "999"},
+        {"offset": "²"},
+        {"limit": 257},
+        {"address": "bad"},
+        {"address": "198.51.100.1"},
+    ):
+        assert admin_client.get(url, params=params).status_code == 422
+    with env() as db:
+        assert db.scalar(select(func.count()).select_from(m.Job)) == 0
+
+
+def test_inspection_ipv6_page_and_exact_jump_are_bounded(admin_client, allocation, env):
+    with env() as db:
+        db.get(m.VLAN, allocation["id"]).cidr = "2001:db8::/64"
+        db.commit()
+    url = path(allocation, "inspection")
+    first = admin_client.get(url).json()
+    assert first["capacity"] == str(2**64) and len(first["items"]) == 256
+    assert first["next_offset"] == "256"
+    address = "2001:db8::ffff:fffe"
+    jump = admin_client.get(url, params={"address": address}).json()
+    assert len(jump["items"]) == 256 and any(r["address"] == address for r in jump["items"])

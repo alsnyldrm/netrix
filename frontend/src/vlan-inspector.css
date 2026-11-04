@@ -1,0 +1,139 @@
+/* UI UX Pro Max: aligned compact address matrix, explicit state and responsive targets. */
+.vlan-inspector {
+  display: grid;
+  gap: 16px;
+  padding: 20px 22px 22px;
+  min-width: 0;
+}
+.vlan-inspector-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.vlan-inspector-select,
+.vlan-inspector-search {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.vlan-inspector-tools label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.dialog form.vlan-inspector-search {
+  padding: 0;
+  gap: 8px;
+}
+.vlan-inspector-search > div {
+  display: flex;
+  gap: 8px;
+}
+.vlan-inspector-search input {
+  min-width: 0;
+  flex: 1;
+}
+.vlan-inspector-tools input {
+  height: 40px;
+}
+.vlan-inspector-search button {
+  height: 40px;
+  width: 40px;
+  flex-shrink: 0;
+  padding: 0;
+}
+.vlan-inspector-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+}
+.vlan-inspector-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+.vlan-inspector-legend small {
+  color: var(--text-2);
+}
+.vlan-inspector .inspector-free {
+  color: var(--success);
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+}
+.vlan-inspector .inspector-occupied {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+}
+.vlan-inspector-range {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.vlan-inspector-range span {
+  color: var(--text-2);
+}
+.vlan-address-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+  max-height: 50dvh;
+  overflow: auto;
+  padding: 3px;
+  align-content: start;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.vlan-address-tile {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 0;
+  height: 38px;
+  min-width: 0;
+  padding: 2px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.vlan-address-tile > span {
+  font-size: 9px;
+  line-height: 10px;
+}
+.vlan-address-tile:hover {
+  filter: brightness(1.15);
+}
+.vlan-address-tile:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.vlan-inspector-pages {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+@media (max-width: 600px) {
+  .vlan-inspector {
+    padding: 16px;
+  }
+  .vlan-inspector-tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .vlan-address-grid {
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+    max-height: min(50dvh, max(132px, calc(100dvh - 480px)));
+  }
+  .vlan-address-tile {
+    height: 44px;
+  }
+}

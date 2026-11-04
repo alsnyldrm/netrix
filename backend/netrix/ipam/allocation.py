@@ -20,8 +20,7 @@ def bounds(vlan):
     return network, int(trim), network.num_addresses - int(trim)
 
 
-def available(db, vlan, *, offset=0, limit=100, q=""):
-    network, first, stop = bounds(vlan)
+def occupancy(db, vlan):
     rows = list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == vlan.id)))
     latest = {}
     for address_id, data in db.execute(
@@ -45,6 +44,12 @@ def available(db, vlan, *, offset=0, limit=100, q=""):
             and latest.get(r.id, {}).get("reachability") == "reachable"
         )
     }
+    return {r.address: r for r in rows}, blocked
+
+
+def available(db, vlan, *, offset=0, limit=100, q=""):
+    network, first, stop = bounds(vlan)
+    _, blocked = occupancy(db, vlan)
     q = q.strip().lower()
     if q:
         try:
@@ -67,6 +72,40 @@ def available(db, vlan, *, offset=0, limit=100, q=""):
         if address not in blocked and (not q or address.startswith(q)):
             items.append({"address": address})
     return {"items": items, "next_offset": str(cursor) if cursor < stop else None}
+
+
+def inspection(db, vlan, *, offset=0, limit=256, address=""):
+    network, first, stop = bounds(vlan)
+    cursor = max(first, offset)
+    if address:
+        try:
+            target = ipaddress.ip_address(address.strip())
+            index = int(target) - int(network.network_address)
+            if target not in network or not first <= index < stop:
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(422, "Bu VLAN içinde kullanılabilir bir IP adresi girin") from None
+        cursor = first + ((index - first) // limit) * limit
+    if cursor >= stop:
+        raise HTTPException(422, "Adres başlangıcı VLAN dışında")
+    rows, blocked = occupancy(db, vlan)
+    items = []
+    for index in range(cursor, min(cursor + limit, stop)):
+        ip = str(network[index])
+        row = rows.get(ip)
+        items.append(
+            {"address": ip, "id": row.id if row else None, "state": "occupied" if ip in blocked else "free"}
+        )
+    used = sum(i["state"] == "occupied" for i in items)
+    return {
+        "items": items,
+        "capacity": str(stop - first),
+        "offset": str(cursor),
+        "next_offset": str(cursor + limit) if cursor + limit < stop else None,
+        "previous_offset": str(max(first, cursor - limit)) if cursor > first else None,
+        "occupied": used,
+        "free": len(items) - used,
+    }
 
 
 def assign(db, vlan, payload, user):

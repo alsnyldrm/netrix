@@ -87,7 +87,7 @@ const manualConnection = (row: Row) =>
     ? row.manual_connection
     : null;
 
-function useIPAMUpdates(vlanId?: string) {
+export function useIPAMUpdates(vlanId?: string) {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const update = () => {
@@ -113,7 +113,7 @@ function useIPAMUpdates(vlanId?: string) {
   return revision;
 }
 
-function AddressDetail({
+export function AddressDetail({
   row,
   close,
   user,

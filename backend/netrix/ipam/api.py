@@ -24,6 +24,22 @@ from .schemas import (
 router = APIRouter(prefix="/api/v1")
 
 
+@router.get("/ipam/vlans/{id}/inspection")
+def inspect_vlan(
+    id: str,
+    offset: str = "0",
+    limit: int = Query(256, ge=1, le=256),
+    address: str = Query("", max_length=45),
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    from .allocation import inspection
+
+    if not offset.isascii() or not offset.isdecimal() or len(offset) > 40:
+        raise HTTPException(422, "Geçersiz adres başlangıcı")
+    return inspection(db, svc.get(db, m.VLAN, id), offset=int(offset), limit=limit, address=address)
+
+
 @router.get("/ipam/vlans/{id}/available-addresses")
 def available_addresses(
     id: str,

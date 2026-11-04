@@ -23,6 +23,7 @@ import {
 } from "./data";
 import { WorkspaceSearch } from "./workspace-search";
 import { AvailableIPChoice } from "./available-ip-choice";
+import { VLANInspector } from "./vlan-inspector";
 export { api } from "./data";
 import { JobDetails } from "./job-details";
 import { AuditDetails, AuditSummary } from "./audit-details";
@@ -2444,6 +2445,7 @@ function App() {
     vlanContext?: Row;
   } | null>(null);
   const [ipamVLAN, setIPAMVLAN] = useState<Row | null>(null);
+  const [vlanInspector, setVLANInspector] = useState(false);
   useEffect(() => setIPAMVLAN(null), [current, user?.id]);
   const [cabinetRoomId, setCabinetRoomId] = useState<string | null>(null);
   useEffect(() => setCabinetRoomId(null), [current, user?.id]);
@@ -3240,11 +3242,20 @@ function App() {
                       : page.desc}
                   </p>
                 </div>
-                {canWrite && (
+                {(canWrite || page.key === "vlans") && (
                   <div
                     className={`page-actions${page.key === "configuration" ? " configuration-actions" : ""}`}
                   >
-                    {page.fields &&
+                    {page.key === "vlans" && (
+                      <button
+                        className="secondary"
+                        onClick={() => setVLANInspector(true)}
+                      >
+                        <SquaresFour size={18} aria-hidden="true" /> VLAN incele
+                      </button>
+                    )}
+                    {canWrite &&
+                      page.fields &&
                       page.key !== "sites" &&
                       (isAdmin ||
                         !["credentials", "users"].includes(page.key)) && (
@@ -3925,6 +3936,30 @@ function App() {
             <X size={16} />
           </button>
         </div>
+      )}
+      {vlanInspector && (
+        <VLANInspector
+          initialVLAN={ipamVLAN}
+          user={user!}
+          onClose={() => setVLANInspector(false)}
+          onCreate={(vlan, address) => {
+            if (!canWrite) return;
+            setVLANInspector(false);
+            setShortcutVLAN({ ...vlan });
+            setForm({
+              page: ADDRESS_PAGE,
+              vlanContext: vlan,
+              row: {
+                address,
+                vlan_id: vlan.id,
+                vrf_id: vlan.vrf_id,
+                institution_id: vlan.institution_id,
+                site_id: vlan.site_id,
+                status: "reserved",
+              },
+            });
+          }}
+        />
       )}
       {form &&
         canWrite &&
