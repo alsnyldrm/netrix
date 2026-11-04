@@ -1542,7 +1542,7 @@ export function IPAMWorkspace({
       )}
       {columnOpen && (
         <ColumnPicker
-          columns={columns}
+          columns={columns.filter((c) => c.key !== "scan_status")}
           shown={shown}
           onClose={() => setColumnOpen(false)}
           onSave={(v) => {

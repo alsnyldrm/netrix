@@ -365,3 +365,20 @@ async def test_live_point_groups_two_nics_with_current_port_detail(admin_client,
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert item["scan_status"] == "success", item["scan_result"]
     assert item["connected_port"] == "H7 Trk1 - H8 Trk1"
+
+
+async def test_offline_transition_keeps_expired_last_known_mac_and_port(admin_client, network):
+    from datetime import timedelta
+
+    from netrix.ipam.backfill import run
+
+    sf, _, id, _ = network
+    with sf() as db:
+        for observation in db.scalars(select(m.Observation)):
+            observation.created_at = now() - timedelta(days=2)
+        db.commit()
+    assert await run() == 1
+    item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
+    assert item["mac_address"] == MAC and item["connected_device"] == "Access"
+    assert item["scan_result"]["retained"] and item["scan_status"] == "problem"
+    assert any(i["code"] == "stale_source" for i in item["scan_result"]["issues"])

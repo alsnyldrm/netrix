@@ -1,6 +1,7 @@
 """Offline first materialization from existing observations. Never contacts a device."""
 
-from datetime import timedelta
+from copy import copy
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -14,9 +15,21 @@ from .connections import Evidence
 class StoredSources:
     def __init__(self, row, vlan, obs, evidence):
         self.row, self.vlan, self.obs, self.evidence = row, vlan, obs, evidence
+        self.stale_sources = set()
+
+    def age(self, source, value, lifetime):
+        at = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if at < now() - lifetime:
+            self.stale_sources.add(source)
 
     async def gateway(self, address):
         physical = self.evidence.resolve(self.row, self.vlan)
+        for g in physical["gateway_evidence"]:
+            self.age(
+                "Gateway",
+                g["observed_at"],
+                timedelta(seconds=max(300, min(self.vlan.discovery_interval * 2, 86400))),
+            )
         return {"mac_address": physical["mac_address"], "gateway_evidence": physical["gateway_evidence"]}
 
     async def vmware(self, address, mac):
@@ -33,7 +46,14 @@ class StoredSources:
         ]
 
     async def physical(self, address, mac):
-        return self.evidence.resolve(self.row, self.vlan, identity_mac=mac)
+        result = self.evidence.resolve(self.row, self.vlan, identity_mac=mac)
+        for c in result["connections"]:
+            self.age(
+                "Switch/port",
+                c["observed_at"],
+                timedelta(seconds=max(300, min(self.vlan.discovery_interval * 2, 86400))),
+            )
+        return result
 
     async def dhcp(self, address, mac):
         return [
@@ -61,6 +81,12 @@ async def run():
         )
         vrfs = set(db.scalars(select(m.VLAN.vrf_id)))
         evidence = Evidence(db, vrfs)
+        # Preserve last-known attachments on the one-time import, with explicit stale diagnostics.
+        # Moving this local clock never changes shared snapshots or claims a new network read.
+        evidence = copy(evidence)
+        evidence.at = min((s.created_at for s, _ in evidence.snapshots.values()), default=now())
+        evidence.static = {}
+        evidence.attached = {}
     for start in range(0, len(ids), 100):
         with session_factory()() as db:
             rows = list(db.scalars(select(m.IPAddress).where(m.IPAddress.id.in_(ids[start : start + 100]))))
@@ -73,9 +99,19 @@ async def run():
             if not vlans[row.vlan_id].cidr:
                 continue
             started = now()
-            result = await pipeline.resolve(
-                row.address, StoredSources(row, vlans[row.vlan_id], obs[row.id], evidence)
-            )
+            sources = StoredSources(row, vlans[row.vlan_id], obs[row.id], evidence)
+            result = await pipeline.resolve(row.address, sources)
+            if sources.stale_sources:
+                result["status"] = "problem"
+                result["issues"].append(
+                    {
+                        "source": "resolution",
+                        "code": "stale_source",
+                        "message": "Son doğrulanmış "
+                        + ", ".join(sorted(sources.stale_sources))
+                        + " bilgileri korunuyor; kaynak gözlemi eski, yeni ağ sorgusu yapılmadı.",
+                    }
+                )
             for step in result["steps"]:
                 step["mode"] = "stored"
             for observation in result["values"].get("observations", []):
@@ -120,6 +156,8 @@ async def run():
                 db.add(seed)
                 db.flush()
                 pipeline.save_result(db, current, started, result)
+                if sources.stale_sources:
+                    seed.retained = True
                 db.commit()
                 count += 1
         for id in vlans:
