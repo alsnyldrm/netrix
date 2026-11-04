@@ -31,8 +31,9 @@ async def run_scan(env, monkeypatch, id, *, check=None):
 
 
 @pytest.mark.parametrize("trigger", ["schedule"])
+@pytest.mark.parametrize("record_type", ["vm", "host"])
 async def test_new_vlan_waits_for_sources_and_matches_all_fields(
-    admin_client, inventory, env, monkeypatch, trigger
+    admin_client, inventory, env, monkeypatch, trigger, record_type
 ):
     vlan = prefix(admin_client, inventory)
     integration(admin_client, vlan)
@@ -83,7 +84,9 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
             {
                 "address": "192.0.2.2",
                 "mac_address": "00:11:22:33:44:55",
-                "vm_id": "vm-1",
+                "vm_id": "vm-1" if record_type == "vm" else None,
+                "host_id": "host-1" if record_type == "host" else None,
+                "record_type": record_type,
                 "nic_key": "4000",
                 "hostname": "vm-server",
                 "operating_system": "Ubuntu",
@@ -102,14 +105,17 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
             if host.endswith(".1")
             else {
                 "vlan_fdb_id": {f"0.{vlan['vid']}": "700"},
-                "vlan_fdb_port": {"700.0.17.34.51.68.102": "1"},
-                "vlan_fdb_status": {"700.0.17.34.51.68.102": "3"},
-                "bridge_ifindex": {"1": "101"},
+                "vlan_fdb_port": {"700.0.17.34.51.68.102": "1", "700.0.17.34.51.68.85": "2"},
+                "vlan_fdb_status": {"700.0.17.34.51.68.102": "3", "700.0.17.34.51.68.85": "3"},
+                "bridge_ifindex": {"1": "101", "2": "102"},
             }
         )
         return {
             "tables": tables,
-            "interfaces": [{"if_index": 101, "name": "A1", "oper_status": "up"}],
+            "interfaces": [
+                {"if_index": 101, "name": "A1", "oper_status": "up"},
+                {"if_index": 102, "name": "A2", "oper_status": "up"},
+            ],
             "neighbors": [],
             "neighbor_protocols_complete": ["lldp"],
         }
@@ -134,11 +140,11 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
         "mac_address": 2,
         "connected_device": 2,
         "connected_port": 2,
-        "operating_system": 1,
+        "operating_system": 1 if record_type == "vm" else 0,
         "ambiguous": 0,
     }
     assert calls.index(("vmware", "read")) < calls.index(("dhcp", "read"))
-    assert ("dns", "192.0.2.2") not in calls
+    assert (("dns", "192.0.2.2") in calls) == (record_type == "host")
     assert calls.count(("vmware", "read")) == calls.count(("dhcp", "read")) == 1
     assert ("dns", "192.0.2.1") in calls
     with env() as db:
@@ -148,13 +154,19 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
             rows["192.0.2.1"]["connected_device"] == "Access" and rows["192.0.2.1"]["connected_port"] == "A1"
         )
         assert rows["192.0.2.2"]["mac_address"] == "00:11:22:33:44:55"
-        assert (
-            rows["192.0.2.2"]["operating_system"] == "Ubuntu" and rows["192.0.2.2"]["connected_port"] == "89"
-        )
+        if record_type == "vm":
+            assert rows["192.0.2.2"]["operating_system"] == "Ubuntu"
+            assert rows["192.0.2.2"]["connected_device"] == "DS"
+            assert rows["192.0.2.2"]["connected_port"] == "89"
+        else:
+            assert not rows["192.0.2.2"]["operating_system"]
+            assert rows["192.0.2.2"]["connected_device"] == "Access"
+            assert rows["192.0.2.2"]["connected_port"] == "A2"
+            assert rows["192.0.2.2"]["cabinet"] != "Sanal"
         sources = list(db.scalars(select(m.Job).where(m.Job.kind == "integration")))
         assert sources == []
         assert db.scalar(select(m.IPAMResult))
-        assert rows["192.0.2.2"]["hostname"] == "vm-server"
+        assert rows["192.0.2.2"]["hostname"] == ("vm-server" if record_type == "vm" else "dns-192.0.2.2")
         assert len(list(db.scalars(select(m.IPAMNetworkState)))) == 2
 
 

@@ -16,12 +16,18 @@ Bu bölüm önceki DNS/VMware MAC önceliğinin ve tek-IP toplu kaynak okumasın
 | --- | --- | --- |
 | 1 | Her IP | Doğrudan bağlı gateway arayüzünde IP → tekil MAC; kimlik otoritesi gateway'dir |
 | 2 | Her IP | VMware IP/NIC araması; MAC gateway ile karşılaştırılır |
-| 3a | Tekil, uyumlu VMware kaydı | Hostname, sanal switch/port, ağ ve işletim sistemi VMware'den; DNS, DHCP, backbone ve switch sorgulanmaz |
-| 3b | VMware kaydı yok | Gateway MAC'inin backbone → alt switch yolu; uç port doğrulanır |
+| 3a | Tekil, uyumlu VMware sanal makine (VM) kaydı | Hostname, sanal switch/port, ağ ve işletim sistemi VMware'den; DNS, DHCP, backbone ve switch sorgulanmaz |
+| 3b | VMware kaydı yok veya kayıt fiziksel ESXi hostu | Gateway MAC'inin backbone → alt switch yolu; uç port doğrulanır |
 | 4b | Fiziksel dal | DHCP'nin IP/MAC ve ters MAC/IP kaydı karşılaştırılır; DNS PTR okunur |
 | 5 | Her işlenmiş IP | Tüm alanlar tek transaction ile güncel sonuca yazılır ve ilgili VLAN'a bildirilir |
 
 Fiziksel dalda hostname önce DNS, DNS yoksa uyumlu aktif DHCP kaydıdır. DHCP IP/MAC veya hostname kaynakları çelişirse otomatik ad `YANLIŞ-DHCP-VERİSİ` olur; MAC değiştirilmez. Otomatik işletim sistemi fiziksel dalda boştur. VM bulunduğu halde MAC/kimlik çelişiyorsa fiziksel dala düşülmez, sorun kaydedilir. Kaynak erişim hatası VMware kaydı yokmuş gibi yorumlanmaz. Yanıt vermeyen kaynak veya eksik yanıt, önceki doğrulanmış alanları temizlemez; korunan bilgiler ve hata ayrıntıda açıkça belirtilir. Gateway MAC'i değişmişse önceki kimliğin adı/bağlantısı yeni kimliğe taşınmaz. Aynı uç kimliği/LAG kanıtıyla doğrulanan çoklu port/switch bağları birlikte gösterilir; port etiketinde üye port ve trunk bulunur (`H7 Trk1 - H8 Trk1`). Transit/uplink ve bağımsız çelişkili adaylardan rastgele uç seçilmez.
+
+### VMware VM / fiziksel ESXi ayrımı — 4 Kasım 2026
+
+`record_type=host` kayıtları sanal makine dalını kısa devre etmez. VMware hostun kimliğini belirledikten sonra gateway MAC'iyle backbone → alt switch → fiziksel port, ardından DHCP ve DNS adımları devam eder. Hostun kendi vSwitch/vmk portu veya VMware uplink ipucu bağlı fiziksel port olarak sunulmaz. Host/NIC bilgileri yardımcı kaynak ayrıntısında korunabilir; switch/port seçiminin kaynağı fiziksel dalın güncel kanıtıdır. Host adı fiziksel dalın DNS/uyumlu DHCP kuralını izler; otomatik işletim sistemi boş kalır. Host `Sanal` kabinet gösterimini almaz.
+
+Sanal makine kaydı ise VMware hostname/işletim sistemi ve kendi sanal switch/portunu kullanır; diğer kaynaklar atlanır. Gateway MAC çakışması veya VM/host sahipliği belirsizliği görünür sorun olarak kalır. Ortak çözümleyicideki ayrım tek-IP, manuel VLAN ve zamanlanmış VLAN işlerine uygulanır; her IP SQL commit'inden sonra görünür olur. Dağıtım eski sonuçları yeniden taramaz veya başarılı diye değiştirmez; kullanıcı **Tara** eylemi ya da sonraki zamanlama yeni kuralı uygular. Regresyon: `test_ipam_esxi_branch.py`, `test_vlan_scan_pipeline.py` (host ve VM türleri ayrı doğrulanır).
 
 ### SQL'de güncel sonuç
 

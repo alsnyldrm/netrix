@@ -96,6 +96,7 @@ async def resolve(address, sources, progress=None):
             "reserved",
             "lease_state",
             "address",
+            "record_type",
         )
         values["observations"].append(
             {
@@ -139,13 +140,15 @@ async def resolve(address, sources, progress=None):
             "owner_conflict",
             "IP birden fazla VMware makinesinde bulundu; rastgele seçim yapılmadı.",
         )
-    if candidates:
-        for i, r in enumerate(candidates[:8]):
-            source_row("vcenter", r, i)
+    vm_candidates = [r for r in candidates if r.get("record_type") != "host"]
+    host_candidates = [r for r in candidates if r.get("record_type") == "host"]
+    for i, r in enumerate(candidates[:8]):
+        source_row("vcenter", r, i)
+    if vm_candidates:
         # A found but conflicting VM never falls through to a physical or DHCP identity.
         for source in ("backbone", "switch", "dhcp", "dns"):
             steps.append({"source": source, "status": "skipped_vm"})
-        valid = [r for r in candidates if normalized_mac(r.get("mac_address")) == mac] if mac else []
+        valid = [r for r in vm_candidates if normalized_mac(r.get("mac_address")) == mac] if mac else []
         nics = {}
         for r in valid:
             key = (
@@ -178,43 +181,29 @@ async def resolve(address, sources, progress=None):
                             "confidence": 1.0,
                         }
                     )
-                # Physical ESXi hosts expose NIC switch hints through the VMware API.
-                for nic in r.get("physical_nics", []):
-                    if not nic.get("carries_ip") or not nic.get("link_up"):
-                        continue
-                    for hint in nic.get("hints", []):
-                        if hint.get("chassis_id") and hint.get("port_id"):
-                            virtual.append(
-                                {
-                                    "device_id": hint.get("device_id") or hint["chassis_id"],
-                                    "device_name": hint["chassis_id"],
-                                    "port": hint["port_id"],
-                                    "aggregate": "",
-                                    "source": "vcenter_host+lldp",
-                                    "confidence": 1.0,
-                                }
-                            )
             values.update(
                 vm_ids=[
                     {"integration_id": r.get("integration_id"), "vm_id": r.get("vm_id")}
                     for r in valid
                     if r.get("vm_id")
                 ],
-                connection_type="vcenter_host" if valid[0].get("record_type") == "host" else "vcenter",
-                vmware_host={
-                    k: valid[0].get(k) for k in ("host_id", "host_uuid", "hostname", "vmkernel_device")
-                }
-                if valid[0].get("record_type") == "host"
-                else None,
-                physical_nics=valid[0].get("physical_nics", [])[:32]
-                if valid[0].get("record_type") == "host"
-                else [],
+                connection_type="vcenter",
                 power_state=valid[0].get("power_state", ""),
                 network=valid[0].get("network", ""),
                 connections=virtual,
             )
             values["field_sources"].update(hostname="vcenter", operating_system="vcenter")
     elif records is not None:
+        # ESXi management IPs are physical endpoints. VMware identifies the host,
+        # but its virtual backing and uplink hints cannot replace this branch.
+        if host_candidates:
+            values["connection_type"] = "physical"
+            if len(owners) == 1 and not conflicting:
+                host = host_candidates[0]
+                values["vmware_host"] = {
+                    k: host.get(k) for k in ("host_id", "host_uuid", "hostname", "vmkernel_device")
+                }
+                values["physical_nics"] = host.get("physical_nics", [])[:32]
         if mac:
             physical = await stage("backbone", lambda: sources.physical(address, mac))
             if physical:
@@ -290,7 +279,7 @@ async def resolve(address, sources, progress=None):
             "attachment_missing",
             "Bağlı switch ve port doğrulanamadı; transit/uplink port uç bağlantısı sayılmadı.",
         )
-    if candidates and not values["operating_system"]:
+    if vm_candidates and not values["operating_system"]:
         issue("vmware", "os_missing", "VMware işletim sistemi bilgisi bulunamadı.")
     return {
         "status": "problem" if issues else "success",
