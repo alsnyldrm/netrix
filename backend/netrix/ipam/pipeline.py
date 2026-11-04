@@ -63,15 +63,20 @@ async def resolve(address, sources, progress=None):
             return data
         except Exception as exc:
             from ..worker import Cancelled
+            from .dhcp_errors import DHCPReadError
 
             if isinstance(exc, Cancelled):
                 raise
             code = type(exc).__name__
+            detail = f"{name}: kaynak okunamadı ({code}); önceki doğrulanmış bilgiler korundu."
+            if isinstance(exc, DHCPReadError):
+                code = exc.public_code
+                detail = exc.public_message + " Önceki doğrulanmış bilgiler korundu."
             issues.append(
                 {
                     "source": name,
                     "code": code,
-                    "message": f"{name}: kaynak okunamadı ({code}); önceki doğrulanmış bilgiler korundu.",
+                    "message": detail,
                 }
             )
             steps.append({"source": name, "status": "error", "at": now().isoformat()})

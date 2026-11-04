@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 
 from ..discovery.protocols import NetworkError
+from .dhcp_errors import DHCPReadError, command_failure
 from .service import normalized_mac
 
 DHCP_SCRIPT = r"""
@@ -70,20 +71,22 @@ def windows_dhcp(config, secret, *, script=None, point=False, preserve_conflicts
         command_id = protocol.run_command(
             shell_id, "powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
         )
-        deadline, output = time.monotonic() + (15 if point else 240), bytearray()
+        deadline, output, error_output = time.monotonic() + (15 if point else 240), bytearray(), bytearray()
         while time.monotonic() < deadline:
             try:
-                stdout, _, status, done = protocol.get_command_output_raw(shell_id, command_id)
+                stdout, stderr, status, done = protocol.get_command_output_raw(shell_id, command_id)
             except WinRMOperationTimeoutError:
                 continue
             output.extend(stdout)
+            # Interpret only whitelisted numeric error identifiers; raw server text is never persisted.
+            error_output.extend(stderr[: max(0, 16384 - len(error_output))])
             if len(output) > 32 * 1024 * 1024:
                 raise NetworkError("DHCP response size limit exceeded")
             if done:
                 if status:
-                    raise NetworkError("Windows DHCP read failed")
+                    raise command_failure(bytes(error_output))
                 return dhcp_records(bytes(output), preserve_conflicts=preserve_conflicts)
-        raise NetworkError("Windows DHCP read timeout")
+        raise DHCPReadError("timeout")
     finally:
         if command_id:
             with suppress(Exception):
@@ -385,13 +388,19 @@ def windows_dhcp_point(config, secret, address, mac_address):
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Import-Module DhcpServer -ErrorAction Stop
-function Read-Target($action) {
+function Read-Target($action, [switch]$Reservation) {
   try { & $action } catch {
-    if ($_.FullyQualifiedErrorId -notmatch '20011|20012|20013|20118' -and $_.Exception.Message -notmatch '20011|20012|20013|20118') { throw }
+    $providerError = $_.FullyQualifiedErrorId -match '^(?:DHCP|WIN32) (?<code>[0-9]+),'
+    $code = if ($providerError) { [int]$Matches['code'] } else { 0 }
+    $notFound = $_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound
+    # 20018 means a client has no reservation, not that DHCP cannot be read.
+    # 20013 is also used for a missing lease; suppress it only for typed ObjectNotFound.
+    $missing = $providerError -and (($Reservation -and $code -eq 20018) -or ($notFound -and $code -in @(1168,20013)))
+    if (-not $missing) { throw }
   }
 }
 $rows = @(
- Read-Target {Get-DhcpServerv4Reservation -IPAddress '__IP__' -ErrorAction Stop} | ForEach-Object {
+ Read-Target -Reservation {Get-DhcpServerv4Reservation -IPAddress '__IP__' -ErrorAction Stop} | ForEach-Object {
   [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.Name;reserved=$true}
  }
  Read-Target {Get-DhcpServerv4Lease -IPAddress '__IP__' -ErrorAction Stop} | ForEach-Object {
@@ -399,7 +408,7 @@ $rows = @(
  }
  Get-DhcpServerv4Scope -ErrorAction Stop | ForEach-Object {
   $scope=$_.ScopeId
-  Read-Target {Get-DhcpServerv4Reservation -ScopeId $scope -ClientId '__MAC__' -ErrorAction Stop} | ForEach-Object {
+  Read-Target -Reservation {Get-DhcpServerv4Reservation -ScopeId $scope -ClientId '__MAC__' -ErrorAction Stop} | ForEach-Object {
    [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.Name;reserved=$true}
   }
   Read-Target {Get-DhcpServerv4Lease -ScopeId $scope -ClientId '__MAC__' -ErrorAction Stop} | ForEach-Object {
