@@ -30,7 +30,7 @@ async def run_scan(env, monkeypatch, id, *, check=None):
         await asyncio.wait_for(loop, 5)
 
 
-@pytest.mark.parametrize("trigger", ["vlan_create", "schedule", "manual"])
+@pytest.mark.parametrize("trigger", ["schedule"])
 async def test_new_vlan_waits_for_sources_and_matches_all_fields(
     admin_client, inventory, env, monkeypatch, trigger
 ):
@@ -56,15 +56,7 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
         )
         db.add_all([gateway, switch])
         db.commit()
-    if trigger == "vlan_create":
-        initial = admin_client.get(f"/api/v1/jobs/{vlan['scan']['job_id']}").json()
-    else:
-        assert admin_client.post(f"/api/v1/jobs/{vlan['scan']['job_id']}/cancel").status_code == 200
-        initial = (
-            admin_client.post(f"/api/v1/ipam/vlans/{vlan['id']}/discover").json()
-            if trigger == "manual"
-            else timer_job("ipam_discover", vlan["id"])
-        )
+    initial = timer_job("ipam_discover", vlan["id"])
     assert initial["result"]["ipam_origin"] == trigger
     assert initial["kind"] == "ipam_discover" and initial["status"] == "queued"
     assert timer_job("ipam_discover", vlan["id"])["id"] == initial["id"]

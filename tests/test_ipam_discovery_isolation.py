@@ -29,14 +29,13 @@ def evidence(db, vrf):
     return device.id
 
 
-def test_vlan_creation_queues_only_independent_scan(admin_client, inventory, env):
+def test_vlan_creation_never_queues_scan(admin_client, inventory, env):
     with env() as db:
         evidence(db, inventory["vrf"]["id"])
     p = prefix(admin_client, inventory)
     with env() as db:
         jobs = list(db.scalars(select(m.Job).where(m.Job.target_id == p["id"])))
-        assert len(jobs) == 1 and jobs[0].kind == "ipam_discover"
-        assert jobs[0].result["ipam_origin"] == "vlan_create"
+        assert jobs == []
         assert not list(db.scalars(select(m.IPAddress)))
         assert not hasattr(service, "inventory_observations")
 

@@ -1,5 +1,6 @@
 """Gateway-first branching, stable bounded results, and target-only protocol reads."""
 
+import pytest
 from netrix import models as m
 from netrix import worker
 from netrix.core import now
@@ -166,7 +167,8 @@ async def test_partial_failure_preserves_last_good_fields_and_row_count(admin_cl
         assert db.scalar(select(func.count()).select_from(m.IPAMResult)) == 1
 
 
-async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, network, monkeypatch):
+@pytest.mark.parametrize("action", ["address", "vlan"])
+async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, network, monkeypatch, action):
     sf, _, id, _ = network
     calls = []
 
@@ -192,8 +194,15 @@ async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, ne
 
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns)
-    job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
-    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
+    if action == "vlan":
+        # Restrict the fixture to its known endpoint; CIDR expansion has its own tests.
+        monkeypatch.setattr("netrix.ipam.vlan_pipeline.targets", lambda *_: ["192.0.2.10"])
+        with sf() as db:
+            vlan_id = db.get(m.IPAddress, id).vlan_id
+        job = admin_client.post(f"/api/v1/ipam/vlans/{vlan_id}/discover").json()
+    else:
+        job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
+    assert worker.claim(interactive=False, include_kinds=(job["kind"],)) == job["id"]
     await worker.execute(job["id"], Collector())
     assert calls == [("gateway", "198.51.100.1", "192.0.2.10"), ("switch", "198.51.100.2", MAC)]
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()

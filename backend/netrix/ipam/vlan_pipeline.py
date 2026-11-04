@@ -8,6 +8,7 @@ from ..core import now, session_factory
 from ..services import in_scope, publish
 from . import adapters, pipeline
 from .bulk_sources import BulkContext
+from .scoped_vlan_sources import ScopedVLANContext
 from .service import observe, scan_boundary, targets
 
 
@@ -22,20 +23,23 @@ async def scan(job_id, collector):
         if job.cancel_requested or not vlan:
             raise Cancelled()
         addresses = targets(db, vlan, True)
-        context = BulkContext(db, vlan, collector, job_id)
+        manual = job.result.get("ipam_origin") == "manual"
+        context = (ScopedVLANContext if manual else BulkContext)(db, vlan, collector, job_id)
         vlan.last_discovery_at = started
         job.total = len(addresses)
         job.progress = 0
         db.commit()
     scan_phase(job_id, "gateway")
     # Finish each source stage before advancing its dependent branch.
-    await context.network("gateway")
+    if not manual:
+        await context.network("gateway")
     owned = set()
     import ipaddress
 
     from .connections import gateway_interfaces
 
-    for _, projected in context.gateway_evidence.snapshots.values():
+    snapshots = () if manual else context.gateway_evidence.snapshots.values()
+    for _, projected in snapshots:
         indexes = gateway_interfaces(projected["tables"], ipaddress.ip_network(vlan.cidr))
         owned.update(
             address
@@ -48,7 +52,9 @@ async def scan(job_id, collector):
         context.check()
 
         async def ping(address):
-            return address, await adapters.ping(address)
+            up = await adapters.ping(address)
+            gateway = await context.gateway(address) if manual else None
+            return address, up, gateway
 
         async with aclosing(
             completed_batches(ping(a) for a in addresses[start : start + SCAN_BATCH_SIZE])
@@ -61,7 +67,7 @@ async def scan(job_id, collector):
                     if job.cancel_requested or not vlan:
                         raise Cancelled()
                     scope = scan_boundary(db, vlan)
-                    for address, up in ready:
+                    for address, up, gateway in ready:
                         if not in_scope(address, scope):
                             continue
                         row = observe(
@@ -71,24 +77,28 @@ async def scan(job_id, collector):
                             "icmp",
                             vlan.id,
                             {"reachability": "reachable" if up else "no_reply"},
-                            create=up or address in owned,
+                            create=up
+                            or address in owned
+                            or bool(isinstance(gateway, dict) and gateway.get("mac_address")),
                         )
                         checked += 1
                         reached += int(up)
                         if row:
-                            ids.append(row.id)
+                            ids.append((row.id, gateway))
                     db.commit()
                 publish(ipam_vlan=vlan.id)
 
-                async def process(id):
+                async def process(id, gateway):
                     context.check()
                     with session_factory()() as db:
                         row = db.get(m.IPAddress, id)
                         if not row or row.vlan_id != vlan.id:
                             return None
-                        sources = context.for_row(row)
+                        sources = context.for_row(row, gateway) if manual else context.for_row(row)
                     result = await pipeline.resolve(row.address, sources)
                     context.check()
+                    if manual:
+                        sources.check()
                     with session_factory()() as db:
                         current = db.get(m.IPAddress, id)
                         if not current or [current.address, current.vrf_id, current.vlan_id] != [
@@ -102,9 +112,9 @@ async def scan(job_id, collector):
                     publish(ipam_vlan=vlan.id)
                     return result["status"]
 
-                # Four full resolutions bound DNS/client work; sources are memoized once per VLAN run.
+                # Four full resolutions bound per-IP work; scheduled bulk sources are memoized.
                 for offset in range(0, len(ids), 4):
-                    tasks = [asyncio.create_task(process(id)) for id in ids[offset : offset + 4]]
+                    tasks = [asyncio.create_task(process(id, g)) for id, g in ids[offset : offset + 4]]
                     try:
                         statuses = await asyncio.gather(*tasks)
                     finally:
@@ -151,6 +161,12 @@ async def scan(job_id, collector):
         "problems": problems,
         "matching": matching,
         "network": {
+            "mode": "targeted",
+            "targeted_ips": context.read_counts["gateway"],
+            "failed": len(context.errors),
+        }
+        if manual
+        else {
             "devices": sum(context.read_counts.values()),
             "read": sum(context.read_counts.values()) - len(context.failed_devices),
             "failed": len(context.failed_devices),

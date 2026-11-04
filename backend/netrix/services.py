@@ -406,11 +406,6 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             if exc.status_code != 422:
                 raise
             initial_backup = {"status": "skipped", "message": str(exc.detail)}
-    initial_scan = None
-    if name == "vlans" and not row_id:
-        # The durable first scan commits with its VLAN; source reads stay in the worker.
-        job = enqueue(db, "ipam_discover", row.id, user, commit=False, ipam_origin="vlan_create")
-        initial_scan = {"status": "queued", "job_id": job.id}
     if commit:
         db.commit()
         publish()
@@ -419,8 +414,6 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         result["identification"] = identification
     if initial_backup:
         result["backup"] = initial_backup
-    if initial_scan:
-        result["scan"] = initial_scan
     return result
 
 
