@@ -11,15 +11,23 @@
   gap: 16px;
   align-items: start;
 }
-.vlan-inspector-select,
+.vlan-inspector-context,
 .vlan-inspector-search {
   display: grid;
   gap: 8px;
   min-width: 0;
 }
-.vlan-inspector-tools label {
+.vlan-inspector-tools label,
+.vlan-inspector-context > span {
   font-size: 12px;
   color: var(--text-2);
+}
+.vlan-inspector-context strong {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 .dialog form.vlan-inspector-search {
   padding: 0;

@@ -1,54 +1,36 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CaretLeft, CaretRight, MagnifyingGlass } from "@phosphor-icons/react";
 import { Dialog } from "./main";
 import { useLiveQuery } from "./data";
-import { allRows } from "./inventory";
 import { AddressDetail, useIPAMUpdates } from "./ipam";
-import { SearchableChoice } from "./searchable-choice";
 import { canOperate } from "./permissions";
 import "./vlan-inspector.css";
 
 type Row = Record<string, any>;
 export function VLANInspector({
-  initialVLAN,
+  vlan,
   user,
   onClose,
   onCreate,
 }: {
-  initialVLAN: Row | null;
+  vlan: Row;
   user: Row;
   onClose: () => void;
-  onCreate: (vlan: Row, address: string) => void;
+  onCreate: (address: string) => void;
 }) {
-  const vlans = useLiveQuery<Row[]>("inspector:vlans", 0, () =>
-    allRows("/vlans"),
-  );
-  const [id, setId] = useState(initialVLAN?.id || "");
+  const id = vlan.id;
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Row | null>(null);
-  const vlan =
-    vlans.data?.find((v) => v.id === id) ||
-    (initialVLAN?.id === id ? initialVLAN : null);
-  useEffect(() => {
-    if (!id && vlans.data?.length)
-      setId(vlans.data.find((v) => v.cidr)?.id || "");
-  }, [id, vlans.data]);
   const revision = useIPAMUpdates(id);
   const grid = useLiveQuery<Row>(
-    vlan?.cidr && !detail
+    vlan.cidr && !detail
       ? `/ipam/vlans/${id}/inspection?offset=${offset}&address=${encodeURIComponent(search)}`
       : null,
     revision,
   );
   const data = grid.data;
-  const options = (vlans.data || (initialVLAN ? [initialVLAN] : []))
-    .filter((v) => v.cidr)
-    .map((v) => ({
-      value: v.id,
-      label: `VLAN-${v.vid} / ${v.name} | ${v.cidr}`,
-    }));
   if (detail)
     return (
       <AddressDetail row={detail} user={user} close={() => setDetail(null)} />
@@ -57,22 +39,9 @@ export function VLANInspector({
     <Dialog title="VLAN incele" onClose={onClose} wide>
       <div className="vlan-inspector">
         <div className="vlan-inspector-tools">
-          <div className="vlan-inspector-select">
-            <label htmlFor="inspector-vlan">VLAN</label>
-            <SearchableChoice
-              inputId="inspector-vlan"
-              label="VLAN"
-              value={id}
-              options={options}
-              loading={vlans.loading}
-              showSelectedPath={false}
-              onChange={(value) => {
-                setId(value);
-                setOffset("0");
-                setQuery("");
-                setSearch("");
-              }}
-            />
+          <div className="vlan-inspector-context">
+            <span>VLAN</span>
+            <strong>{`VLAN-${vlan.vid} / ${vlan.name} | ${vlan.cidr}`}</strong>
           </div>
           <form
             className="vlan-inspector-search"
@@ -91,13 +60,12 @@ export function VLANInspector({
                 onChange={(e) => setQuery(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
-                placeholder={vlan?.cidr?.split("/")[0] || "IP adresi…"}
+                placeholder={vlan.cidr.split("/")[0]}
               />
               <button
                 type="submit"
                 className="secondary"
                 aria-label="IP adresine git"
-                disabled={!vlan}
               >
                 <MagnifyingGlass size={18} aria-hidden="true" />
               </button>
@@ -113,17 +81,12 @@ export function VLANInspector({
           </span>
           <small>Bu görünümdeki adresler</small>
         </div>
-        {(vlans.error || grid.error) && (
+        {grid.error && (
           <div className="error" role="alert">
-            {vlans.error || grid.error}
+            {grid.error}
           </div>
         )}
-        {(grid.loading || vlans.loading) && (
-          <p role="status">IP adresleri yükleniyor…</p>
-        )}
-        {!vlans.loading && !options.length && (
-          <p role="status">İncelenecek IP bloğu olan VLAN bulunamadı.</p>
-        )}
+        {grid.loading && <p role="status">IP adresleri yükleniyor…</p>}
         {!!data?.items?.length && (
           <>
             <p className="vlan-inspector-range" aria-live="polite">
@@ -150,7 +113,7 @@ export function VLANInspector({
                   disabled={item.state === "free" && !canOperate(user)}
                   onClick={() =>
                     item.state === "free"
-                      ? onCreate(vlan!, item.address)
+                      ? onCreate(item.address)
                       : setDetail({ ...item, vlan_id: id })
                   }
                 >

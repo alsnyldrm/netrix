@@ -2446,6 +2446,7 @@ function App() {
   } | null>(null);
   const [ipamVLAN, setIPAMVLAN] = useState<Row | null>(null);
   const [vlanInspector, setVLANInspector] = useState(false);
+  useEffect(() => setVLANInspector(false), [current, ipamVLAN?.id, user?.id]);
   useEffect(() => setIPAMVLAN(null), [current, user?.id]);
   const [cabinetRoomId, setCabinetRoomId] = useState<string | null>(null);
   useEffect(() => setCabinetRoomId(null), [current, user?.id]);
@@ -3242,11 +3243,11 @@ function App() {
                       : page.desc}
                   </p>
                 </div>
-                {(canWrite || page.key === "vlans") && (
+                {(canWrite || (page.key === "vlans" && ipamVLAN)) && (
                   <div
                     className={`page-actions${page.key === "configuration" ? " configuration-actions" : ""}`}
                   >
-                    {page.key === "vlans" && (
+                    {page.key === "vlans" && ipamVLAN && (
                       <button
                         className="secondary"
                         onClick={() => setVLANInspector(true)}
@@ -3937,15 +3938,15 @@ function App() {
           </button>
         </div>
       )}
-      {vlanInspector && (
+      {vlanInspector && page.key === "vlans" && ipamVLAN && (
         <VLANInspector
-          initialVLAN={ipamVLAN}
+          vlan={ipamVLAN}
           user={user!}
           onClose={() => setVLANInspector(false)}
-          onCreate={(vlan, address) => {
+          onCreate={(address) => {
+            const vlan = ipamVLAN;
             if (!canWrite) return;
             setVLANInspector(false);
-            setShortcutVLAN({ ...vlan });
             setForm({
               page: ADDRESS_PAGE,
               vlanContext: vlan,
