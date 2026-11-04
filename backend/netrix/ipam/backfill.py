@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..services import publish
+from ..services import lock_vrf, publish
 from . import pipeline, service
 from .connections import Evidence
 
@@ -88,7 +88,8 @@ async def run():
                     observation["observed_at"] = max(previous).isoformat()
             result["values"]["cached_import"] = True
             with session_factory()() as db:
-                current = db.get(m.IPAddress, row.id)
+                lock_vrf(db, row.vrf_id)
+                current = db.scalar(select(m.IPAddress).where(m.IPAddress.id == row.id).with_for_update())
                 # Never overwrite a manual scan or a concurrently completed scheduled result.
                 if (
                     not current
