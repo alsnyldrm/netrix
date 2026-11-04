@@ -131,7 +131,7 @@ with sync_playwright() as p:
     dialog = page.get_by_role("dialog")
     dialog.get_by_label("Dosya adı için açıklama").fill("Aruba fixture image")
     dialog.get_by_label("Hedef sürüm", exact=True).fill("WC.16.11.0026")
-    dialog.get_by_label("Uyumlu ürün kodları / tam modeller").fill("JL256A")
+    dialog.get_by_label("Cihaz ailesi", exact=True).select_option("aos_s_29xx")
     dialog.get_by_label("Üreticinin yayımladığı SHA-256").fill(hashlib.sha256(content).hexdigest())
     dialog.get_by_label("Firmware dosyası", exact=True).set_input_files(
         {"name": "fixture.swi", "mimeType": "application/octet-stream", "buffer": content}

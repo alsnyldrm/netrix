@@ -21,6 +21,7 @@ from ..identity.permissions import is_admin
 from ..identity.security import encrypt, secret_data
 from ..services import publish
 from . import adapters, history, transfers
+from .families import AOS_S_FAMILIES
 from .limits import MAX_CONCURRENCY
 from .service import connection_stamp, image_path, service_info, transfer_protocol, validate_device
 from .versions import compare
@@ -256,7 +257,7 @@ async def execute(id):
                 )
 
             if (
-                image.family == "aos_s"
+                image.family in AOS_S_FAMILIES
                 and image.version.split(".")[0].upper() != live["version"].split(".")[0].upper()
             ):
                 raise ValueError("image_family")
@@ -272,7 +273,7 @@ async def execute(id):
                     finish(id, "succeeded", verified_version=live["version"], skipped=True)
                     return
             prepare_sftp = False
-            if image.family == "aos_s" and plan.mode != "activate":
+            if image.family in AOS_S_FAMILIES and plan.mode != "activate":
                 try:
                     await adapters.probe_sftp(connection)
                 except adapters.FirmwareError:
@@ -364,7 +365,7 @@ async def execute(id):
                         f"Yöntem: {transfer_protocol(image.family)}\nDosya: {image.original_name}\nBoyut: {image.size_bytes} bayt\nHedef yazılım alanı: {bank}\n"
                         + (
                             f"SFTP ile /os/{bank} yoluna yazılıyor."
-                            if image.family == "aos_s"
+                            if image.family in AOS_S_FAMILIES
                             else "Cihaz dosyayı NETRIX sunucusundan çekiyor."
                         ),
                     )

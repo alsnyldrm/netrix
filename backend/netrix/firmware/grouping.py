@@ -17,7 +17,7 @@ from .service import FAMILIES, Input, compatible, transfer_protocol
 
 class DeviceFilters(Input):
     q: str = Field(default="", max_length=120)
-    family: Literal["", "aos_s", "cx6100", "hp1950"] = ""
+    family: Literal["", "aos_s_54xx", "aos_s_29xx", "cx6100", "hp1950"] = ""
     model: str = Field(default="", max_length=100)
     vendor: str = Field(default="", max_length=80)
     version: str = Field(default="", max_length=120)

@@ -68,7 +68,7 @@ def test_missing_unknown_incompatible_and_uploading_images_never_mark_current(fw
         db.add(
             m.FirmwareImage(
                 name="Not uploaded",
-                family="aos_s",
+                family="aos_s_29xx",
                 version="WC.16.99.9999",
                 models=["JL256A"],
                 original_name="pending.swi",
@@ -261,7 +261,7 @@ def test_latest_image_is_numeric_model_compatible_and_not_upload_date(fw):
             db.add(
                 m.FirmwareImage(
                     name=name,
-                    family="aos_s",
+                    family="aos_s_29xx",
                     version=version,
                     models=models,
                     original_name=name.replace(" ", "") + ".swi",

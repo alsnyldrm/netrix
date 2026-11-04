@@ -15,15 +15,15 @@ from ..core import now, settings
 from ..identity.security import audit
 from ..services import get, publish, serialize
 from .adapters import ERRORS
+from .families import FAMILIES, model_branch, version_branch
 from .limits import MAX_CONCURRENCY
 from .versions import compare
 
-FAMILIES = {"aruba_5400": "aos_s", "aruba_2900": "aos_s", "aruba_6100": "cx6100", "hp_1950": "hp1950"}
 BUSY = ("running", "staged", "attention")
 
 
 def transfer_protocol(family):
-    return {"aos_s": "sftp", "cx6100": "scp", "hp1950": "tftp"}[family]
+    return {"aos_s_54xx": "sftp", "aos_s_29xx": "sftp", "cx6100": "scp", "hp1950": "tftp"}[family]
 
 
 class Input(BaseModel):
@@ -32,9 +32,9 @@ class Input(BaseModel):
 
 class ImageInput(Input):
     name: str = Field(min_length=1, max_length=120)
-    family: str = Field(pattern=r"^(aos_s|cx6100|hp1950)$")
+    family: str = Field(pattern=r"^(aos_s_54xx|aos_s_29xx|cx6100|hp1950)$")
     version: str = Field(min_length=3, max_length=120, pattern=r"^[\w., ()-]+$")
-    models: list[str] = Field(min_length=1, max_length=50)
+    models: list[str] = Field(default_factory=list, max_length=50)
     original_name: str = Field(min_length=5, max_length=160, pattern=r"^[a-zA-Z0-9_.-]+$")
     expected_sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
     notes: str = Field(default="", max_length=8000)
@@ -80,6 +80,10 @@ def image_path(image):
 def compatible(image, device):
     if FAMILIES.get(device.adapter) != image.family:
         return False
+    if model_branch(device) != version_branch(image.version) or version_branch(image.version) is None:
+        return False
+    if not image.models:
+        return True
     tokens = set(re.findall(r"[A-Z0-9]+", device.model.upper()))
     return any(code in tokens or code == device.model.upper() for code in image.models)
 

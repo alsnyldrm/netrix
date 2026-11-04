@@ -33,9 +33,32 @@ const SECTIONS = [
   ["history", "İşlem geçmişi"],
 ];
 const FAMILIES: Row = {
-  aos_s: "ArubaOS-Switch · 5400/2920/2930",
-  cx6100: "Aruba 6100 · AOS-CX",
-  hp1950: "HP 1950 · Comware 7",
+  aos_s_54xx: "AOS Switch 54xx",
+  aos_s_29xx: "AOS Switch 29xx",
+  cx6100: "AOS-CX Switch 61xx",
+  hp1950: "HP Conware 7 1950",
+};
+const IMAGE_FAMILY_DETAILS: Row = {
+  aos_s_54xx: {
+    example: "KB.16.11.0032",
+    pattern: "(?:[Kk]|[Kk][Bb])\\.\\d{2}\\.\\d{2}\\.\\d{4}",
+    hint: "5400 / 5400R · K veya KB sürümü · .swi dosyası",
+  },
+  aos_s_29xx: {
+    example: "WC.16.11.0032",
+    pattern: "[Ww][BbCc]\\.\\d{2}\\.\\d{2}\\.\\d{4}",
+    hint: "2920 için WB, 2930F/M için WC sürümü · .swi dosyası",
+  },
+  cx6100: {
+    example: "PL.10.18.1010",
+    pattern: "[Pp][Ll]\\.10\\.\\d{2}\\.\\d{4}",
+    hint: "6100 serisi · PL sürümü · .swi dosyası",
+  },
+  hp1950: {
+    example: "R3507P10",
+    pattern: "[Rr](?:35|51)\\d{2}(?:[Pp]\\d+)?",
+    hint: "1950 serisi · R35xx; JH295A için R51xx · .ipe dosyası",
+  },
 };
 const STATUS: Row = {
   draft: "Taslak",
@@ -580,9 +603,8 @@ function ImageForm({
 }) {
   const [values, setValues] = useState<Row>({
     name: row?.name || "",
-    family: row?.family || "aos_s",
+    family: row?.family || "",
     version: row?.version || "",
-    models: row?.models?.join(", ") || "",
     expected_sha256: row?.expected_sha256 || "",
     notes: row?.notes || "",
   });
@@ -591,6 +613,8 @@ function ImageForm({
     [error, setError] = useState(""),
     [progress, setProgress] = useState(0);
   const [created, setCreated] = useState<Row | undefined>(row);
+  const familyDetails = IMAGE_FAMILY_DETAILS[values.family];
+  const uploadHintId = useId();
   const field = (key: string) => ({
     name: key,
     autoComplete: "off",
@@ -611,10 +635,15 @@ function ImageForm({
       }}
     >
       <form
-        className="fw-form"
+        className="fw-form fw-upload-form"
         onSubmit={async (e) => {
           e.preventDefault();
           if (!file) return;
+          const extension = values.family === "hp1950" ? ".ipe" : ".swi";
+          if (!file.name.toLowerCase().endsWith(extension)) {
+            setError(`Seçilen cihaz ailesi için ${extension} dosyası seçin.`);
+            return;
+          }
           setBusy(true);
           setError("");
           try {
@@ -622,10 +651,6 @@ function ImageForm({
               created ||
               (await api("/firmware/images", "POST", {
                 ...values,
-                models: values.models
-                  .split(",")
-                  .map((v: string) => v.trim())
-                  .filter(Boolean),
                 original_name: file.name,
               }));
             setCreated(image);
@@ -676,19 +701,26 @@ function ImageForm({
           }
         }}
       >
+        <div className="fw-upload-intro">
+          <ShieldCheck size={24} aria-hidden="true" />
+          <p>
+            Cihaz ailesini ve hedef sürümü seçin. Model uyumluluğu otomatik
+            kontrol edilir.
+          </p>
+        </div>
         <div className="fw-fields">
           <label>
-            Dosya adı için açıklama
-            <input
-              required
-              maxLength={120}
-              disabled={!!created || busy}
-              {...field("name")}
-            />
-          </label>
-          <label>
             Cihaz ailesi
-            <select disabled={!!created || busy} {...field("family")}>
+            <select
+              required
+              aria-label="Cihaz ailesi"
+              aria-describedby={uploadHintId}
+              disabled={!!created || busy}
+              {...field("family")}
+            >
+              <option value="" disabled>
+                Cihaz ailesi seçin
+              </option>
               {Object.entries(FAMILIES).map(([key, label]) => (
                 <option key={key} value={key}>
                   {label}
@@ -701,17 +733,29 @@ function ImageForm({
             <input
               required
               disabled={!!created || busy}
-              placeholder="Örn. WC.16.11.0026"
+              placeholder={
+                familyDetails
+                  ? `Örn. ${familyDetails.example}`
+                  : "Önce cihaz ailesini seçin"
+              }
+              pattern={familyDetails?.pattern}
+              aria-describedby={uploadHintId}
+              maxLength={120}
               {...field("version")}
             />
           </label>
-          <label>
-            Uyumlu ürün kodları / tam modeller
+          <p id={uploadHintId} className="fw-full fw-upload-hint">
+            {familyDetails?.hint ||
+              "Aile seçtiğinizde uygun sürüm ve dosya biçimi gösterilir."}
+          </p>
+          <label className="fw-full">
+            Dosya adı için açıklama
             <input
               required
+              maxLength={120}
               disabled={!!created || busy}
-              placeholder="Virgülle ayırın: JL256A, JL254A"
-              {...field("models")}
+              placeholder="Örn. Erişim switch’leri güncel firmware"
+              {...field("name")}
             />
           </label>
           <label className="fw-full">
@@ -727,25 +771,31 @@ function ImageForm({
             />
           </label>
           <label className="fw-full">
-            Sürüm geçişi, BootROM ve kurtarma notları
-            <textarea
-              maxLength={8000}
-              disabled={!!created || busy}
-              {...field("notes")}
-            />
-          </label>
-          <label className="fw-full">
             Firmware dosyası
             <input
               type="file"
               required
-              disabled={busy}
+              disabled={busy || !values.family}
               accept={values.family === "hp1950" ? ".ipe" : ".swi"}
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
           </label>
+          <details
+            className="fw-full fw-upload-notes"
+            open={values.notes ? true : undefined}
+          >
+            <summary>Yükseltme notları (isteğe bağlı)</summary>
+            <label>
+              Sürüm geçişi, BootROM ve kurtarma notları
+              <textarea
+                maxLength={8000}
+                disabled={!!created || busy}
+                {...field("notes")}
+              />
+            </label>
+          </details>
         </div>
-        <p className="muted">
+        <p className="muted fw-upload-integrity">
           Dosya aktarılırken sunucuda SHA-256 hesaplanır. Üretici değeriyle
           eşleşmeden kullanıma açılmaz.
         </p>
@@ -1853,7 +1903,11 @@ export default function FirmwareWorkspace({
                                 <div className="fw-cell-primary">
                                   {FAMILIES[r.family]}
                                 </div>
-                                <small>{r.models.join(", ")}</small>
+                                <small>
+                                  {r.models.length
+                                    ? r.models.join(", ")
+                                    : "Model ve sürüm serisi otomatik doğrulanır"}
+                                </small>
                               </div>
                             </td>
                             <td>
@@ -2042,10 +2096,14 @@ export default function FirmwareWorkspace({
             <dl className="fw-metadata">
               <dt>Cihaz ailesi</dt>
               <dd>{FAMILIES[modal.row!.family]}</dd>
-              <dt>Sürüm / modeller</dt>
-              <dd>
-                {modal.row!.version} · {modal.row!.models.join(", ")}
-              </dd>
+              <dt>Hedef sürüm</dt>
+              <dd>{modal.row!.version}</dd>
+              {modal.row!.models.length > 0 && (
+                <>
+                  <dt>Mevcut model kısıtları</dt>
+                  <dd>{modal.row!.models.join(", ")}</dd>
+                </>
+              )}
               <dt>SHA-256</dt>
               <dd className="mono fw-hash">
                 {modal.row!.sha256 || modal.row!.expected_sha256}

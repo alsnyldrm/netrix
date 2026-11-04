@@ -99,14 +99,15 @@ def plan_images(db=Depends(db_session), user=Depends(current_user)):
 @router.post("/images", status_code=201)
 def create_image(payload: ImageInput, db=Depends(db_session), user=Depends(admin)):
     patterns = {
-        "aos_s": r"(?:K|KB|WB|WC)\.\d{2}\.\d{2}\.\d{4}",
+        "aos_s_54xx": r"(?:K|KB)\.\d{2}\.\d{2}\.\d{4}",
+        "aos_s_29xx": r"(?:WB|WC)\.\d{2}\.\d{2}\.\d{4}",
         "cx6100": r"PL\.10\.\d{2}\.\d{4}",
-        "hp1950": r"R\d{4}(?:P\d+)?",
+        "hp1950": r"R(?:35|51)\d{2}(?:P\d+)?",
     }
     if not re.fullmatch(patterns[payload.family], payload.version, re.I):
         raise HTTPException(422, "Tam sürümü aile önekiyle girin: WC.16.11.0026, PL.10.13.1000 veya R3507P10")
     payload.version = payload.version.upper()
-    if payload.family == "hp1950":
+    if payload.family == "hp1950" and payload.models:
         branches = {"JH295A" in model or "1950-12XGT" in model for model in payload.models}
         if len(branches) != 1:
             raise HTTPException(422, "JH295A/1950-12XGT ve diğer 1950 modelleri aynı imajda birleştirilemez")

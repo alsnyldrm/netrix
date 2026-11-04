@@ -71,7 +71,7 @@ def fw(admin_client, inventory, env, tmp_path, monkeypatch):
         "/api/v1/firmware/images",
         json={
             "name": "2930",
-            "family": "aos_s",
+            "family": "aos_s_29xx",
             "version": "WC.16.11.0026",
             "models": ["JL256A"],
             "original_name": "WC_16_11_0026.swi",
@@ -289,7 +289,7 @@ def test_running_bank_and_exact_version_checks():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("family", ["aos_s", "cx6100"])
+@pytest.mark.parametrize("family", ["aos_s_29xx", "cx6100"])
 async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch, family):
     if family == "cx6100":
         with fw["sf"]() as db:
@@ -315,7 +315,7 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch,
     monkeypatch.setattr(adapters, "probe_sftp", probe)
 
     async def inspect(*args):
-        version = "WC.16.10.0025" if family == "aos_s" else "PL.10.17.1030"
+        version = "WC.16.10.0025" if family == "aos_s_29xx" else "PL.10.17.1030"
         return {"version": version, "bank": "primary", "banks": ""}
 
     async def backup(*args):
@@ -339,7 +339,7 @@ async def test_full_worker_stage_takes_backup_and_never_reboots(fw, monkeypatch,
         assert target.status == "staged", target.error
         assert target.bank == "secondary" and target.snapshot_id and staged == ["secondary"]
         assert target.evidence["staged"] is True
-        assert target.evidence["protocol"] == ("sftp" if family == "aos_s" else "scp")
+        assert target.evidence["protocol"] == ("sftp" if family == "aos_s_29xx" else "scp")
         snapshot = db.get(m.Snapshot, target.snapshot_id)
         assert "hostname" not in snapshot.encrypted_content
 

@@ -8,7 +8,8 @@ Cihazların HTTPS/WebUI/REST servisi kullanılmaz ve kendiliğinden açılıp ka
 
 | Adaptör | Komut / dosya yolu | İmaj |
 | --- | --- | --- |
-| Aruba 54xx, 2900 (5400/5400R, 2920/2930) | SSH komut oturumu; SFTP ile `/os/primary` veya `/os/secondary` alanına gönderme | Modele uygun `.swi`, K/KB/WB/WC ailesi |
+| AOS Switch 54xx (5400/5400R) | SSH komut oturumu; SFTP ile `/os/primary` veya `/os/secondary` alanına gönderme | Modele uygun `.swi`, K/KB serisi |
+| AOS Switch 29xx (2920/2930F/M) | SSH komut oturumu; SFTP ile `/os/primary` veya `/os/secondary` alanına gönderme | 2920 için WB, 2930 için WC serisi `.swi` |
 | Aruba 61xx (6100) | SSH komut oturumu; cihazın süreli SCP hesabıyla NETRIX'ten çekmesi, `vrf default` | PL ailesi `.swi` |
 | HP 1950 | SSH sınırlı CLI; `upgrade <sunucu> runtime file <dosya>.ipe` ile TFTP çekme | Ürün koduna uygun `.ipe` |
 
@@ -22,7 +23,7 @@ Kaynaklar: [AOS-S dosya sistemi ve flash yazımı](https://arubanetworking.hpe.c
 
 Yönetici dosya ve plan oluşturur, başlatır, etkinleştirir veya durdurur. Operatör firmware gruplarını düzenleyebilir. Görüntüleyici metadata okuyabilir; firmware dosyasını indiremez veya değiştiremez. Tüm yazma uçları mevcut oturum/rol ve `X-Netrix-Request`/Origin kontrollerinden geçer.
 
-Dosya önce metadata kaydıyla oluşturulur; gövde ayrı PUT isteğinde belleğe tamamen alınmadan akar. Dosya adı UUID tabanlıdır, kullanıcı dosya yolu belirleyemez. Üreticinin yayımladığı SHA-256 zorunludur; sunucuda hesaplanan değer eşleşmedikçe imaj ready olmaz. Bu karşılaştırma bağımsız üretici imzası doğrulaması yapıldığı iddiası değildir. Uygulama imajdaki yazılımı çalıştırmaz. Uyumluluk aile ve tam ürün kodu/model listesi üzerinden doğrulanır; AOS-S'de çalışan K/KB/WB/WC öneki ayrıca eşleştirilir.
+Dosya önce metadata kaydıyla oluşturulur; gövde ayrı PUT isteğinde belleğe tamamen alınmadan akar. Dosya adı UUID tabanlıdır, kullanıcı dosya yolu belirleyemez. Üreticinin yayımladığı SHA-256 zorunludur; sunucuda hesaplanan değer eşleşmedikçe imaj ready olmaz. Bu karşılaştırma bağımsız üretici imzası doğrulaması yapıldığı iddiası değildir. Uygulama imajdaki yazılımı çalıştırmaz. Uyumluluk seçilen aile, envanterdeki model/SKU ve yazılım serisi üzerinden otomatik doğrulanır. Eski kayıtlardaki model listesi ek bir kısıt olarak korunur; AOS-S’de çalışan K/KB/WB/WC öneki ayrıca eşleştirilir.
 
 Hazır imaj değiştirilemez. İşlem geçmişinin referans verdiği dosya ve firmware öncesi konfigürasyon yedeği korunur. Dosyalar `/data/firmware` altında, veritabanı dışında kalıcı tutulur. Tek dosya varsayılan 2 GiB, depo 20 GiB ve eşzamanlı yükleme dört istekle sınırlıdır. En az 1 GiB boş disk koruması vardır. Başarısız yükleme hazır dosya oluşturmaz; aynı metadata kaydı üzerinden yeniden denenebilir.
 
@@ -159,3 +160,14 @@ Güncelleme planları listesinde her satır **Durdur**, **Zorla durdur** ve **Si
 - **Sil:** Etkin/sıradaki veya ayrılmış hedef içeren plan önce durdurulmalı, belirsiz sonuçları çözülmelidir. Güvenli plan yalnız güncelleme planları listesinden kaldırılır (`deleted_at`); işlem geçmişi, cihaz komut/yanıtları, imaj ve yedek referansları korunur. Silinmiş plan yeniden başlatılamaz. Taslaklar çalıştırılmadan listeden kaldırılabilir.
 
 Alembic `20261104_45`, 1–10 veritabanı kısıtını, `force_stop_requested` ve UTC `deleted_at` alanlarını ekler. Eski planlar 1–4 değerlerini ve hedeflerini korur. 4'ten büyük eşzamanlılık veya durdurma/silme verisi varsa downgrade veri kaybını engelleyerek reddedilir. `scripts/firmware_controls_mariadb_check.py` yalnız atılabilir `netrix_test` üzerinde gerçek MariaDB kısıtını, şema eşitliğini ve korumalı downgrade/upgrade turunu doğrular. `tests/test_firmware_controls.py` gerçek worker giriş döngüsünü, 10 TFTP gönderim sınırını, normal/zorla durdurmayı ve geçmişi koruyan silmeyi sahte cihazlarla test eder. `scripts/firmware_controls_browser_check.py` yalnız atılabilir fixture üzerinde yönetici kontrollerini, 10 seçimini, canlı düzenlemeyi ve masaüstü/mobil hizalama/Axe kontrollerini çalıştırır.
+
+
+## Model aileleri ve sade yükleme formu — 4 Kasım 2026
+
+Aile seçenekleri **AOS Switch 54xx**, **AOS Switch 29xx**, **AOS-CX Switch 61xx** ve proje sahibinin istediği yazımla **HP Conware 7 1950** şeklindedir. Kalıcı aile kimlikleri `aos_s_54xx`, `aos_s_29xx`, `cx6100`, `hp1950` olur. Eski ortak `aos_s` seçeneği kaldırılır; Alembic `20261104_48`, K/KB imajlarını 54xx, WB/WC imajlarını 29xx ailesine taşır. UUID, dosya yolu/içeriği, SHA-256, model kısıtları, plan hedefleri ve komut geçmişi korunur. Bilinmeyen bir eski sürüm dalında migration keyfi aile atamaz.
+
+Yeni dosya yüklemede manuel ürün kodu/model alanı yoktur; metadata `models=[]` ile kaydedilir. Model/SKU kataloğu ve tam sürüm dalı uyumluluğu belirler: K–KB, WB–WC ve 1950 R35–R51 birbirinin yerine kullanılmaz. Tanınmayan, çelişkili veya farklı aileye ait modele imaj önerilmez. Eski kayıtların açık model listesi ayrıca uygulanır. Cihaza gerçek yazmadan önce mevcut canlı sürüm/bağlantı ve imaj bütünlük kontrolleri devam eder. Aile seçimi cihaz sorgusu veya tarama başlatmaz.
+
+UI UX Pro Max form/etiket/doğrulama önerileriyle aile ve sürüm ortak satıra, açıklama ve hash tam genişliğe alındı. Seçilen aile sürüm örneğini, kabul edilen dosya uzantısını ve kısa açıklamayı değiştirir. Notlar açılabilir isteğe bağlı bölümdedir; kaydırma sırasında yükleme/vazgeç işlemleri görünür kalır. Açık/koyu tema token’ları ve mobil tek sütun düzeni korunur.
+
+Model kaynakları: [AOS-S 16.11 desteklenen 5400R ve 2930 ürünleri](https://arubanetworking.hpe.com/techdocs/AOS-Switch/RN/16.11/AOS-SSwitch16.11.0015RN.pdf), [2920 WB sürümü ve ürünleri](https://arubanetworking.hpe.com/techdocs/AOS-Switch/RN/16.10/AOS-S%20Switch%2016.10.0020%20WB%20Release%20Notes.pdf), [5400zl ürün kodları](https://arubanetworking.hpe.com/techdocs/Switches/xcvrs/PDF/AOS-S%20and%20AOS-CX%20Transceiver%20Guide.pdf), [6100 model listesi](https://arubanetworking.hpe.com/techdocs/AOS-CX/10.17/HTML/vsf/Content/Chp_FAQ/faq-gen.htm), [1950 model listesi](https://support.hpe.com/hpesc/public/docDisplay?docId=c04686146&page=GUID-1D900FBA-DF67-4851-9072-593C4A2C5AC1.html).

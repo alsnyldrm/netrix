@@ -506,7 +506,7 @@ class FirmwareImage(Entity, Base):
     status: Mapped[str] = mapped_column(String(20), default="uploading", index=True)
     uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     __table_args__ = (
-        CheckConstraint("family in ('aos_s','cx6100','hp1950')", name="ck_fw_image_family"),
+        CheckConstraint("family in ('aos_s_54xx','aos_s_29xx','cx6100','hp1950')", name="ck_fw_image_family"),
         CheckConstraint("status in ('uploading','ready')", name="ck_fw_image_status"),
         CheckConstraint("size_bytes >= 0", name="ck_fw_image_size"),
     )

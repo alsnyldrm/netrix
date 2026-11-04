@@ -45,7 +45,7 @@ with session_factory()() as db:
     group = m.FirmwareGroup(name="User-defined role")
     image = m.FirmwareImage(
         name="Image",
-        family="aos_s",
+        family="aos_s_29xx",
         version="WC.16.11.0026",
         models=["JL256A"],
         original_name="fixture.swi",

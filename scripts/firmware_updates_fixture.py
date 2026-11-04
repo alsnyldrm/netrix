@@ -11,7 +11,7 @@ with session_factory()() as db:
     db.add(
         m.FirmwareImage(
             name="Aruba comparison image",
-            family="aos_s",
+            family="aos_s_29xx",
             version="WC.16.11.0026",
             models=["JL256A"],
             original_name="comparison.swi",
