@@ -1,0 +1,52 @@
+[
+  {
+    "id": "naruto",
+    "prompt": "Create a polished square anime profile avatar of Naruto Uzumaki. Single centered head-and-shoulders portrait, recognizable blond spiky hair, blue eyes, whisker cheek marks, leaf forehead protector and orange-black collar. Clean contemporary anime illustration, crisp linework, soft cel shading, friendly confident expression, muted warm orange solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/naruto.png"
+  },
+  {
+    "id": "lelouch",
+    "prompt": "Create a polished square anime profile avatar of Lelouch Lamperouge, black layered hair, violet eyes, black high-collared gold-trimmed outfit. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted violet solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/lelouch.png"
+  },
+  {
+    "id": "luffy",
+    "prompt": "Create a polished square anime profile avatar of Monkey D. Luffy, straw hat with red band, black hair, scar under left eye, red vest, joyful smile. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted coral solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/luffy.png"
+  },
+  {
+    "id": "levi",
+    "prompt": "Create a polished square anime profile avatar of Levi Ackerman, straight black undercut hair, gray eyes, white cravat and green scout cloak, calm serious face. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted sage solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/levi.png"
+  },
+  {
+    "id": "lawliet",
+    "prompt": "Create a polished square anime profile avatar of L Lawliet, messy black hair, dark eyes with subtle shadows, plain white shirt, thoughtful expression. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted slate blue solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/lawliet.png"
+  },
+  {
+    "id": "zoro",
+    "prompt": "Create a polished square anime profile avatar of Roronoa Zoro, short green hair, closed scarred left eye, three gold earrings on left ear, green robe. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted teal solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/zoro.png"
+  },
+  {
+    "id": "killua",
+    "prompt": "Create a polished square anime profile avatar of Killua Zoldyck, silver spiky hair, blue eyes, white shirt with deep blue high collar, playful confident expression. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted sky blue solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/killua.png"
+  },
+  {
+    "id": "okabe",
+    "prompt": "Create a polished square anime profile avatar of Rintarou Okabe, short swept-back dark hair, slight chin stubble, white lab coat over charcoal shirt, thoughtful expression. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted sand solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/okabe.png"
+  },
+  {
+    "id": "light",
+    "prompt": "Create a polished square anime profile avatar of Light Yagami, neat light brown hair, brown eyes, tan jacket, white shirt and red tie, composed expression. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted burgundy solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/light.png"
+  },
+  {
+    "id": "edward",
+    "prompt": "Create a polished square anime profile avatar of Edward Elric, blond hair with long braid and central fringe, golden eyes, red coat over black high collar. Single centered head-and-shoulders portrait. Clean contemporary anime illustration, crisp linework, soft cel shading, muted ochre solid background. Face fills central 65%, generous safe margins for circular cropping, no text, no lettering, no watermark, no border. This is a small selectable user avatar for a web application.",
+    "asset": "frontend/public/avatars/edward.png"
+  }
+]

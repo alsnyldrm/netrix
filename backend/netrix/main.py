@@ -19,6 +19,7 @@ from . import models as m
 from . import schemas as s
 from . import services as svc
 from .access.api import router as access_router
+from .access.avatars import router as avatar_router
 from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
@@ -629,6 +630,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
 
 
 app.include_router(access_router)
+app.include_router(avatar_router)
 app.include_router(firmware_router)
 app.include_router(ipam_router)
 app.include_router(ipam_scan_router)

@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -45,6 +46,21 @@ class User(Entity, Base):
         CheckConstraint(
             "role <> 'super_admin' OR lower(email) = 'alisan.yildirim@fbu.edu.tr'",
             name="ck_user_super_admin_email",
+        ),
+    )
+
+
+class UserAvatar(Base):
+    __tablename__ = "user_avatars"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    preset_id: Mapped[str | None] = mapped_column(String(40))
+    image: Mapped[bytes | None] = mapped_column(LargeBinary)
+    version: Mapped[str] = mapped_column(String(36))
+    updated_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, onupdate=now)
+    __table_args__ = (
+        CheckConstraint(
+            "(preset_id IS NULL AND image IS NOT NULL) OR (preset_id IS NOT NULL AND image IS NULL)",
+            name="ck_user_avatar_source",
         ),
     )
 
