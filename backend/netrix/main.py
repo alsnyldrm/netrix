@@ -110,6 +110,9 @@ async def database_error(request, exc):
     )
     if code in (4025, 3819):
         return JSONResponse({"detail": "Veritabanı kısıtı bu kaydı reddetti"}, status_code=409)
+    if code in (1020, 1213):
+        # Snapshot conflicts and deadlocks mean a concurrent change, not an outage.
+        return JSONResponse({"detail": "Kayıt eşzamanlı olarak değişti; yeniden deneyin"}, status_code=409)
     return JSONResponse({"detail": "Veri hizmeti geçici olarak kullanılamıyor"}, status_code=503)
 
 

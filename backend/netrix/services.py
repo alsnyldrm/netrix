@@ -6,12 +6,13 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 from sqlalchemy import BigInteger, String, cast, delete, func, inspect, or_, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import defer, selectinload
 
 from . import models as m
 from . import schemas as s
 from .configuration.validation import BackupError, require_ssh_backup
-from .core import now, redis_client
+from .core import now, read_only_transaction, redis_client
 from .discovery.neighbor_labels import neighbor_label
 from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin, is_super_admin
 from .identity.security import audit, encrypt
@@ -129,7 +130,17 @@ def lock_vrf(db, vrf_id):
         statement = statement.on_conflict_do_update(index_elements=["key"], set_={"value": version})
     else:
         statement = statement.on_duplicate_key_update(value=version)
-    db.execute(statement)
+    rewind = read_only_transaction(db)
+    try:
+        db.execute(statement)
+    except OperationalError as exc:
+        # MariaDB snapshot isolation (1020) rejects the mutex write when another
+        # writer bumped it after this transaction's first read, e.g. the
+        # authenticated-user lookup. Only reads are lost by dropping that snapshot.
+        if not rewind or exc.orig is None or not exc.orig.args or exc.orig.args[0] != 1020:
+            raise
+        db.rollback()
+        db.execute(statement)
     # A current shared read validates the parent without blocking FK checks.
     row = db.scalar(select(m.VRF).where(m.VRF.id == vrf_id).with_for_update(read=True))
     if not row:

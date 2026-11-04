@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import DateTime, create_engine, event
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
 
@@ -86,6 +86,31 @@ def engine():
             connection.execute("PRAGMA foreign_keys=ON")
 
     return obj
+
+
+@event.listens_for(Session, "do_orm_execute")
+def track_statement_writes(state):
+    # Text statements count as writes: a false positive only disables a rewind.
+    if not state.is_select:
+        state.session.info["netrix_writes"] = True
+
+
+@event.listens_for(Session, "after_flush")
+def track_flush_writes(session, _):
+    session.info["netrix_writes"] = True
+
+
+@event.listens_for(Session, "after_transaction_end")
+def reset_writes(session, transaction):
+    if transaction.parent is None:
+        session.info.pop("netrix_writes", None)
+
+
+def read_only_transaction(db):
+    """True when rolling back discards only reads, never caller work."""
+    return not (
+        db.info.get("netrix_writes") or db.new or db.dirty or db.deleted or db.in_nested_transaction()
+    )
 
 
 def session_factory():
