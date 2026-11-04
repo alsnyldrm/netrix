@@ -30,13 +30,17 @@ import { applicationThemes, colorPalettes } from "./appearance";
 import { canSSH } from "./permissions";
 import { applicationFonts } from "./application-fonts";
 import type { ApplicationFont } from "./application-fonts";
+import { AvatarEditor } from "./profile-avatar";
+import type { AccountAvatar } from "./profile-avatar";
 type Row = Record<string, any>;
 export function Profile({
+  avatar,
   user,
   onClose,
   onChanged,
   onPasswordChanged,
 }: {
+  avatar: AccountAvatar;
   user: Row;
   onClose: () => void;
   onChanged: () => void;
@@ -118,6 +122,7 @@ export function Profile({
             <>
               <span className="eyebrow">Kişisel çalışma alanı</span>
               <h3>{user.display_name}</h3>
+              <AvatarEditor name={user.display_name} avatar={avatar} />
               <dl className="profile-details">
                 <div>
                   <dt>E-posta</dt>

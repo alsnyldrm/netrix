@@ -6,6 +6,7 @@ import {
 } from "./permissions";
 import { UserRoleEditor } from "./identity-roles";
 import { Profile } from "./user-workspace";
+import { UserPortrait, useAccountAvatar } from "./profile-avatar";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
   applyPreferences,
@@ -2375,6 +2376,7 @@ function App() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleUser, setRoleUser] = useState<Row | null>(null);
   const [user, setUser] = useState<Row | null>(null);
+  const accountAvatar = useAccountAvatar(user?.id);
   const [boot, setBoot] = useState(true);
   const [current, setCurrent] = useState(
     () => location.hash.slice(1) || "overview",
@@ -3053,13 +3055,10 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-user">
-          <span className="avatar" aria-hidden="true">
-            {user.display_name
-              ?.split(" ")
-              .map((n: string) => n[0])
-              .slice(0, 2)
-              .join("")}
-          </span>
+          <UserPortrait
+            name={user.display_name}
+            url={accountAvatar.data?.url}
+          />
           <span className="sidebar-user-text">
             <b>{user.display_name}</b>
             <small>{tag(user.role)}</small>
@@ -3839,6 +3838,7 @@ function App() {
       )}
       {profileOpen && (
         <Profile
+          avatar={accountAvatar}
           user={user}
           onPasswordChanged={() => {
             setProfileOpen(false);

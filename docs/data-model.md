@@ -18,6 +18,9 @@ Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk a
 
 ## 1. Merkezi kimlik ve denetim
 
+`20261104_47`, hesaba ait profil görselini `user_avatars` tablosunda saklar. `user_id` tekil birincil anahtar ve kullanıcı silindiğinde temizlenen FK’dır. Kayıt ya izin verilen bir hazır avatar kimliği ya da 256×256 WebP fotoğrafı içerir; aynı anda ikisini içermez. Fotoğraflar yalnız hesabın kendi kimliği doğrulanmış isteğiyle okunur. Seçim değişikliği için UUID sürümü ve UTC güncelleme zamanı tutulur.
+
+
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |
 | --- | --- | --- |
 | `users` | email, display_name, password_hash, is_active, last_login_at | Büyük/küçük harften bağımsız tekil email |

@@ -6,6 +6,7 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 
 | Paket | Sürüm | Lisans (dağıtım metadata) |
 | --- | --- | --- |
+| Pillow | 13.0.0 | MIT-CMU |
 | Mako | 1.4.3 | MIT |
 | MarkupSafe | 3.0.4 | BSD-3-Clause |
 | PyMySQL | 1.2.3 | MIT |
