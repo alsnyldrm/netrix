@@ -127,6 +127,10 @@
 .ssh-terminal .xterm {
   height: 100%;
 }
+/* Unused space below the last complete cell row must show the terminal background. */
+.ssh-terminal .xterm .xterm-viewport {
+  background-color: transparent;
+}
 .ssh-commands {
   height: 100%;
   padding: 16px;
