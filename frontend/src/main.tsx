@@ -137,6 +137,8 @@ type Field = {
   required?: boolean;
   default?: any;
   hint?: string;
+  min?: number;
+  max?: number;
 };
 type Page = {
   key: string;
@@ -316,36 +318,35 @@ export const PAGES: Page[] = [
     ],
     fields: [
       f("name", "VLAN adı", { required: true }),
-      f("vid", "VLAN ID (1–4094)", { type: "number", required: true }),
+      f("vid", "VLAN ID (1–4094)", {
+        type: "number",
+        required: true,
+        min: 1,
+        max: 4094,
+      }),
       f("domain", "Domain", { default: "default", required: true }),
       f("cidr", "IP bloğu / CIDR", {
         required: true,
-        hint: "VLAN kaydedildiğinde IP taraması otomatik başlar.",
       }),
       ref("vrf_id", "VRF", "vrfs", true),
       ref("dns_server_id", "DNS sunucusu", "dns-servers"),
       f("warning_threshold", "IP kullanım uyarı eşiği (%)", {
         type: "number",
         default: 80,
+        min: 1,
+        max: 100,
         required: true,
       }),
       f("ping_interval", "Ping aralığı (saniye)", {
         type: "number",
-        default: 300,
-        required: true,
-      }),
-      f("discovery_interval", "Yeni sunucu keşif aralığı (saniye)", {
-        type: "number",
-        default: 3600,
+        default: 30,
+        min: 10,
+        max: 86400,
         required: true,
       }),
       f("ping_enabled", "IP durumunu düzenli kontrol et", {
         type: "checkbox",
-        default: false,
-      }),
-      f("discovery_enabled", "Yeni sunucuları düzenli ekle", {
-        type: "checkbox",
-        default: false,
+        default: true,
       }),
       ref("institution_id", "Kurum", "institutions", true),
       ref("site_id", "Lokasyon", "sites", true),
@@ -1816,6 +1817,8 @@ function GenericResourceForm({
                           : undefined
                       }
                       type={field.type || "text"}
+                      min={field.min}
+                      max={field.max}
                       required={field.required}
                       autoComplete={
                         field.type === "password" ? "new-password" : "off"
@@ -1870,6 +1873,12 @@ function GenericResourceForm({
               Test
             </button>
           </section>
+        )}
+        {page.key === "vlans" && (
+          <p className="form-note">
+            Ping yalnız kayıtlı IP’leri kontrol eder. Tam tarama, Tara düğmesi
+            veya Ayarlar → Tarama gruplarının zamanlamasıyla çalışır.
+          </p>
         )}
         {page.key === "credentials" && (
           <p className="form-note">

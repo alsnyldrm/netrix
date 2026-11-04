@@ -5,7 +5,6 @@ import {
   Info,
   ArrowLeft,
   Broadcast,
-  GearSix,
   Columns,
   Funnel,
   Trash,
@@ -60,12 +59,6 @@ const stateName = (v: string) =>
   })[v] ||
   v ||
   "Bilinmiyor";
-const settingsKeys = [
-  "dns_server_id",
-  "warning_threshold",
-  "ping_enabled",
-  "ping_interval",
-];
 function ErrorNote({ error }: { error: string }) {
   return error ? (
     <div className="error" role="alert">
@@ -85,112 +78,6 @@ function Field({
       <span>{label}</span>
       {children}
     </label>
-  );
-}
-
-function VLANSettings({
-  prefix,
-  refs,
-  close,
-  saved,
-}: {
-  prefix: Row;
-  refs: Record<string, Row[]>;
-  close: () => void;
-  saved: (row: Row) => void;
-}) {
-  const [values, setValues] = useState<Row>(
-    Object.fromEntries(settingsKeys.map((k) => [k, prefix[k]])),
-  );
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const set = (key: string, value: any) =>
-    setValues((v) => ({ ...v, [key]: value }));
-  const choices = (key: string, label: string, items: Row[]) => (
-    <Field label={label}>
-      <select
-        value={values[key] || ""}
-        onChange={(e) => set(key, e.target.value || null)}
-      >
-        <option value="">Seçilmedi</option>
-        {items.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.name || r.cidr}
-          </option>
-        ))}
-      </select>
-    </Field>
-  );
-  return (
-    <Dialog title={`${prefix.cidr} · VLAN ayarları`} onClose={close}>
-      <form
-        className="ipam-form"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          setError("");
-          try {
-            const updated = await api(
-              `/ipam/vlans/${prefix.id}/settings`,
-              "PUT",
-              values,
-            );
-            saved(updated);
-            close();
-          } catch (e: any) {
-            setError(e.message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <ErrorNote error={error} />
-        <div className="ipam-fields">
-          {choices("dns_server_id", "DNS sunucusu", refs["dns-servers"] || [])}
-          <Field label="IP kullanım uyarı eşiği (%)">
-            <input
-              type="number"
-              min="1"
-              max="100"
-              required
-              value={values.warning_threshold}
-              onChange={(e) => set("warning_threshold", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Ping aralığı (saniye)">
-            <input
-              type="number"
-              min="10"
-              max="86400"
-              required
-              value={values.ping_interval}
-              onChange={(e) => set("ping_interval", Number(e.target.value))}
-            />
-          </Field>
-          <label className="ipam-check">
-            <input
-              type="checkbox"
-              checked={values.ping_enabled}
-              onChange={(e) => set("ping_enabled", e.target.checked)}
-            />
-            <span>IP durumunu düzenli kontrol et</span>
-          </label>
-        </div>
-        <p className="ipam-hint">
-          Ping yalnız kayıtlı IP’lere ICMP gönderir; sayfa açılışından bağımsız
-          çalışır. DNS, VMware, DHCP, switch ve gateway okumaları Tara düğmesi
-          veya Ayarlar → Tarama gruplarının zamanlamasıyla yapılır.
-        </p>
-        <div className="ipam-actions">
-          <button type="button" className="secondary" onClick={close}>
-            Vazgeç
-          </button>
-          <button className="primary" disabled={busy}>
-            {busy ? "Kaydediliyor…" : "Ayarları kaydet"}
-          </button>
-        </div>
-      </form>
-    </Dialog>
   );
 }
 
@@ -771,7 +658,6 @@ export function IPAMWorkspace({
   const [activeOnly, setActiveOnly] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [settings, setSettings] = useState<Row | null>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const [job, setJob] = useState<Row | null>(null);
   const [scanRevision, setScanRevision] = useState(0);
@@ -1415,15 +1301,23 @@ export function IPAMWorkspace({
                           <>
                             <button
                               className="icon-button"
-                              aria-label={`${r.cidr} ayarları`}
-                              onClick={() => setSettings(r)}
-                            >
-                              <GearSix size={18} />
-                            </button>
-                            <button
-                              className="icon-button"
                               aria-label={`${r.cidr} düzenle`}
-                              onClick={() => onEdit("vlans", r)}
+                              disabled={busy}
+                              aria-busy={busy}
+                              onClick={async () => {
+                                setBusy(true);
+                                setError("");
+                                try {
+                                  // The list may still be refreshing after a save.
+                                  // Read the current SQL record before opening its editor.
+                                  const current = await api(`/vlans/${r.id}`);
+                                  onEdit("vlans", { ...r, ...current });
+                                } catch (e: any) {
+                                  setError(e.message);
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
                             >
                               <PencilSimple size={18} />
                             </button>
@@ -1585,19 +1479,6 @@ export function IPAMWorkspace({
             setDeleteVLANs([]);
             setOffset("0");
             selectionDone();
-          }}
-        />
-      )}
-      {settings && (
-        <VLANSettings
-          prefix={settings}
-          refs={refs}
-          close={() => setSettings(null)}
-          saved={(updated) => {
-            setVLAN((current) =>
-              current?.id === updated.id ? updated : current,
-            );
-            onSaved();
           }}
         />
       )}

@@ -1,5 +1,13 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Tek VLAN düzenleme formu — 4 Kasım 2026
+
+VLAN bilgileri ve DNS, kullanım uyarı eşiği, ping aralığı/etkinliği **Kaydı düzenle · VLAN alanları** penceresinden birlikte kaydedilir. Ortak alanlar yalnızca bir kez bulunur. Ayrı **VLAN ayarları** penceresi ve dişli düğmesi kaldırılmıştır; düzenleme düğmesi güncel VLAN kaydını SQL'den okuyup aynı forma getirir. Böylece liste yenilenmeden hızlıca yeniden açılan form eski değerleri kullanmaz. Kaydetme tek `PUT /api/v1/vlans/{id}` isteğidir; eski ayar API'si mevcut istemciler için korunur, bu arayüz tarafından çağrılmaz.
+
+Ping aralığı 10–86.400 saniye, eşik %1–100 olarak sınırlandırılır; yeni VLAN formu API ile aynı 30 saniye/etkin ping varsayılanını kullanır. Eski otomatik kaynak keşif aralığı ve etkinlik kontrolleri gösterilmez; tam tarama Ayarlar → Tarama grupları veya açık Tara eylemiyle başlar. Form açma, yenileme ve kayıt kaynak sorgusu/tarama başlatmaz. Mevcut VLAN ayarları silinmez; şema değişikliği yoktur.
+
+Birleştirilmiş formun güncel tarayıcı regresyonu `scripts/vlan_edit_browser_check.py` dosyasıdır: tekil alanlar, sayısal sınırlar, VLAN/DNS/ping kalıcılığı ve hızlı yeniden açma, 1440/375/812 px açık/koyu tema, alan hizaları ve WCAG kontrolleri gerçek yerel API ile doğrulanır; protokol işi başlatılmaz.
+
 ## VLAN içinde manuel IP kaydı — 4 Kasım 2026
 
 VLAN listesinde **Yeni kayıt**, VLAN formunu; bir VLAN açılmışken **Yeni IP kaydı**, o VLAN'a bağlı IP formunu açar. VLAN/VRF bağlamı sabittir; kurum ve lokasyon seçilen VLAN'dan gelir. Hostname, MAC, işletim sistemi, kurum/lokasyon/oda, kabinet, gateway işareti, atama durumu, bağlı cihaz ve yalnız o cihazın yönetilen arayüzleri mevcut IP formunda düzenlenir. Oda ve kabinet seçimleri kat/bölüm/oda yoluyla aranır. Bu form kaynak okuması veya iş kuyruğu başlatmaz.
