@@ -335,7 +335,8 @@ class Device(Entity, Base):
     kind: Mapped[str] = mapped_column(
         String(20), ForeignKey("device_types.code", name="fk_device_type"), default="other", index=True
     )
-    device_type: Mapped[DeviceType] = relationship(lazy="joined")
+    # Keep FOR UPDATE confined to devices, without locking the shared type catalog.
+    device_type: Mapped[DeviceType] = relationship(lazy="selectin")
     lifecycle_status: Mapped[str] = mapped_column(String(20), default="active")
     reachability: Mapped[str] = mapped_column(String(20), default="unknown")
     adapter: Mapped[str] = mapped_column(String(20), default="ios")

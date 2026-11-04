@@ -50,6 +50,9 @@ FortiGate sysDescr alanında sürüm yoksa, yalnızca FortiGate enterprise kimli
 
 MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)` kataloğu uygulanmıştır. `devices.kind`, değişmez `device_types.code` değerine FK ile bağlanır; görünen ad bağımsız düzenlenir. Aktif/arşiv cihaz ilişkileri silmeyi engeller. Varsayılan `other` kaydı, sınıflandırılmamış cihazlar için korunur.
 
+4 Kasım 2026 kilit kapsamı: `Device.device_type`, toplu ayrı SELECT (`selectin`) ile yüklenir. `SELECT devices ... FOR UPDATE` ortak `device_types` tablosuna JOIN yapmamalıdır; aynı türdeki farklı cihaz işleri böylece birbirini katalog kilidinde engellemez. Cihaz satırının özel kilidi korunur; tür etiketi oturum kapandıktan sonra da hazırdır. `scripts/device_lock_mariadb_check.py`, yalnız boş `netrix_test` veritabanında iki cihazın bağımsız kilidini, katalog serbestliğini ve aynı cihazın dışlanmasını doğrular. Worker veritabanı hatalarında yalnız sayısal `database_error_code` sonucunu ve `db_code` log alanını kaydeder; SQL, parametre ve ham sürücü hata metnini kaydetmez.
+
+
 | Tablo | Ana alanlar | İlişkiler ve kısıtlar |
 | --- | --- | --- |
 | `sites` | name, code, description, timezone | Tekil code |

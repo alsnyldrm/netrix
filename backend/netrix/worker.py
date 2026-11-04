@@ -683,8 +683,14 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.error = "Hizmet yeniden başlatılıyor; görev otomatik devam edecek."
             db.commit()
     except Exception as exc:
+        db_code = None
+        if isinstance(exc, OperationalError):
+            args = getattr(getattr(exc, "orig", None), "args", ())
+            db_code = args[0] if args and isinstance(args[0], int) else None
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
+            if db_code is not None:
+                job.result = {**job.result, "database_error_code": db_code}
             cancelled = job.cancel_requested or isinstance(exc, Cancelled)
             if cancelled:
                 job.status = "cancelled"
@@ -716,7 +722,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
             if job.status != "queued":
                 job.active_key, job.finished_at = None, now()
             db.commit()
-            log.warning("job_failed job_id=%s error_class=%s", job_id, type(exc).__name__)
+            log.warning("job_failed job_id=%s error_class=%s db_code=%s", job_id, type(exc).__name__, db_code)
     finally:
         if not task.done():
             task.cancel()

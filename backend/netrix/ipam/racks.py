@@ -3,7 +3,7 @@
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, lazyload
 
 from .. import models as m
 from ..identity.security import audit
@@ -83,7 +83,12 @@ def detail(db, id):
         .order_by(m.RackPlacement.start_unit.desc())
     ).all()
     devices = {
-        d.id: d for d in db.scalars(select(m.Device).where(m.Device.id.in_({r.device_id for r in rows})))
+        d.id: d
+        for d in db.scalars(
+            select(m.Device)
+            .options(lazyload(m.Device.device_type))
+            .where(m.Device.id.in_({r.device_id for r in rows}))
+        )
     }
     images = model_images(db, list(devices.values()))
     placements = []
