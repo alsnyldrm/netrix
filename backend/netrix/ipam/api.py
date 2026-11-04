@@ -109,6 +109,20 @@ def create(payload: IntegrationInput, user=Depends(admin), db=Depends(db_session
     return service.save_integration(db, payload, user)
 
 
+@router.post("/integrations/connection-tests", status_code=202)
+def test_new_integration(payload: IntegrationInput, user=Depends(admin), db=Depends(db_session)):
+    from .connection_tests import start
+
+    return start(db, payload, user)
+
+
+@router.post("/integrations/{id}/connection-tests", status_code=202)
+def test_integration(id: str, payload: IntegrationInput, user=Depends(admin), db=Depends(db_session)):
+    from .connection_tests import start
+
+    return start(db, payload, user, id)
+
+
 @router.put("/integrations/{id}")
 def update(id: str, payload: IntegrationInput, user=Depends(admin), db=Depends(db_session)):
     return service.save_integration(db, payload, user, id)

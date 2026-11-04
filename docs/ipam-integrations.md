@@ -1,5 +1,13 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Entegrasyon bağlantı testi — 4 Kasım 2026
+
+Entegrasyon ekleme/düzenleme penceresindeki **Bağlantıyı test et**, formdaki ayarlarla salt okunur bağlantı ve temel erişim kontrolü başlatır. Yeni taslak için `POST /api/v1/integrations/connection-tests`, kayıtlı entegrasyon için `POST /api/v1/integrations/{id}/connection-tests` HTTP 202 ile `test_integration` işini döndürür. Yalnız yönetici başlatabilir. Kullanıcı/parola boşsa mevcut şifreli bilgi kullanılır; hedef sunucu, port veya tür değiştiğinde yeni kullanıcı/parola birlikte gerekir. Test ayarları kaydetmez, `last_success_at`, IPAM gözlemleri, envanter ve kaynak snapshot’larını değiştirmez. Sayfa/pencere açılışı ve Kaydet düğmesi test başlatmaz.
+
+Test mevcut etkileşimli worker kapasitesini paylaşır (en çok 4 işlem); uygun worker/kapasite yoksa 503/429 ile reddedilir. Form taslağı ve sırlar uygulama anahtarıyla şifrelenmiş olarak Redis’te en çok 120 saniye tutulur, bitiş/iptalde kullanılabilir içerik temizlenir. MariaDB iş sonucu, audit ve API yanıtı sırları içermez. Worker en çok 60 saniyelik testte vCenter HTTPS oturumu ve görünür VM envanter erişimini veya WinRM HTTPS, DHCP modülü ve bir DHCP kapsam okumasını kontrol eder. Temel erişim testi tam rezervasyon/kiralama veya VM kaynak toplaması değildir. Sonuç pencerede gösterilir; çalışan test iptal edilebilir. Alan değişikliği önceki sonucu kaldırır; test çalışırken form alanları ve Kaydet devre dışıdır.
+
+Regresyonlar: `tests/test_integration_connection_tests.py`, mevcut etkileşimli protokol/karşılaştırma testleri ve `scripts/integration_test_browser_check.py`. Tarayıcı fixture’ı gerçek API/worker akışını sahte protokollerle çalıştırır; doğrulamalar gerçek DHCP/vCenter sunucularına bağlanmaz. Şema değişikliği yoktur.
+
 ## Gateway öncelikli ortak algoritma — 4 Kasım 2026
 
 Bu bölüm önceki DNS/VMware MAC önceliğinin ve tek-IP toplu kaynak okumasının yerine geçer. Manuel hostname/MAC/işletim sistemi düzenlemeleri ayrı kalır ve görüntülemede önceliklidir.

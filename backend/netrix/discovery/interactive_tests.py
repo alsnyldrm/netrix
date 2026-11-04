@@ -18,7 +18,7 @@ def interactive_condition():
     return func.coalesce(m.Job.result["interactive"].as_boolean(), False).is_(True)
 
 
-def start(db, kind, device_id, user, *, prepare=None):
+def start(db, kind, device_id, user, *, prepare=None, create=None):
     from .. import services as svc
 
     client = redis_client()
@@ -34,7 +34,7 @@ def start(db, kind, device_id, user, *, prepare=None):
         with client.lock("netrix:tests:admission", timeout=60, blocking_timeout=0.5):
             for attempt in range(2):
                 try:
-                    job = _admit(db, kind, device_id, user, prepare=prepare)
+                    job = _admit(db, kind, device_id, user, prepare=prepare, create=create)
                     break
                 except OperationalError as exc:
                     if attempt or exc.orig.args[0] not in (1020, 1213):
@@ -48,10 +48,10 @@ def start(db, kind, device_id, user, *, prepare=None):
         raise HTTPException(503, "Etkileşimli işlem hizmetine ulaşılamadı. Yeniden deneyin.") from None
 
 
-def _admit(db, kind, device_id, user, *, prepare=None):
+def _admit(db, kind, device_id, user, *, prepare=None, create=None):
     from .. import services as svc
 
-    job = svc.enqueue(db, kind, device_id, user, commit=False)
+    job = create() if create else svc.enqueue(db, kind, device_id, user, commit=False)
     if prepare is not None:
         prepare(job)
     if job.status == "running" or job.result.get("interactive"):

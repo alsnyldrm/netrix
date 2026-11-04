@@ -31,6 +31,8 @@ from .discovery.protocols import (
 from .discovery.targets import scope_targets
 from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
+from .ipam.connection_tests import KIND as INTEGRATION_TEST
+from .ipam.connection_tests import execute as test_integration_connection
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -578,7 +580,16 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     from .ipam.mac_cache import KIND as MAC_KIND
     from .ipam.mac_cache import scan as scan_macs
 
-    if kind not in (*KINDS, MAC_KIND, "compare", "discovery", "identify", "backup", *CONNECTION_TESTS):
+    if kind not in (
+        *KINDS,
+        MAC_KIND,
+        INTEGRATION_TEST,
+        "compare",
+        "discovery",
+        "identify",
+        "backup",
+        *CONNECTION_TESTS,
+    ):
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
             job.status, job.active_key, job.finished_at = "cancelled", None, now()
@@ -587,7 +598,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         return
 
     task = asyncio.create_task(
-        scan_macs(job_id, collector)
+        test_integration_connection(job_id)
+        if kind == INTEGRATION_TEST
+        else scan_macs(job_id, collector)
         if kind == MAC_KIND
         else execute_ipam(job_id, kind, collector)
         if kind in KINDS
@@ -624,7 +637,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
             job = get(db, m.Job, job_id)
             if job.cancel_requested:
                 job.status = "cancelled"
-            elif kind in CONNECTION_TESTS:
+            elif kind in (*CONNECTION_TESTS, INTEGRATION_TEST):
                 job.status = "succeeded" if result.get("success") is True else "failed"
                 job.error = (
                     ""

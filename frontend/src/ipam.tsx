@@ -1,6 +1,6 @@
 import { hasAdminAccess, canOperate } from "./permissions";
 import { useLiveQuery } from "./data";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Info,
   ArrowLeft,
@@ -1790,6 +1790,48 @@ export function Integrations({
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
   const [job, setJob] = useState<Row | null>(null);
+  const [connectionTest, setConnectionTest] = useState<Row | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState("");
+  const testRequest = useRef(0);
+  useEffect(() => {
+    if (
+      !editing ||
+      !connectionTest ||
+      !["queued", "running"].includes(connectionTest.status)
+    )
+      return;
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        const next = await api("/jobs/" + connectionTest.id);
+        if (active) {
+          setConnectionTest(next);
+          if (!["queued", "running"].includes(next.status)) setTesting(false);
+        }
+      } catch (e: any) {
+        if (active) {
+          setTestError(e.message);
+          setTesting(false);
+        }
+      }
+    }, 1000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [connectionTest, editing]);
+  const closeEditor = () => {
+    testRequest.current++;
+    if (connectionTest && ["queued", "running"].includes(connectionTest.status))
+      void api("/jobs/" + connectionTest.id + "/cancel", "POST").catch(
+        () => {},
+      );
+    setEditing(null);
+    setConnectionTest(null);
+    setTesting(false);
+    setTestError("");
+  };
   useEffect(() => {
     setError(listing.error);
   }, [listing.error]);
@@ -1813,6 +1855,9 @@ export function Integrations({
     };
   }, [job]);
   const edit = (r: Row) => {
+    setConnectionTest(null);
+    setTestError("");
+    setTesting(false);
     setEditing(r);
     setChangeCredentials(false);
     setValues(
@@ -1829,8 +1874,11 @@ export function Integrations({
     );
     setFormError("");
   };
-  const set = (key: string, value: any) =>
+  const set = (key: string, value: any) => {
+    setConnectionTest(null);
+    setTestError("");
     setValues((v) => ({ ...v, [key]: value }));
+  };
   const targetChanged = Boolean(
     editing?.id &&
     (values.host.trim().toLowerCase() !== editing.host.toLowerCase() ||
@@ -1945,7 +1993,7 @@ export function Integrations({
       {editing && (
         <Dialog
           title={editing.id ? "Entegrasyonu düzenle" : "Entegrasyon ekle"}
-          onClose={() => setEditing(null)}
+          onClose={closeEditor}
         >
           <form
             className="ipam-form"
@@ -1973,139 +2021,232 @@ export function Integrations({
             }}
           >
             <ErrorNote error={formError} />
-            {editing.id && (
-              <>
-                <p
-                  className="ipam-hint"
-                  id="integration-credentials-hint"
-                  role="status"
-                >
-                  {targetChanged
-                    ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
-                    : changeCredentials
-                      ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
-                      : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
+            <fieldset
+              className="integration-test-fields"
+              disabled={busy || testing}
+            >
+              {editing.id && (
+                <>
+                  <p
+                    className="ipam-hint"
+                    id="integration-credentials-hint"
+                    role="status"
+                  >
+                    {targetChanged
+                      ? "Sunucu, port veya tür değiştiği için kullanıcı ve parolayı yeniden girin."
+                      : changeCredentials
+                        ? "Kayıtlı bilgileri değiştirmek için yeni kullanıcı ve parolayı birlikte girin."
+                        : "Kayıtlı kullanıcı ve parola korunacak. Yeniden girmeniz gerekmiyor."}
+                  </p>
+                  <label className="ipam-check">
+                    <input
+                      type="checkbox"
+                      checked={credentialsRequired}
+                      disabled={targetChanged}
+                      aria-describedby="integration-credentials-hint"
+                      onChange={(e) => {
+                        setConnectionTest(null);
+                        setTestError("");
+                        setChangeCredentials(e.target.checked);
+                        if (!e.target.checked) {
+                          setValues((v) => ({
+                            ...v,
+                            username: "",
+                            password: "",
+                          }));
+                        }
+                      }}
+                    />
+                    Kullanıcı/parolayı değiştir
+                  </label>
+                </>
+              )}
+              <div className="ipam-fields">
+                <Field label="Entegrasyon adı">
+                  <input
+                    required
+                    maxLength={120}
+                    value={values.name}
+                    onChange={(e) => set("name", e.target.value)}
+                  />
+                </Field>
+                <Field label="Entegrasyon türü">
+                  <select
+                    value={values.kind}
+                    onChange={(e) => {
+                      set("kind", e.target.value);
+                      set("port", e.target.value === "vcenter" ? 443 : 5986);
+                    }}
+                  >
+                    <option value="vcenter">VMware vCenter</option>
+                    <option value="windows_dhcp">Microsoft Windows DHCP</option>
+                  </select>
+                </Field>
+                <Field label="Sunucu adı veya IP">
+                  <input
+                    required
+                    value={values.host}
+                    onChange={(e) => set("host", e.target.value)}
+                  />
+                </Field>
+                <Field label="Bağlantı portu">
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    required
+                    value={values.port}
+                    onChange={(e) => set("port", Number(e.target.value))}
+                  />
+                </Field>
+                {credentialsRequired && (
+                  <>
+                    <Field label="Kullanıcı">
+                      <input
+                        name="integration_username"
+                        autoComplete="off"
+                        spellCheck={false}
+                        required
+                        value={values.username}
+                        onChange={(e) => set("username", e.target.value)}
+                      />
+                    </Field>
+                    <Field label="Parola">
+                      <input
+                        type="password"
+                        name="integration_password"
+                        autoComplete="new-password"
+                        required
+                        value={values.password}
+                        onChange={(e) => set("password", e.target.value)}
+                      />
+                    </Field>
+                  </>
+                )}
+                <p className="ipam-hint">
+                  Bu kaynak yalnız Ayarlar → Tarama gruplarının zamanlamasıyla
+                  okunur.
                 </p>
                 <label className="ipam-check">
                   <input
                     type="checkbox"
-                    checked={credentialsRequired}
-                    disabled={targetChanged}
-                    aria-describedby="integration-credentials-hint"
-                    onChange={(e) => {
-                      setChangeCredentials(e.target.checked);
-                      if (!e.target.checked) {
-                        setValues((v) => ({
-                          ...v,
-                          username: "",
-                          password: "",
-                        }));
+                    checked={values.enabled}
+                    onChange={(e) => set("enabled", e.target.checked)}
+                  />
+                  Entegrasyonu etkinleştir
+                </label>
+                <label className="ipam-check">
+                  <input
+                    type="checkbox"
+                    checked={values.verify_tls}
+                    onChange={(e) => set("verify_tls", e.target.checked)}
+                  />
+                  TLS sertifikasını doğrula
+                </label>
+              </div>
+              <p className="ipam-hint">
+                {values.kind === "windows_dhcp"
+                  ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
+                  : "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}{" "}
+                Bağlantıyı test et, bu formdaki ayarları kaydetmeden kontrol
+                eder. Kaynak verileri VLAN taramalarıyla güncellenir.
+              </p>
+            </fieldset>
+            {(connectionTest || testError || testing) && (
+              <div
+                className="integration-test-result"
+                role={
+                  testError || connectionTest?.status === "failed"
+                    ? "alert"
+                    : "status"
+                }
+                data-state={testError ? "failed" : connectionTest?.status}
+              >
+                <strong>
+                  {testing
+                    ? "Bağlantı test ediliyor…"
+                    : connectionTest?.status === "succeeded"
+                      ? "Bağlantı başarılı"
+                      : connectionTest?.status === "cancelled"
+                        ? "Test iptal edildi"
+                        : "Bağlantı testi tamamlanamadı"}
+                </strong>
+                <p>
+                  {testError ||
+                    connectionTest?.result?.message ||
+                    connectionTest?.error ||
+                    "Sunucu bağlantısı ve okuma erişimi kontrol ediliyor."}
+                </p>
+                {testing && connectionTest?.id && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={connectionTest.cancel_requested}
+                    onClick={async () => {
+                      try {
+                        setConnectionTest(
+                          await api(
+                            "/jobs/" + connectionTest.id + "/cancel",
+                            "POST",
+                          ),
+                        );
+                      } catch (e: any) {
+                        setTestError(e.message);
                       }
                     }}
-                  />
-                  Kullanıcı/parolayı değiştir
-                </label>
-              </>
+                  >
+                    {connectionTest.cancel_requested
+                      ? "İptal ediliyor…"
+                      : "Testi iptal et"}
+                  </button>
+                )}
+              </div>
             )}
-            <div className="ipam-fields">
-              <Field label="Entegrasyon adı">
-                <input
-                  required
-                  maxLength={120}
-                  value={values.name}
-                  onChange={(e) => set("name", e.target.value)}
-                />
-              </Field>
-              <Field label="Entegrasyon türü">
-                <select
-                  value={values.kind}
-                  onChange={(e) => {
-                    set("kind", e.target.value);
-                    set("port", e.target.value === "vcenter" ? 443 : 5986);
-                  }}
-                >
-                  <option value="vcenter">VMware vCenter</option>
-                  <option value="windows_dhcp">Microsoft Windows DHCP</option>
-                </select>
-              </Field>
-              <Field label="Sunucu adı veya IP">
-                <input
-                  required
-                  value={values.host}
-                  onChange={(e) => set("host", e.target.value)}
-                />
-              </Field>
-              <Field label="Bağlantı portu">
-                <input
-                  type="number"
-                  min="1"
-                  max="65535"
-                  required
-                  value={values.port}
-                  onChange={(e) => set("port", Number(e.target.value))}
-                />
-              </Field>
-              {credentialsRequired && (
-                <>
-                  <Field label="Kullanıcı">
-                    <input
-                      name="integration_username"
-                      autoComplete="off"
-                      spellCheck={false}
-                      required
-                      value={values.username}
-                      onChange={(e) => set("username", e.target.value)}
-                    />
-                  </Field>
-                  <Field label="Parola">
-                    <input
-                      type="password"
-                      name="integration_password"
-                      autoComplete="new-password"
-                      required
-                      value={values.password}
-                      onChange={(e) => set("password", e.target.value)}
-                    />
-                  </Field>
-                </>
-              )}
-              <p className="ipam-hint">
-                Bu kaynak yalnız Ayarlar → Tarama gruplarının zamanlamasıyla
-                okunur.
-              </p>
-              <label className="ipam-check">
-                <input
-                  type="checkbox"
-                  checked={values.enabled}
-                  onChange={(e) => set("enabled", e.target.checked)}
-                />
-                Entegrasyonu etkinleştir
-              </label>
-              <label className="ipam-check">
-                <input
-                  type="checkbox"
-                  checked={values.verify_tls}
-                  onChange={(e) => set("verify_tls", e.target.checked)}
-                />
-                TLS sertifikasını doğrula
-              </label>
-            </div>
-            <p className="ipam-hint">
-              {values.kind === "windows_dhcp"
-                ? "Windows DHCP sunucusunda WinRM HTTPS (5986), DHCP PowerShell modülü, rezervasyon ve kiralama okuma yetkisi gerekir. Kullanıcı: DOMAIN\\kullanıcı."
-                : "Konuk IP/OS bilgileri VMware Tools verilerine bağlıdır."}{" "}
-              Kaydetmek bağlantı testi başlatmaz; “Şimdi eşitle” veya zamanlama
-              tetikler.
-            </p>
-            <div className="ipam-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setEditing(null)}
-              >
+            <div className="ipam-actions integration-form-actions">
+              <button type="button" className="secondary" onClick={closeEditor}>
                 Vazgeç
               </button>
-              <button className="primary" disabled={busy}>
+              <button
+                type="button"
+                className="secondary integration-test-button"
+                disabled={busy || testing}
+                onClick={async (e) => {
+                  if (!e.currentTarget.form?.reportValidity()) return;
+                  const request = ++testRequest.current;
+                  setTesting(true);
+                  setTestError("");
+                  setConnectionTest(null);
+                  setFormError("");
+                  try {
+                    const next = await api(
+                      "/integrations" +
+                        (editing.id ? "/" + editing.id : "") +
+                        "/connection-tests",
+                      "POST",
+                      {
+                        ...values,
+                        username: credentialsRequired ? values.username : "",
+                        password: credentialsRequired ? values.password : "",
+                      },
+                    );
+                    if (request !== testRequest.current) {
+                      void api("/jobs/" + next.id + "/cancel", "POST").catch(
+                        () => {},
+                      );
+                      return;
+                    }
+                    setConnectionTest(next);
+                  } catch (e: any) {
+                    if (request !== testRequest.current) return;
+                    setTestError(e.message);
+                    setTesting(false);
+                  }
+                }}
+              >
+                <Broadcast size={18} aria-hidden="true" />
+                {testing ? "Test ediliyor…" : "Bağlantıyı test et"}
+              </button>
+              <button className="primary" disabled={busy || testing}>
                 {busy ? "Kaydediliyor…" : "Entegrasyonu kaydet"}
               </button>
             </div>

@@ -957,6 +957,7 @@ const LABELS: Record<string, string> = {
   test_snmpv2c: "SNMPv2c bağlantı testi",
   test_ssh: "SSH bağlantı testi",
   test_api: "API bağlantı testi",
+  test_integration: "Entegrasyon bağlantı testi",
   availability: "Erişilebilirlik",
   config_change: "Konfigürasyon değişimi",
   viewer: "İzleyici",

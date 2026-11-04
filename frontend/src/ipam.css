@@ -421,3 +421,52 @@
   padding-top: 0;
   margin-top: 0;
 }
+
+/* Integration tests share the form's spacing and do not shift other controls. */
+.integration-test-fields {
+  display: grid;
+  gap: 20px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.integration-test-result {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+.integration-test-result p {
+  margin: 0;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.integration-test-result[data-state="failed"] {
+  border-color: var(--danger);
+}
+.integration-test-result button {
+  justify-self: start;
+}
+.integration-form-actions > button {
+  min-height: 44px;
+}
+.integration-form-actions .integration-test-button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 600px) {
+  .integration-form-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .integration-form-actions .integration-test-button {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+}

@@ -8,6 +8,10 @@ from . import models as m
 from .core import now
 
 DESCRIPTIONS = {
+    "test_integration": (
+        "Entegrasyon bağlantı testi",
+        "DHCP veya vCenter bağlantısını, kullanıcı doğrulamasını ve temel okuma erişimini formdaki ayarlarla kontrol eder. Entegrasyon ayarlarını ve IPAM kayıtlarını değiştirmez.",
+    ),
     "ipam_address_scan": (
         "Tek IP taraması",
         "Yalnızca seçilen IP adresinin ping, DNS ve kaynak eşleştirmelerini günceller. Diğer IP kayıtlarını ve VLAN zamanlamasını değiştirmez.",
@@ -66,7 +70,7 @@ def target_model(kind):
         return m.Scope
     if kind in ("ipam_ping", "ipam_discover"):
         return m.VLAN
-    if kind == "integration":
+    if kind in ("integration", "test_integration"):
         return m.Integration
     return m.Device
 
@@ -81,6 +85,13 @@ def target_label(target):
     return getattr(target, "cidr", None) or getattr(target, "name", None) or target.address
 
 
+def job_target_label(job, target):
+    if job.kind == "test_integration":
+        result = job.result or {}
+        return f"{result.get('target', 'Entegrasyon')}:{result.get('port', '')}"
+    return target_label(target)
+
+
 def summaries(db, jobs):
     targets = {}
     for model in {target_model(job.kind) for job in jobs}:
@@ -89,7 +100,7 @@ def summaries(db, jobs):
     return [
         {
             "title": DESCRIPTIONS.get(job.kind, ("Geçmiş görev", ""))[0],
-            "target_label": target_label(targets.get((target_model(job.kind), job.target_id))),
+            "target_label": job_target_label(job, targets.get((target_model(job.kind), job.target_id))),
         }
         for job in jobs
     ]
@@ -144,6 +155,8 @@ def details(db, job):
         paragraphs.append(
             f"Yanıt veren: {result['reachable']}. Yanıt alınamayan: {result.get('unresponsive', result.get('no_reply', 0))}."
         )
+    if job.kind == "test_integration" and result.get("message"):
+        paragraphs.append(result["message"])
     if job.kind == "integration" and "imported" in result:
         paragraphs.append(
             f"Okunan kayıt: {result.get('observed', 0)}. İşlenen IP kaydı: {result['imported']}."
@@ -185,7 +198,7 @@ def details(db, job):
     return {
         "id": job.id,
         "title": title,
-        "target_label": target_label(target),
+        "target_label": job_target_label(job, target),
         "status": job.status,
         "paragraphs": paragraphs,
         "created_at": job.created_at.isoformat(),
