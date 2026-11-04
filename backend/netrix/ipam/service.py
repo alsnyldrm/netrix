@@ -63,8 +63,8 @@ def ping_availability(observations, *, at=None):
 def active_address_ids(db, vrf_ids):
     # Batch lightweight ping facts; do not resolve device topology to count IPs.
     latest = {}
-    for address_id, data in db.execute(
-        select(m.IPObservation.address_id, m.IPObservation.data)
+    for observation in db.scalars(
+        select(m.IPObservation)
         .join(m.IPAddress, m.IPAddress.id == m.IPObservation.address_id)
         .where(
             m.IPAddress.vrf_id.in_(vrf_ids),
@@ -73,7 +73,7 @@ def active_address_ids(db, vrf_ids):
         )
         .order_by(m.IPObservation.observed_at.desc(), m.IPObservation.id.desc())
     ):
-        latest.setdefault(address_id, data)
+        latest.setdefault(observation.address_id, observation.data)
     return {
         id
         for id, data in latest.items()
@@ -233,15 +233,35 @@ def observe(db, prefix, address, source, source_key, data, *, create=True):
             m.IPObservation.source_key == source_key,
         )
     )
+    previous = observed.data if observed else {}
+
+    def same(old, new):
+        if isinstance(new, dict) and isinstance(old, dict):
+            return all(same(old.get(k), v) for k, v in new.items())
+        if isinstance(new, list) and isinstance(old, list):
+            return len(old) == len(new) and all(same(a, b) for a, b in zip(old, new))
+        return old == new or (old in (None, "") and new in (None, ""))
+
+    changed = [
+        k
+        for k, v in data.items()
+        if k not in {"address_scope", "read_context", "observation_id"}
+        and not (k == "reachability" and source != "icmp")
+        and not same(previous.get(k, True if k == "present" else None), v)
+    ]
     if not observed:
         observed = m.IPObservation(address_id=row.id, source=source, source_key=source_key)
         db.add(observed)
-    elif observed.data != data:
+    elif changed:
         db.add(
             m.Event(
                 kind="ip_observation_change",
                 message=f"{row.address}: {source} bilgisi değişti",
-                details={"address_id": row.id, "source": source, "previous": observed.data, "current": data},
+                details={
+                    "address_id": row.id,
+                    "source": source,
+                    "changed_fields": sorted(changed),
+                },
             )
         )
     observed.data, observed.observed_at = data, now()
@@ -351,7 +371,7 @@ def vmware_observations(obs, hostname, address, physical):
     ], ""
 
 
-def dhcp_hostname(obs, identity_mac):
+def dhcp_hostname(obs, identity_mac, address=None):
     """Display a current DHCP name only when its client MAC agrees with proven identity."""
     if not identity_mac:
         return ""
@@ -361,6 +381,7 @@ def dhcp_hostname(obs, identity_mac):
         if o.source == "windows_dhcp"
         and o.observed_at >= now() - timedelta(hours=24)
         and o.data.get("present", True)
+        and (not address or not o.data.get("address") or o.data["address"] == address)
         and (
             o.data.get("reserved") is True
             or str(o.data.get("lease_state") or "").strip().casefold() in ("active", "activereservation")
@@ -382,6 +403,8 @@ def enrich(db, rows, *, details=True, include_options=False):
     if not rows:
         return []
     grouped = observations(db, rows)
+    db.info["source_links_by_ip"] = grouped
+    db.info["resolution_views"] = {}
     locations = address_locations(db, rows)
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
     site_ids = {id for row in rows for id in (row.site_id, row.sub_site_id) if id}
@@ -545,7 +568,7 @@ def enrich(db, rows, *, details=True, include_options=False):
                 item["hostname"] = next(iter(names.values()))
                 hostname_source = "vcenter"
         if not item["hostname"] and not item["mac_conflict"]:
-            item["hostname"] = dhcp_hostname(obs, item["mac_address"])
+            item["hostname"] = dhcp_hostname(obs, item["mac_address"], row.address)
             if item["hostname"]:
                 hostname_source = "windows_dhcp"
         item["field_sources"] = {

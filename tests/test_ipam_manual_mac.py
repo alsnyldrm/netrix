@@ -106,6 +106,8 @@ def test_manual_mac_never_selects_vm_nic_or_creates_connection(network):
     with sf() as db:
         db.query(m.IPObservation).filter(m.IPObservation.source == "vcenter").delete()
         db.query(m.Observation).delete()
+        from test_ipam_source_contract import clear_source_facts
+        clear_source_facts(db)
         db.query(m.Link).delete()
         db.commit()
     row = read(network)

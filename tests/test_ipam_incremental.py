@@ -4,9 +4,8 @@ import asyncio
 
 from conftest import make_vlan
 from netrix import models as m
-from netrix import services
 from netrix.core import now
-from netrix.ipam import adapters, jobs, read_cache
+from netrix.ipam import adapters, jobs
 from sqlalchemy import select
 
 
@@ -28,8 +27,6 @@ async def test_fast_results_are_readable_before_slow_ip_and_later_sources(admin_
     from netrix.ipam import vlan_pipeline
 
     vlan_id, job_id, row_id = running_scan(env)
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     url = f"/api/v1/ipam/vlans/{vlan_id}/addresses?active_only=true"
     assert admin_client.get(url).json()["items"] == []
     slow, source, source_started = (asyncio.Event() for _ in range(3))

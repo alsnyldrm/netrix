@@ -1,5 +1,38 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Tür başına tek SQL kaynak ve NIC-Teaming — 4 Kasım 2026
+
+Bu bölüm eski JSON gözlem/snapshot saklama ve envanterden ayrı IPAM kaynak
+kopyalama hükümlerinin yerine geçer. Gateway, DHCP, VMware VM/host/NIC/ağ,
+switch MAC–port, LLDP ve CDP verilerinin her türü tek ilişkili SQL yapısında
+saklanır. Envanter keşfi ve yetkili IP/VLAN/zamanlama işleri aynı kaynak
+repository'lerini günceller; IPAM ve envanter bu kayıtlardan okur. Yönetilen
+cihaz alanları, kullanıcı etiketleri ve hariç tutmalar kaynak kanıtından ayrıdır.
+Tablo listesi ve doğrulamalı aktarım `docs/data-model.md` revision 50 bölümündedir.
+
+IP **NIC-Teaming** seçeneği varsayılan kapalıdır. Etkin IP taramasında yalnız
+seçili DNS ile hostname bulunur; sonra aynı VRF'nin güncel, etkin ve hariç
+tutulmamış envanter komşuları SQL'den tam hostname ile eşleştirilir. Gateway,
+VMware, DHCP, backbone/switch istemcisi oluşturulmaz ve sorgulanmaz. Aynı veya
+farklı switchlerdeki bütün eşleşen portlar ve NIC/uzak port bilgileri birlikte
+gösterilir; yalnız isim benzerliğinden eşleşme yapılmaz. 24 saatten eski komşular
+son bilinen kanıt olarak Sorunlu uyarısıyla gösterilir. DNS yoksa isim tahmin
+edilmez. Mod seçimi ve sayfa açılışı ağ sorgusu başlatmaz; mevcut SQL DNS/komşu
+verisiyle form tercihi uygulanır. Sonraki açık Tara veya zamanlama DNS'i günceller.
+NIC-Teaming kapalı IP'lerde gateway → VM/host ayrımı → fiziksel dal aynen sürer.
+
+Normal kaynak okuyucuları tamamlanan IP'nin kaynaklarını önce kanonik SQL'ye,
+sonra sonuç referanslarını aynı IP'ye yazar; diğer IP'lerin bitmesi beklenmez.
+Dar kapsamlı manuel IP/VLAN okuması yalnız dönen IP/MAC/port/komşu kayıtlarını
+günceller, diğer VLAN kaynaklarını emekliye ayırmaz ve bütün ağ okumaz. Kaynak
+okuma ortak SQL kanıtını günceller; yönetilen cihaz kimliğini veya manuel
+komşuluk tercihlerini değiştirmez. Her GET yalnız SQL okur; JSON yanıt önbelleği
+ve JSON kaynak dosyası tutulmaz. Bağımsız ICMP ve zamanlama tetikleyicileri korunur.
+
+Doğrulamalar: `test_source_tables.py`, `test_ipam_nic_teaming.py`,
+`source_tables_mariadb_check.py`, `source_tables_legacy_fixture.py`,
+`nic_teaming_browser_check.py`. Gerçek protokoller testlerde yasaktır.
+
 ## Tek VLAN düzenleme formu — 4 Kasım 2026
 
 VLAN bilgileri ve DNS, kullanım uyarı eşiği, ping aralığı/etkinliği **Kaydı düzenle · VLAN alanları** penceresinden birlikte kaydedilir. Ortak alanlar yalnızca bir kez bulunur. Ayrı **VLAN ayarları** penceresi ve dişli düğmesi kaldırılmıştır; düzenleme düğmesi güncel VLAN kaydını SQL'den okuyup aynı forma getirir. Böylece liste yenilenmeden hızlıca yeniden açılan form eski değerleri kullanmaz. Kaydetme tek `PUT /api/v1/vlans/{id}` isteğidir; eski ayar API'si mevcut istemciler için korunur, bu arayüz tarafından çağrılmaz.
@@ -49,21 +82,21 @@ Sanal makine kaydı ise VMware hostname/işletim sistemi ve kendi sanal switch/p
 
 ### SQL'de güncel sonuç
 
-`ipam_results.address_id` tekildir: her IP için yalnız bir güncel satır vardır. Alanlar, gateway kanıtı, en çok 32 bağlantı, 24 sorun ve 32 işlem adımı güncellenir; her denemede geçmiş satırı eklenmez. Başlangıç/bitiş/son başarı zamanları UTC'dir. Daha eski başlayan iş, yeni tamamlanmış sonucu ezemez. IP/VRF/VLAN bağı değişmişse eski sonuç kullanılmaz. IP silinince sonuç CASCADE silinir. `ipam_network_states.device_id` tekildir; zamanlanmış kaynağın son başarılı protokol snapshot'ı yerinde güncellenir. Bu tabloların satır sayısı tarama sayısıyla değil mevcut IP/kaynak sayısıyla sınırlıdır; gerçek envanter büyüdükçe doğal olarak artabilir. Mevcut ayrı olay ve konfigürasyon geçmişleri bu sözleşmeden etkilenmez. Migration, eski bağımsız `integration` kaynak işlerinin bekleyen/çalışan kayıtlarını iptal eder; bu işler yeni düzende ortak VLAN/IP akışının içinde okunur. Zamanlama grupları ve diğer işler değişmez.
+`ip_resolution_results.address_id` tekildir: her IP için yalnız bir güncel satır vardır. Alanlar, gateway kanıtı, en çok 32 bağlantı, 24 sorun ve 32 işlem adımı güncellenir; her denemede geçmiş satırı eklenmez. Başlangıç/bitiş/son başarı zamanları UTC'dir. Daha eski başlayan iş, yeni tamamlanmış sonucu ezemez. IP/VRF/VLAN bağı değişmişse eski sonuç kullanılmaz. IP silinince sonuç CASCADE silinir. `network_source_states.device_id` tekildir; zamanlanmış kaynağın son başarılı protokol snapshot'ı yerinde güncellenir. Bu tabloların satır sayısı tarama sayısıyla değil mevcut IP/kaynak sayısıyla sınırlıdır; gerçek envanter büyüdükçe doğal olarak artabilir. Mevcut ayrı olay ve konfigürasyon geçmişleri bu sözleşmeden etkilenmez. Migration, eski bağımsız `integration` kaynak işlerinin bekleyen/çalışan kayıtlarını iptal eder; bu işler yeni düzende ortak VLAN/IP akışının içinde okunur. Zamanlama grupları ve diğer işler değişmez.
 
 Liste/ayrıntı, işlenen IP için doğrudan bu sonucu okur; her GET'te kanıtları baştan birleştirmez. Ping ayrı gözlemdir, sonuç kimliğini ve kaynak alanlarını silmez. **Sonuç**, IP'nin hemen solundadır: yeşil **Başarılı**, kırmızı **Sorunlu**; henüz işlenmemiş kayıt `—` gösterir. Ayrıntı sorun açıklaması, korunan veri uyarısı ve adım tablosunu gösterir. `ipam_results_backfill.py` mevcut kaynak gözlemlerinden yalnız eksik sonuçları çevrimdışı oluşturabilir; ağ sorgusu yapmaz ve eşzamanlı oluşan sonucu ezmez. Bu kayıtlar arayüzde mevcut gözlemlerden işlendiği notuyla ayrılır. Süresi eskimiş son bilinen gateway/port verisi de geçişte korunur; Sorunlu ve eski kaynak açıklamasıyla gösterilir, yeni gözlem gibi sunulmaz.
 
 ### IP ayrıntısında tek adres taraması
 
-Operatör/yönetici **Tara** düğmesiyle `POST /api/v1/ipam/addresses/{id}/scan` çağırır (202). Aynı değişmez IP/VRF/VLAN bağı için tek aktif iş, aktör ve iptal desteği korunur; `GET` yalnız son işi okur. API kaynak okumaz. Worker tek IP'nin gateway ARP/NDP hücresini GET ile okur. VMware `SearchIndex.FindAllByIp` yalnız hedef IP ve onun NIC/backing nesnelerini getirir; guest IP eksikse önceden bilinen MOID yalnız ipucu, güncel gateway MAC doğrulaması zorunludur. Fiziksel dalda Q-BRIDGE VLAN/FID metadata'sından yalnız ilgili MAC hücresi ve yol üzerindeki port/LLDP/CDP ayrıntıları okunur; bütün ARP/FDB/NIC envanteri okunmaz. DHCP `-IPAddress` ve `-ClientId` filtreleri sunucuda çalışır; kapsam listesi yalnız metadata'dır. Tek-IP işi CIDR genişletmez, başka IP kaydetmez, ortak snapshot/cache veya envanter/topoloji yazmaz. Noktasal SNMP okuması 8 saniye, SSH port ayrıntısı 10 saniye; entegrasyon adımı 25 saniye ile sınırlıdır. Üretici yeteneği/veri eksikse bütün ağ taramasına sessizce genişlemek yerine Sorunlu sonuç verilir.
+Operatör/yönetici **Tara** düğmesiyle `POST /api/v1/ipam/addresses/{id}/scan` çağırır (202). Aynı değişmez IP/VRF/VLAN bağı için tek aktif iş, aktör ve iptal desteği korunur; `GET` yalnız son işi okur. API kaynak okumaz. Worker tek IP'nin gateway ARP/NDP hücresini GET ile okur. VMware `SearchIndex.FindAllByIp` yalnız hedef IP ve onun NIC/backing nesnelerini getirir; guest IP eksikse önceden bilinen MOID yalnız ipucu, güncel gateway MAC doğrulaması zorunludur. Fiziksel dalda Q-BRIDGE VLAN/FID metadata'sından yalnız ilgili MAC hücresi ve yol üzerindeki port/LLDP/CDP ayrıntıları okunur; bütün ARP/FDB/NIC envanteri okunmaz. DHCP `-IPAddress` ve `-ClientId` filtreleri sunucuda çalışır; kapsam listesi yalnız metadata'dır. Tek-IP işi CIDR genişletmez ve başka IP kaydetmez. Dönen kaynak verileri ortak kanonik SQL tablolarına yazılır; manuel envanter/komşuluk tercihleri değiştirilmez. Noktasal SNMP okuması 8 saniye, SSH port ayrıntısı 10 saniye; entegrasyon adımı 25 saniye ile sınırlıdır. Üretici yeteneği/veri eksikse bütün ağ taramasına sessizce genişlemek yerine Sorunlu sonuç verilir.
 
 ### Açık tetikleyici ve manuel VLAN kapsamı — 4 Kasım 2026
 
 Yeni VLAN/IP oluşturma, düzenleme, sayfa açma/yenileme, arama ve filtre yalnız SQL okur/yazar; tarama kuyruğu oluşturmaz. Kaynak okuması ancak yetkili kullanıcının IP/VLAN **Tara** isteği veya tarama grubunun takvimiyle worker’da başlar. Önceki otomatik `vlan_create` kökeni artık geçersizdir; eski bu kökenli işler worker tarafından kaynak erişiminden önce iptal edilir. Bağımsız periyodik ICMP ve mevcut günde dört switch MAC takvimi korunur.
 
-Manuel VLAN işi, yalnız seçilen CIDR’ın uç IP’leri için hedefli gateway IP→MAC, VMware IP/NIC ve gerektiğinde backbone/switch MAC, DHCP IP/MAC ve DNS PTR okuyucularını kullanır. Tüm ARP/FDB/VMware/DHCP kayıtlarını toplayan ortak kaynak okuyucusu çağrılmaz. Gateway cevabı aynı IP işlenirken tekrar sorgulanmaz; ping yanıtı olmasa da gateway’de bulunan uç eklenir. Dört kaynak/IP çözümü ve 32 ICMP sınırı korunur. Diğer VLAN’ların sonuçları, ortak kaynak snapshot’ları, envanter ve topoloji değiştirilmez. Tek-IP ve manuel VLAN işleri ortak gateway öncelikli algoritmayı kullanır.
+Manuel VLAN işi, yalnız seçilen CIDR’ın uç IP’leri için hedefli gateway IP→MAC, VMware IP/NIC ve gerektiğinde backbone/switch MAC, DHCP IP/MAC ve DNS PTR okuyucularını kullanır. Tüm ARP/FDB/VMware/DHCP kayıtlarını toplayan ortak kaynak okuyucusu çağrılmaz. Gateway cevabı aynı IP işlenirken tekrar sorgulanmaz; ping yanıtı olmasa da gateway’de bulunan uç eklenir. Dört kaynak/IP çözümü ve 32 ICMP sınırı korunur. Diğer VLAN’ların sonuçları ve kaynakları emekliye ayrılmaz; yalnız hedefli sorgunun döndürdüğü ortak kaynak satırları güncellenir. Tek-IP ve manuel VLAN işleri ortak gateway öncelikli algoritmayı kullanır.
 
-Her IP tamamlanınca tüm alanları önce `ipam_results` satırına commit edilir, sonra ilgili VLAN’a bildirim gönderilir; liste ve ayrıntı yalnız bu SQL sonucunu yeniden okur. Diğer IP’lerin veya VLAN işinin tamamlanması beklenmez. Ağ hatası eski doğrulanmış sonucu silmez. İptal, CIDR/VRF/DNS/profil değişiminde hedef yeniden doğrulanır. Regresyon: `test_ipam_explicit_scope.py` (gerçek ağ erişimi kapalı; yavaş/hızlı IP sırası, commit sonrası görünürlük ve başka VLAN’a yazmama).
+Her IP tamamlanınca tüm alanları önce `ip_resolution_results` satırına commit edilir, sonra ilgili VLAN’a bildirim gönderilir; liste ve ayrıntı yalnız bu SQL sonucunu yeniden okur. Diğer IP’lerin veya VLAN işinin tamamlanması beklenmez. Ağ hatası eski doğrulanmış sonucu silmez. İptal, CIDR/VRF/DNS/profil değişiminde hedef yeniden doğrulanır. Regresyon: `test_ipam_explicit_scope.py` (gerçek ağ erişimi kapalı; yavaş/hızlı IP sırası, commit sonrası görünürlük ve başka VLAN’a yazmama).
 
 ### Hedefli Windows DHCP hata ayrımı — 4 Kasım 2026
 

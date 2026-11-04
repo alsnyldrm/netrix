@@ -9,7 +9,7 @@ from netrix import models as m
 from netrix.core import now
 from netrix.ipam import service
 from sqlalchemy import delete, select
-from test_ipam_source_contract import MAC, SUFFIX, read
+from test_ipam_source_contract import MAC, SUFFIX, clear_source_facts, read
 from test_ipam_source_contract import network as network
 
 NAME = "CM-KT-A0-03.example.test"
@@ -77,6 +77,7 @@ def test_unverified_dhcp_names_are_not_applied(network, fault):
         db.execute(delete(m.IPObservation).where(m.IPObservation.source == "dns"))
         if fault == "no_gateway":
             db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+            clear_source_facts(db, [ids[0]])
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         changes = {}
         if fault == "mac_mismatch":

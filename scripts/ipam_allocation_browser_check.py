@@ -26,7 +26,9 @@ with sync_playwright() as p:
     expect(dialog.get_by_role("heading")).to_have_text("Yeni kayıt · IP adresleri")
     expect(dialog.get_by_role("combobox", name="VLAN", exact=True)).to_be_disabled()
     expect(dialog.get_by_role("combobox", name="VRF", exact=True)).to_be_disabled()
-    expect(dialog.get_by_role("combobox", name="Lokasyon", exact=True).locator("option:checked")).to_have_text("FBU-F")
+    expect(
+        dialog.get_by_role("combobox", name="Lokasyon", exact=True).locator("option:checked")
+    ).to_have_text("FBU-F")
     address = dialog.get_by_role("combobox", name="IP adresi", exact=True)
     expect(dialog.get_by_text("100 boş IP listeleniyor", exact=True)).to_be_visible()
     address.click()
@@ -72,13 +74,25 @@ with sync_playwright() as p:
             assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth")
             mac = dialog.get_by_role("textbox", name="MAC adresi", exact=True)
             os_field = dialog.get_by_role("combobox", name="İşletim sistemi", exact=True)
-            for control in (address, mac, os_field, cabinet, room, dialog.locator(".checkbox-control")):
+            for control in [
+                address,
+                mac,
+                os_field,
+                cabinet,
+                room,
+                *dialog.locator(".checkbox-control").all(),
+            ]:
                 assert abs(control.bounding_box()["height"] - 40) < 1
             if width == 1440:
-                left, right = address.bounding_box(), dialog.get_by_role("combobox", name="VRF", exact=True).bounding_box()
+                left, right = (
+                    address.bounding_box(),
+                    dialog.get_by_role("combobox", name="VRF", exact=True).bounding_box(),
+                )
                 assert abs(left["y"] - right["y"]) < 1 and abs(left["width"] - right["width"]) < 1
             page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
-            violations = page.evaluate("async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))")
+            violations = page.evaluate(
+                "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))"
+            )
             assert not violations, violations
             page.screenshot(path=f"/tmp/netrix-ip-create-{width}-{theme}.png")
             address.click()
@@ -87,11 +101,17 @@ with sync_playwright() as p:
             popup_rect, frame = popup.bounding_box(), dialog.bounding_box()
             header = dialog.locator(".dialog-header").bounding_box()
             assert popup_rect["y"] >= header["y"] + header["height"] - 1, (width, popup_rect, header)
-            assert popup_rect["y"] + popup_rect["height"] <= frame["y"] + frame["height"], (width, popup_rect, frame)
+            assert popup_rect["y"] + popup_rect["height"] <= frame["y"] + frame["height"], (
+                width,
+                popup_rect,
+                frame,
+            )
             page.screenshot(path=f"/tmp/netrix-ip-create-options-{width}-{theme}.png")
             address.press("Escape")
     page.set_viewport_size({"width": 1440, "height": 1000})
-    with page.expect_response(lambda r: r.request.method == "POST" and r.url.endswith("/addresses")) as response:
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith("/addresses")
+    ) as response:
         dialog.get_by_role("button", name="Kaydı kaydet", exact=True).click()
     assert response.value.status == 201, response.value.text()
     saved = response.value.json()
@@ -114,4 +134,6 @@ with sync_playwright() as p:
     assert not any("/scan" in url or "/discover" in url or url.endswith("/vlans") for url in writes), writes
     assert not errors, errors
     browser.close()
-    print("PASS: VLAN/list context, paginated vacant IPs, all metadata, desktop/mobile themes, WCAG and SQL-only save")
+    print(
+        "PASS: VLAN/list context, paginated vacant IPs, all metadata, desktop/mobile themes, WCAG and SQL-only save"
+    )

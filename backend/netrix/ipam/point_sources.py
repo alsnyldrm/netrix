@@ -66,6 +66,7 @@ class PointSources:
             vlan = db.get(m.VLAN, self.vlan.id)
             if (
                 not current
+                or current.nic_teaming
                 or not vlan
                 or [current.address, current.vrf_id, current.vlan_id]
                 != [self.row.address, self.row.vrf_id, self.vlan.id]
@@ -158,6 +159,11 @@ class PointSources:
                         {"indexes": sorted(indexes), "network": self.vlan.cidr},
                     )
                 self.device_check(id)
+                from ..sources.point import gateway as store_gateway
+
+                with session_factory()() as db:
+                    store_gateway(db, self.row, d, macs)
+                    db.commit()
                 matches.extend(
                     {
                         "device_id": id,
@@ -208,6 +214,11 @@ class PointSources:
                     or integration_signature(current) != integration_signature(config)
                 ):
                     raise Cancelled()
+            from ..sources.records import save_integration
+
+            with session_factory()() as db:
+                save_integration(db, config, records)
+                db.commit()
             rows.extend({**r, "integration_id": config.id} for r in records)
         return rows
 
@@ -237,6 +248,11 @@ class PointSources:
                     or integration_signature(current) != integration_signature(config)
                 ):
                     raise Cancelled()
+            from ..sources.records import save_integration
+
+            with session_factory()() as db:
+                save_integration(db, config, values)
+                db.commit()
             rows.extend({**r, "integration_id": config.id} for r in values)
         return self.host_records(rows)
 
@@ -355,6 +371,12 @@ class PointSources:
                 neighbors = merge_neighbors(neighbors, detail.get("neighbors", []))
                 for n in neighbors:
                     n["evidence"]["local_aggregate"] = detail.get("trunks", {}).get(n["interface_name"])
+            from ..sources.point import switch as store_switch
+
+            self.device_check(id)
+            with session_factory()() as db:
+                store_switch(db, d, self.vlan, mac, data["ports"], neighbors)
+                db.commit()
             direct = []
             for n in neighbors:
                 proof = peer(n.get("evidence") or {}, address)

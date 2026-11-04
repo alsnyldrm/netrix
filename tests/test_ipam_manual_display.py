@@ -112,6 +112,8 @@ def test_manual_connection_is_searchable_without_becoming_automatic(network, adm
         row.interface_id = interface.id
         # No current automatic evidence: manual data must remain separately identified.
         db.query(m.Observation).delete()
+        from test_ipam_source_contract import clear_source_facts
+        clear_source_facts(db)
         db.query(m.Link).delete()
         db.commit()
     response = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params={"q": "Gateway MANUAL-A2"})

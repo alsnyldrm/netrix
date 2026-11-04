@@ -1,13 +1,12 @@
 """Read-only IPAM attachment resolution. Never imports devices or mutates topology."""
 
 import ipaddress
-import threading
-from collections import OrderedDict, defaultdict, namedtuple
-from datetime import timedelta
+from collections import defaultdict, namedtuple
+from datetime import datetime, timedelta
 from functools import lru_cache
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
 from .. import models as m
@@ -135,7 +134,7 @@ def project(evidence):
             except (ValueError, TypeError):
                 continue
     addresses = defaultdict(list)
-    for address, mac, index in bindings(tables, unsupported):
+    for address, mac, index in evidence.get("_bindings", bindings(tables, unsupported)):
         addresses[address].append((mac, index))
     return {
         "bindings": addresses,
@@ -153,6 +152,10 @@ def project(evidence):
 
 def gateway_interfaces(tables, network):
     attached = set()
+    for item in tables.get("_prefixes", []):
+        subnet = ipaddress.ip_network((item["address"], item["prefix_length"]), strict=False)
+        if subnet.version == network.version and subnet.prefixlen and network.subnet_of(subnet):
+            attached.add(item["if_index"])
     for key, index in tables.get("ip_addr_ifindex", {}).items():
         try:
             address = tables.get("ip_addr_address", {}).get(key, key)
@@ -198,126 +201,23 @@ def gateway_interfaces(tables, network):
 
 
 Snapshot = namedtuple("Snapshot", "id created_at")
-# Raw switch/gateway tables are large (MBs per device). Every write goes through
-# the ORM, which bumps updated_at, so (id, updated_at) identifies the content and
-# only new or rewritten snapshots are read and projected again.
-_projections = OrderedDict()
-_projections_lock = threading.Lock()
-PROJECTION_CACHE_LIMIT = 1024
 
 
 def projections(db, rows, *, model=m.Observation):
-    keys = {row.id: (row.id, row.updated_at) for row in rows}
-    with _projections_lock:
-        found = {id: _projections[key] for id, key in keys.items() if key in _projections}
-    missing = [id for id in keys if id not in found]
-    for start in range(0, len(missing), 50):
-        for row in db.execute(
-            select(model.id, model.updated_at, model.evidence).where(
-                model.id.in_(missing[start : start + 50])
-            )
-        ):
-            projected = project(row.evidence or {})
-            found[row.id] = projected
-            if (row.id, row.updated_at) == keys[row.id]:
-                with _projections_lock:
-                    _projections[keys[row.id]] = projected
-    with _projections_lock:
-        for key in keys.values():
-            if key in _projections:
-                _projections.move_to_end(key)
-        while len(_projections) > PROJECTION_CACHE_LIMIT:
-            _projections.popitem(last=False)
+    """Transient SQL projection; source dictionaries are never kept as a second cache."""
+    ids = [row.id for row in rows]
+    found = {}
+    for start in range(0, len(ids), 50):
+        for row in db.scalars(select(model).where(model.id.in_(ids[start : start + 50]))):
+            found[row.id] = project(row.evidence or {})
     return [(row, found[row.id]) for row in rows if row.id in found]
 
 
 class Evidence:
     def for_address(self, db, row, observations):
-        """Overlay a one-IP scan on shared snapshots without changing another row's resolver."""
-        from .address_scan import NETWORK_SOURCE
-        from .network import detail_profile, read_context
-
-        scoped = [o for o in observations if o.source == NETWORK_SOURCE]
-        if not scoped:
-            return self
-        references = list(
-            db.scalars(
-                select(m.Observation)
-                .options(
-                    load_only(
-                        m.Observation.id,
-                        m.Observation.device_id,
-                        m.Observation.created_at,
-                        m.Observation.updated_at,
-                    )
-                )
-                .join(m.Job, m.Job.id == m.Observation.job_id)
-                .where(
-                    m.Observation.id.in_([o.data.get("observation_id") for o in scoped]),
-                    m.Observation.source == NETWORK_SOURCE,
-                    m.Job.kind == "ipam_address_scan",
-                    m.Job.target_id == row.id,
-                )
-            )
-        )
-        projected = {o.id: (o, p) for o, p in projections(db, references)}
-        # Keep credential objects alive so repeated per-device checks use the session identity map.
-        profiles = list(
-            db.scalars(
-                select(m.Credential)
-                .options(load_only(m.Credential.id, m.Credential.updated_at, m.Credential.protocol))
-                .where(
-                    m.Credential.id.in_(
-                        {
-                            id
-                            for o in scoped
-                            if o.source_key in self.devices
-                            for id in (
-                                self.devices[o.source_key].snmp_credential_id,
-                                self.devices[o.source_key].config_credential_id,
-                            )
-                            if id
-                        }
-                    )
-                )
-            )
-        )
-        snapshots = dict(self.snapshots)
-        changed = False
-        for observation in scoped:
-            device = self.devices.get(observation.source_key)
-            data = observation.data
-            previous = snapshots.get(observation.source_key)
-            reference = projected.get(data.get("observation_id"))
-            if (
-                not device
-                or not reference
-                or reference[0].device_id != device.id
-                or device.vrf_id != row.vrf_id
-                or data.get("address_scope") != [row.address, row.vrf_id, row.vlan_id]
-                or data.get("device_address") != device.management_ip
-                or (previous and previous[0].created_at >= observation.observed_at)
-            ):
-                continue
-            profile = next((p for p in profiles if p.id == device.snmp_credential_id), None)
-            if not profile or data.get("read_context") != read_context(
-                device, profile, detail_profile(db, device)
-            ):
-                continue
-            snapshots[device.id] = (
-                Snapshot(observation.id, observation.observed_at),
-                reference[1],
-            )
-            changed = True
-        if not changed:
-            return self
-        scoped_evidence = Evidence.__new__(Evidence)
-        scoped_evidence.__dict__.update(self.__dict__)
-        scoped_evidence.snapshots = snapshots
-        scoped_evidence.static, scoped_evidence.attached = {}, {}
-        scoped_evidence.raw_neighbors, scoped_evidence.excluded_raw_neighbors = {}, {}
-        scoped_evidence.refresh_neighbors()
-        return scoped_evidence
+        # All readers now share the canonical typed facts. There is no second
+        # per-IP protocol payload to overlay on the same source record.
+        return self
 
     def __init__(self, db, vrfs):
         self.at = now()
@@ -344,47 +244,21 @@ class Evidence:
             return
         # A newer empty/failed snapshot supersedes old positive evidence. Pick
         # latest before checking age/content so stale locations cannot reappear.
-        ranked = (
-            select(
-                m.Observation.id,
-                func.row_number()
-                .over(
-                    partition_by=m.Observation.device_id,
-                    order_by=(m.Observation.created_at.desc(), m.Observation.id.desc()),
-                )
-                .label("position"),
-            )
-            .where(m.Observation.device_id.in_(self.devices), m.Observation.source == "ipam_network")
-            .subquery()
+        from types import SimpleNamespace
+
+        self.state_rows = list(
+            db.scalars(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id.in_(self.devices)))
         )
-        latest = [
-            row
-            for row in db.execute(
-                select(
-                    m.Observation.id,
-                    m.Observation.device_id,
-                    m.Observation.address,
-                    m.Observation.created_at,
-                    m.Observation.updated_at,
-                )
-                .join(ranked, ranked.c.id == m.Observation.id)
-                .where(ranked.c.position == 1)
+        states = [
+            SimpleNamespace(
+                id=s.id,
+                device_id=s.device_id,
+                address=s.address,
+                created_at=s.observed_at,
+                updated_at=s.updated_at,
             )
-            if row.address == self.devices[row.device_id].management_ip
+            for s in self.state_rows
         ]
-        for row, projected in projections(db, latest):
-            self.snapshots[row.device_id] = (Snapshot(row.id, row.created_at), projected)
-        states = list(
-            db.execute(
-                select(
-                    m.IPAMNetworkState.id,
-                    m.IPAMNetworkState.device_id,
-                    m.IPAMNetworkState.address,
-                    m.IPAMNetworkState.observed_at.label("created_at"),
-                    m.IPAMNetworkState.updated_at,
-                ).where(m.IPAMNetworkState.device_id.in_(self.devices))
-            )
-        )
         from .network import read_context
 
         profile_ids = {
@@ -435,6 +309,11 @@ class Evidence:
             select(m.Link).where(m.Link.device_id.in_(self.devices), m.Link.auto_add_excluded.is_(True))
         ):
             self.exclusions[(link.device_id, link.interface_name)].append(link)
+        # Evidence is used after the collection session closes. Resolve the
+        # scalar STP relationship while the canonical states are attached.
+        for link in [*self.links, *(l for rows in self.exclusions.values() for l in rows)]:
+            if link.local_port:
+                _ = link.local_port.state
         self.refresh_neighbors()
 
     def refresh_neighbors(self):
@@ -464,10 +343,15 @@ class Evidence:
         snapshots = {
             id: (o, p)
             for id, (o, p) in self.snapshots.items()
-            if o.created_at >= cutoff and self.devices[id].vrf_id == vrf_id
+            if o.created_at >= cutoff
+            and self.devices[id].vrf_id == vrf_id
+            and not p["evidence"].get("failed")
         }
         links = []
         for i, link in enumerate(self.links):
+            current = self.snapshots.get(link.device_id)
+            if current and current[1]["evidence"].get("failed"):
+                continue
             if (
                 self.devices[link.device_id].vrf_id != vrf_id
                 or not link.last_seen_at
@@ -502,12 +386,19 @@ class Evidence:
             if p["evidence"].get("failed"):
                 continue
             for j, neighbor in enumerate(self.raw_neighbors.get(id, [])):
+                when = (
+                    datetime.fromisoformat(neighbor["observed_at"])
+                    if neighbor.get("observed_at")
+                    else obs.created_at
+                )
+                if when < cutoff:
+                    continue
                 port = neighbor["interface_name"]
                 if port in p["up"]:
                     links.append(
                         (
                             (1, s, 0, j),
-                            (id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id),
+                            (id, port, None, neighbor.get("evidence") or {}, when, obs.id),
                         )
                     )
         blocked = set()
@@ -614,11 +505,20 @@ class Evidence:
             device = self.devices[id]
             # The address must be on a directly attached gateway interface.
             # A management host's ARP cache is not a gateway source.
-            if device.kind not in ("router", "firewall") and str(p["evidence"].get("ip_forwarding")) != "1":
+            if (
+                not device.is_gateway
+                and device.kind not in ("router", "firewall")
+                and str(p["evidence"].get("ip_forwarding")) != "1"
+            ):
                 continue
             if (id, network) not in self.attached:
                 self.attached[(id, network)] = gateway_interfaces(p["tables"], network)
             attached = self.attached[(id, network)]
+
+            gateway_at = p["evidence"].get("gateway_at")
+            gateway_at = datetime.fromisoformat(gateway_at) if gateway_at else obs.created_at
+            if gateway_at < cutoff:
+                continue
             for mac, index in p["bindings"].get(row.address, ()):
                 if index in attached:
                     gateway.append(
@@ -627,7 +527,7 @@ class Evidence:
                             "device_name": device.name,
                             "mac_address": mac,
                             "source": "gateway",
-                            "observed_at": obs.created_at.isoformat(),
+                            "observed_at": gateway_at.isoformat(),
                         }
                     )
         gateway_macs = {g["mac_address"] for g in gateway}
@@ -645,9 +545,16 @@ class Evidence:
                 # is independent of historical directory visibility. No link is restored.
                 raw += [(1, n) for n in excluded if nic_for_neighbor(host, n.get("evidence") or {})]
             for j, (part, neighbor) in enumerate(raw):
+                when = (
+                    datetime.fromisoformat(neighbor["observed_at"])
+                    if neighbor.get("observed_at")
+                    else obs.created_at
+                )
+                if when < cutoff:
+                    continue
                 port = neighbor["interface_name"]
                 if port in p["up"]:
-                    link = (id, port, None, neighbor.get("evidence") or {}, obs.created_at, obs.id)
+                    link = (id, port, None, neighbor.get("evidence") or {}, when, obs.id)
                     record = self._link_record((1, s, 1 + part, j), link, snapshots)
                     if record:
                         extra.append(record)
@@ -727,6 +634,9 @@ class Evidence:
         if not direct and len(macs) == 1:
             mac = next(iter(macs))
             for id, (obs, p) in snapshots.items():
+                fdb_at = p["evidence"].get("fdb_at")
+                if fdb_at and datetime.fromisoformat(fdb_at) < cutoff:
+                    continue
                 if not p["evidence"].get("neighbor_protocols_complete"):
                     continue
                 if any(n.get("interface_name") not in p["names"] for n in p["evidence"].get("neighbors", [])):

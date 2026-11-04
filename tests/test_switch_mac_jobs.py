@@ -49,7 +49,7 @@ def test_manual_and_scheduler_share_active_work_and_reads_are_passive(admin_clie
         assert mac_cache.enqueue(db, scheduled_at=datetime(2026, 11, 3, tzinfo=timezone.utc)).id == job["id"]
     for _ in range(3):
         status = admin_client.get("/api/v1/ipam/switch-mac-cache").json()
-        assert status["switches"] == 2 and status["entries"] == 0 and status["healthy"] == 0
+        assert status["switches"] == 2 and status["entries"] == 2 and status["healthy"] == 2
     with sf() as db:
         assert db.scalar(select(func.count()).select_from(m.Job).where(m.Job.kind == mac_cache.KIND)) == 1
         db.scalar(select(m.User)).role = "viewer"
@@ -80,7 +80,14 @@ async def test_worker_reads_only_switches_and_never_other_ipam_sources(admin_cli
     with sf() as db:
         stored = db.get(m.Job, job["id"])
         assert stored.status == "succeeded" and stored.progress == stored.total == 2
-        assert db.scalar(select(func.count()).select_from(m.SwitchMacSnapshot)) == 2
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(m.SwitchMacSnapshot)
+                .where(m.SwitchMacSnapshot.job_id == job["id"])
+            )
+            == 2
+        )
         assert db.scalar(select(func.count()).select_from(m.SwitchMacEntry)) == 2
         assert db.scalar(select(func.count()).select_from(m.Device)) == 3
         assert not db.scalar(select(m.IPObservation.id).where(m.IPObservation.source == "switch_mac_cache"))
@@ -108,7 +115,14 @@ async def test_device_deleted_during_source_read_is_not_published(admin_client, 
         stored = db.get(m.Job, job["id"])
         assert stored.status == "partial" and stored.progress == stored.total == 2
         assert stored.result["failed_devices"][0]["error_class"] == "SourceChanged"
-        assert db.scalar(select(func.count()).select_from(m.SwitchMacSnapshot)) == 1
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(m.SwitchMacSnapshot)
+                .where(m.SwitchMacSnapshot.job_id == job["id"])
+            )
+            == 1
+        )
 
 
 async def test_partial_read_invalidates_failed_cache_without_deleting_last_rows(admin_client, network):
@@ -134,7 +148,7 @@ async def test_partial_read_invalidates_failed_cache_without_deleting_last_rows(
             db.scalar(
                 select(func.count())
                 .select_from(m.SwitchMacSnapshot)
-                .where(m.SwitchMacSnapshot.healthy.is_(True))
+                .where(m.SwitchMacSnapshot.healthy.is_(True), m.SwitchMacSnapshot.job_id == job["id"])
             )
             == 1
         )

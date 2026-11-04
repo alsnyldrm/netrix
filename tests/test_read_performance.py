@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from netrix import models as m
 from netrix import services
 from netrix.core import engine
-from netrix.ipam import racks, read_cache, service
+from netrix.ipam import racks, service
 from netrix.main import dashboard_data
 from sqlalchemy import event
 from test_ipam_endpoint_connections import endpoint
@@ -26,8 +26,6 @@ def queries():
 
 
 def test_detail_resolves_once_and_cache_is_invalidated(admin_client, inventory, env, monkeypatch):
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     with env() as db:
         vlan, row = endpoint(db, inventory["vrf"]["id"])
         service.observe(db, vlan, row.address, "dns", "system", {"hostname": "before.example.test"})
@@ -44,12 +42,12 @@ def test_detail_resolves_once_and_cache_is_invalidated(admin_client, inventory, 
     path = f"/api/v1/ipam/addresses/{id}"
     with queries() as sql:
         first = admin_client.get(path)
-    assert sum("FROM ip_observations" in statement for statement in sql) == 1
+    assert sum("FROM ip_source_links" in statement for statement in sql) == 1
     assert first.status_code == 200
     assert first.json()["hostname"] == "before.example.test"
     assert len(calls) == 1
-    assert "hit" in admin_client.get(path).headers["Server-Timing"]
-    assert len(calls) == 1
+    assert 'desc="sql"' in admin_client.get(path).headers["Server-Timing"]
+    assert len(calls) == 2
     with env() as db:
         row = db.get(m.IPAddress, id)
         service.observe(
@@ -58,7 +56,7 @@ def test_detail_resolves_once_and_cache_is_invalidated(admin_client, inventory, 
         db.commit()
     services.publish()
     assert admin_client.get(path).json()["hostname"] == "after.example.test"
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_catalog_does_not_fetch_hidden_snapshot_or_secret(admin_client, inventory, env):

@@ -3,7 +3,6 @@
 from conftest import make_vlan, vlan_payload
 from netrix import models as m
 from netrix import services
-from netrix.ipam import read_cache
 from test_ipam_hierarchy import site as make_site
 
 
@@ -11,8 +10,6 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
     admin_client, inventory, institution, env, monkeypatch
 ):
     c = admin_client
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     vrf = inventory["vrf"]["id"]
     site = c.post("/api/v1/sites", json={"name": "Campus", "institution_id": institution["id"]}).json()
     room = make_site(c, institution, name="Room", parent_id=site["id"])
@@ -38,11 +35,11 @@ def test_rack_placement_flows_into_ipam_and_invalidates_cached_reads(
         device_id, address_id, other_id = device.id, rows[0].id, rows[2].id
     url = f"/api/v1/ipam/vlans/{prefix['id']}/addresses?allocated=true"
     assert c.get(url).json()["items"][0]["cabinet"] == ""
-    assert "hit" in c.get(url).headers["Server-Timing"]
+    assert 'desc="sql"' in c.get(url).headers["Server-Timing"]
     placement = f"/api/v1/ipam/cabinets/{cabinet['id']}/placements"
     assert c.put(placement, json={"device_id": device_id, "start_unit": 42, "units": 1}).status_code == 200
     response = c.get(url)
-    assert "miss" in response.headers["Server-Timing"]
+    assert 'desc="sql"' in response.headers["Server-Timing"]
     items = response.json()["items"]
     assert items[0]["cabinet"] == "L-0/A/02/42U"
     assert items[0]["rack_position"] == "L-0/A/02/42U"

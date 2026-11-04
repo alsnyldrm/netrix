@@ -30,7 +30,7 @@ def remote_port(evidence, fallback=""):
     if lldp:
         if lldp.get("port_subtype") == 7:
             return neighbor_label(lldp.get("port_description"))
-        return neighbor_label(lldp.get("port_id"))
+        return neighbor_label(lldp.get("port_id") or fallback)
     return neighbor_label(fallback)
 
 

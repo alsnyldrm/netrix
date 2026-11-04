@@ -17,10 +17,13 @@ def cache(network, *, which=1, port="Gi1/0/9", evidence=None):
     with sf() as db:
         device = db.get(m.Device, ids[which])
         source = db.scalar(select(m.Observation).where(m.Observation.device_id == device.id))
-        data = deepcopy(source.evidence) if evidence is None else deepcopy(evidence)
+        state = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == device.id))
+        data = deepcopy(state.evidence) if evidence is None else deepcopy(evidence)
         data["interfaces"][0]["name"] = port
         profile = db.get(m.Credential, device.snmp_credential_id)
-        result = mac_cache.save_snapshot(db, device, profile, source.job_id, data)
+        result = mac_cache.save_snapshot(
+            db, device, profile, source.job_id if source else db.scalar(select(m.Job.id)), data
+        )
         db.commit()
         return result
 
@@ -28,45 +31,64 @@ def cache(network, *, which=1, port="Gi1/0/9", evidence=None):
 def clear_primary_switches(network):
     sf, _, _, ids = network
     with sf() as db:
-        for obs in db.scalars(select(m.Observation).where(m.Observation.device_id.in_(ids[1:]))):
-            data = deepcopy(obs.evidence)
-            data["tables"] = {}
-            obs.evidence = data
+        # The read journal is not another source snapshot. Clearing it must
+        # leave the sole canonical FDB and protocol rows available to all readers.
+        db.execute(delete(m.Observation).where(m.Observation.device_id.in_(ids[1:])))
         db.commit()
 
 
-def test_primary_wins_then_fallback_uses_gateway_mac(network):
+def test_inventory_and_ipam_share_latest_canonical_fdb(network):
     cache(network)
-    assert read(network)["connected_port"] == "Gi1/0/1"
+    assert read(network)["connected_port"] == "Gi1/0/9"
     clear_primary_switches(network)
     result = read(network)
     assert result["connected_device"] == "Access" and result["connected_port"] == "Gi1/0/9"
     assert result["mac_address"] == MAC and result["field_sources"]["mac_address"] == "gateway"
-    assert result["connection_type"] == "switch_mac_cache"
-    assert result["connections"][0]["source"] == "switch_mac_cache"
+    assert result["connections"][0]["source"] == "gateway+vlan_fdb"
 
 
 def test_snapshot_diffs_port_moves_and_successful_empty_removes_old_bindings(network):
     cache(network)
     sf, _, _, ids = network
     with sf() as db:
-        source = deepcopy(db.scalar(select(m.Observation).where(m.Observation.device_id == ids[1])).evidence)
-        original_id = db.scalar(select(m.SwitchMacEntry.id))
+        source = deepcopy(
+            db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[1])).evidence
+        )
+        original_id = db.scalar(
+            select(m.SwitchMacEntry.id)
+            .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+            .where(m.IPAMNetworkState.device_id == ids[1])
+        )
     result = cache(network, port="Gi1/0/10")
     assert result["added"] == result["removed"] == 1
     clear_primary_switches(network)
     assert read(network)["connected_port"] == "Gi1/0/10"
     with sf() as db:
         assert db.get(m.SwitchMacEntry, original_id) is None
-        retained_id = db.scalar(select(m.SwitchMacEntry.id))
+        retained_id = db.scalar(
+            select(m.SwitchMacEntry.id)
+            .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+            .where(m.IPAMNetworkState.device_id == ids[1])
+        )
     cache(network, port="Gi1/0/10", evidence=source)
     with sf() as db:
-        assert db.scalar(select(m.SwitchMacEntry.id)) == retained_id
+        assert (
+            db.scalar(
+                select(m.SwitchMacEntry.id)
+                .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+                .where(m.IPAMNetworkState.device_id == ids[1])
+            )
+            == retained_id
+        )
     source["tables"] = {k: {} for k in mac_cache.REQUIRED}
     cache(network, evidence=source)
     assert read(network)["connected_port"] == ""
     with sf() as db:
-        assert not db.scalar(select(m.SwitchMacEntry.id))
+        assert not db.scalar(
+            select(m.SwitchMacEntry.id)
+            .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+            .where(m.IPAMNetworkState.device_id == ids[1])
+        )
 
 
 @pytest.mark.parametrize(
@@ -88,7 +110,7 @@ def test_invalid_secondary_proof_is_never_displayed(network, fault):
     clear_primary_switches(network)
     sf, _, _, ids = network
     with sf() as db:
-        state = db.scalar(select(m.SwitchMacSnapshot))
+        state = db.scalar(select(m.SwitchMacSnapshot).where(m.SwitchMacSnapshot.device_id == ids[1]))
         device = db.get(m.Device, ids[1])
         if fault == "expired":
             state.observed_at = now() - mac_cache.FRESHNESS - timedelta(seconds=1)
@@ -108,14 +130,24 @@ def test_invalid_secondary_proof_is_never_displayed(network, fault):
         elif fault == "archived":
             device.archived = True
         elif fault == "wrong_vlan":
-            db.scalar(select(m.SwitchMacEntry)).vlan_vid = 21
+            db.scalar(
+                select(m.SwitchMacEntry)
+                .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+                .where(m.IPAMNetworkState.device_id == ids[1])
+            ).vlan_vid = 21
         elif fault == "wrong_vrf":
             vrf = m.VRF(name="Other")
             db.add(vrf)
             db.flush()
-            db.scalar(select(m.SwitchMacEntry)).vrf_id = vrf.id
+            db.scalar(
+                select(m.SwitchMacEntry)
+                .join(m.IPAMNetworkState, m.IPAMNetworkState.id == m.SwitchMacEntry.snapshot_id)
+                .where(m.IPAMNetworkState.device_id == ids[1])
+            ).vrf_id = vrf.id
         elif fault == "no_gateway":
-            db.scalar(select(m.Observation).where(m.Observation.device_id == ids[0])).evidence = {}
+            db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[0])).evidence = {
+                "tables": {"arp_mac": {}, "arp_type": {}}
+            }
         db.commit()
     assert read(network)["connected_port"] == ""
 
@@ -126,7 +158,9 @@ def test_invalid_secondary_proof_is_never_displayed(network, fault):
 def test_cached_fdb_safety_matches_primary_rules(network, fault):
     sf, _, _, ids = network
     with sf() as db:
-        data = deepcopy(db.scalar(select(m.Observation).where(m.Observation.device_id == ids[1])).evidence)
+        data = deepcopy(
+            db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[1])).evidence
+        )
     port = "Gi1/0/9"
     if fault == "multiple_macs":
         data["tables"]["vlan_fdb_port"]["700.0.17.34.51.68.86"] = "9"
@@ -176,10 +210,12 @@ def test_multiple_cached_candidates_stay_ambiguous_until_typed_nic_identity_prov
     sf, _, _, ids = network
     with sf() as db:
         payloads = [
-            deepcopy(db.scalar(select(m.Observation).where(m.Observation.device_id == id)).evidence)
+            deepcopy(db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == id)).evidence)
             for id in ids[1:]
         ]
         db.execute(delete(m.Link))
+        for payload in payloads:
+            payload["neighbors"] = []
         db.commit()
     cache(network, which=1, port="A1", evidence=payloads[0])
     cache(network, which=2, port="B2", evidence=payloads[1])

@@ -15,6 +15,34 @@ async def test_manual_ip_classifies_vm_and_host_before_selecting_sources(
 ):
     sf, vlan_id, id, _ = network
     calls = []
+    if record_type == "host":
+        from netrix.core import now
+
+        with sf() as db:
+            vlan = db.get(m.VLAN, vlan_id)
+            for number, (name, ports) in enumerate((("BB1", ("H7", "H8")), ("BB2", ("B7",)))):
+                device = m.Device(
+                    id=name,
+                    name=name,
+                    kind="switch",
+                    management_ip=f"198.51.100.{20 + number}",
+                    vrf_id=vlan.vrf_id,
+                )
+                db.add(device)
+                db.flush()
+                for port in ports:
+                    db.add(
+                        m.Link(
+                            device_id=device.id,
+                            interface_name=port,
+                            remote_name="esxi.example.test",
+                            remote_port="vmnic0",
+                            source="lldp",
+                            last_seen_at=now(),
+                            evidence={"local_aggregate": {"name": "Trk1"}},
+                        )
+                    )
+            db.commit()
 
     class Sources:
         async def gateway(self, address):

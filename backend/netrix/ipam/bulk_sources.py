@@ -163,6 +163,9 @@ class BulkContext:
                                 or integration_signature(current) != integration_signature(config)
                             ):
                                 raise Cancelled()
+                            from ..sources.records import save_integration
+
+                            save_integration(db, current, values, complete=True)
                             current.last_run_at = current.last_success_at = now()
                             db.commit()
                         rows.extend({**r, "integration_id": config.id} for r in values)
@@ -194,6 +197,10 @@ class BulkContext:
             return self.values[kind]
 
     def for_row(self, row):
+        if row.nic_teaming:
+            from .teaming import TeamingSources
+
+            return TeamingSources(row, self.base.vlan, self.job_id)
         result = copy.copy(self.base)
         result.row = row
         return BulkSources(result, self)

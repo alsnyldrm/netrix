@@ -16,7 +16,6 @@ from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
-from .discovery.correlation import correlate
 from .discovery.identification import normalize, snmp_identity
 from .discovery.interactive_tests import CAPACITY, POLL_SECONDS, interactive_condition
 from .discovery.links import sync_links
@@ -110,12 +109,11 @@ def persist_collection(db, device, collected, job, protocol="snmpv3"):
                 device_id=device.id,
                 kind="hostname_change",
                 message=f"{device.name}: gözlemlenen hostname değişti",
-                details={"previous": prior.evidence.get("hostname"), "current": collected.get("hostname")},
+                details={"fields": ["hostname"], "network_state_id": prior.network_state_id},
             )
         )
-    evidence = {key: value for key, value in collected.items() if key != "interfaces"}
+    evidence = dict(collected)
     evidence["identity"] = identity
-    evidence["port_candidates"] = correlate(collected.get("tables", {}), collected.get("neighbors", []))
     db.add(
         m.Observation(
             job_id=job.id,
@@ -143,7 +141,11 @@ async def identify_device(job_id, collector):
             raise Cancelled()
         existing = db.scalar(select(m.Observation).where(m.Observation.job_id == job_id))
         if existing:
-            return {"fields": existing.evidence.get("identity", {}), "recovered": True}
+            return {
+                "fields": sorted(existing.evidence.get("identity", {})),
+                "source_read_id": existing.id,
+                "recovered": True,
+            }
         connection = tuple(getattr(device, key) for key in IDENTITY_CONNECTION_FIELDS)
         credentials = []
         for profile in (device.snmp_credential_id, device.config_credential_id):
@@ -219,7 +221,7 @@ async def identify_device(job_id, collector):
         db.commit()
         publish()
     return {
-        "fields": fields,
+        "fields": sorted(fields),
         "missing_fields": sorted(required_fields - fields.keys()),
         "field_sources": sources,
         "attempts": attempts,
@@ -649,7 +651,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 expected = (
                     {"software_version"} if job.result.get("version_only") else {"vendor", "model", "kind"}
                 )
-                complete = expected <= fields.keys()
+                complete = expected <= set(fields)
                 job.status = "succeeded" if complete else "partial" if fields else "failed"
                 job.error = "" if complete else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):

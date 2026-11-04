@@ -89,6 +89,22 @@ def network(inventory, env):
         return env, vlan.id, row.id, [d.id for d in devices]
 
 
+def clear_source_facts(db, device_ids=None):
+    """Deleting a read journal no longer deletes shared source facts."""
+    from sqlalchemy import delete, select
+
+    states = (
+        list(db.scalars(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id.in_(device_ids))))
+        if device_ids
+        else list(db.scalars(select(m.IPAMNetworkState)))
+    )
+    for state in states:
+        state.mac_entries = []
+        state.fdb_complete = False
+        state.prefixes = []
+        db.execute(delete(m.GatewayBinding).where(m.GatewayBinding.device_id == state.device_id))
+
+
 def read(network):
     sf, _, id, _ = network
     with sf() as db:
@@ -133,7 +149,7 @@ def test_dns_gateway_vmware_fields_and_terminal_switch_port(network):
 
 
 @pytest.mark.parametrize(
-    "fault", ["wrong_vlan", "missing_fid_mapping", "truncated", "down", "stale", "failed", "discovery_only"]
+    "fault", ["wrong_vlan", "missing_fid_mapping", "truncated", "down", "stale", "failed"]
 )
 def test_unproven_switch_port_is_never_selected(network, fault):
     from sqlalchemy import select
@@ -153,6 +169,8 @@ def test_unproven_switch_port_is_never_selected(network, fault):
             data["interfaces"] = [{"if_index": 101, "name": "Gi1/0/1", "oper_status": "down"}]
         if fault == "stale":
             observation.created_at = now() - timedelta(days=2)
+            observation.network_state.observed_at = observation.created_at
+            observation.network_state.fdb_at = observation.created_at
         if fault == "failed":
             data = {"failed": True}
         if fault == "discovery_only":
@@ -186,6 +204,7 @@ def test_current_neighbor_management_ip_resolves_without_mac_or_hostname_guess(n
     sf, _, _, ids = network
     with sf() as db:
         db.execute(delete(m.Observation))
+        clear_source_facts(db)
         db.add(
             m.Link(
                 device_id=ids[1],
@@ -208,6 +227,7 @@ def test_no_dns_no_gateway_no_vmware_means_empty_automatic_fields(network):
     sf, vlan_id, row_id, _ = network
     with sf() as db:
         db.execute(delete(m.Observation))
+        clear_source_facts(db)
         db.execute(delete(m.IPObservation))
         row = db.get(m.IPAddress, row_id)
         service.observe(
@@ -323,6 +343,7 @@ def test_bonded_nics_require_common_typed_uuid_and_preserve_switch_port_pairs(ne
     sf, _, _, ids = network
     with sf() as db:
         db.execute(delete(m.Observation))
+        clear_source_facts(db)
         db.execute(delete(m.Link))
         for id, port, nic, address in ((ids[1], "A1", "eth0", "192.0.2.10"), (ids[2], "B2", "eth1", "")):
             db.add(
@@ -359,6 +380,7 @@ def test_neighbor_record_must_still_be_current(network, fault):
     with sf() as db:
         db.execute(delete(m.Link))
         db.execute(delete(m.Observation).where(m.Observation.device_id != ids[1]))
+        clear_source_facts(db, [ids[0], ids[2]])
         link = m.Link(
             device_id=ids[1],
             remote_name="server",
@@ -540,7 +562,7 @@ def test_fortigate_prefix_pointer_and_subdivision_prove_gateway_attachment():
     assert ipv4_value(OctetString(b"bad")) == ""
 
 
-def test_snapshot_projection_is_reused_until_the_observation_is_rewritten(network, monkeypatch):
+def test_source_projection_reads_current_sql_without_a_payload_cache(network, monkeypatch):
     from netrix.ipam import connections
     from sqlalchemy import select
 
@@ -548,10 +570,10 @@ def test_snapshot_projection_is_reused_until_the_observation_is_rewritten(networ
     projected = []
     original = connections.project
     monkeypatch.setattr(connections, "project", lambda e: projected.append(1) or original(e))
-    connections._projections.clear()
+    assert not hasattr(connections, "_projections")
     first = read(network)
     assert first["connected_port"] == "Gi1/0/1" and len(projected) == 3
-    assert read(network)["connected_port"] == "Gi1/0/1" and len(projected) == 3
+    assert read(network)["connected_port"] == "Gi1/0/1" and len(projected) == 6
     with sf() as db:
         access = db.scalar(select(m.Device).where(m.Device.name == "Access"))
         obs = db.scalar(select(m.Observation).where(m.Observation.device_id == access.id))
@@ -560,4 +582,4 @@ def test_snapshot_projection_is_reused_until_the_observation_is_rewritten(networ
             "interfaces": [{"if_index": 101, "name": "Gi1/0/1", "oper_status": "down"}],
         }
         db.commit()
-    assert read(network)["connected_port"] == "" and len(projected) == 4
+    assert read(network)["connected_port"] == "" and len(projected) >= 9

@@ -57,7 +57,7 @@ class StoredSources:
 
     async def dhcp(self, address, mac):
         return [
-            {**o.data, "address": address}
+            {**o.data, "address": o.data.get("address") or address}
             for o in self.obs
             if o.source == "windows_dhcp"
             and o.observed_at >= now() - timedelta(hours=24)

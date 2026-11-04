@@ -228,3 +228,50 @@ Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrul
 ### Firmware işlem adımları
 
 `firmware_events` (`20261103_42`) cihaz hedefinin gerçek komut/yanıt ve aşama/aktarım/yedek/sonuç kayıtlarını tutar. `target_id` → `firmware_targets.id` bağlantısı, otomatik artan BigInteger kimlik ve `(target_id,id)` sıralama indeksi vardır. Başlangıç/bitiş UTC zamanları, adım türü/aşaması, durum, güvenli komut ve yanıt ile kısaltma bilgisi saklanır. Parola, süreli erişim bilgileri ve konfigürasyon sırları kayıttan önce maskelenir; konfigürasyon içeriği bu tabloya taşınmaz. Bu tablo önceki işlemlerin kaydedilmemiş yanıtlarını varsayarak doldurulmaz.
+
+## 4 Kasım 2026: MariaDB kaynak tabloları (revision 50)
+
+Bu bölüm eski `discovery_observations` / `ip_observations` JSON kanıtı ve
+IPAM'a özel ikinci snapshot önerilerinin yerine geçer. Her kaynak türünün tek
+ilişkili SQL sahibi vardır; envanter ve IPAM aynı kayıtlara referans verir.
+
+| Tür | Kanonik SQL tabloları |
+| --- | --- |
+| Gateway ARP/NDP | `gateway_bindings` |
+| Windows DHCP IP/MAC/hostname | `dhcp_bindings` |
+| VMware VM ve host | `vmware_vms`, `vmware_hosts` |
+| VMware NIC, NIC–IP, fiziksel NIC ve uplink | `vmware_nics`, `vmware_addresses`, `vmware_physical_nics`, `vmware_uplinks` |
+| VMware sanal ağ ve fiziksel bağlantı ipucu | `vmware_networks`, `vmware_nic_hints`, `vmware_hint_addresses` |
+| Switch MAC–port | `mac_port_records` |
+| LLDP / CDP | `lldp_neighbors` / `cdp_neighbors` |
+| Kaynak portu, bridge/FID eşlemesi ve gateway ağı | `source_ports`, `source_bridge_ports`, `source_vlan_fdb`, `gateway_networks` |
+| DNS / ICMP | `dns_records` / `ping_states` |
+| Toplama metadata'sı ve envanter komşu tercihleri | `network_source_states`, `discovery_reads`, `neighbor_links` |
+| IP'nin kaynak ve sonuç referansları | `ip_source_links`, `ip_resolution_results`, `ip_resolution_fields`, `ip_resolution_connections`, `ip_resolution_issues`, `ip_resolution_steps` |
+
+Kaynak tabloları JSON içermez. `ip_source_links` alan değerlerini kopyalamaz;
+DNS/DHCP/VMware/gateway kaydına yabancı anahtarla bağlanır. Sonuç tablosu da
+hostname/MAC/switch/port kopyası yerine kaynak ve bağlantı referanslarını tutar.
+API'deki JSON yalnız istek/yanıt serileştirmesidir; kaynak dosyası veya Redis
+IPAM yanıt kopyası oluşturulmaz. Kimlik doğrulama sırları ve kaynak verisi olmayan
+konfigürasyon/görev metadata'sı bu kaynak aktarımının kapsamı dışındadır.
+
+UNIQUE kimlikler aynı toplamanın tekrarında yeni kaynak kopyası oluşmasını
+engeller. Eksiksiz başarılı toplama, kaybolan kayıtları pasif yapar; hata eski
+kanıtı silmez. Referansı kalmayan pasif MAC/gateway/DHCP/VM IP ve komşu satırları
+tam toplama sonunda temizlenir. Korunan son bilinen sonuç referansları ve
+kullanıcı düzeltmeleri/hariç tutmaları silinmez. Satır sayısı tarama sayısıyla
+birlikte sürekli artmaz; gerçek cihaz/IP/NIC sayısı arttığında doğal olarak artar.
+
+Alembic `20261104_50` önce yeni şemayı oluşturur, mevcut kaynakları türlerine
+ayırır, journal kimliklerini ve kaynak alanlarını doğrular, sonuç referanslarını
+kontrol eder. Doğrulama hatası eski tabloların silinmesinden önce yükseltilir.
+Başarıdan sonra eski yedi kaynak tablosu düşürülür ve otomatik olaylardaki eski
+kaynak payload kopyaları temizlenir. Kaynak JSON yedeği oluşturulmaz. Veri kayıplı
+downgrade reddedilir. MariaDB DDL atomik olmadığından yarıda kalan şema oluşturma
+adımları yeniden çalıştırılabilir; doğrulama geçmeden cleanup yapılmaz.
+
+`ip_addresses.nic_teaming` yönetilen, varsayılan kapalı bir tercihtir. Açıldığında
+kaynak çözümü DNS → SQL LLDP/CDP olarak dallanır; fiziksel/sanal kaynak kararına
+karışmaz. Ayrıntı için `docs/ipam-integrations.md` dosyasındaki güncel sözleşme
+uygulanır.

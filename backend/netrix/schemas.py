@@ -170,6 +170,7 @@ class IPInput(Input):
     cabinet: str = Field(default="", max_length=120)
     location: str = Field(default="", max_length=190)
     is_gateway: bool = False
+    nic_teaming: bool = False
     status: Literal["reserved", "active", "deprecated"] = "reserved"
 
     @field_validator("address")

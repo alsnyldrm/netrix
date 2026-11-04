@@ -3,12 +3,10 @@
 from conftest import vlan_payload
 from netrix import models as m
 from netrix import services
-from netrix.ipam import read_cache, service
+from netrix.ipam import service
 
 
 def test_gateway_toggle_persists_without_inventory_writes(admin_client, inventory, env, monkeypatch):
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     c = admin_client
     vlan = c.post(
         "/api/v1/vlans", json=vlan_payload({"cidr": "192.0.2.0/24", "vrf_id": inventory["vrf"]["id"]})

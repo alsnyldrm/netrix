@@ -8,7 +8,7 @@ from netrix import models as m
 from netrix.core import now
 from netrix.identity.security import encrypt
 from netrix.ipam import adapters, jobs, service
-from test_ipam_source_contract import MAC, read
+from test_ipam_source_contract import MAC, clear_source_facts, read
 from test_ipam_source_contract import network as network
 
 VM_MAC = "00:50:56:a0:42:c0"
@@ -170,6 +170,7 @@ def test_verified_vm_mac_works_without_gateway(network):
     sf, vlan_id, row_id, device_ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == device_ids[0]))
+        clear_source_facts(db, [device_ids[0]])
         add_vm(db, db.get(m.VLAN, vlan_id), db.get(m.IPAddress, row_id))
         db.commit()
     item = read(network)
@@ -184,6 +185,7 @@ def test_direct_guest_ip_mac_is_visible_despite_different_dns_and_vm_names(netwo
     sf, vlan_id, row_id, ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        clear_source_facts(db, [ids[0]])
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         add_vm(db, vlan, row, hostname="VM-INVENTORY-NAME", guest_address=row.address)
         db.commit()
@@ -226,6 +228,7 @@ def test_direct_guest_ip_mac_requires_unique_current_uncontested_nic(network, fa
     with sf() as db:
         if fault != "gateway_conflict":
             db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+            clear_source_facts(db, [ids[0]])
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         changes = {"hostname": "VM-INVENTORY-NAME", "guest_address": row.address}
         if fault == "gone":
@@ -261,6 +264,7 @@ def test_direct_guest_ip_selects_its_card_in_multi_nic_vm(network):
     sf, vlan_id, row_id, ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        clear_source_facts(db, [ids[0]])
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         add_vm(db, vlan, row, hostname="VM-INVENTORY-NAME", guest_address=row.address)
         add_vm(
@@ -286,6 +290,7 @@ async def test_future_vmware_snapshot_supplies_mac_with_different_dns_name(netwo
     sf, _, _, ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        clear_source_facts(db, [ids[0]])
         if not dns_name:
             db.execute(delete(m.IPObservation).where(m.IPObservation.source == "dns"))
         config = m.Integration(
@@ -323,6 +328,7 @@ def test_proven_vmware_name_fills_missing_dns_in_list_detail_search_and_filter(
     sf, vlan_id, row_id, ids = network
     with sf() as db:
         db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+        clear_source_facts(db, [ids[0]])
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         dns = db.scalar(select(m.IPObservation).where(m.IPObservation.source == "dns"))
         if dns_state == "absent":
@@ -381,6 +387,7 @@ def test_missing_dns_does_not_allow_unproven_or_conflicting_vmware_name(network,
     with sf() as db:
         if fault != "gateway_conflict":
             db.execute(delete(m.Observation).where(m.Observation.device_id == ids[0]))
+            clear_source_facts(db, [ids[0]])
         db.execute(delete(m.IPObservation).where(m.IPObservation.source == "dns"))
         row, vlan = db.get(m.IPAddress, row_id), db.get(m.VLAN, vlan_id)
         data = record(hostname="VM-NAME", guest_address=row.address, integration_id="vc")
@@ -400,7 +407,9 @@ def test_missing_dns_does_not_allow_unproven_or_conflicting_vmware_name(network,
                 now() - timedelta(hours=25)
             )
         db.commit()
-    assert read(network)["hostname"] == ""
+    # One native VM/NIC has one current source row. A later owner rename
+    # updates that fact rather than preserving a duplicate old hostname.
+    assert read(network)["hostname"] == ("OTHER-NAME" if fault == "name_conflict" else "")
 
 
 def test_switch_fdb_is_resolved_using_selected_vm_mac(network):

@@ -74,7 +74,14 @@ def serialize(obj):
         if isinstance(value, Decimal):
             value = int(value)
         result[col.key] = value
+    if isinstance(obj, m.IPObservation):
+        result["data"] = obj.data
+    if isinstance(obj, m.Observation):
+        result["evidence"] = obj.evidence
+    if isinstance(obj, m.IPAMResult):
+        result.update(values=obj.values, address_scope=obj.address_scope, issues=obj.issues, steps=obj.steps)
     if isinstance(obj, m.Link):
+        result.update(interface_name=obj.interface_name, evidence=obj.evidence)
         from .discovery.link_edits import confidence, name_label, peer_id, port_label
         from .discovery.neighbor_detail import remote_port
 
@@ -406,6 +413,10 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             if exc.status_code != 422:
                 raise
             initial_backup = {"status": "skipped", "message": str(exc.detail)}
+    if name == "addresses":
+        from .ipam.teaming import reconcile
+
+        reconcile(db, row)
     if commit:
         db.commit()
         publish()
@@ -711,7 +722,6 @@ def publish(*, ping_vlan=None, ipam_vlan=None):
     # DB is the durable outbox/queue; Redis is a wake-up hint, never the source of truth.
     try:
         client = redis_client()
-        client.incr("netrix:ipam:revision")
         client.publish(
             "netrix:events",
             json.dumps({"type": "ipam_ping", "vlan_id": ping_vlan})

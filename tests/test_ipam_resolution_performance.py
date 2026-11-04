@@ -12,47 +12,30 @@ def test_table_returns_summary_without_raw_evidence(admin_client, inventory, env
         assert service.enrich(db, [row])[0]["observations"]
 
 
-def test_response_cache_invalidation_expiry_and_failure(env, monkeypatch):
+def test_responses_always_read_sql_and_never_write_a_json_cache(env, monkeypatch):
     import json
 
     from netrix import services
     from netrix.ipam import read_cache
 
-    memory = services.redis_client()
-    monkeypatch.setattr(read_cache, "client", lambda _: memory)
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("IPAM source responses must not be stored in Redis")
+
+    monkeypatch.setattr(services, "redis_client", forbidden)
     calls = []
 
     def load():
         calls.append(1)
         return {"generation": len(calls)}
 
-    def read(key="prefix-a"):
-        return json.loads(read_cache.json_response([key], load).body)
-
-    assert read()["generation"] == 1
-    assert read()["generation"] == 1
-    services.publish()
-    assert read()["generation"] == 2
-    assert read("prefix-b")["generation"] == 3
-    current = read_cache.time.time()
-    monkeypatch.setattr(read_cache.time, "time", lambda: current + 6)
-    assert read()["generation"] == 4
-
-    def unavailable(_):
-        raise ConnectionError("cache unavailable")
-
-    monkeypatch.setattr(read_cache, "client", unavailable)
-    assert read()["generation"] == 5
-    assert read()["generation"] == 6
+    for count in range(1, 5):
+        response = read_cache.json_response(["fixture"], load)
+        assert json.loads(response.body)["generation"] == count
+        assert 'desc="sql"' in response.headers["Server-Timing"]
 
 
 def test_cached_table_still_requires_authentication(admin_client, inventory, env, monkeypatch):
-    from netrix import services
-    from netrix.ipam import read_cache
 
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         db.commit()
@@ -60,7 +43,7 @@ def test_cached_table_still_requires_authentication(admin_client, inventory, env
     first = admin_client.get(url)
     assert first.status_code == 200
     cached = admin_client.get(url)
-    assert "hit" in cached.headers["Server-Timing"]
+    assert 'desc="sql"' in cached.headers["Server-Timing"]
     admin_client.post("/api/v1/auth/logout")
     assert admin_client.get(url).status_code == 401
 
@@ -79,11 +62,7 @@ def test_dhcp_active_leases_and_reservations_have_distinct_status():
 
 def test_explicit_refresh_bypasses_and_updates_server_cache(admin_client, inventory, env, monkeypatch):
     from netrix import models as m
-    from netrix import services
-    from netrix.ipam import read_cache
 
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     with env() as db:
         prefix, row = endpoint(db, inventory["vrf"]["id"])
         service.observe(db, prefix, row.address, "dns", "system", {"hostname": "before.example"})
@@ -95,7 +74,7 @@ def test_explicit_refresh_bypasses_and_updates_server_cache(admin_client, invent
         prefix_id, row_id = prefix.id, row.id
     for url in urls:
         assert admin_client.get(url).status_code == 200
-        assert 'desc="hit"' in admin_client.get(url).headers["Server-Timing"]
+        assert 'desc="sql"' in admin_client.get(url).headers["Server-Timing"]
     with env() as db:
         row = db.get(m.IPAddress, row_id)
         service.observe(
@@ -104,31 +83,27 @@ def test_explicit_refresh_bypasses_and_updates_server_cache(admin_client, invent
         db.commit()  # Another writer; deliberately no cache invalidation notification.
     for url in urls:
         stale = admin_client.get(url).json()
-        assert (stale["items"][0] if "items" in stale else stale)["hostname"] == "before.example"
+        assert (stale["items"][0] if "items" in stale else stale)["hostname"] == "after.example"
         refreshed = admin_client.get(url, headers={"Cache-Control": "no-cache"})
-        assert 'desc="miss"' in refreshed.headers["Server-Timing"]
+        assert 'desc="sql"' in refreshed.headers["Server-Timing"]
         item = refreshed.json()
         assert (item["items"][0] if "items" in item else item)["hostname"] == "after.example"
-        assert 'desc="hit"' in admin_client.get(url).headers["Server-Timing"]
+        assert 'desc="sql"' in admin_client.get(url).headers["Server-Timing"]
     admin_client.post("/api/v1/auth/logout")
     assert admin_client.get(urls[0], headers={"Cache-Control": "no-cache"}).status_code == 401
 
 
 def test_explicit_refresh_updates_vlan_list_and_dashboard(admin_client, inventory, env, monkeypatch):
     from conftest import make_vlan
-    from netrix import services
-    from netrix.ipam import read_cache
 
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     urls = ["/api/v1/vlans?limit=200", "/api/v1/dashboard"]
     before = [admin_client.get(url).json() for url in urls]
     for url in urls:
-        assert 'desc="hit"' in admin_client.get(url).headers["Server-Timing"]
+        assert 'desc="sql"' in admin_client.get(url).headers["Server-Timing"]
     with env() as db:
         db.add(make_vlan(vid=333, cidr="203.0.113.0/24", vrf_id=inventory["vrf"]["id"]))
         db.commit()
-    assert [admin_client.get(url).json() for url in urls] == before
+    assert [admin_client.get(url).json() for url in urls] != before
     after = [admin_client.get(url, headers={"Cache-Control": "no-cache"}).json() for url in urls]
     assert after[0]["total"] == before[0]["total"] + 1
     assert after[1]["counts"]["vlans"] == before[1]["counts"]["vlans"] + 1

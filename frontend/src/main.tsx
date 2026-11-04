@@ -828,6 +828,11 @@ export const ADDRESS_PAGE: Page = {
     ref("institution_id", "Kurum", "institutions"),
     ref("site_id", "Lokasyon", "sites"),
     ref("sub_site_id", "Oda", "sites"),
+    f("nic_teaming", "NIC-Teaming", {
+      type: "checkbox",
+      default: false,
+      hint: "DNS hostname ve SQL’deki LLDP/CDP komşulukları kullanılır. Gateway, VMware, DHCP ve switch sorgulanmaz.",
+    }),
     f("is_gateway", "Gateway olarak işaretle", {
       type: "checkbox",
       default: false,

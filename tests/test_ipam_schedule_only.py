@@ -130,10 +130,7 @@ def test_viewer_cannot_start_manual_vlan_actions(admin_client, inventory, env):
 async def test_ping_is_icmp_only_and_recovery_updates_cached_status(
     admin_client, inventory, env, monkeypatch, manual
 ):
-    from netrix.ipam import read_cache
 
-    monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
-    monkeypatch.setattr(read_cache, "_retry_after", 0)
     vlan = prefix(admin_client, inventory)
     with env() as db:
         source = db.get(m.VLAN, vlan["id"])

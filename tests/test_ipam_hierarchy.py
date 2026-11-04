@@ -113,6 +113,7 @@ def test_search_filters_bulk_and_observed_address_lock(admin_client, inventory, 
         gateway = m.Device(
             name="Gateway",
             kind="router",
+            snmp_credential_id=inventory["credential"]["id"],
             management_ip="192.0.2.254",
             vrf_id=prefix.vrf_id,
             discovery_scope_id=inventory["scope"]["id"],

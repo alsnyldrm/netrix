@@ -3,6 +3,8 @@
 import asyncio
 from contextlib import aclosing
 
+from sqlalchemy import select
+
 from .. import models as m
 from ..core import now, session_factory
 from ..services import in_scope, publish
@@ -25,6 +27,13 @@ async def scan(job_id, collector):
         addresses = targets(db, vlan, True)
         manual = job.result.get("ipam_origin") == "manual"
         context = (ScopedVLANContext if manual else BulkContext)(db, vlan, collector, job_id)
+        teamed = set(
+            db.scalars(
+                select(m.IPAddress.address).where(
+                    m.IPAddress.vlan_id == vlan.id, m.IPAddress.nic_teaming.is_(True)
+                )
+            )
+        )
         vlan.last_discovery_at = started
         job.total = len(addresses)
         job.progress = 0
@@ -53,7 +62,7 @@ async def scan(job_id, collector):
 
         async def ping(address):
             up = await adapters.ping(address)
-            gateway = await context.gateway(address) if manual else None
+            gateway = await context.gateway(address) if manual and address not in teamed else None
             return address, up, gateway
 
         async with aclosing(
@@ -132,9 +141,12 @@ async def scan(job_id, collector):
                     job.result = {**job.result, "resolved": resolved, "problems": problems}
                     db.commit()
                 publish(ipam_vlan=vlan.id)
-    from sqlalchemy import select
 
     with session_factory()() as db:
+        from ..sources.cleanup import prune
+
+        prune(db)
+        db.commit()
         results = list(
             db.scalars(
                 select(m.IPAMResult)

@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from .. import models as m
 from ..core import now
@@ -45,28 +45,36 @@ def eligible(row, result, vlan):
 
 
 def refresh(db, device_id):
-    # Indexed FDB match plus existing cache-derived locations (including removed MACs).
+    # Only revisit decisions attached to this switch, or whose gateway MAC
+    # occurs in its new FDB. Unrelated VLAN results must not be swept on every
+    # scheduled switch read.
+    device_entries = (
+        select(m.SwitchMacEntry.id).join(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == device_id)
+    )
+    gateway_ids = select(m.GatewayBinding.id).where(
+        m.GatewayBinding.mac_address.in_(
+            select(m.SwitchMacEntry.mac_address)
+            .join(m.IPAMNetworkState)
+            .where(m.IPAMNetworkState.device_id == device_id, m.SwitchMacEntry.present.is_(True))
+        )
+    )
     ids = set(
         db.scalars(
             select(m.IPAMResult.address_id)
-            .join(m.IPAddress, m.IPAddress.id == m.IPAMResult.address_id)
-            .join(m.VLAN, m.VLAN.id == m.IPAddress.vlan_id)
-            .join(
-                m.SwitchMacEntry,
-                (m.SwitchMacEntry.vrf_id == m.IPAddress.vrf_id)
-                & (m.SwitchMacEntry.vlan_vid == m.VLAN.vid)
-                & (m.SwitchMacEntry.mac_address == m.IPAMResult.values["mac_address"].as_string()),
-            )
-            .join(m.SwitchMacSnapshot, m.SwitchMacSnapshot.id == m.SwitchMacEntry.snapshot_id)
-            .where(m.SwitchMacSnapshot.device_id == device_id, m.SwitchMacSnapshot.healthy.is_(True))
-            .distinct()
+            .join(m.ResolutionConnection)
+            .where(m.ResolutionConnection.mac_port_id.in_(device_entries))
         )
     )
     ids.update(
         db.scalars(
-            select(m.IPAMResult.address_id).where(
-                m.IPAMResult.values["connections"].as_string().like("%switch_mac_cache%"),
-                m.IPAMResult.values["connections"].as_string().like("%" + device_id + "%"),
+            select(m.IPAMResult.address_id)
+            .join(m.ResolutionField)
+            .outerjoin(m.IPObservation, m.IPObservation.id == m.ResolutionField.source_link_id)
+            .where(
+                or_(
+                    m.ResolutionField.gateway_id.in_(gateway_ids),
+                    m.IPObservation.gateway_id.in_(gateway_ids),
+                )
             )
         )
     )

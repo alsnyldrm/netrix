@@ -15,12 +15,16 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
+    select,
     text,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .core import Base, UTCDateTime, now
+from .sources.proxy import DiscoveryPayload, NetworkPayload, Payload, ResultPayload
 
 
 def uid():
@@ -431,6 +435,7 @@ class IPAddress(Entity, Base):
     cabinet: Mapped[str] = mapped_column(String(120), default="", server_default="")
     location: Mapped[str] = mapped_column(String(190), default="", server_default="")
     is_gateway: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    nic_teaming: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     status: Mapped[str] = mapped_column(String(20), default="reserved")
     __table_args__ = (
         UniqueConstraint("vrf_id", "address"),
@@ -438,41 +443,167 @@ class IPAddress(Entity, Base):
     )
 
 
-class IPObservation(Entity, Base):
-    __tablename__ = "ip_observations"
+class IPObservation(Payload, Entity, Base):
+    __tablename__ = "ip_source_links"
     address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), index=True)
     source: Mapped[str] = mapped_column(String(20))
     source_key: Mapped[str] = mapped_column(String(120))
-    data: Mapped[dict] = mapped_column(JSON, default=dict)
     observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    present: Mapped[bool] = mapped_column(Boolean, default=True)
+    matched_by: Mapped[str] = mapped_column(String(40), default="")
+    dns_id: Mapped[str | None] = mapped_column(
+        ForeignKey("dns_records.id", ondelete="CASCADE"), nullable=True
+    )
+    ping_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ping_states.id", ondelete="CASCADE"), nullable=True
+    )
+    dhcp_id: Mapped[str | None] = mapped_column(
+        ForeignKey("dhcp_bindings.id", ondelete="CASCADE"), nullable=True
+    )
+    vmware_id: Mapped[str | None] = mapped_column(
+        ForeignKey("vmware_addresses.id", ondelete="CASCADE"), nullable=True
+    )
+    gateway_id: Mapped[str | None] = mapped_column(
+        ForeignKey("gateway_bindings.id", ondelete="CASCADE"), nullable=True
+    )
+    network_id: Mapped[str | None] = mapped_column(
+        ForeignKey("network_source_states.id", ondelete="CASCADE"), nullable=True
+    )
+    scope_address: Mapped[str] = mapped_column(String(45), default="")
+    scope_vrf: Mapped[str] = mapped_column(String(36), default="")
+    scope_vlan: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    dns: Mapped["DNSRecord | None"] = relationship("DNSRecord", lazy="joined")
+    ping: Mapped["PingState | None"] = relationship("PingState", lazy="joined")
+    dhcp: Mapped["DHCPBinding | None"] = relationship("DHCPBinding", lazy="joined")
+    vmware: Mapped["VMwareAddress | None"] = relationship("VMwareAddress", lazy="joined")
+    gateway: Mapped["GatewayBinding | None"] = relationship("GatewayBinding", lazy="joined")
+    network: Mapped["IPAMNetworkState | None"] = relationship("IPAMNetworkState", lazy="select")
     __table_args__ = (UniqueConstraint("address_id", "source", "source_key"),)
 
 
-class IPAMResult(Entity, Base):
-    """One current, bounded resolution per address; retries update rather than append."""
-
-    __tablename__ = "ipam_results"
+class IPAMResult(ResultPayload, Entity, Base):
+    __tablename__ = "ip_resolution_results"
     address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), unique=True)
-    address_scope: Mapped[list] = mapped_column(JSON, default=list)
+    scope_address: Mapped[str] = mapped_column(String(45), default="")
+    scope_vrf: Mapped[str] = mapped_column(String(36), default="")
+    scope_vlan: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(12), default="problem")
-    values: Mapped[dict] = mapped_column(JSON, default=dict)
-    issues: Mapped[list] = mapped_column(JSON, default=list)
-    steps: Mapped[list] = mapped_column(JSON, default=list)
     retained: Mapped[bool] = mapped_column(Boolean, default=False)
+    cached_import: Mapped[bool] = mapped_column(Boolean, default=False)
+    hostname_conflict: Mapped[bool] = mapped_column(Boolean, default=False)
+    connection_type: Mapped[str] = mapped_column(String(40), default="")
     started_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
     completed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
     last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    __table_args__ = (CheckConstraint("status in ('success','problem')", name="ck_ipam_result_status"),)
+    fields: Mapped[list["ResolutionField"]] = relationship(
+        "ResolutionField", cascade="all, delete-orphan", lazy="selectin"
+    )
+    connection_rows: Mapped[list["ResolutionConnection"]] = relationship(
+        "ResolutionConnection", cascade="all, delete-orphan", lazy="selectin"
+    )
+    issue_rows: Mapped[list["ResolutionIssue"]] = relationship(
+        "ResolutionIssue", cascade="all, delete-orphan", lazy="selectin"
+    )
+    step_rows: Mapped[list["ResolutionStep"]] = relationship(
+        "ResolutionStep", cascade="all, delete-orphan", lazy="selectin"
+    )
+    __table_args__ = (CheckConstraint("status in ('success','problem')", name="ck_ip_result_status"),)
 
 
-class IPAMNetworkState(Entity, Base):
-    """Current scheduled protocol snapshot; one row per managed source device."""
+class IPAMNetworkState(NetworkPayload, Entity, Base):
+    __tablename__ = "network_source_states"
+    device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, unique=True
+    )
+    address: Mapped[str] = mapped_column(String(45), default="")
+    observed_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True, default=now)
+    attempted_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    healthy: Mapped[bool] = mapped_column(Boolean, default=True)
+    error_class: Mapped[str] = mapped_column(String(80), default="")
+    entry_count: Mapped[int] = mapped_column(Integer, default=0)
+    fdb_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    fdb_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    gateway_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    neighbors_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    interfaces_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    identity_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    lldp_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    cdp_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+    neighbor_detail_failed: Mapped[str] = mapped_column(String(80), default="")
+    stp_port: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    stp_root: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    stp_source: Mapped[str] = mapped_column(String(40), default="")
+    read_address: Mapped[str] = mapped_column(String(45), default="")
+    read_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    read_vrf: Mapped[str] = mapped_column(String(36), default="")
+    read_profile: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    read_profile_at: Mapped[str] = mapped_column(String(40), default="")
+    read_adapter: Mapped[str] = mapped_column(String(40), default="")
+    read_config_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    read_trust: Mapped[bool] = mapped_column(Boolean, default=False)
+    read_ssh_profile: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    read_ssh_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ports: Mapped[list["SourcePort"]] = relationship(
+        "SourcePort", cascade="all, delete-orphan", lazy="selectin", back_populates="state"
+    )
+    vlan_fdbs: Mapped[list["SourceVLANFDB"]] = relationship(
+        "SourceVLANFDB", cascade="all, delete-orphan", lazy="selectin"
+    )
+    bridge_ports: Mapped[list["SourceBridgePort"]] = relationship(
+        "SourceBridgePort", cascade="all, delete-orphan", lazy="selectin"
+    )
+    prefixes: Mapped[list["SourcePrefix"]] = relationship(
+        "SourcePrefix", cascade="all, delete-orphan", lazy="selectin"
+    )
+    unsupported: Mapped[list["UnsupportedTable"]] = relationship(
+        "UnsupportedTable", cascade="all, delete-orphan", lazy="selectin"
+    )
+    identity: Mapped["DeviceSourceIdentity | None"] = relationship(
+        "DeviceSourceIdentity", cascade="all, delete-orphan", uselist=False, lazy="joined"
+    )
+    mac_entries: Mapped[list["SwitchMacEntry"]] = relationship(
+        "SwitchMacEntry", cascade="all, delete-orphan", lazy="select"
+    )
 
-    __tablename__ = "ipam_network_states"
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), unique=True)
-    address: Mapped[str] = mapped_column(String(45))
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
-    observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    @property
+    def read_context(self):
+        return (
+            [
+                self.read_address,
+                self.read_port,
+                self.read_vrf,
+                self.read_profile,
+                self.read_profile_at,
+                self.read_adapter,
+                self.read_config_port,
+                self.read_trust,
+                self.read_ssh_profile,
+                self.read_ssh_at,
+            ]
+            if self.read_address
+            else []
+        )
+
+    @read_context.setter
+    def read_context(self, value):
+        if not value:
+            return
+        if len(value) != 10:
+            self.__dict__["_legacy_cache_context"] = value
+            return
+        (
+            self.read_address,
+            self.read_port,
+            self.read_vrf,
+            self.read_profile,
+            self.read_profile_at,
+            self.read_adapter,
+            self.read_config_port,
+            self.read_trust,
+            self.read_ssh_profile,
+            self.read_ssh_at,
+        ) = value
 
 
 class Scope(Entity, Base):
@@ -652,36 +783,177 @@ class FirmwareEvent(Base):
     )
 
 
-class Observation(Entity, Base):
-    __tablename__ = "discovery_observations"
+class Observation(DiscoveryPayload, Entity, Base):
+    __tablename__ = "discovery_reads"
     job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
     device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
     address: Mapped[str] = mapped_column(String(45))
     source: Mapped[str] = mapped_column(String(20), default="snmpv3")
-    __table_args__ = (UniqueConstraint("job_id", "address"),)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    failed: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_class: Mapped[str] = mapped_column(String(80), default="")
     confidence: Mapped[float] = mapped_column(Float, default=1)
+    network_state_id: Mapped[str | None] = mapped_column(
+        ForeignKey("network_source_states.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    network_state: Mapped[IPAMNetworkState | None] = relationship(lazy="selectin")
+    __table_args__ = (UniqueConstraint("job_id", "address"),)
 
 
 class Link(Entity, Base):
-    __tablename__ = "topology_links"
+    __tablename__ = "neighbor_links"
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
-    interface_name: Mapped[str] = mapped_column(String(120))
-    remote_name: Mapped[str] = mapped_column(String(190))
-    remote_port: Mapped[str] = mapped_column(String(120))
+    port_id: Mapped[str] = mapped_column(ForeignKey("source_ports.id"))
+    local_port: Mapped["SourcePort"] = relationship("SourcePort", lazy="joined")
+    identity_key: Mapped[str] = mapped_column(String(64))
     remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
     manual_remote_name: Mapped[str | None] = mapped_column(String(190), nullable=True)
     manual_remote_port: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    manual_remote_device_id: Mapped[str | None] = mapped_column(
-        ForeignKey("devices.id", name="fk_link_manual_remote_device"), nullable=True
-    )
+    manual_remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
     source: Mapped[str] = mapped_column(String(20), default="lldp")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     auto_add_excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     last_seen_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    __table_args__ = (UniqueConstraint("device_id", "interface_name", "remote_name", "remote_port"),)
+    lldp: Mapped["LLDPNeighbor | None"] = relationship(
+        "LLDPNeighbor", cascade="all, delete-orphan", uselist=False, lazy="joined"
+    )
+    cdp: Mapped["CDPNeighbor | None"] = relationship(
+        "CDPNeighbor", cascade="all, delete-orphan", uselist=False, lazy="joined"
+    )
+    __table_args__ = (UniqueConstraint("device_id", "port_id", "identity_key", name="uq_neighbor_identity"),)
+
+    @hybrid_property
+    def interface_name(self):
+        return self.__dict__.get("_pending_interface_name", self.local_port.name if self.local_port else "")
+
+    @interface_name.setter
+    def interface_name(self, value):
+        self.__dict__["_pending_interface_name"] = value
+        from .sources.proxy import changed
+
+        changed(self)
+
+    @interface_name.expression
+    def interface_name(cls):
+        from .sources.models import SourcePort
+
+        return (
+            select(SourcePort.name)
+            .where(SourcePort.id == cls.port_id)
+            .correlate_except(SourcePort)
+            .scalar_subquery()
+        )
+
+    @property
+    def aggregate(self):
+        return self.local_port.aggregate if self.local_port else ""
+
+    @property
+    def aggregate_type(self):
+        return self.local_port.aggregate_type if self.local_port else ""
+
+    @property
+    def aggregate_source(self):
+        return self.local_port.aggregate_source if self.local_port else ""
+
+    @property
+    def stp_root(self):
+        return self.local_port.state.stp_root if self.local_port else None
+
+    @property
+    def stp_port(self):
+        return self.local_port.state.stp_port if self.local_port else None
+
+    @property
+    def stp_source(self):
+        return self.local_port.state.stp_source if self.local_port else ""
+
+    @hybrid_property
+    def remote_name(self):
+        if "_pending_remote_name" in self.__dict__:
+            return self.__dict__["_pending_remote_name"]
+        return (
+            self.lldp.remote_name
+            if self.lldp
+            else self.cdp.remote_name
+            if self.cdp
+            else self.manual_remote_name or ""
+        )
+
+    @remote_name.setter
+    def remote_name(self, value):
+        self.__dict__["_pending_remote_name"] = value
+        from .sources.proxy import changed
+
+        changed(self)
+
+    @remote_name.expression
+    def remote_name(cls):
+        from .sources.models import CDPNeighbor, LLDPNeighbor
+
+        return func.coalesce(
+            select(LLDPNeighbor.remote_name)
+            .where(LLDPNeighbor.link_id == cls.id)
+            .correlate_except(LLDPNeighbor)
+            .scalar_subquery(),
+            select(CDPNeighbor.remote_name)
+            .where(CDPNeighbor.link_id == cls.id)
+            .correlate_except(CDPNeighbor)
+            .scalar_subquery(),
+            cls.manual_remote_name,
+            "",
+        )
+
+    @hybrid_property
+    def remote_port(self):
+        if "_pending_remote_port" in self.__dict__:
+            return self.__dict__["_pending_remote_port"]
+        return (
+            self.lldp.remote_port
+            if self.lldp
+            else self.cdp.remote_port
+            if self.cdp
+            else self.manual_remote_port or ""
+        )
+
+    @remote_port.setter
+    def remote_port(self, value):
+        self.__dict__["_pending_remote_port"] = value
+        from .sources.proxy import changed
+
+        changed(self)
+
+    @remote_port.expression
+    def remote_port(cls):
+        from .sources.models import CDPNeighbor, LLDPNeighbor
+
+        return func.coalesce(
+            select(LLDPNeighbor.remote_port)
+            .where(LLDPNeighbor.link_id == cls.id)
+            .correlate_except(LLDPNeighbor)
+            .scalar_subquery(),
+            select(CDPNeighbor.remote_port)
+            .where(CDPNeighbor.link_id == cls.id)
+            .correlate_except(CDPNeighbor)
+            .scalar_subquery(),
+            cls.manual_remote_port,
+            "",
+        )
+
+    @property
+    def evidence(self):
+        if "_pending_evidence" in self.__dict__:
+            return self.__dict__["_pending_evidence"]
+        from .sources.neighbors import read
+
+        return read(self)
+
+    @evidence.setter
+    def evidence(self, value):
+        self.__dict__["_pending_evidence"] = dict(value or {})
+        from .sources.proxy import changed
+
+        changed(self)
 
 
 class Snapshot(Entity, Base):
@@ -795,31 +1067,54 @@ class AccessGroupDevice(Base):
     )
 
 
-class SwitchMacSnapshot(Entity, Base):
-    __tablename__ = "switch_mac_snapshots"
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), unique=True)
-    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
-    observed_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    attempted_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
-    healthy: Mapped[bool] = mapped_column(Boolean, default=False)
-    error_class: Mapped[str] = mapped_column(String(80), default="")
-    entry_count: Mapped[int] = mapped_column(Integer, default=0)
-    read_context: Mapped[list] = mapped_column(JSON, default=list)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
-    __table_args__ = (CheckConstraint("entry_count >= 0", name="ck_switch_mac_count"),)
-
-
 class SwitchMacEntry(Entity, Base):
-    __tablename__ = "switch_mac_entries"
-    snapshot_id: Mapped[str] = mapped_column(ForeignKey("switch_mac_snapshots.id", ondelete="CASCADE"))
+    __tablename__ = "mac_port_records"
+    snapshot_id: Mapped[str] = mapped_column(
+        ForeignKey("network_source_states.id", ondelete="CASCADE"), index=True
+    )
     vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"))
-    vlan_vid: Mapped[int] = mapped_column(Integer)
+    vlan_vid: Mapped[int] = mapped_column(Integer, default=0)
+    fdb_id: Mapped[int] = mapped_column(Integer, default=0)
+    bridge_port: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(10), default="3")
     mac_address: Mapped[str] = mapped_column(String(17))
     port: Mapped[str] = mapped_column(String(190))
     if_index: Mapped[int] = mapped_column(Integer)
+    observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    present: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (
-        UniqueConstraint("snapshot_id", "vlan_vid", "mac_address", "port", name="uq_switch_mac_binding"),
-        Index("ix_switch_mac_lookup", "vrf_id", "vlan_vid", "mac_address"),
-        CheckConstraint("vlan_vid >= 1 AND vlan_vid <= 4094", name="ck_switch_mac_vlan"),
-        CheckConstraint("if_index > 0", name="ck_switch_mac_ifindex"),
+        UniqueConstraint("snapshot_id", "fdb_id", "mac_address", "port", name="uq_mac_port_fact"),
+        Index("ix_mac_port_lookup", "vrf_id", "vlan_vid", "mac_address"),
     )
+
+
+SwitchMacSnapshot = IPAMNetworkState
+# Import at the end: source models refer to the shared entities above.
+from .sources import events as source_events  # noqa: E402,F401
+from .sources.models import (  # noqa: E402,F401
+    CDPNeighbor,
+    DeviceSourceIdentity,
+    DHCPBinding,
+    DNSRecord,
+    GatewayBinding,
+    LLDPNeighbor,
+    PingState,
+    ResolutionConnection,
+    ResolutionField,
+    ResolutionIssue,
+    ResolutionStep,
+    SourceBridgePort,
+    SourcePort,
+    SourcePrefix,
+    SourceVLANFDB,
+    UnsupportedTable,
+    VMwareAddress,
+    VMwareHint,
+    VMwareHintAddress,
+    VMwareHost,
+    VMwareNetwork,
+    VMwareNIC,
+    VMwarePhysicalNIC,
+    VMwareUplink,
+    VMwareVM,
+)

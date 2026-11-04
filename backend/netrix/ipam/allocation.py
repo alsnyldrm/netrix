@@ -23,8 +23,8 @@ def bounds(vlan):
 def occupancy(db, vlan):
     rows = list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == vlan.id)))
     latest = {}
-    for address_id, data in db.execute(
-        select(m.IPObservation.address_id, m.IPObservation.data)
+    for observation in db.scalars(
+        select(m.IPObservation)
         .join(m.IPAddress, m.IPAddress.id == m.IPObservation.address_id)
         .where(
             m.IPAddress.vlan_id == vlan.id,
@@ -33,7 +33,7 @@ def occupancy(db, vlan):
         )
         .order_by(m.IPObservation.observed_at.desc(), m.IPObservation.id.desc())
     ):
-        latest.setdefault(address_id, data)
+        latest.setdefault(observation.address_id, observation.data)
     blocked = {
         r.address
         for r in rows

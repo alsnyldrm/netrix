@@ -200,7 +200,10 @@ def test_raw_neighbor_is_current_and_respects_user_exclusions(network, fault):
                 )
             )
         db.commit()
-    assert not read(network)["connected_port"]
+        if fault == "failed":
+            state = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[1]))
+            assert state.healthy is False, (state.healthy, state.attempted_at, state.observed_at)
+    assert not read(network)["connected_port"], str(read(network)["connections"])
 
 
 def test_duplicate_location_for_one_physical_nic_is_not_a_dual_connection(network):
@@ -378,7 +381,9 @@ async def test_host_sync_is_separate_from_vms_and_retires_removed_hosts(network,
     records.clear()
     await jobs.integration(job_id)
     with sf() as db:
-        assert (
-            db.scalar(select(m.IPObservation).where(m.IPObservation.source == "vcenter")).data["present"]
-            is False
-        )
+        # Unreferenced retired source facts are reclaimed rather than copied
+        # into permanent per-IP history payloads.
+        assert db.scalar(select(m.IPObservation).where(m.IPObservation.source == "vcenter")) is None
+        assert db.scalar(select(m.VMwareAddress)) is None
+        assert db.scalar(select(m.VMwareNIC)) is None
+        assert db.scalar(select(m.VMwareHost)) is None

@@ -120,6 +120,17 @@ async def test_partial_failure_preserves_last_good_fields_and_row_count(admin_cl
     sf, _, id, _ = network
     with sf() as db:
         row = db.get(m.IPAddress, id)
+        from netrix.ipam import service
+
+        vlan = db.get(m.VLAN, row.vlan_id)
+        service.observe(db, vlan, row.address, "dns", "system", {"hostname": "stable"})
+        source = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == network[3][1]))
+        for port in source.ports:
+            if port.if_index == 101:
+                port.name = "7"
+        for entry in source.mac_entries:
+            entry.port = "7"
+        db.flush()
         pipeline.save_result(
             db,
             row,
@@ -204,7 +215,9 @@ async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, ne
         job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
     assert worker.claim(interactive=False, include_kinds=(job["kind"],)) == job["id"]
     await worker.execute(job["id"], Collector())
-    assert calls == [("gateway", "198.51.100.1", "192.0.2.10"), ("switch", "198.51.100.2", MAC)]
+    assert calls == [("gateway", "198.51.100.1", "192.0.2.10"), ("switch", "198.51.100.2", MAC)], str(
+        admin_client.get(f"/api/v1/ipam/addresses/{id}").json().get("scan_result")
+    )
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert item["connected_device"] == "Access" and item["connected_port"] == "Gi1/0/1"
     assert item["scan_status"] == "success"
@@ -219,6 +232,8 @@ def test_older_attempt_cannot_overwrite_newer_and_manual_fields_keep_priority(ad
     with sf() as db:
         row = db.get(m.IPAddress, id)
         row.hostname = "MANUAL"
+        db.get(m.Device, network[3][1]).name = "new-switch"
+        db.flush()
         current = now()
         save_result(
             db,
@@ -385,6 +400,12 @@ async def test_offline_transition_keeps_expired_last_known_mac_and_port(admin_cl
     with sf() as db:
         for observation in db.scalars(select(m.Observation)):
             observation.created_at = now() - timedelta(days=2)
+            state = observation.network_state
+            state.observed_at = state.gateway_at = state.fdb_at = observation.created_at
+            for g in db.scalars(
+                select(m.GatewayBinding).where(m.GatewayBinding.device_id == state.device_id)
+            ):
+                g.observed_at = observation.created_at
         db.commit()
     assert await run() == 1
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
@@ -434,6 +455,7 @@ def test_mac_timer_fills_empty_results_without_overwriting_primary(network):
         db.commit()
         assert result_fallback.refresh(db, ids[1]) == 1
         assert result.values["connected_port"] == "Gi1/0/9" and result.status == "problem" and result.retained
+        db.get(m.Device, ids[1]).name = "PRIMARY"
         result.values = {
             **result.values,
             "connected_device": "PRIMARY",

@@ -52,16 +52,9 @@ def devices(db):
 
 
 def context(device, profile):
-    return [
-        device.management_ip,
-        device.snmp_port,
-        device.vrf_id,
-        device.kind,
-        device.adapter,
-        device.snmp_credential_id,
-        profile.updated_at.isoformat(),
-        device.discovery_scope_id,
-    ]
+    from .network import read_context
+
+    return read_context(device, profile, None)
 
 
 def slot(at):
@@ -147,6 +140,7 @@ def save_snapshot(db, device, profile, job_id, evidence, *, error=""):
         state = m.SwitchMacSnapshot(device_id=device.id)
         db.add(state)
         db.flush()
+    state.address = device.management_ip
     state.job_id, state.attempted_at = job_id, now()
     incomplete = (
         (REQUIRED | {"if_status"}) & set(evidence.get("unsupported") or [])
@@ -171,31 +165,12 @@ def save_snapshot(db, device, profile, job_id, evidence, *, error=""):
         for port in ports
         if len(port) <= 190 and port in names
     }
-    existing = {
-        (e.vlan_vid, e.mac_address, e.port): e
-        for e in db.scalars(select(m.SwitchMacEntry).where(m.SwitchMacEntry.snapshot_id == state.id))
-    }
-    for key in existing.keys() - bindings.keys():
-        db.delete(existing[key])
-    for (vid, mac, port), index in bindings.items():
-        entry = existing.get((vid, mac, port))
-        if entry:
-            if entry.if_index != index or entry.vrf_id != device.vrf_id:
-                entry.if_index, entry.vrf_id = index, device.vrf_id
-        else:
-            db.add(
-                m.SwitchMacEntry(
-                    snapshot_id=state.id,
-                    vrf_id=device.vrf_id,
-                    vlan_vid=vid,
-                    mac_address=mac,
-                    port=port,
-                    if_index=index,
-                )
-            )
+    existing = {(e.vlan_vid, e.mac_address, e.port) for e in state.mac_entries if e.present}
+    added, removed = len(bindings.keys() - existing), len(existing - bindings.keys())
     state.observed_at, state.healthy, state.error_class = now(), True, ""
-    state.read_context, state.evidence, state.entry_count = context(device, profile), evidence, len(bindings)
-    added, removed = len(bindings.keys() - existing.keys()), len(existing.keys() - bindings.keys())
+    state.read_context = context(device, profile)
+    state.evidence = evidence
+    state.entry_count = len(bindings)
     if added or removed:
         db.add(
             m.Event(
@@ -291,6 +266,9 @@ async def scan(job_id, collector):
                         },
                     ]
                 job.result = {**job.result, "totals": totals, "failed_devices": failures}
+                from ..sources.cleanup import prune
+
+                prune(db)
                 db.commit()
             from .result_fallback import refresh
 
@@ -357,7 +335,6 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
                         m.SwitchMacSnapshot.device_id,
                         m.SwitchMacSnapshot.observed_at,
                         m.SwitchMacSnapshot.updated_at,
-                        m.SwitchMacSnapshot.read_context,
                     )
                 )
                 .where(
@@ -411,6 +388,7 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
         s.device_id: (Snapshot(s.id, s.observed_at), p)
         for s, p in projections(db, valid, model=m.SwitchMacSnapshot)
     }
+    cached.links = [l for l in primary.links if l.device_id in cached.snapshots]
     cached.raw_neighbors, cached.excluded_raw_neighbors = {}, {}
     cached.refresh_neighbors()
     for row, item in zip(rows, items):
@@ -432,6 +410,7 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
             resolver = CachedEvidence.__new__(CachedEvidence)
             resolver.__dict__.update(cached.__dict__)
             resolver.snapshots = snapshots
+            resolver.links = [l for l in cached.links if l.device_id in snapshots]
             resolver.static, resolver.attached = {}, {}
             resolver.raw_neighbors, resolver.excluded_raw_neighbors = {}, {}
             resolver.refresh_neighbors()
@@ -459,19 +438,7 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
 
 
 def status(db):
-    states = list(
-        db.execute(
-            select(
-                m.SwitchMacSnapshot.device_id,
-                m.SwitchMacSnapshot.observed_at,
-                m.SwitchMacSnapshot.attempted_at,
-                m.SwitchMacSnapshot.healthy,
-                m.SwitchMacSnapshot.error_class,
-                m.SwitchMacSnapshot.entry_count,
-                m.SwitchMacSnapshot.read_context,
-            )
-        )
-    )
+    states = list(db.scalars(select(m.SwitchMacSnapshot)))
     job = db.scalar(
         select(m.Job).where(m.Job.kind == KIND).order_by(m.Job.created_at.desc(), m.Job.id.desc()).limit(1)
     )

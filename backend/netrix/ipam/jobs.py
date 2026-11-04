@@ -282,6 +282,9 @@ async def integration(job_id, collector=None):
         current = validate_target(db, "integration", job.target_id)
         if current.updated_at != version:
             raise Cancelled()
+        from ..sources.records import save_integration
+
+        save_integration(db, current, records, complete=True)
         prefixes = db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))).all()
         count, matched = 0, 0
         address_evidence = list(
@@ -437,12 +440,15 @@ async def integration(job_id, collector=None):
                             details={
                                 "address_id": old.address_id,
                                 "source": current.kind,
-                                "previous": old.data,
+                                "source_link_id": old.id,
                             },
                         )
                     )
                     old.data = {**old.data, "present": False}
                     old.observed_at = now()
+        from ..sources.cleanup import prune
+
+        prune(db)
         source_jobs = []
         current.last_success_at = now()
         job.total = job.progress = len(records)

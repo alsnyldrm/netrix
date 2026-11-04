@@ -37,6 +37,7 @@ const sourceName = (v: string) =>
     switch_mac_cache: "Switch MAC tablosu",
     gateway: "Gateway ARP/NDP",
     neighbors: "Komşuluklar",
+    nic_teaming: "NIC-Teaming · SQL komşulukları",
     "gateway+vlan_fdb": "Gateway + switch MAC tablosu",
     "vcenter+vlan_fdb": "VMware + switch MAC tablosu",
     "vcenter_host+neighbors": "VMware host + komşuluk",
@@ -312,13 +313,15 @@ export function AddressDetail({
                             )}
                           </td>
                           <td>
-                            {step.status === "skipped_identity"
-                              ? "Gateway MAC’i yok; sorgulanmadı"
-                              : step.status === "skipped_vm"
-                                ? "VMware kaydı bulundu; sorgulanmadı"
-                                : step.status === "error"
-                                  ? "Okunamadı"
-                                  : "Tamamlandı"}
+                            {step.status === "skipped_nic_teaming"
+                              ? "NIC-Teaming; sorgulanmadı"
+                              : step.status === "skipped_identity"
+                                ? "Gateway MAC’i yok; sorgulanmadı"
+                                : step.status === "skipped_vm"
+                                  ? "VMware kaydı bulundu; sorgulanmadı"
+                                  : step.status === "error"
+                                    ? "Okunamadı"
+                                    : "Tamamlandı"}
                           </td>
                           <td>{step.at ? date(step.at) : "—"}</td>
                         </tr>
@@ -332,6 +335,7 @@ export function AddressDetail({
           <dl className="ipam-summary">
             {[
               ["Hostname", detail.hostname, detail.field_sources?.hostname],
+              ["NIC-Teaming", detail.nic_teaming ? "Etkin" : "Kapalı"],
               [
                 "MAC adresi",
                 detail.mac_address,

@@ -37,6 +37,8 @@ def groups(connections):
 
 
 async def resolve(address, sources, progress=None):
+    if getattr(sources, "nic_teaming", False):
+        return await sources.resolve(progress)
     values = {
         "mac_address": "",
         "hostname": "",
@@ -86,25 +88,13 @@ async def resolve(address, sources, progress=None):
         issues.append({"source": source, "code": code, "message": message})
 
     def source_row(source, data, index=0):
-        allowed = (
-            "hostname",
-            "mac_address",
-            "operating_system",
-            "power_state",
-            "network",
-            "dvport",
-            "reserved",
-            "lease_state",
-            "address",
-            "record_type",
-        )
         values["observations"].append(
             {
                 "id": f"{source}:{index}",
                 "source": source,
                 "source_key": data.get("integration_id") or source,
                 "observed_at": now().isoformat(),
-                "data": {k: data[k] for k in allowed if k in data},
+                "data": dict(data),
             }
         )
 
@@ -325,11 +315,11 @@ def save_result(db, row, started, result):
         merged = {**incoming, **previous, **{k: v for k, v in incoming.items() if v}}
         cleared = (
             {"operating_system", "network", "power_state"}
-            if incoming.get("connection_type") == "physical"
+            if incoming.get("connection_type") in ("physical", "nic_teaming")
             else set()
         )
         retained = any(previous.get(k) and not incoming.get(k) for k in FIELDS if k not in cleared)
-        if incoming.get("connection_type") == "physical":
+        if incoming.get("connection_type") in ("physical", "nic_teaming"):
             merged["operating_system"] = merged["network"] = merged["power_state"] = ""
         merged["cached_import"] = incoming.get("cached_import", False)
         merged["field_sources"] = {
@@ -350,6 +340,10 @@ def save_result(db, row, started, result):
 def sources_for(db, row, vlan, collector):
     from .point_sources import PointSources
 
+    if getattr(row, "nic_teaming", False):
+        from .teaming import TeamingSources
+
+        return TeamingSources(row, vlan)
     return PointSources(db, row, vlan, collector)
 
 

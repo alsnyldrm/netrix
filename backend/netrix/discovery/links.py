@@ -94,7 +94,7 @@ def sync_links(db, device, collected):
                     device_id=device.id,
                     kind="link_observed",
                     message=f"{device.name}: {neighbor['source'].upper()} komşusu gözlemlendi",
-                    details={"remote_name": neighbor["remote_name"]},
+                    details={"fields": ["neighbor"]},
                 )
             )
         for key, value in fields.items():

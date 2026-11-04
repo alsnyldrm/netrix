@@ -66,6 +66,10 @@ class ScopedVLANContext:
                 return exc
 
     def for_row(self, row, gateway):
+        if row.nic_teaming:
+            from .teaming import TeamingSources
+
+            return TeamingSources(row, self.base.vlan, self.job_id)
         with session_factory()() as db:
             point = PointSources(db, row, self.base.vlan, self.base.collector)
         point.job_id = self.job_id

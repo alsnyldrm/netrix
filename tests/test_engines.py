@@ -84,7 +84,9 @@ async def test_discovery_idempotency_managed_values_and_uncertainty(admin_client
         assert c.get("/api/v1/jobs/" + r.json()["id"]).json()["status"] == "succeeded"
     assert len(c.get("/api/v1/devices").json()["items"]) == 2
     assert set(collector.calls) == {"192.0.2.1", "192.0.2.2"}
-    assert c.get("/api/v1/links").json()["items"] == []
+    links = c.get("/api/v1/links").json()["items"]
+    assert len(links) == 2 and all(l["remote_device_id"] is None for l in links)
+    assert all(l["remote_name"] == "uncertain-peer" for l in links)
     with env() as db:
         device = db.scalar(select(m.Device))
         device.name = "Managed name"
