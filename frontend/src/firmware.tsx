@@ -704,8 +704,8 @@ function ImageForm({
         <div className="fw-upload-intro">
           <ShieldCheck size={24} aria-hidden="true" />
           <p>
-            Cihaz ailesini ve hedef sürümü seçin. Model uyumluluğu otomatik
-            kontrol edilir.
+            Model uyumluluğu otomatik kontrol edilir. Dosya, SHA-256 değeriyle
+            eşleşmeden kullanıma açılmaz.
           </p>
         </div>
         <div className="fw-fields">
@@ -795,10 +795,6 @@ function ImageForm({
             </label>
           </details>
         </div>
-        <p className="muted fw-upload-integrity">
-          Dosya aktarılırken sunucuda SHA-256 hesaplanır. Üretici değeriyle
-          eşleşmeden kullanıma açılmaz.
-        </p>
         {busy && (
           <div role="status">
             <progress max={100} value={progress} aria-label="Dosya yükleme" />
