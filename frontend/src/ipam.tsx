@@ -758,12 +758,12 @@ export function IPAMWorkspace({
       setVLAN(initialVLAN);
       setOffset("0");
       setQuery("");
-      setActiveOnly(false);
+      setActiveOnly(true);
     }
   }, [initialVLAN]);
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
-  const [activeOnly, setActiveOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [settings, setSettings] = useState<Row | null>(null);
@@ -914,6 +914,7 @@ export function IPAMWorkspace({
   }, [job]);
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
+    setActiveOnly(true);
     setJob(null);
     setOffset("0");
     setQuery("");
