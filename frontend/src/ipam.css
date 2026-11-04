@@ -393,6 +393,10 @@
 .ipam-gateway {
   color: var(--success);
 }
+.ipam-sub.ipam-gateway {
+  /* Match the IP text button’s horizontal inset. */
+  padding-inline-start: 8px;
+}
 .ipam-not-gateway {
   color: var(--danger);
 }
