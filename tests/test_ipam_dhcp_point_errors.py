@@ -21,6 +21,11 @@ def powershell_dhcp(tmp_path, monkeypatch):
     (module / "DhcpServer.psm1").write_text(r"""
 function Get-DhcpServerv4Scope {
   [CmdletBinding()] param()
+  if ($env:NETRIX_DHCP_FIXTURE -eq 'scope_20016') {
+    $PSCmdlet.ThrowTerminatingError([System.Management.Automation.ErrorRecord]::new(
+      [System.Exception]::new('Private scope fixture-secret'),
+      'DHCP 20016',[System.Management.Automation.ErrorCategory]::InvalidType,$null))
+  }
   [PSCustomObject]@{ScopeId=[ipaddress]'192.0.2.0'}
   [PSCustomObject]@{ScopeId=[ipaddress]'198.51.100.0'}
 }
@@ -28,23 +33,36 @@ function Get-DhcpServerv4Reservation {
   [CmdletBinding()] param([ipaddress[]]$IPAddress,[ipaddress]$ScopeId,[string[]]$ClientId)
   $code = 20018
   $category = [System.Management.Automation.ErrorCategory]::ObjectNotFound
+  if ($env:NETRIX_DHCP_FIXTURE -in @('absent_20016','lease_20016','reverse_20016','read_20016','wrong_command_20016')) {
+    if ($env:NETRIX_DHCP_FIXTURE -eq 'reverse_20016' -and $ClientId -and $ScopeId.IPAddressToString -eq '198.51.100.0') {
+      [PSCustomObject]@{IPAddress=[ipaddress]'198.51.100.20';ClientId='00-11-22-33-44-55';Name='REVERSE-TARGET'}
+      return
+    }
+    $code=20016; $category=[System.Management.Automation.ErrorCategory]::InvalidType
+  }
+  if ($env:NETRIX_DHCP_FIXTURE -eq 'read_20016') { $category=[System.Management.Automation.ErrorCategory]::ReadError }
   if ($env:NETRIX_DHCP_FIXTURE -eq 'permission') { $code=5; $category=[System.Management.Automation.ErrorCategory]::PermissionDenied }
   if ($env:NETRIX_DHCP_FIXTURE -eq 'database') { $code=20013; $category=[System.Management.Automation.ErrorCategory]::ReadError }
   $errorRecord = [System.Management.Automation.ErrorRecord]::new(
     [System.Exception]::new('Private server message fixture-secret'),
-    "DHCP $code",$category,$IPAddress)
+    $(if ($env:NETRIX_DHCP_FIXTURE -eq 'wrong_command_20016') { 'DHCP 20016,Other-Command' } else { "DHCP $code" }),$category,$IPAddress)
   $PSCmdlet.ThrowTerminatingError($errorRecord)
 }
 function Get-DhcpServerv4Lease {
   [CmdletBinding()] param([ipaddress[]]$IPAddress,[ipaddress]$ScopeId,[string[]]$ClientId)
-  if (($IPAddress -and $env:NETRIX_DHCP_FIXTURE -eq 'lease') -or
-      ($ClientId -and $ScopeId.IPAddressToString -eq '192.0.2.0' -and $env:NETRIX_DHCP_FIXTURE -eq 'lease')) {
+  if (($IPAddress -and $env:NETRIX_DHCP_FIXTURE -in @('lease','lease_20016')) -or
+      ($ClientId -and $ScopeId.IPAddressToString -eq '192.0.2.0' -and $env:NETRIX_DHCP_FIXTURE -in @('lease','lease_20016'))) {
     [PSCustomObject]@{IPAddress=[ipaddress]'192.0.2.10';ClientId='00-11-22-33-44-55';HostName='PC-TARGET';AddressState='Active'}
     return
   }
+  $code=20013; $category=[System.Management.Automation.ErrorCategory]::ObjectNotFound
+  if ($env:NETRIX_DHCP_FIXTURE -in @('absent_20016','lease_20016','reverse_20016','lease_read_20016')) {
+    $code=20016; $category=[System.Management.Automation.ErrorCategory]::InvalidType
+  }
+  if ($env:NETRIX_DHCP_FIXTURE -eq 'lease_read_20016') { $category=[System.Management.Automation.ErrorCategory]::ReadError }
   $errorRecord = [System.Management.Automation.ErrorRecord]::new(
     [System.Exception]::new('Private server message fixture-secret'),
-    'DHCP 20013',[System.Management.Automation.ErrorCategory]::ObjectNotFound,$IPAddress)
+    "DHCP $code",$category,$IPAddress)
   $PSCmdlet.ThrowTerminatingError($errorRecord)
 }
 Export-ModuleMember -Function Get-DhcpServerv4Scope,Get-DhcpServerv4Reservation,Get-DhcpServerv4Lease
@@ -73,17 +91,29 @@ Export-ModuleMember -Function Get-DhcpServerv4Scope,Get-DhcpServerv4Reservation,
     return captured
 
 
-@pytest.mark.parametrize("mode", ["lease", "absent"])
+@pytest.mark.parametrize("mode", ["lease", "absent", "lease_20016", "absent_20016"])
 def test_no_reservation_does_not_abort_lease_or_other_scope_queries(powershell_dhcp, monkeypatch, mode):
     monkeypatch.setenv("NETRIX_DHCP_FIXTURE", mode)
     rows = adapters.windows_dhcp_point(None, {}, "192.0.2.10", MAC)
     assert powershell_dhcp["status"] == 0
-    assert len(rows) == (1 if mode == "lease" else 0)
+    assert len(rows) == (1 if mode.startswith("lease") else 0)
     if rows:
         assert rows[0]["hostname"] == "PC-TARGET" and rows[0]["mac_address"] == MAC
 
 
-@pytest.mark.parametrize("mode", ["permission", "database"])
+def test_missing_20016_client_does_not_skip_later_scope_reservation(powershell_dhcp, monkeypatch):
+    monkeypatch.setenv("NETRIX_DHCP_FIXTURE", "reverse_20016")
+    rows = adapters.windows_dhcp_point(None, {}, "192.0.2.10", MAC)
+    assert powershell_dhcp["status"] == 0
+    assert len(rows) == 1
+    assert rows[0]["address"] == "198.51.100.20"
+    assert rows[0]["hostname"] == "REVERSE-TARGET" and rows[0]["mac_address"] == MAC
+    assert rows[0]["reserved"] is True
+
+
+@pytest.mark.parametrize("mode", [
+    "permission", "database", "read_20016", "lease_read_20016", "scope_20016", "wrong_command_20016",
+])
 def test_real_dhcp_source_failures_are_not_treated_as_absence(powershell_dhcp, monkeypatch, mode):
     monkeypatch.setenv("NETRIX_DHCP_FIXTURE", mode)
     with pytest.raises(adapters.NetworkError):
@@ -97,6 +127,7 @@ def test_real_dhcp_source_failures_are_not_treated_as_absence(powershell_dhcp, m
         (b"WIN32 5,Get-DhcpServerv4Lease private fixture-secret", "dhcp_permission_denied"),
         (b"<S>DHCP_x0020_20013,Get-DhcpServerv4Reservation fixture-secret</S>", "dhcp_database_error"),
         (b"DHCP 20123,Get-DhcpServerv4Scope fixture-secret", "dhcp_service_unavailable"),
+        (b"DHCP 20016,Get-DhcpServerv4Scope fixture-secret", "dhcp_read_failed"),
         (b"Modules_ModuleNotFound private fixture-secret", "dhcp_module_missing"),
         (b"unrecognized private fixture-secret", "dhcp_read_failed"),
     ],
@@ -134,6 +165,34 @@ def test_winrm_error_details_are_safe_and_cleanup_is_preserved(monkeypatch, erro
     assert "fixture-secret" not in str(caught.value)
     assert "private" not in caught.value.public_message
     assert cleaned == ["command", "shell"]
+
+
+async def test_missing_20016_dhcp_record_allows_complete_ip_result(powershell_dhcp, monkeypatch):
+    from netrix.ipam import pipeline
+
+    monkeypatch.setenv("NETRIX_DHCP_FIXTURE", "absent_20016")
+
+    class Sources:
+        async def gateway(self, address):
+            return {"mac_address": MAC, "gateway_evidence": []}
+
+        async def vmware(self, address, mac):
+            return []
+
+        async def physical(self, address, mac):
+            return {"connections": [{"device_id": "switch", "device_name": "Access", "port": "7"}]}
+
+        async def dhcp(self, address, mac):
+            return adapters.windows_dhcp_point(None, {}, address, mac)
+
+        async def dns(self, address):
+            return "target.example.test"
+
+    result = await pipeline.resolve("192.0.2.10", Sources())
+    assert result["status"] == "success" and not result["issues"]
+    assert result["values"]["hostname"] == "target.example.test"
+    assert result["values"]["mac_address"] == MAC
+    assert result["values"]["connected_port"] == "7"
 
 
 async def test_typed_dhcp_error_is_reported_without_losing_other_fields():

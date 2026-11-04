@@ -393,9 +393,14 @@ function Read-Target($action, [switch]$Reservation) {
     $providerError = $_.FullyQualifiedErrorId -match '^(?:DHCP|WIN32) (?<code>[0-9]+),'
     $code = if ($providerError) { [int]$Matches['code'] } else { 0 }
     $notFound = $_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::ObjectNotFound
+    # DhcpV4GetClientInfo returns 20016 when the search has no lease record.
+    # Only accept the typed response from these validated, exact IP/ClientId reads.
+    # Do not suppress 20016 from scope enumeration, other commands or read failures.
+    $clientMissing = $_.FullyQualifiedErrorId -match '^(?:DHCP|WIN32) 20016,Get-DhcpServerv4(?:Reservation|Lease)(?:,|$)'
+    $clientMissing = $clientMissing -and ($notFound -or $_.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::InvalidType)
     # 20018 means a client has no reservation, not that DHCP cannot be read.
     # 20013 is also used for a missing lease; suppress it only for typed ObjectNotFound.
-    $missing = $providerError -and (($Reservation -and $code -eq 20018) -or ($notFound -and $code -in @(1168,20013)))
+    $missing = $clientMissing -or ($providerError -and (($Reservation -and $code -eq 20018) -or ($notFound -and $code -in @(1168,20013))))
     if (-not $missing) { throw }
   }
 }
