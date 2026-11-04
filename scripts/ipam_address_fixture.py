@@ -113,6 +113,22 @@ async def run_address_job(branch: str = "vm"):
     return {"job_id": id, "pinged": pinged, "resolved": resolved}
 
 
+@main.app.post("/fixture/result-refresh")
+def result_refresh():
+    from netrix.core import now
+
+    with session_factory()() as db:
+        row = db.scalar(select(m.IPAddress).where(m.IPAddress.address == "192.0.2.12"))
+        result = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == row.id))
+        result.completed_at = now()
+        db.commit()
+        vlan_id = row.vlan_id
+    from netrix.services import publish
+
+    publish(ipam_vlan=vlan_id)
+    return {"ok": True}
+
+
 if __name__ == "__main__":
     import uvicorn
 

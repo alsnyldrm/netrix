@@ -255,6 +255,13 @@ function AddressDetail({
     return () => clearTimeout(timer);
   }, [running, scanRevision]);
   const detail = query.data || row;
+  const currentJob =
+    job &&
+    (running ||
+      !detail.scan_result?.completed_at ||
+      !job.finished_at ||
+      new Date(job.finished_at).getTime() >=
+        new Date(detail.scan_result.completed_at).getTime());
   const error = scanError || query.error || scan.error;
   const manual = manualConnection(detail);
   const location = detail.rack_location || detail.manual_location;
@@ -264,7 +271,7 @@ function AddressDetail({
         <ErrorNote error={error} />
         <div className="ipam-address-scan">
           <div role="status">
-            {job ? (
+            {currentJob ? (
               <>
                 <Badge value={job.status} />
                 <span>

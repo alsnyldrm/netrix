@@ -292,6 +292,11 @@ async def scan(job_id, collector):
                     ]
                 job.result = {**job.result, "totals": totals, "failed_devices": failures}
                 db.commit()
+            from .result_fallback import refresh
+
+            with session_factory()() as db:
+                refresh(db, id)
+                db.commit()
             publish(ipam_vlan="*")
             return result
 

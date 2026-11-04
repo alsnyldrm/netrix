@@ -114,6 +114,9 @@ with sync_playwright() as p:
                     assert not page.evaluate(
                         "async()=> (await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa']}})).violations.map(v=>v.id)"
                     )
+    page.request.post(BASE + "/fixture/result-refresh", headers={"X-Netrix-Request": "1"})
+    sockets[-1].send(json.dumps({"type": "ipam_update", "vlan_id": job["result"]["address_scope"][2]}))
+    expect(dialog.locator(".ipam-address-scan")).to_contain_text("Yalnız bu IP’nin bilgileri güncellenir.")
     button.click()
     expect(button).to_be_disabled()
     dialog.get_by_role("button", name="İptal et", exact=True).click()
