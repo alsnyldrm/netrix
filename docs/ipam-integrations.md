@@ -1,5 +1,15 @@
 # VLAN tabanlı IP adres yönetimi
 
+## VLAN içinde manuel IP kaydı — 4 Kasım 2026
+
+VLAN listesinde **Yeni kayıt**, VLAN formunu; bir VLAN açılmışken **Yeni IP kaydı**, o VLAN'a bağlı IP formunu açar. VLAN/VRF bağlamı sabittir; kurum ve lokasyon seçilen VLAN'dan gelir. Hostname, MAC, işletim sistemi, kurum/lokasyon/oda, kabinet, gateway işareti, atama durumu, bağlı cihaz ve yalnız o cihazın yönetilen arayüzleri mevcut IP formunda düzenlenir. Oda ve kabinet seçimleri kat/bölüm/oda yoluyla aranır. Bu form kaynak okuması veya iş kuyruğu başlatmaz.
+
+`GET /api/v1/ipam/vlans/{id}/available-addresses` yalnız SQL'den en çok 200 adreslik sayfa döndürür; arayüz 100'lük sayfaları arama ve **Daha fazla IP** ile açar. Son güncel pinginde yanıt veren adresler, açık rezervasyonlar, gateway işaretli kayıtlar ve IPv4 ağ/yayın adresleri listelenmez. Pasif keşif kayıtları ve henüz kaydedilmemiş adresler seçilebilir. Tam IPv4/IPv6 adresiyle doğrudan arama desteklenir; IPv6 bloğu bütünüyle genişletilmez. Aynı VRF'deki diğer VLAN'ın kayıtları değiştirilmez.
+
+`POST /api/v1/ipam/vlans/{id}/addresses` operatör yetkisi, CIDR/VRF/VLAN uyumu ve mevcut ilişki doğrulamalarını uygular. Kaydetmeden önce seçilen IP'nin durumu SQL'den tekrar okunur; dolmuş adres 409 ile reddedilir. Pasif keşif satırı varsa aynı kimlik güncellenir, gözlemler ve kaynak sonuçları korunur; ikinci IP satırı açılmaz. Yeni atamalar varsayılan olarak **Rezerve** kaydedilir. Kayıt sonrası kullanıcı eklediği adresi görebilsin diye mevcut görünüm adresle aranır ve aktif filtresi kapatılır; VLAN'a sonraki girişte aktif filtre varsayılanı korunur. Okuma, form açma ve kayıt yeni tarama başlatmaz.
+
+Regresyonlar: `tests/test_ipam_allocation.py`, `scripts/ipam_allocation_fixture.py`, `scripts/ipam_allocation_browser_check.py`. Tarayıcı doğrulaması gerçek yerel API ile masaüstü/mobil, açık/koyu tema, klavye seçimi, açılır listenin ekrana sığması, alan hizaları ve WCAG kontrollerini kapsar. Şema değişikliği yoktur.
+
 ## Entegrasyon bağlantı testi — 4 Kasım 2026
 
 Entegrasyon ekleme/düzenleme penceresindeki **Bağlantıyı test et**, formdaki ayarlarla salt okunur bağlantı ve temel erişim kontrolü başlatır. Yeni taslak için `POST /api/v1/integrations/connection-tests`, kayıtlı entegrasyon için `POST /api/v1/integrations/{id}/connection-tests` HTTP 202 ile `test_integration` işini döndürür. Yalnız yönetici başlatabilir. Kullanıcı/parola boşsa mevcut şifreli bilgi kullanılır; hedef sunucu, port veya tür değiştiğinde yeni kullanıcı/parola birlikte gerekir. Test ayarları kaydetmez, `last_success_at`, IPAM gözlemleri, envanter ve kaynak snapshot’larını değiştirmez. Sayfa/pencere açılışı ve Kaydet düğmesi test başlatmaz.

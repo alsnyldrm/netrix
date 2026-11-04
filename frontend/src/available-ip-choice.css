@@ -1,0 +1,30 @@
+/* UI UX Pro Max: compact controls, shared column edges and responsive context. */
+.available-ip-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  grid-row: 3;
+}
+.available-ip-actions button {
+  min-height: 32px;
+}
+.ip-create-context {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+.ip-create-context strong {
+  color: var(--text);
+}
+.ip-create-context span {
+  color: var(--text-2);
+  font-size: 12px;
+}

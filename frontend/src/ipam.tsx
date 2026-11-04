@@ -736,6 +736,7 @@ function AddressDetail({
 }
 
 export function IPAMWorkspace({
+  onVLANChange,
   initialVLAN,
   page,
   refs,
@@ -745,6 +746,7 @@ export function IPAMWorkspace({
   onSaved,
 }: {
   initialVLAN?: Row | null;
+  onVLANChange: (vlan: Row | null) => void;
   page: string;
   refs: Record<string, Row[]>;
   refresh: number;
@@ -753,6 +755,9 @@ export function IPAMWorkspace({
   onSaved: () => void;
 }) {
   const [prefix, setVLAN] = useState<Row | null>(null);
+  useEffect(() => {
+    onVLANChange(prefix);
+  }, [prefix, onVLANChange]);
   useEffect(() => {
     if (initialVLAN) {
       setVLAN(initialVLAN);
@@ -825,6 +830,12 @@ export function IPAMWorkspace({
   useEffect(() => {
     const revealSaved = (event: Event) => {
       const saved = (event as CustomEvent<Row>).detail;
+      if (saved.created_in_vlan) {
+        setActiveOnly(false);
+        setOffset("0");
+        setQuery(saved.address);
+        setRules([]);
+      }
       const fields = [
         saved.hostname && "hostname",
         saved.mac_address && "mac_address",

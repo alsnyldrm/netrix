@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
 
 from .. import models as m
+from .. import schemas as s
 from .. import services as svc
 from ..core import db_session
 from ..identity.security import admin, audit, current_user, operator
@@ -21,6 +22,29 @@ from .schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
+
+
+@router.get("/ipam/vlans/{id}/available-addresses")
+def available_addresses(
+    id: str,
+    offset: str = "0",
+    limit: int = Query(100, ge=1, le=200),
+    q: str = Query("", max_length=45),
+    user=Depends(current_user),
+    db=Depends(db_session),
+):
+    from .allocation import available
+
+    if not offset.isdigit() or len(offset) > 40:
+        raise HTTPException(422, "Geçersiz adres başlangıcı")
+    return available(db, svc.get(db, m.VLAN, id), offset=int(offset), limit=limit, q=q)
+
+
+@router.post("/ipam/vlans/{id}/addresses", status_code=201)
+def assign_address(id: str, payload: s.IPInput, user=Depends(operator), db=Depends(db_session)):
+    from .allocation import assign
+
+    return assign(db, svc.get(db, m.VLAN, id), payload, user)
 
 
 @router.get("/ipam/switch-mac-cache")

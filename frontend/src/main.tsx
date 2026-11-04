@@ -22,6 +22,7 @@ import {
   useLiveQuery,
 } from "./data";
 import { WorkspaceSearch } from "./workspace-search";
+import { AvailableIPChoice } from "./available-ip-choice";
 export { api } from "./data";
 import { JobDetails } from "./job-details";
 import { AuditDetails, AuditSummary } from "./audit-details";
@@ -1360,6 +1361,7 @@ function ResourceField({
 function GenericResourceForm({
   page,
   row,
+  vlanContext,
   refs,
   onTest,
   onClose,
@@ -1367,6 +1369,7 @@ function GenericResourceForm({
 }: {
   page: Page;
   row?: Row;
+  vlanContext?: Row;
   refs: Record<string, Row[]>;
   onClose: () => void;
   onSaved: (saved: Row) => void;
@@ -1490,7 +1493,9 @@ function GenericResourceForm({
         data.secret = secret;
       }
       const saved = await api(
-        "/" + page.resource + (row?.id ? "/" + row.id : ""),
+        vlanContext
+          ? `/ipam/vlans/${vlanContext.id}/addresses`
+          : "/" + page.resource + (row?.id ? "/" + row.id : ""),
         row?.id ? "PUT" : "POST",
         data,
       );
@@ -1509,6 +1514,22 @@ function GenericResourceForm({
       wide={page.key === "devices"}
     >
       <form onSubmit={submit}>
+        {vlanContext && (
+          <div
+            className="ip-create-context"
+            role="note"
+            aria-label="IP kaydının VLAN bilgisi"
+          >
+            <strong>
+              VLAN-{vlanContext.vid} / {vlanContext.name}
+            </strong>
+            <span>
+              {vlanContext.cidr} ·{" "}
+              {refs.vrfs?.find((r) => r.id === vlanContext.vrf_id)?.name ||
+                "VRF"}
+            </span>
+          </div>
+        )}
         {cabinetRoom && (
           <div
             className="info-note cabinet-room-context"
@@ -1554,6 +1575,7 @@ function GenericResourceForm({
                 !!(cabinetRoom && field.key === "description")
               }
               searchable={
+                (vlanContext && field.key === "address") ||
                 (["addresses", "cabinets"].includes(page.key) &&
                   field.key === "sub_site_id") ||
                 (page.key === "addresses" &&
@@ -1562,8 +1584,17 @@ function GenericResourceForm({
                   !row?.rack_position)
               }
             >
-              {virtualConnection &&
-              ["device_id", "interface_id", "cabinet"].includes(field.key) ? (
+              {vlanContext && field.key === "address" ? (
+                <AvailableIPChoice
+                  vlanId={vlanContext.id}
+                  value={values.address}
+                  onChange={(address) => {
+                    setError("");
+                    setValues({ ...values, address });
+                  }}
+                />
+              ) : virtualConnection &&
+                ["device_id", "interface_id", "cabinet"].includes(field.key) ? (
                 <>
                   <input
                     readOnly
@@ -1685,9 +1716,12 @@ function GenericResourceForm({
                       aria-label={field.label}
                       required={field.required}
                       disabled={
-                        page.key === "addresses" &&
-                        ((field.key === "site_id" && !values.institution_id) ||
-                          (field.key === "sub_site_id" && !values.site_id))
+                        (!!vlanContext &&
+                          ["vrf_id", "vlan_id"].includes(field.key)) ||
+                        (page.key === "addresses" &&
+                          ((field.key === "site_id" &&
+                            !values.institution_id) ||
+                            (field.key === "sub_site_id" && !values.site_id)))
                       }
                       value={values[field.key] || ""}
                       onChange={(e) =>
@@ -2395,7 +2429,13 @@ function App() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const [connected, setConnected] = useState(false);
-  const [form, setForm] = useState<{ page: Page; row?: Row } | null>(null);
+  const [form, setForm] = useState<{
+    page: Page;
+    row?: Row;
+    vlanContext?: Row;
+  } | null>(null);
+  const [ipamVLAN, setIPAMVLAN] = useState<Row | null>(null);
+  useEffect(() => setIPAMVLAN(null), [current, user?.id]);
   const [cabinetRoomId, setCabinetRoomId] = useState<string | null>(null);
   useEffect(() => setCabinetRoomId(null), [current, user?.id]);
   const [detail, setDetail] = useState<Row | null>(null);
@@ -2771,8 +2811,20 @@ function App() {
           )
         : undefined;
     setForm({
-      page: p,
-      row: room ? { site_id: room.parent_id, sub_site_id: room.id } : undefined,
+      page: key === "vlans" && ipamVLAN ? ADDRESS_PAGE : p,
+      vlanContext: key === "vlans" && ipamVLAN ? ipamVLAN : undefined,
+      row:
+        key === "vlans" && ipamVLAN
+          ? {
+              vrf_id: ipamVLAN.vrf_id,
+              vlan_id: ipamVLAN.id,
+              institution_id: ipamVLAN.institution_id,
+              site_id: ipamVLAN.site_id,
+              status: "reserved",
+            }
+          : room
+            ? { site_id: room.parent_id, sub_site_id: room.id }
+            : undefined,
     });
   };
   const runJob = async (kind: string, target_id: string) => {
@@ -3192,7 +3244,9 @@ function App() {
                           onClick={() => add(page.key)}
                         >
                           <Plus size={18} />
-                          Yeni kayıt
+                          {page.key === "vlans" && ipamVLAN
+                            ? "Yeni IP kaydı"
+                            : "Yeni kayıt"}
                         </button>
                       )}
                     {page.key === "configuration" && (
@@ -3260,6 +3314,7 @@ function App() {
               </React.Suspense>
             ) : page.key === "vlans" ? (
               <IPAMWorkspace
+                onVLANChange={setIPAMVLAN}
                 initialVLAN={shortcutVLAN}
                 key={page.key}
                 page={page.key}
@@ -3878,6 +3933,7 @@ function App() {
                 : form.page
             }
             row={form.row}
+            vlanContext={form.vlanContext}
             refs={refs}
             onTest={
               form.page.key === "devices" && form.row
@@ -3888,7 +3944,9 @@ function App() {
             onSaved={(saved) => {
               if (form.page.key === "addresses")
                 window.dispatchEvent(
-                  new CustomEvent("netrix:ipam-saved", { detail: saved }),
+                  new CustomEvent("netrix:ipam-saved", {
+                    detail: { ...saved, created_in_vlan: !!form.vlanContext },
+                  }),
                 );
               reload();
               notify(
