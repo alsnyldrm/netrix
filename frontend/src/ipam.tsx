@@ -268,7 +268,10 @@ function AddressDetail({
               <>
                 <Badge value={job.status} />
                 <span>
-                  {job.error ||
+                  {(job.status === "partial"
+                    ? "Tarama tamamlandı; sonuçta sorun var."
+                    : "") ||
+                    job.error ||
                     (job.status === "cancelled"
                       ? "IP taraması iptal edildi"
                       : job.status === "failed"
@@ -277,7 +280,11 @@ function AddressDetail({
                     (
                       {
                         addresses: "IP ve DNS kontrol ediliyor",
-                        network: "Switch ve gateway kanıtları okunuyor",
+                        gateway:
+                          "Gateway üzerinde bu IP’nin MAC’i sorgulanıyor",
+                        backbone: "Bu MAC’in switch ve port yolu doğrulanıyor",
+                        dns: "Bu IP’nin DNS adı sorgulanıyor",
+                        network: "Ağ kanıtları okunuyor",
                         dhcp: "DHCP bilgisi kontrol ediliyor",
                         vmware: "VMware bilgisi kontrol ediliyor",
                         complete: "IP bilgileri güncellendi",
@@ -336,6 +343,98 @@ function AddressDetail({
           )}
         </div>
         <>
+          {detail.scan_result && (
+            <section
+              className="ipam-section ipam-result-panel"
+              aria-labelledby="ip-scan-result-title"
+            >
+              <h3 id="ip-scan-result-title">Sonuç</h3>
+              {detail.cached_import && (
+                <p className="ipam-hint">
+                  Mevcut kaynak gözlemlerinden işlendi; yeni ağ sorgusu
+                  yapılmadı.
+                </p>
+              )}
+              <p
+                className={
+                  detail.scan_result.status === "success"
+                    ? "ipam-gateway"
+                    : "ipam-not-gateway"
+                }
+              >
+                {detail.scan_result.status === "success"
+                  ? "Başarılı"
+                  : "Sorunlu"}
+                <span className="ipam-result-time">
+                  {date(detail.scan_result.completed_at)}
+                </span>
+              </p>
+              {detail.scan_result.issues?.length > 0 && (
+                <ul className="ipam-result-issues">
+                  {detail.scan_result.issues.map((issue: Row, i: number) => (
+                    <li key={i}>{issue.message}</li>
+                  ))}
+                </ul>
+              )}
+              {detail.scan_result.retained && (
+                <p className="ipam-hint">
+                  Eksik veya hatalı kaynak yanıtı nedeniyle önceki doğrulanmış
+                  alanlar korunuyor. Son başarılı tarama:{" "}
+                  {date(detail.scan_result.last_success_at) || "—"}
+                </p>
+              )}
+              <details className="ipam-result-steps">
+                <summary>İşlem adımları</summary>
+                <div
+                  className="table-scroll"
+                  role="region"
+                  aria-label="IP tarama adımları"
+                  tabIndex={0}
+                >
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Kaynak</th>
+                        <th>Sonuç</th>
+                        <th>Zaman</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.scan_result.steps?.map((step: Row, i: number) => (
+                        <tr key={i}>
+                          <td>
+                            {(
+                              {
+                                gateway: "Gateway",
+                                vmware: "VMware",
+                                backbone: "Backbone / Switch",
+                                switch: "Switch",
+                                dns: "DNS",
+                                dhcp: "DHCP",
+                              } as Row
+                            )[step.source] || step.source}
+                            {step.device && (
+                              <small className="ipam-sub">{step.device}</small>
+                            )}
+                          </td>
+                          <td>
+                            {step.status === "skipped_identity"
+                              ? "Gateway MAC’i yok; sorgulanmadı"
+                              : step.status === "skipped_vm"
+                                ? "VMware kaydı bulundu; sorgulanmadı"
+                                : step.status === "error"
+                                  ? "Okunamadı"
+                                  : "Tamamlandı"}
+                          </td>
+                          <td>{step.at ? date(step.at) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            </section>
+          )}
           <dl className="ipam-summary">
             {[
               ["Hostname", detail.hostname, detail.field_sources?.hostname],
@@ -755,6 +854,7 @@ export function IPAMWorkspace({
   const loaded = !listing.loading;
   const registeredSearch = !!listing.data?.registered_search;
   const columns: { key: string; label: string }[] = listing.data?.columns || [
+    { key: "scan_status", label: "Sonuç" },
     { key: "address", label: "IP adresi" },
     { key: "hostname", label: "Hostname" },
     { key: "mac_address", label: "MAC adresi" },
@@ -766,7 +866,9 @@ export function IPAMWorkspace({
     { key: "location", label: "Lokasyon" },
     { key: "availability", label: "Durum" },
   ];
-  const visible = columns.filter((c) => shown.includes(c.key));
+  const visible = columns.filter(
+    (c) => c.key === "scan_status" || shown.includes(c.key),
+  );
   useEffect(() => {
     if (listing.data?.vlan) setVLAN(listing.data.vlan);
   }, [listing.data]);
@@ -887,6 +989,20 @@ export function IPAMWorkspace({
         </span>
       );
     }
+    if (key === "scan_status")
+      return r.scan_result ? (
+        <span
+          className={
+            r.scan_result.status === "success"
+              ? "ipam-gateway"
+              : "ipam-not-gateway"
+          }
+        >
+          {r.scan_result.status === "success" ? "Başarılı" : "Sorunlu"}
+        </span>
+      ) : (
+        <span className="muted">—</span>
+      );
     if (key === "status") return stateName(r.status);
     if (key === "sources") return r.sources?.map(sourceName).join(", ") || "—";
     if (["connected_device", "connected_port"].includes(key)) {

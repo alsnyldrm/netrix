@@ -29,8 +29,8 @@ async def test_vlan_scan_uses_dhcp_and_vmware_without_additional_authorization(
 ):
     p = prefix(admin_client, inventory)
     assert "scan_authorized" not in p
-    vc = integration(admin_client, p)
-    dhcp = integration(admin_client, p, name="DHCP", kind="windows_dhcp", port=5986)
+    integration(admin_client, p)
+    integration(admin_client, p, name="DHCP", kind="windows_dhcp", port=5986)
     integration(admin_client, p, name="Disabled", enabled=False)
 
     async def ping(_):
@@ -44,7 +44,8 @@ async def test_vlan_scan_uses_dhcp_and_vmware_without_additional_authorization(
     with env() as db:
         result = db.get(m.Job, job["id"])
         assert result.status == "succeeded"
-        assert {db.get(m.Job, id).target_id for id in result.result["source_jobs"]} == {vc["id"], dhcp["id"]}
+        assert result.result["source_jobs"] == []  # No IP was found: no unused integration reads.
+        assert not db.scalar(select(m.IPAMResult))
     saved = admin_client.put(f"/api/v1/ipam/vlans/{p['id']}/settings", json={"ping_enabled": True})
     assert saved.status_code == 200 and "scan_authorized" not in saved.json()
     scheduler.tick()

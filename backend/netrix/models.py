@@ -448,6 +448,33 @@ class IPObservation(Entity, Base):
     __table_args__ = (UniqueConstraint("address_id", "source", "source_key"),)
 
 
+class IPAMResult(Entity, Base):
+    """One current, bounded resolution per address; retries update rather than append."""
+
+    __tablename__ = "ipam_results"
+    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), unique=True)
+    address_scope: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(12), default="problem")
+    values: Mapped[dict] = mapped_column(JSON, default=dict)
+    issues: Mapped[list] = mapped_column(JSON, default=list)
+    steps: Mapped[list] = mapped_column(JSON, default=list)
+    retained: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    completed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+    last_success_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    __table_args__ = (CheckConstraint("status in ('success','problem')", name="ck_ipam_result_status"),)
+
+
+class IPAMNetworkState(Entity, Base):
+    """Current scheduled protocol snapshot; one row per managed source device."""
+
+    __tablename__ = "ipam_network_states"
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), unique=True)
+    address: Mapped[str] = mapped_column(String(45))
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
+
+
 class Scope(Entity, Base):
     __tablename__ = "discovery_scopes"
     vlan_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)

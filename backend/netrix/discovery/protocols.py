@@ -123,6 +123,16 @@ def mac(value):
 
 
 class SNMPCollector:
+    async def ipam_gateway(self, host, port, secret, address, indexes):
+        from .point import gateway
+
+        return await gateway(host, port, secret, address, indexes)
+
+    async def ipam_switch(self, host, port, secret, mac_address, vid, hint):
+        from .point import switch
+
+        return await switch(host, port, secret, mac_address, vid, hint)
+
     async def ipam(self, host, port, secret):
         return await self._collect(host, port, secret, ipam_only=True)
 
@@ -369,6 +379,25 @@ async def fetch_neighbor_detail(device, secret, ports=()):
             login_timeout=15,
         ) as connection:
             return await read_neighbor_detail(connection, ports)
+
+
+async def fetch_neighbor_ports(device, secret, ports):
+    from .aruba import read_neighbor_ports
+
+    if device.adapter not in AOS_SWITCH:
+        return {}
+    async with asyncio.timeout(10):
+        async with asyncssh.connect(
+            device.management_ip,
+            port=device.config_port,
+            username=secret["username"],
+            password=secret["password"],
+            known_hosts=ssh_known_hosts(device),
+            client_keys=[],
+            connect_timeout=3,
+            login_timeout=4,
+        ) as connection:
+            return await read_neighbor_ports(connection, ports)
 
 
 async def fetch_identity(device, secret):

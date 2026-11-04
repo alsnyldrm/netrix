@@ -126,7 +126,8 @@ async def test_scan_dns_no_reply_keeps_assignment_and_no_real_network(
     job = timer_job("ipam_discover", p["id"])
     await worker.execute(job["id"])
     result = c.get("/api/v1/jobs/" + job["id"]).json()
-    assert result["status"] == "succeeded", result
+    assert result["status"] == "partial", result
+    assert result["result"]["problems"] == 2  # No configured gateway or switch in this fixture.
     assert set(seen) == {"192.0.2.1", "192.0.2.2"}
     rows = c.get(f"/api/v1/ipam/vlans/{p['id']}/addresses?allocated=true").json()["items"]
     assert len(rows) == 2

@@ -396,3 +396,28 @@
 .ipam-not-gateway {
   color: var(--danger);
 }
+
+.ipam-result-time {
+  margin-inline-start: 12px;
+  color: var(--text-3);
+  font-size: 0.85em;
+  font-weight: 400;
+}
+.ipam-result-issues {
+  padding-inline-start: 20px;
+  margin: 12px 0;
+  line-height: 1.6;
+}
+.ipam-result-steps summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+.ipam-result-steps td {
+  vertical-align: top;
+}
+
+.ipam-section.ipam-result-panel {
+  border-top: 0;
+  padding-top: 0;
+  margin-top: 0;
+}

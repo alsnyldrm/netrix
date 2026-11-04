@@ -1,14 +1,35 @@
 # VLAN tabanlı IP adres yönetimi
 
-## IP ayrıntısında tek adres taraması — 4 Kasım 2026
+## Gateway öncelikli ortak algoritma — 4 Kasım 2026
 
-Operatör/yönetici IP ayrıntısındaki **Tara** düğmesiyle `POST /api/v1/ipam/addresses/{id}/scan` çağırır. API HTTP 202 ile `ipam_address_scan` işini döndürür; aynı IP kimliği için tek aktif iş vardır. İş, kullanıcı ve değişmez IP/VRF/VLAN bağını kaydeder. `GET` aynı yoldan son işi gösterir; pencereyi açmak/yenilemek kaynak okuması veya yeni iş oluşturmaz. Kuyruktaki/çalışan iş yeniden açıldığında korunur, iptal edilebilir. İzleyici bu işlemi başlatamaz.
+Bu bölüm önceki DNS/VMware MAC önceliğinin ve tek-IP toplu kaynak okumasının yerine geçer. Manuel hostname/MAC/işletim sistemi düzenlemeleri ayrı kalır ve görüntülemede önceliklidir.
 
-Worker yalnız seçilen IP'ye bir ICMP ve bir DNS sorgusu gönderir; CIDR genişletmez, başka IP'yi probe etmez, tam VLAN/bağımsız entegrasyon/MAC önbellek işi kuyruğa eklemez. Yetkili kayıtlı gateway/switch profilleri sınırlı eşzamanlılıkla ve mevcut protokol kurallarıyla okunur. DHCP/VMware API'lerinin döndürdüğü kaynak snapshot'ları kimlik/çakışma denetimi için kullanılabilir; yalnız seçili IP'nin gözlemleri eklenir/güncellenir veya kaybolan NIC ilişkileri emekliye ayrılır. Diğer IP kayıtları, entegrasyon zamanları, VLAN tarama/ping zamanları, envanter, Komşuluklar ve dört günlük MAC önbelleği değişmez. Kaynak API'sinin toplu yanıt vermesi başka adresler için IP taraması/ithal işlemi değildir.
+| Sıra | Koşul | İşlem / kaynak |
+| --- | --- | --- |
+| 1 | Her IP | Doğrudan bağlı gateway arayüzünde IP → tekil MAC; kimlik otoritesi gateway'dir |
+| 2 | Her IP | VMware IP/NIC araması; MAC gateway ile karşılaştırılır |
+| 3a | Tekil, uyumlu VMware kaydı | Hostname, sanal switch/port, ağ ve işletim sistemi VMware'den; DNS, DHCP, backbone ve switch sorgulanmaz |
+| 3b | VMware kaydı yok | Gateway MAC'inin backbone → alt switch yolu; uç port doğrulanır |
+| 4b | Fiziksel dal | DHCP'nin IP/MAC ve ters MAC/IP kaydı karşılaştırılır; DNS PTR okunur |
+| 5 | Her işlenmiş IP | Tüm alanlar tek transaction ile güncel sonuca yazılır ve ilgili VLAN'a bildirilir |
 
-Tek IP'ye ait ağ kanıtı `observations.source=address_network` altında tutulur. `ip_observations` aynı kaynakla IP'ye, kaynak cihaza ve snapshot kimliğine bağlanan küçük referans/bağlam metadata'sı saklar; ham tablolar liste/ayrıntının kaynak gözlemleri JSON'una kopyalanmaz. Çözümleyici kaynak kimliği/VRF/profil/bağlamı doğrulayıp yalnız o IP'ye geçerli, daha yeni kanıtı uygular. Ortak snapshot nesnesi değişmez; sonraki daha yeni tam kaynak okuması tekrar önceliklidir. FDB'nin çok MAC'li port/uplink/çoklu NIC ve belirsizlik kuralları korunur. Alanların manuel önceliği değişmez.
+Fiziksel dalda hostname önce DNS, DNS yoksa uyumlu aktif DHCP kaydıdır. DHCP IP/MAC veya hostname kaynakları çelişirse otomatik ad `YANLIŞ-DHCP-VERİSİ` olur; MAC değiştirilmez. Otomatik işletim sistemi fiziksel dalda boştur. VM bulunduğu halde MAC/kimlik çelişiyorsa fiziksel dala düşülmez, sorun kaydedilir. Kaynak erişim hatası VMware kaydı yokmuş gibi yorumlanmaz. Yanıt vermeyen kaynak veya eksik yanıt, önceki doğrulanmış alanları temizlemez; korunan bilgiler ve hata ayrıntıda açıkça belirtilir. Gateway MAC'i değişmişse önceki kimliğin adı/bağlantısı yeni kimliğe taşınmaz. Aynı uç kimliği/LAG kanıtıyla doğrulanan çoklu port/switch bağları birlikte gösterilir; port etiketinde üye port ve trunk bulunur (`H7 Trk1 - H8 Trk1`). Transit/uplink ve bağımsız çelişkili adaylardan rastgele uç seçilmez.
 
-Her aşama IP/VRF/VLAN bağını, kapsamı, iptali ve kaynak profilini yeniden doğrular. Adres veya kapsam değişirse sonuç yanlış hedefe yazılmadan iş iptal edilir. Kaynak hatası kısmi sonuç olarak görünür; önceki başarılı commit'ler korunur. Sonuçlar VLAN'ın `ipam_update` bildirimiyle açık ayrıntı ve listeye yansır. Genel iki tarama sınırı ve kaynak başına dört okuma sınırı geçerlidir. Şema değişikliği yoktur. Regresyonlar: `test_ipam_address_scan.py`, `scripts/ipam_address_browser_check.py`; testler sahte protokollerle çalışır.
+### SQL'de güncel sonuç
+
+`ipam_results.address_id` tekildir: her IP için yalnız bir güncel satır vardır. Alanlar, gateway kanıtı, en çok 32 bağlantı, 24 sorun ve 32 işlem adımı güncellenir; her denemede geçmiş satırı eklenmez. Başlangıç/bitiş/son başarı zamanları UTC'dir. Daha eski başlayan iş, yeni tamamlanmış sonucu ezemez. IP/VRF/VLAN bağı değişmişse eski sonuç kullanılmaz. IP silinince sonuç CASCADE silinir. `ipam_network_states.device_id` tekildir; zamanlanmış kaynağın son başarılı protokol snapshot'ı yerinde güncellenir. Bu tabloların satır sayısı tarama sayısıyla değil mevcut IP/kaynak sayısıyla sınırlıdır; gerçek envanter büyüdükçe doğal olarak artabilir. Mevcut ayrı olay ve konfigürasyon geçmişleri bu sözleşmeden etkilenmez. Migration, eski bağımsız `integration` kaynak işlerinin bekleyen/çalışan kayıtlarını iptal eder; bu işler yeni düzende ortak VLAN/IP akışının içinde okunur. Zamanlama grupları ve diğer işler değişmez.
+
+Liste/ayrıntı, işlenen IP için doğrudan bu sonucu okur; her GET'te kanıtları baştan birleştirmez. Ping ayrı gözlemdir, sonuç kimliğini ve kaynak alanlarını silmez. **Sonuç**, IP'nin hemen solundadır: yeşil **Başarılı**, kırmızı **Sorunlu**; henüz işlenmemiş kayıt `—` gösterir. Ayrıntı sorun açıklaması, korunan veri uyarısı ve adım tablosunu gösterir. `ipam_results_backfill.py` mevcut kaynak gözlemlerinden yalnız eksik sonuçları çevrimdışı oluşturabilir; ağ sorgusu yapmaz ve eşzamanlı oluşan sonucu ezmez. Bu kayıtlar arayüzde mevcut gözlemlerden işlendiği notuyla ayrılır.
+
+### IP ayrıntısında tek adres taraması
+
+Operatör/yönetici **Tara** düğmesiyle `POST /api/v1/ipam/addresses/{id}/scan` çağırır (202). Aynı değişmez IP/VRF/VLAN bağı için tek aktif iş, aktör ve iptal desteği korunur; `GET` yalnız son işi okur. API kaynak okumaz. Worker tek IP'nin gateway ARP/NDP hücresini GET ile okur. VMware `SearchIndex.FindAllByIp` yalnız hedef IP ve onun NIC/backing nesnelerini getirir; guest IP eksikse önceden bilinen MOID yalnız ipucu, güncel gateway MAC doğrulaması zorunludur. Fiziksel dalda Q-BRIDGE VLAN/FID metadata'sından yalnız ilgili MAC hücresi ve yol üzerindeki port/LLDP/CDP ayrıntıları okunur; bütün ARP/FDB/NIC envanteri okunmaz. DHCP `-IPAddress` ve `-ClientId` filtreleri sunucuda çalışır; kapsam listesi yalnız metadata'dır. Tek-IP işi CIDR genişletmez, başka IP kaydetmez, ortak snapshot/cache veya envanter/topoloji yazmaz. Noktasal SNMP okuması 8 saniye, SSH port ayrıntısı 10 saniye; entegrasyon adımı 25 saniye ile sınırlıdır. Üretici yeteneği/veri eksikse bütün ağ taramasına sessizce genişlemek yerine Sorunlu sonuç verilir.
+
+### Zamanlanmış VLAN işi
+
+Aynı `pipeline.resolve` dallanması kullanılır. Gateway snapshot'ı başta bir kez okunur; VMware snapshot'ı bir kez, yalnız fiziksel dal varsa switch ve DHCP snapshot'ları bir kez okunur. IP/MAC indeksleri bellekte bir kez hazırlanır. ICMP hazır sonuçları ve tamamlanan IP'nin tüm alanları, diğer IP'leri veya tüm işin bitmesini beklemeden görünür. Dört eşzamanlı IP çözümü ve dört kaynak okuması sınırı vardır. İptal veya kapsam/profil değişiminde yanlış hedefe yazılmaz. Eksik kaynaklar son başarılı snapshot'ı temizlemez ve yeni kesin eşleştirme üretmez. Sayfa açma/yenileme hiçbir kaynak işini tetiklemez; 30 saniyelik bağımsız ping devam eder.
+
+Regresyonlar: `test_ipam_gateway_pipeline.py`, `test_ipam_point_protocols.py`, `test_ipam_address_scan.py`, `test_vlan_scan_pipeline.py`, `test_ipam_incremental.py`; MariaDB: `ipam_results_mariadb_check.py`. Kaynaklar: [VMware SearchIndex](https://developer.broadcom.com/xapis/virtual-infrastructure-json-api/latest/virtual-infrastructure/search-index/), [DHCP rezervasyon filtreleri](https://learn.microsoft.com/en-us/powershell/module/dhcpserver/get-dhcpserverv4reservation), [Q-BRIDGE FDB](https://www.rfc-editor.org/rfc/rfc4363.html), [AOS-S port/trunk sorgusu](https://arubanetworking.hpe.com/techdocs/AOS-S/16.10/MCG/KB/content/kb/sho-tru.htm).
 
 ## Açık kullanıcı eylemi, zamanlama ve salt okunur sayfalar — 3 Kasım 2026
 
@@ -42,7 +63,9 @@ Mevcut VMware/komşuluk/FDB ve geçerli manuel bağlantı önceliği korunur. Ya
 
 Regresyonlar: `test_switch_mac_cache.py`, `test_switch_mac_jobs.py`; gerçek MariaDB migration/indeks doğrulaması `scripts/switch_mac_mariadb_check.py`; yerel ağsız UI/port değişimi ve erişilebilirlik `scripts/switch_mac_browser_check.py`; yalnız açık canlı test yetkisiyle `scripts/switch_mac_live_check.py`.
 
-## Kalıcı veri sözleşmesi — 1 Kasım 2026
+## Önceki kaynak çözümleyicisi — 1–3 Kasım 2026
+
+Aşağıdaki otomatik öncelikler önceki gözlemleri yorumlayan eski çözümleyiciyi açıklar; güncel sonuçlar için yukarıdaki gateway algoritması geçerlidir. Manuel alanlar, VRF/VLAN/FID ayrımı ve kanıt güvenliği kuralları korunur.
 
 IP adres yönetimi ve Envanter ayrı menüler ve ayrı yazma akışlarıdır. Bu sözleşme proje sahibinin açık yeni talebi olmadan değiştirilemez. IPAM yalnızca VLAN içindeki IP kayıtlarını yönetir; bir IP gözlemi cihaz envanterine veya Komşuluklar'a kayıt eklemez. Envanter → Ağ keşfi, IPAM taramasını tetiklemez ve keşif gözlemleri IPAM alanlarını beslemez.
 

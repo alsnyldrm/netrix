@@ -129,14 +129,14 @@ Trafik izleme kalıcı olarak kaldırıldı. Port/VLAN trafik ölçümü, izleme
 Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 
 - IP adres yönetimi ve Envanter ayrı menüler ve yazma akışlarıdır. IPAM'dan envanter cihazı veya komşuluk oluşturma.
-- IPAM otomatik Hostname önceliği DNS'dedir; DNS adı yoksa tekil IP/NIC ile doğrulanmış VMware VM adı, o da yoksa güncel MAC kimliğiyle doğrulanmış DHCP adı kullanılır. Otomatik işletim sistemi kaynağı VMware'dir. 3 Kasım 2026 talebiyle manuel hostname/işletim sistemi/MAC görüntüleme önceliği ve temizleme davranışı [IPAM kaynakları ve eşleştirme](docs/ipam-integrations.md) sözleşmesindedir. DNS hostname'i veya çelişkisiz doğrudan guest IP, VMware'de tekil VM/NIC ile doğrulanırsa MAC VMware'den, aksi durumda gateway ARP/NDP'den alınır. Bağlı cihaz/port, Komşuluklar'ın güncel protokol kanıtı ile switch MAC tablosundan ve ilgili VMware entegrasyonundan okunur.
+- 4 Kasım 2026 kaynak kararı: otomatik kimlik gateway IP/MAC eşleşmesidir. Sonra VMware IP/NIC kontrol edilir; doğrulanmış VM'de hostname/switch/port/işletim sistemi VMware'den alınır ve DNS/DHCP/fiziksel switch sorguları atlanır. VMware'de olmayan IP gateway MAC'iyle backbone/switch yolunda çözülür, DHCP kimliği karşılaştırılır ve DNS adı okunur. DHCP çelişkisinde `YANLIŞ-DHCP-VERİSİ`, kırmızı **Sorunlu** ve açıklama gösterilir. Manuel alan önceliği korunur. IPAM işi yaparken [gateway dallanması ve SQL sonuç sözleşmesini](docs/ipam-integrations.md) oku.
 - IPAM, kayıtlı envanter gateway/switch profilleriyle worker'da bağımsız kanıt okuyabilir. Envanter Ağ keşfi sonuçları IPAM'a aktarılmaz; IPAM okuması envanteri ve topolojiyi değiştirmez.
 - VRF/VLAN ve FDB kimliği ayrımını, güncelliği, uplink elemesini, çoklu NIC kanıtını ve çakışmaları koru. Belirsiz cihaz/port adaylarından keyfi seçim yapma.
 - Kaynak sözleşmesinin ayrıntıları ve zorunlu regresyon testleri: [IPAM kaynakları ve eşleştirme](docs/ipam-integrations.md).
 
 ## IPAM zamanlama ve canlı ping kararı (3 Kasım 2026)
 
-- 4 Kasım ek kararı: IP ayrıntısındaki açık **Tara** eylemi, yalnız seçili IP/VRF/VLAN bağı için manuel `ipam_address_scan` işi başlatabilir. Ortak kaynak snapshot'larına veya diğer IP'lere yazmaz; IPAM tek-IP işi yaparken [tek adres taraması sözleşmesini](docs/ipam-integrations.md#ip-ayrıntısında-tek-adres-taraması--4-kasım-2026) oku. Pencere açılışı/yenileme pasiftir.
+- 4 Kasım ek kararı: IP ayrıntısındaki açık **Tara** eylemi, yalnız seçili IP/VRF/VLAN bağı için manuel `ipam_address_scan` işi başlatabilir. Ortak kaynak snapshot'larına veya diğer IP'lere yazmaz; IPAM tek-IP işi yaparken [tek adres taraması sözleşmesini](docs/ipam-integrations.md#ip-ayrıntısında-tek-adres-taraması) oku. Pencere açılışı/yenileme pasiftir.
 
 - Ek switch MAC önbelleği, proje sahibinin yeni talebiyle tam VLAN taramasından bağımsız olarak Türkiye saatiyle 00:00/06:00/12:00/18:00'de ve yetkili kullanıcının açık eylemiyle toplanır. Mevcut eşleştirme önceliklidir; yeni tablo yalnız kanıtlı gateway MAC'i bulunan ve mevcut bağlantısı olmayan IP'lerde kullanılır. Bu akışı değiştirirken [switch MAC önbelleği sözleşmesini](docs/ipam-integrations.md#bağımsız-switch-mac-önbelleği--3-kasım-2026) oku. Sayfa açılışı pasif kalır.
 

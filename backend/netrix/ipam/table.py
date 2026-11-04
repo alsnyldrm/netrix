@@ -14,6 +14,7 @@ from ..identity.security import audit
 from . import service
 
 COLUMNS = {
+    "scan_status": "Sonuç",
     "address": "IP adresi",
     "hostname": "Hostname",
     "mac_address": "MAC adresi",
@@ -32,6 +33,8 @@ COLUMNS = {
     "network": "Port grubu / Sanal ağ",
 }
 LABELS = {
+    "success": "Başarılı",
+    "problem": "Sorunlu",
     "active": "Aktif",
     "passive": "Pasif",
     "unknown": "Bilinmiyor",

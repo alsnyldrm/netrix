@@ -179,3 +179,37 @@ async def read_neighbor_detail(connection, ports=()):
         if stp is not None:
             result["spanning_tree"] = parse_root(stp)
     return result
+
+
+async def read_neighbor_ports(connection, ports):
+    """Only explicit ports: no global CDP/LLDP summary or full port enumeration."""
+    from .neighbor_detail import PORT, merge_neighbors, parse_detail, parse_trunks
+
+    safe = sorted(set(ports))
+    if not safe or len(safe) > 16 or any(not PORT.fullmatch(p) for p in safe):
+        raise BackupError("aruba_port")
+    result = {"neighbors": [], "trunks": {}}
+    async with connection.create_process(
+        term_type="vt100", term_size=(200, 24), stderr=asyncssh.STDOUT
+    ) as process:
+        _, prompt = await read_prompt(process)
+        if not prompt.endswith("#"):
+            raise BackupError("aruba_privilege")
+
+        async def command(value):
+            process.stdin.write(value + "\n")
+            output, _ = await read_prompt(process, prompt=prompt, limit=256 * 1024)
+            if CLI_ERROR.search(output):
+                raise BackupError("aruba_command")
+            return output
+
+        await command("no page")
+        for port in safe:
+            for protocol, cmd in (
+                ("lldp", "show lldp info remote-device " + port),
+                ("cdp", "show cdp neighbors " + port + " detail"),
+            ):
+                output = await command(cmd)
+                result["neighbors"] = merge_neighbors(result["neighbors"], parse_detail(output, protocol))
+        result["trunks"] = parse_trunks(await command("show trunks " + ",".join(safe)))
+    return result

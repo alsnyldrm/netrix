@@ -648,7 +648,11 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 (result.get("network") or {}).get("failed") or result.get("source_failed")
             ):
                 job.status = "partial"
-                job.error = "Tarama ve eşleştirme tamamlandı; bazı gateway/switch veya entegrasyon kaynakları okunamadı. Eksik kaynakları görev ayrıntısından kontrol edin."
+                job.error = (
+                    "Tarama tamamlandı; IP sonuçlarında sorun var. IP ayrıntısındaki Sonuç alanını inceleyin."
+                    if result.get("problems") or result.get("resolution_status") == "problem"
+                    else "Tarama ve eşleştirme tamamlandı; bazı gateway/switch veya entegrasyon kaynakları okunamadı. Eksik kaynakları görev ayrıntısından kontrol edin."
+                )
             else:
                 job.status = "succeeded"
             job.result, job.finished_at, job.active_key = {**job.result, **result}, now(), None

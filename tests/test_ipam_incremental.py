@@ -23,57 +23,84 @@ def running_scan(env):
 
 
 async def test_fast_results_are_readable_before_slow_ip_and_later_sources(admin_client, env, monkeypatch):
-    from netrix.ipam import network
+    from types import SimpleNamespace
+
+    from netrix.ipam import vlan_pipeline
 
     vlan_id, job_id, row_id = running_scan(env)
     monkeypatch.setattr(read_cache, "client", lambda _: services.redis_client())
     monkeypatch.setattr(read_cache, "_retry_after", 0)
     url = f"/api/v1/ipam/vlans/{vlan_id}/addresses?active_only=true"
-    assert admin_client.get(url).json()["items"] == []  # Prime cached empty view.
-    slow, source, notified, source_started = (asyncio.Event() for _ in range(4))
-    publish = jobs.publish
-
-    def report(**kwargs):
-        publish(**kwargs)
-        if kwargs.get("ipam_vlan") == vlan_id:
-            notified.set()
+    assert admin_client.get(url).json()["items"] == []
+    slow, source, source_started = (asyncio.Event() for _ in range(3))
 
     async def ping(address):
         if address.endswith(".3"):
             await slow.wait()
         return address.endswith((".1", ".2"))
 
-    async def dns(address, _):
-        return "host-" + address.rsplit(".", 1)[1] + ".example.test"
+    class Sources:
+        async def gateway(self, a):
+            return {"mac_address": "00:11:22:33:44:55"}
 
-    async def read_sources(*args):
-        source_started.set()
-        await source.wait()
-        return {"read": 0, "failed": 0}
+        async def vmware(self, a, mac):
+            if a.endswith(".2"):
+                source_started.set()
+                await source.wait()
+            return []
 
-    monkeypatch.setattr(jobs, "publish", report)
+        async def physical(self, *_):
+            return {
+                "connections": [{"device_id": "s1", "device_name": "Access", "port": "7", "aggregate": None}]
+            }
+
+        async def dhcp(self, *_):
+            return []
+
+        async def dns(self, a):
+            return "host-" + a.rsplit(".", 1)[1] + ".example.test"
+
+    class Context:
+        errors = {}
+        read_counts = {"gateway": 0, "switch": 0}
+        failed_devices = set()
+        base = SimpleNamespace(devices={})
+        gateway_evidence = SimpleNamespace(snapshots={})
+
+        def __init__(self, *_):
+            pass
+
+        def check(self):
+            pass
+
+        async def network(self, *_):
+            pass
+
+        def for_row(self, *_):
+            return Sources()
+
+    monkeypatch.setattr(vlan_pipeline, "BulkContext", Context)
     monkeypatch.setattr(adapters, "ping", ping)
-    monkeypatch.setattr(adapters, "reverse_dns", dns)
-    monkeypatch.setattr(network, "refresh", read_sources)
     task = asyncio.create_task(jobs.scan(job_id))
     try:
-        await asyncio.wait_for(notified.wait(), 2)
-        assert not task.done() and not source_started.is_set()
-        rows = admin_client.get(url).json()["items"]
+        await asyncio.wait_for(source_started.wait(), 3)
+        async with asyncio.timeout(3):
+            while True:
+                rows = admin_client.get(url).json()["items"]
+                if any(r["hostname"] == "host-1.example.test" for r in rows):
+                    break
+                await asyncio.sleep(0.05)
+        assert not task.done()
         assert {r["address"] for r in rows} == {"192.0.2.1", "192.0.2.2"}
-        assert {r["hostname"] for r in rows} == {"host-1.example.test", "host-2.example.test"}
         assert admin_client.get(f"/api/v1/ipam/addresses/{row_id}").json()["availability"] == "active"
-        with env() as db:
-            job = db.get(m.Job, job_id)
-            assert job.status == "running" and 0 < job.progress < job.total
-        slow.set()
-        await asyncio.wait_for(source_started.wait(), 2)
-        assert not task.done() and len(admin_client.get(url).json()["items"]) == 2
         source.set()
-        await asyncio.wait_for(task, 2)
+        slow.set()
+        await asyncio.wait_for(task, 3)
+        rows = admin_client.get(url).json()["items"]
+        assert {r["hostname"] for r in rows} == {"host-1.example.test", "host-2.example.test"}
     finally:
-        slow.set()
         source.set()
+        slow.set()
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
 

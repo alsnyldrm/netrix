@@ -35,8 +35,8 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
     admin_client, inventory, env, monkeypatch, trigger
 ):
     vlan = prefix(admin_client, inventory)
-    vc = integration(admin_client, vlan)
-    dhcp = integration(admin_client, vlan, name="DHCP", kind="windows_dhcp", port=5986)
+    integration(admin_client, vlan)
+    integration(admin_client, vlan, name="DHCP", kind="windows_dhcp", port=5986)
     with env() as db:
         gateway = m.Device(
             name="Gateway",
@@ -78,13 +78,13 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
         calls.append(("dns", address))
         return "dns-" + address
 
-    def dhcp_read(*_):
+    def dhcp_read(*_, **kwargs):
         calls.append(("dhcp", "read"))
         return [{"address": "192.0.2.1", "hostname": "not-dns", "mac_address": "00:11:22:33:44:66"}]
 
     def vm_read(*_):
         with env() as db:
-            assert db.scalar(select(m.IPObservation).where(m.IPObservation.source == "windows_dhcp"))
+            assert db.scalar(select(m.IPAMNetworkState))
             assert db.get(m.Job, initial["id"]).status == "running"
         calls.append(("vmware", "read"))
         return [
@@ -93,6 +93,7 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
                 "mac_address": "00:11:22:33:44:55",
                 "vm_id": "vm-1",
                 "nic_key": "4000",
+                "hostname": "vm-server",
                 "operating_system": "Ubuntu",
                 "dvswitch_name": "DS",
                 "dvport": "89",
@@ -134,7 +135,7 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
     )
     result = admin_client.get(f"/api/v1/ipam/vlans/{vlan['id']}/scan").json()
     assert result["result"]["scan_phase"] == "complete"
-    assert set(result["result"]["source_statuses"].values()) == {"succeeded"}
+    assert result["result"]["source_jobs"] == []
     assert result["result"]["matching"] == {
         "addresses": 2,
         "hostname": 2,
@@ -144,7 +145,9 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
         "operating_system": 1,
         "ambiguous": 0,
     }
-    assert calls.index(("dhcp", "read")) < calls.index(("vmware", "read"))
+    assert calls.index(("vmware", "read")) < calls.index(("dhcp", "read"))
+    assert ("dns", "192.0.2.2") not in calls
+    assert calls.count(("vmware", "read")) == calls.count(("dhcp", "read")) == 1
     assert ("dns", "192.0.2.1") in calls
     with env() as db:
         rows = {r["address"]: r for r in service.enrich(db, list(db.scalars(select(m.IPAddress))))}
@@ -157,7 +160,10 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
             rows["192.0.2.2"]["operating_system"] == "Ubuntu" and rows["192.0.2.2"]["connected_port"] == "89"
         )
         sources = list(db.scalars(select(m.Job).where(m.Job.kind == "integration")))
-        assert len(sources) == 2 and {s.target_id for s in sources} == {vc["id"], dhcp["id"]}
+        assert sources == []
+        assert db.scalar(select(m.IPAMResult))
+        assert rows["192.0.2.2"]["hostname"] == "vm-server"
+        assert len(list(db.scalars(select(m.IPAMNetworkState)))) == 2
 
 
 async def test_source_wait_reports_failure_timeout_missing_and_cancellation(

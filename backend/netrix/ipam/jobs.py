@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select
 from .. import models as m
 from ..core import now, session_factory
 from ..identity.security import decrypt
-from ..services import enqueue, get, in_scope, publish
+from ..services import get, in_scope, publish
 from . import adapters
 from .service import (
     dns_hostname,
@@ -207,137 +207,57 @@ def connection_options(db, row, *, obs=None):
 async def scan(job_id, collector=None):
     from ..worker import Cancelled
 
-    started_at = now()
     with session_factory()() as db:
         job = get(db, m.Job, job_id)
-        if job.cancel_requested:
-            raise Cancelled()
-        prefix = get(db, m.VLAN, job.target_id)
-        discover = job.kind == "ipam_discover"
-        addresses = targets(db, prefix, discover)
-        dns = db.get(m.DNSServer, prefix.dns_server_id) if discover and prefix.dns_server_id else None
-        job.total = len(addresses)
-        setattr(prefix, "last_discovery_at" if discover else "last_ping_at", now())
-        db.commit()
-    if discover:
-        scan_phase(job_id, "addresses")
-    reached = 0
-    # Batches bound tasks, subprocesses and cancellation latency.
-    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
-        batch = addresses[start : start + SCAN_BATCH_SIZE]
-
-        async def probe(address):
-            up = await adapters.ping(address)
-            hostname = await adapters.reverse_dns(address, dns) if discover and up else ""
-            return address, up, hostname
-
-        with session_factory()() as db:
-            job = get(db, m.Job, job_id)
+        if job.kind == "ipam_discover":
+            discover = True
+        else:
+            discover = False
+            prefix = get(db, m.VLAN, job.target_id)
+            addresses = targets(db, prefix, False)
             if job.cancel_requested:
                 raise Cancelled()
-            prefix = get(db, m.VLAN, job.target_id)
-            scope = scan_boundary(db, prefix)
-            batch = [address for address in batch if in_scope(address, scope)]
-        processed = min(start + SCAN_BATCH_SIZE, len(addresses)) - len(batch)
-        async with aclosing(completed_batches(probe(address) for address in batch)) as results:
-            async for values in results:
+            prefix.last_ping_at = now()
+            job.total = len(addresses)
+            job.progress = 0
+            db.commit()
+    if discover:
+        from ..discovery.protocols import SNMPCollector
+        from .vlan_pipeline import scan as vlan_scan
+
+        return await vlan_scan(job_id, collector or SNMPCollector())
+    reached = 0
+    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
+
+        async def probe(address):
+            return address, await adapters.ping(address)
+
+        async with aclosing(
+            completed_batches(probe(address) for address in addresses[start : start + SCAN_BATCH_SIZE])
+        ) as batches:
+            async for values in batches:
                 with session_factory()() as db:
                     job = get(db, m.Job, job_id)
                     if job.cancel_requested:
                         raise Cancelled()
                     prefix = get(db, m.VLAN, job.target_id)
                     scope = scan_boundary(db, prefix)
-                    if discover and prefix.dns_server_id != (dns.id if dns else None):
-                        raise Cancelled()
-                    for address, up, hostname in values:
-                        if not in_scope(address, scope):
-                            continue
-                        reached += int(up)
-                        observe(
-                            db,
-                            prefix,
-                            address,
-                            "icmp",
-                            prefix.id,
-                            {"reachability": "reachable" if up else "no_reply"},
-                            create=up and discover,
-                        )
-                        if discover and (hostname or up):
+                    for address, up in values:
+                        if in_scope(address, scope):
+                            reached += int(up)
                             observe(
                                 db,
                                 prefix,
                                 address,
-                                "dns",
-                                dns.id if dns else "system",
-                                {"hostname": hostname, "present": bool(hostname)},
+                                "icmp",
+                                prefix.id,
+                                {"reachability": "reachable" if up else "no_reply"},
                                 create=False,
                             )
-                    processed += len(values)
-                    job.progress = processed
+                    job.progress += len(values)
                     db.commit()
-                publish(ipam_vlan=prefix.id) if discover else publish(ping_vlan=prefix.id)
-    source_jobs = []
-    network_result = None
-    source_statuses = {}
-    matching = None
-    if discover:
-        from ..discovery.protocols import SNMPCollector
-        from .network import refresh
-
-        scan_phase(job_id, "network")
-        network_result = await refresh(job_id, collector or SNMPCollector())
-        # DHCP must finish before VMware starts, including NICs without guest IPs.
-        for kind, phase in (("windows_dhcp", "dhcp"), ("vcenter", "vmware")):
-            with session_factory()() as db:
-                if get(db, m.Job, job_id).cancel_requested:
-                    raise Cancelled()
-                current = get(db, m.VLAN, prefix.id)
-                scan_boundary(db, current)
-                ids = [
-                    enqueue(db, "integration", config.id, commit=False, ipam_origin="scheduled_source").id
-                    for config in db.scalars(
-                        select(m.Integration).where(
-                            m.Integration.enabled.is_(True), m.Integration.kind == kind
-                        )
-                    )
-                ]
-                source_jobs.extend(ids)
-                db.commit()
-            scan_phase(job_id, phase, network=network_result, source_jobs=source_jobs)
-            source_statuses.update(await wait_for_sources(job_id, ids))
-        scan_phase(job_id, "dns", source_statuses=source_statuses)
-        await complete_dns(job_id, started_at)
-        scan_phase(job_id, "matching")
-        from .service import enrich
-
-        with session_factory()() as db:
-            rows = enrich(
-                db,
-                list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == prefix.id))),
-                details=False,
-            )
-            matching = {
-                field: sum(bool(r.get(field)) for r in rows)
-                for field in (
-                    "hostname",
-                    "mac_address",
-                    "connected_device",
-                    "connected_port",
-                    "operating_system",
-                )
-            }
-            matching.update(addresses=len(rows), ambiguous=sum(bool(r["connection_ambiguous"]) for r in rows))
-        scan_phase(job_id, "complete", matching=matching)
-    return {
-        "checked": len(addresses),
-        "reachable": reached,
-        "no_reply": len(addresses) - reached,
-        "source_jobs": source_jobs,
-        "network": network_result,
-        "source_statuses": source_statuses,
-        "source_failed": sum(status != "succeeded" for status in source_statuses.values()),
-        "matching": matching,
-    }
+                publish(ping_vlan=prefix.id)
+    return {"checked": len(addresses), "reachable": reached, "no_reply": len(addresses) - reached}
 
 
 async def integration(job_id, collector=None):

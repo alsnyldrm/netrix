@@ -36,7 +36,7 @@ Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential,
 
 MariaDB uygulamasında roller `users.role` ve bağımsız SSH ataması `users.ssh_access` alanındadır; ayrı rol/izin tabloları oluşturulmamıştır. `20261103_43`, yalnız `alisan.yildirim@fbu.edu.tr` hesabına atanabilen `super_admin` rolünü ve veritabanı kısıtını ekler. Yönetici otomatik SSH erişimi taşımaz; rol atamalarını yalnız süper yönetici yapar. [Erişim sözleşmesi](access-control.md).
 
-`20261104_46`, `audit_events.details` nullable JSON alanını ekler. Yeni kullanıcı işlemlerinde aktörün o andaki adı/e-postası, hedef kayıt adı ve izin verilen alanların önceki/sonraki değerleri aynı transaction içinde saklanır. Kimliği doğrulanmış yazma isteklerindeki ORM değişiklikleri merkezi olarak yakalanır; modüllerin açık işlem açıklamaları bu kayıtları tamamlar. Rollback denetim kaydını da geri alır. Gizli alanlarda yalnız değişiklik göstergesi bulunur; parola özeti, şifreli/asıl sır, ham komut, konfigürasyon ve protokol kanıtı kopyalanmaz. Görünüm tercihleri yalnız doğrulanan public şemadan alınır. Zamanlar UTC kalır.
+`20261104_48`, `audit_events.details` nullable JSON alanını ekler. Yeni kullanıcı işlemlerinde aktörün o andaki adı/e-postası, hedef kayıt adı ve izin verilen alanların önceki/sonraki değerleri aynı transaction içinde saklanır. Kimliği doğrulanmış yazma isteklerindeki ORM değişiklikleri merkezi olarak yakalanır; modüllerin açık işlem açıklamaları bu kayıtları tamamlar. Rollback denetim kaydını da geri alır. Gizli alanlarda yalnız değişiklik göstergesi bulunur; parola özeti, şifreli/asıl sır, ham komut, konfigürasyon ve protokol kanıtı kopyalanmaz. Görünüm tercihleri yalnız doğrulanan public şemadan alınır. Zamanlar UTC kalır.
 
 Denetim izi liste/ayrıntı erişimi yöneticiler içindir; liste tüm kullanıcıların kayıtlarını kapsar ve aktörü olmayan zamanlayıcı/worker kayıtlarını dışarıda tutar. Otomatik kayıtlar veritabanından silinmez. Eski kayıtların kullanıcı ve mevcut hedef adları toplu sorguyla çözülür; silinmiş hedeflerde kayıt kimliği korunur. Geçmişte kaydedilmemiş alan farkları veya kullanıcı kimlikleri uydurularak doldurulmaz.
 
@@ -66,6 +66,9 @@ MariaDB uygulama notu (30 Ekim 2026): `device_types(id, code, name, description)
 `device_endpoints` erişim hedefidir; IP sahipliğinin kaynağı IPAM atamalarıdır. `devices` içinde ikinci bir serbest metin yönetim IP'si tutma. Endpoint adresinin aynı VRF'deki IPAM kaydıyla tutarlılığını servis katmanında sağla. Cihazlarda site ve location uyumunu doğrula.
 
 ## 3. IPAM ve VLAN
+
+`20261104_49` gateway öncelikli ortak çözümün güncel tablolarını ekler: `ipam_results` her IP'ye CASCADE FK ve tekil `address_id` ile bağlanır; IP/VRF/VLAN bağı, success/problem CHECK'i, alanlar, sınırlı sorun/adım listeleri, korunan veri işareti ve UTC başlangıç/bitiş/son başarı zamanlarını tutar. Aynı IP tekrar tarandığında aynı satır güncellenir; indeksle tek kayıt okunur. `ipam_network_states` her cihazın son başarılı zamanlanmış protokol snapshot'ını tekil cihaz FK'siyle tutar. Bu kaynak tabloları tarama tekrarlarıyla büyümez; mevcut IP/cihaz sayısıyla sınırlıdır. Hatalı kaynak okuması önceki doğrulanmış alanları silmez, sonuçta Sorunlu olarak açıklanır. Daha eski başlayan iş yeni sonucu ezemez. Dolu tablolarda kayıplı downgrade engellenir. Migration kaynak sorgusu/tarama başlatmaz.
+
 
 Çalışan MariaDB şeması `20261101_21` ile VLAN merkezlidir:
 

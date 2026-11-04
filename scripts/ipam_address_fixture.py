@@ -9,7 +9,7 @@ runpy.run_path(str(Path(__file__).with_name("ipam_manual_fixture.py")))
 from netrix import main, worker  # noqa: E402
 from netrix import models as m  # noqa: E402
 from netrix.core import session_factory, settings  # noqa: E402
-from netrix.ipam import adapters  # noqa: E402
+from netrix.ipam import adapters, pipeline  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 PORT = int(os.environ.get("NETRIX_ADDRESS_FIXTURE_PORT", "8242"))
@@ -27,7 +27,8 @@ with session_factory()() as db:
 
 
 @main.app.post("/fixture/run-address-job")
-async def run_address_job():
+async def run_address_job(branch: str = "vm"):
+    assert branch in ("vm", "physical", "error")
     pinged, resolved = [], []
 
     async def ping(address):
@@ -45,6 +46,67 @@ async def run_address_job():
     adapters.vcenter_records = adapters.windows_dhcp = lambda *_: (_ for _ in ()).throw(
         AssertionError("No integration reads in browser fixture")
     )
+
+    class Sources:
+        async def gateway(self, address):
+            if branch == "error":
+                raise TimeoutError()
+            return {"mac_address": "00:11:22:33:44:55", "gateway_evidence": []}
+
+        async def vmware(self, address, mac):
+            if branch != "vm":
+                return []
+            return [
+                {
+                    "address": address,
+                    "mac_address": mac,
+                    "hostname": "scanned-12.example.test",
+                    "vm_id": "vm-fixture",
+                    "nic_key": "4000",
+                    "dvswitch_name": "FBU-DS",
+                    "dvport": "89",
+                    "operating_system": "Windows",
+                }
+            ]
+
+        async def physical(self, address, mac):
+            assert branch == "physical"
+            return {
+                "connections": [
+                    {
+                        "device_id": switch,
+                        "device_name": switch,
+                        "port": port,
+                        "aggregate": trunk,
+                        "endpoint_identity": "server1",
+                    }
+                    for switch, port, trunk in (
+                        ("BB-01", "H7", "Trk1"),
+                        ("BB-01", "H8", "Trk1"),
+                        ("BB-02", "A3", "Trk5"),
+                    )
+                ]
+            }
+
+        async def dhcp(self, address, mac):
+            assert branch == "physical"
+            return [
+                {
+                    "address": address,
+                    "mac_address": "00:11:22:33:44:66",
+                    "hostname": "WRONG",
+                    "reserved": True,
+                }
+            ]
+
+        async def dns(self, address):
+            if branch == "error":
+                return ""
+            assert branch == "physical"
+            resolved.append(address)
+            return "physical.example.test"
+
+    pipeline.sources_for = lambda *_: Sources()
     id = worker.claim(interactive=False, include_kinds=("ipam_address_scan",))
     assert id
     await worker.execute(id, SimpleNamespace(ipam=forbidden))

@@ -374,6 +374,52 @@ class Evidence:
         ]
         for row, projected in projections(db, latest):
             self.snapshots[row.device_id] = (Snapshot(row.id, row.created_at), projected)
+        states = list(
+            db.execute(
+                select(
+                    m.IPAMNetworkState.id,
+                    m.IPAMNetworkState.device_id,
+                    m.IPAMNetworkState.address,
+                    m.IPAMNetworkState.observed_at.label("created_at"),
+                    m.IPAMNetworkState.updated_at,
+                ).where(m.IPAMNetworkState.device_id.in_(self.devices))
+            )
+        )
+        from .network import read_context
+
+        profile_ids = {
+            id for d in self.devices.values() for id in (d.snmp_credential_id, d.config_credential_id) if id
+        }
+        profiles = (
+            {
+                p.id: p
+                for p in db.scalars(
+                    select(m.Credential)
+                    .options(load_only(m.Credential.id, m.Credential.updated_at, m.Credential.protocol))
+                    .where(m.Credential.id.in_(profile_ids))
+                )
+            }
+            if states
+            else {}
+        )
+        for row, projected in projections(db, states, model=m.IPAMNetworkState):
+            if row.address != self.devices[row.device_id].management_ip:
+                continue
+            device = self.devices[row.device_id]
+            profile = profiles.get(device.snmp_credential_id)
+            ssh = (
+                profiles.get(device.config_credential_id)
+                if device.adapter in {"aruba_5400", "aruba_2900"}
+                else None
+            )
+            if ssh and ssh.protocol != "ssh":
+                ssh = None
+            if not profile or projected["evidence"].get("read_context") != read_context(device, profile, ssh):
+                self.snapshots.pop(row.device_id, None)
+                continue
+            previous = self.snapshots.get(row.device_id)
+            if not previous or row.created_at > previous[0].created_at:
+                self.snapshots[row.device_id] = (Snapshot(row.id, row.created_at), projected)
         self.links = list(
             db.scalars(
                 select(m.Link).where(

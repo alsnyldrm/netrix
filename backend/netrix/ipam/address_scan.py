@@ -1,7 +1,5 @@
 """Explicit one-address scans. Every result is scoped to the original address ID/VRF/VLAN."""
 
-import asyncio
-import json
 from collections import defaultdict
 
 from fastapi import HTTPException
@@ -9,7 +7,6 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..identity.security import decrypt
 from ..services import in_scope, lock_vrf, publish
 from . import adapters
 from .service import hostname_vm_records, normalized_hostname, normalized_mac, observe, scan_boundary
@@ -193,24 +190,28 @@ def persist_integration(db, row, vlan, config, records):
 
 
 async def execute(job_id, collector):
-    from ..worker import Cancelled
-    from .network import refresh
+    from . import pipeline
 
+    started = now()
     with session_factory()() as db:
         job = db.get(m.Job, job_id)
         row, vlan = target(db, job)
         address, vlan_id = row.address, vlan.id
-        dns = db.get(m.DNSServer, vlan.dns_server_id) if vlan.dns_server_id else None
+        sources = pipeline.sources_for(db, row, vlan, collector)
+        sources.job_id = job_id
         job.total, job.progress = 1, 0
         db.commit()
-    phase(job_id, "addresses")
+
+    async def progress(name):
+        phase(job_id, name)
+
+    result = await pipeline.resolve(address, sources, progress)
     up = await adapters.ping(address)
-    hostname = await adapters.reverse_dns(address, dns)
+    if hasattr(sources, "check"):
+        sources.check()
     with session_factory()() as db:
         job = db.get(m.Job, job_id)
         row, vlan = target(db, job, lock=True)
-        if vlan.dns_server_id != (dns.id if dns else None):
-            raise Cancelled()
         observe(
             db,
             vlan,
@@ -220,56 +221,16 @@ async def execute(job_id, collector):
             {"reachability": "reachable" if up else "no_reply"},
             create=False,
         )
-        observe(
-            db,
-            vlan,
-            address,
-            "dns",
-            dns.id if dns else "system",
-            {"hostname": hostname, "present": bool(hostname)},
-            create=False,
-        )
+        pipeline.save_result(db, row, started, result)
         job.progress = 1
         db.commit()
     publish(ipam_vlan=vlan_id)
-    phase(job_id, "network")
-    network = await refresh(job_id, collector, address_id=job.target_id)
-    failures = []
-    for kind, name in (("windows_dhcp", "dhcp"), ("vcenter", "vmware")):
-        phase(job_id, name, network=network)
-        with session_factory()() as db:
-            target(db, db.get(m.Job, job_id))
-            configs = list(
-                db.scalars(
-                    select(m.Integration).where(m.Integration.enabled.is_(True), m.Integration.kind == kind)
-                )
-            )
-        for config in configs:
-            reader = adapters.vcenter_records if kind == "vcenter" else adapters.windows_dhcp
-            try:
-                secret = json.loads(decrypt(config.encrypted_secret))
-                async with asyncio.timeout(300):
-                    records = await asyncio.to_thread(reader, config, secret)
-                with session_factory()() as db:
-                    current = db.get(m.Integration, config.id)
-                    row, vlan = target(db, db.get(m.Job, job_id), lock=True)
-                    if not current or not current.enabled or current.updated_at != config.updated_at:
-                        raise Cancelled()
-                    persist_integration(db, row, vlan, current, records)
-                    db.commit()
-                publish(ipam_vlan=vlan_id)
-            except Cancelled:
-                raise
-            except Exception as exc:
-                failures.append(
-                    {"source": kind, "integration_id": config.id, "error_class": type(exc).__name__}
-                )
-    phase(job_id, "complete", network=network, source_errors=failures)
+    phase(job_id, "complete", resolution_status=result["status"], source_errors=result["issues"])
     return {
         "checked": 1,
         "reachable": int(up),
         "no_reply": int(not up),
-        "network": network,
-        "source_failed": len(failures),
-        "source_errors": failures,
+        "source_failed": int(result["status"] == "problem"),
+        "source_errors": result["issues"],
+        "resolution_status": result["status"],
     }

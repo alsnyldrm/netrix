@@ -28,16 +28,17 @@ ConvertTo-Json -InputObject $rows -Compress -Depth 4
 """
 
 
-def dhcp_records(content):
+def dhcp_records(content, *, preserve_conflicts=False):
     rows = json.loads(content.decode("utf-8-sig"))
     if not isinstance(rows, list) or len(rows) > 100000:
         raise NetworkError("Invalid DHCP response")
     result = {}
     for row in rows:
         address = str(ipaddress.ip_address(row["address"]))
-        if address in result and result[address]["reserved"]:
+        key = (address, normalized_mac(row.get("mac_address"))) if preserve_conflicts else address
+        if key in result and result[key]["reserved"]:
             continue
-        result[address] = {
+        result[key] = {
             "address": str(ipaddress.ip_address(row["address"])),
             "mac_address": normalized_mac(row.get("mac_address")),
             "hostname": str(row.get("hostname") or "")[:190],
@@ -47,7 +48,7 @@ def dhcp_records(content):
     return list(result.values())
 
 
-def windows_dhcp(config, secret):
+def windows_dhcp(config, secret, *, script=None, point=False, preserve_conflicts=False):
     import winrm
 
     host = f"[{config.host}]" if ":" in config.host else config.host
@@ -56,8 +57,8 @@ def windows_dhcp(config, secret):
         auth=(secret["username"], secret["password"]),
         transport="ntlm",
         server_cert_validation="validate" if config.verify_tls else "ignore",
-        operation_timeout_sec=20,
-        read_timeout_sec=25,
+        operation_timeout_sec=5 if point else 20,
+        read_timeout_sec=10 if point else 25,
     )
     from winrm.exceptions import WinRMOperationTimeoutError
 
@@ -65,11 +66,11 @@ def windows_dhcp(config, secret):
     shell_id = protocol.open_shell()
     command_id = None
     try:
-        encoded = base64.b64encode(DHCP_SCRIPT.encode("utf-16-le")).decode("ascii")
+        encoded = base64.b64encode((script or DHCP_SCRIPT).encode("utf-16-le")).decode("ascii")
         command_id = protocol.run_command(
             shell_id, "powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]
         )
-        deadline, output = time.monotonic() + 240, bytearray()
+        deadline, output = time.monotonic() + (15 if point else 240), bytearray()
         while time.monotonic() < deadline:
             try:
                 stdout, _, status, done = protocol.get_command_output_raw(shell_id, command_id)
@@ -81,7 +82,7 @@ def windows_dhcp(config, secret):
             if done:
                 if status:
                     raise NetworkError("Windows DHCP read failed")
-                return dhcp_records(bytes(output))
+                return dhcp_records(bytes(output), preserve_conflicts=preserve_conflicts)
         raise NetworkError("Windows DHCP read timeout")
     finally:
         if command_id:
@@ -370,3 +371,121 @@ async def reverse_dns(address, server):
         return str(answer[0]).rstrip(".")[:190]
     except dns.exception.DNSException:
         return ""
+
+
+def windows_dhcp_point(config, secret, address, mac_address):
+    """Server-side IP and ClientId filters; scopes are metadata, never all leases."""
+    address = str(ipaddress.ip_address(address))
+    mac_address = normalized_mac(mac_address)
+    if not mac_address:
+        raise NetworkError("Gateway MAC required for DHCP lookup")
+    if ipaddress.ip_address(address).version != 4:
+        return []
+    script = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Import-Module DhcpServer -ErrorAction Stop
+function Read-Target($action) {
+  try { & $action } catch {
+    if ($_.FullyQualifiedErrorId -notmatch '20011|20012|20013|20118' -and $_.Exception.Message -notmatch '20011|20012|20013|20118') { throw }
+  }
+}
+$rows = @(
+ Read-Target {Get-DhcpServerv4Reservation -IPAddress '__IP__' -ErrorAction Stop} | ForEach-Object {
+  [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.Name;reserved=$true}
+ }
+ Read-Target {Get-DhcpServerv4Lease -IPAddress '__IP__' -ErrorAction Stop} | ForEach-Object {
+  [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.HostName;reserved=$false;lease_state=[string]$_.AddressState}
+ }
+ Get-DhcpServerv4Scope -ErrorAction Stop | ForEach-Object {
+  $scope=$_.ScopeId
+  Read-Target {Get-DhcpServerv4Reservation -ScopeId $scope -ClientId '__MAC__' -ErrorAction Stop} | ForEach-Object {
+   [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.Name;reserved=$true}
+  }
+  Read-Target {Get-DhcpServerv4Lease -ScopeId $scope -ClientId '__MAC__' -ErrorAction Stop} | ForEach-Object {
+   [PSCustomObject]@{address=$_.IPAddress.IPAddressToString;mac_address=[string]$_.ClientId;hostname=[string]$_.HostName;reserved=$false;lease_state=[string]$_.AddressState}
+  }
+ }
+)
+ConvertTo-Json -InputObject $rows -Compress -Depth 4
+""".replace("__IP__", address).replace("__MAC__", mac_address.replace(":", "-"))
+    return windows_dhcp(config, secret, script=script, point=True, preserve_conflicts=True)
+
+
+def vcenter_point(config, secret, address, mac_address="", hints=()):
+    """SearchIndex for the one IP; retrieve only its VM/NIC and backing objects."""
+    from pyVim.connect import Disconnect
+    from pyVmomi import vim
+
+    si = connect_vcenter(config, secret)
+    try:
+        content = si.RetrieveContent()
+        machines = list(content.searchIndex.FindAllByIp(ip=address, vmSearch=True) or [])
+        # Guest tools may omit an IP. A cached MOID is only a lookup hint;
+        # current VM/NIC MAC ownership must still match the gateway.
+        if not machines:
+            machines = [vim.VirtualMachine(id, si._stub) for id in dict.fromkeys(hints)][:4]
+        if len(machines) > 4:
+            raise NetworkError("Ambiguous VMware IP ownership")
+        rows = []
+        for vm in machines:
+            guest = vm.guest
+            config_obj = vm.config
+            runtime = vm.runtime
+            values = {
+                "guest": guest,
+                "name": vm.name,
+                "config.guestFullName": config_obj.guestFullName,
+                "config.hardware.device": config_obj.hardware.device,
+                "runtime.powerState": runtime.powerState,
+                "runtime.host": runtime.host,
+            }
+            networks = {"switches": {}, "portgroups": {}, "hosts": {}}
+            for nic in config_obj.hardware.device:
+                if not isinstance(nic, vim.vm.device.VirtualEthernetCard):
+                    continue
+                port = getattr(getattr(nic, "backing", None), "port", None)
+                uuid = getattr(port, "switchUuid", "")
+                if uuid and uuid not in networks["switches"]:
+                    ds = content.dvSwitchManager.QueryDvsByUuid(uuid=uuid)
+                    networks["switches"][uuid] = ds.name
+                group = getattr(port, "portgroupKey", "")
+                if group:
+                    networks["portgroups"][(uuid, group)] = vim.dvs.DistributedVirtualPortgroup(
+                        group, si._stub
+                    ).name
+            if runtime.host:
+                host = runtime.host
+                networks["hosts"][host._moId] = {
+                    "name": host.name,
+                    "portgroups": {
+                        pg.spec.name: pg.spec.vswitchName for pg in host.config.network.portgroup or []
+                    },
+                }
+            for record in vm_records(vm._moId, values, networks):
+                if record["address"] == address or (mac_address and record["mac_address"] == mac_address):
+                    rows.append({**record, "point_match": True})
+        if not rows:
+            from . import vmware_hosts
+
+            for host in content.searchIndex.FindAllByIp(ip=address, vmSearch=False) or []:
+                net = host.config.network
+                values = {
+                    "name": host.name,
+                    "config.network.pnic": net.pnic,
+                    "config.network.vnic": net.vnic,
+                    "config.network.vswitch": net.vswitch,
+                    "config.network.portgroup": net.portgroup,
+                    "config.network.proxySwitch": net.proxySwitch,
+                    "hardware.systemInfo.uuid": host.hardware.systemInfo.uuid,
+                    "config.product.fullName": host.config.product.fullName,
+                    "runtime.powerState": host.runtime.powerState,
+                    "runtime.connectionState": host.runtime.connectionState,
+                }
+                hints = vmware_hosts.hints(host.configManager.networkSystem.QueryNetworkHint())
+                rows.extend(
+                    r for r in vmware_hosts.records(host._moId, values, hints) if r["address"] == address
+                )
+        return rows
+    finally:
+        Disconnect(si)

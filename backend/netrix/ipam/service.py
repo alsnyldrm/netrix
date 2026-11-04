@@ -387,9 +387,21 @@ def enrich(db, rows, *, details=True, include_options=False):
     site_ids = {id for row in rows for id in (row.site_id, row.sub_site_id) if id}
     site_ids.update(p.site_id for p in prefixes.values() if p.site_id)
     sites = {site.id: site for site in db.scalars(select(m.Site).where(m.Site.id.in_(site_ids)))}
+    from . import pipeline
     from .connections import Evidence
 
-    network_evidence = Evidence(db, {r.vrf_id for r in rows})
+    stored = {
+        r.address_id: r
+        for r in db.scalars(select(m.IPAMResult).where(m.IPAMResult.address_id.in_([r.id for r in rows])))
+    }
+    stored = {
+        row.id: stored[row.id]
+        for row in rows
+        if row.id in stored and stored[row.id].address_scope == [row.address, row.vrf_id, row.vlan_id]
+    }
+    network_evidence = (
+        Evidence(db, {r.vrf_id for r in rows if r.id not in stored}) if len(stored) < len(rows) else None
+    )
     manual_connections = (
         {
             address_id: {"device_name": device_name, "port": port or ""}
@@ -426,6 +438,27 @@ def enrich(db, rows, *, details=True, include_options=False):
         item["cabinet"] = item["rack_position"] or item["cabinet"]
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         from .address_scan import NETWORK_SOURCE
+
+        if row.id in stored:
+            obs = [o for o in obs if o.source != NETWORK_SOURCE]
+            if details:
+                item["observations"] = [serialize(o) for o in obs]
+            item["availability"] = ping_availability(obs)
+            item["reachability"] = next(
+                (o.data.get("reachability") for o in obs if o.source == "icmp"), "unknown"
+            )
+            item["address_locked"] = bool(obs) or bool(stored[row.id].values)
+            item["vlan"] = f"VLAN-{prefixes[row.vlan_id].vid} / {prefixes[row.vlan_id].name}"
+            item["cidr"] = prefixes[row.vlan_id].cidr
+            item["location"] = (
+                getattr(sites.get(row.sub_site_id or row.site_id), "name", "")
+                or row.location
+                or getattr(sites.get(prefixes[row.vlan_id].site_id), "name", "")
+            )
+            item["sources"] = sorted({o.source for o in obs})
+            pipeline.apply(item, stored[row.id], details=details)
+            result.append(item)
+            continue
 
         address_evidence = network_evidence.for_address(db, row, obs)
         if address_evidence is not network_evidence:
@@ -567,7 +600,18 @@ def enrich(db, rows, *, details=True, include_options=False):
         result.append(item)
     from .mac_cache import fallback
 
-    result = fallback(db, rows, result, prefixes, network_evidence, scoped=scoped_networks)
+    legacy_rows = [row for row in rows if row.id not in stored]
+    if legacy_rows:
+        legacy = fallback(
+            db,
+            legacy_rows,
+            [item for item in result if item["id"] not in stored],
+            prefixes,
+            network_evidence,
+            scoped=scoped_networks,
+        )
+        values = {item["id"]: item for item in legacy}
+        result = [values.get(item["id"], item) for item in result]
     if not details:
         for item in result:
             item.pop("connections", None)
