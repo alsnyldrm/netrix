@@ -590,12 +590,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     from .configuration.management import compare_live
     from .ipam.jobs import KINDS
     from .ipam.jobs import execute as execute_ipam
-    from .ipam.mac_cache import KIND as MAC_KIND
-    from .ipam.mac_cache import scan as scan_macs
 
     if kind not in (
         *KINDS,
-        MAC_KIND,
         INTEGRATION_TEST,
         "compare",
         "discovery",
@@ -613,8 +610,6 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     task = asyncio.create_task(
         test_integration_connection(job_id)
         if kind == INTEGRATION_TEST
-        else scan_macs(job_id, collector)
-        if kind == MAC_KIND
         else execute_ipam(job_id, kind, collector)
         if kind in KINDS
         else compare_live(job_id)
@@ -668,9 +663,6 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 job.error = "" if complete else "Okunamayan alanlarda mevcut bilgiler korundu."
             elif kind == "discovery" and result.get("unresponsive"):
                 job.status = "partial" if result["reachable"] else "failed"
-            elif kind == MAC_KIND and result.get("failed"):
-                job.status = "partial" if result.get("read") else "failed"
-                job.error = "Bazı switch MAC kaynakları okunamadı; kaynak ve SNMP profillerini kontrol edin."
             elif kind == "ipam_ping" and result.get("ping_failed"):
                 job.status = "partial"
                 job.error = f"{result['ping_failed']} IP için ping işlemi çalıştırılamadı; önceki ping durumları korundu."

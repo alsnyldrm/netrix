@@ -1,5 +1,5 @@
 import { hasAdminAccess, canOperate } from "./permissions";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   CalendarBlank,
   CaretRight,
@@ -12,7 +12,7 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { api, useLiveQuery } from "./data";
-import { Badge, Dialog } from "./main";
+import { Dialog } from "./main";
 import "./ipam-settings.css";
 
 type Row = Record<string, any>;
@@ -414,95 +414,6 @@ function RunHistory({
   );
 }
 
-function SwitchMacStatus({ user }: { user: Row }) {
-  const [revision, setRevision] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const query = useLiveQuery<Row>("/ipam/switch-mac-cache", revision);
-  const data = query.data;
-  const job = data?.last_scan;
-  const running = ["queued", "running"].includes(job?.status);
-  useEffect(() => {
-    const update = () => {
-      if (!document.hidden) setRevision((n) => n + 1);
-    };
-    const timer = setInterval(update, running ? 2000 : 10000);
-    window.addEventListener("netrix:ipam-update", update);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("netrix:ipam-update", update);
-    };
-  }, [running]);
-  const submit = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      await api("/ipam/switch-mac-cache/scan", "POST");
-      setRevision((n) => n + 1);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <details className="panel switch-mac-panel">
-      <summary>
-        <CaretRight size={18} aria-hidden="true" />
-        <strong>Switch MAC tablosu</strong>
-        <span>Günde 4 tarama</span>
-      </summary>
-      <div className="switch-mac-body">
-        <ErrorNote error={error || query.error || ""} />
-        <div className="switch-mac-stats">
-          <div>
-            <span>Switch</span>
-            <strong>{data?.switches ?? "—"}</strong>
-          </div>
-          <div>
-            <span>MAC kaydı</span>
-            <strong>{data?.entries ?? "—"}</strong>
-          </div>
-          <div>
-            <span>Güncel kaynak</span>
-            <strong>{data?.healthy ?? "—"}</strong>
-          </div>
-        </div>
-        <p className="scan-hint">
-          Türkiye saatiyle 00:00 · 06:00 · 12:00 · 18:00. Mevcut bağlantı
-          bulunamadığında bu tablo kullanılır.
-        </p>
-        <div className="switch-mac-actions">
-          <div className="switch-mac-last" role="status">
-            {job ? (
-              <>
-                <Badge value={job.status} />
-                <span>
-                  {job.progress}/{job.total} switch ·{" "}
-                  {date(job.finished_at || job.created_at)}
-                </span>
-              </>
-            ) : (
-              <span>Henüz MAC taraması yapılmadı.</span>
-            )}
-          </div>
-          {canOperate(user) && (
-            <button
-              className="secondary"
-              disabled={busy || running || !data?.switches}
-              aria-busy={busy}
-              onClick={submit}
-            >
-              {busy ? "Başlatılıyor…" : "Şimdi tara"}
-            </button>
-          )}
-        </div>
-        {job?.error && <ErrorNote error={job.error} />}
-      </div>
-    </details>
-  );
-}
-
 export default function IPAMSettings({
   user,
   refresh,
@@ -570,7 +481,6 @@ export default function IPAMSettings({
           {notice}
         </p>
       )}
-      <SwitchMacStatus user={user} />
       <section className="panel scan-groups" aria-label="Tarama grupları">
         <div className="scan-group-tools">
           <h3>

@@ -245,3 +245,25 @@ def test_multiple_cached_candidates_stay_ambiguous_until_typed_nic_identity_prov
         ("Access", "A1"),
         ("Core", "B2"),
     ]
+
+
+def test_group_scan_context_with_ssh_profile_stays_usable(network):
+    from types import SimpleNamespace
+
+    from netrix.ipam.network import read_context
+
+    sf, _, _, ids = network
+    with sf() as db:
+        device = db.get(m.Device, ids[1])
+        profile = db.get(m.Credential, device.snmp_credential_id)
+        ssh = m.Credential(name="SSH", protocol="ssh", encrypted_secret="x")
+        db.add(ssh)
+        db.flush()
+        device.adapter, device.config_credential_id = "aruba_5400", ssh.id
+        db.flush()
+        group_scan = read_context(device, profile, ssh)
+        accepted = mac_cache.accepted_contexts(db, device, profile)
+        assert group_scan in accepted and mac_cache.context(device, profile) in accepted
+        changed = SimpleNamespace(**{"id": profile.id, "updated_at": now() + timedelta(days=1)})
+        assert read_context(device, changed, ssh) not in accepted
+        db.rollback()

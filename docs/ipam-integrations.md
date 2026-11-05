@@ -15,9 +15,9 @@ Regresyonlar: `test_ipam_scan_schedules.py`, `scripts/ipam_scan_browser_check.py
 ## Eşzamanlı 10 cihaz okuması ve SQL yazımı — 5 Kasım 2026
 
 Proje sahibinin talebiyle worker genelinde **aynı anda en çok 10 cihaz** okunur
-(`runtime_limits.DEVICE_READ_CONCURRENCY`). Sınır tam VLAN taraması, switch MAC
-taraması ve envanter keşfinin ortak yuvasıdır: işler üst üste binse de toplam 10'u
-geçmez. Switch MAC taraması yalnız SNMP kullanır. Tam VLAN taramasında SNMP ve
+(`runtime_limits.DEVICE_READ_CONCURRENCY`). Sınır tam VLAN taraması ve envanter
+keşfinin ortak yuvasıdır: işler üst üste binse de toplam 10'u
+geçmez. Tam VLAN taramasında SNMP ve
 AOS-S switchlerde isteğe bağlı SSH komşu ayrıntısı **aynı cihazın tek yuvasını ve tek
 185 saniyelik bütçesini** paylaşır; protokol başına ayrı yuva açılmaz. Yuva, yanıt
 belleğe alınınca boşalır, SQL yazımı ağ okumasını bekletmez.
@@ -25,14 +25,12 @@ belleğe alınınca boşalır, SQL yazımı ağ okumasını bekletmez.
 Ağır SQL işleri event loop dışındadır: kaynak ve sonuç yazımları tek yazıcı iş
 parçacığında sırayla yürür (işler arası yeni kilitlenme/sertifikasyon çakışması
 açılmaz), `Evidence` kurulumu ayrı okuma iş parçacığındadır. Böylece SNMP/ICMP
-zamanlayıcıları SQL sırasında durmaz. MAC taramasında bitmiş switchler tek `Evidence`
-kurulumunu paylaşan toplu bağlantı yenilemesine alınır; yenileme aynı anda bir tane
-çalışır.
+zamanlayıcıları SQL sırasında durmaz.
 
 SNMP tablosunun 15 saniyelik süresi artık yanıtlar arası sessizlik sınırıdır. Yanıt
 vermeyi sürdüren büyük FDB/ARP tablosu kesilmez; cihaz başına 160 saniyelik toplama
 üst sınırı sürer. Tam tarama cihaz bütçesi 60 yerine 185 saniyedir. Regresyonlar:
-`test_scan_concurrency.py`, `test_switch_mac_jobs.py`, `test_ipam_network_worker.py`.
+`test_scan_concurrency.py`, `test_ipam_network_worker.py`.
 
 ## Eksik VLAN–FID için hedefli SNMP doğrulaması — 5 Kasım 2026
 
@@ -199,7 +197,15 @@ DHCP/VMware’in kendi snapshot’ı atomik kalır: çoklu VM/NIC/MAC çakışma
 
 Kuyruk işleri iç `ipam_origin` alanıyla `schedule`, `scheduled_source`, `ping_timer` veya `manual` kökenini taşır. Manuel eylemde kimliği doğrulanmış kullanıcı `requested_by` ile kaydedilir; HTTP gövdesi köken seçemez. Worker kökensiz, eski `vlan_create` veya kullanıcısız manuel işleri ağ erişiminden önce iptal eder. Aynı VLAN/tür için aktif iş tekildir; kullanıcı eylemi grup takvimini ve çalışma sayısını değiştirmez. Bağımsız entegrasyon aralıkları kapalıdır; kaynaklar VLAN/IP işinin içindedir. Önceki `20261103_41` migration’ının ping ve eski işleri emekliye ayırma davranışı korunur. Bu değişiklik şema dönüşümü veya tarama başlatmaz. Testler: `test_vlan_initial_scan.py`, `test_vlan_scan_pipeline.py`, `test_ipam_schedule_only.py`, `test_ipam_explicit_scope.py`.
 
-## Bağımsız switch MAC önbelleği — 3 Kasım 2026
+## Bağımsız switch MAC önbelleği — 3 Kasım 2026 (taraması 5 Kasım'da kaldırıldı)
+
+**5 Kasım 2026 kararı:** Proje sahibinin kararıyla `switch_mac_scan` işi, dört günlük
+zamanlaması, **Şimdi tara** eylemi, `/ipam/switch-mac-cache` API'si ve Ayarlar paneli
+kaldırılmıştır. Aynı veriyi tarama grubu okuyup yazar. Mevcut `mac_port_records`
+satırları silinmez ve grup taramasıyla güncellenir. Yedek eşleştirmenin en çok yedi
+saatlik kaynak kuralı, günlük grup için 25 saattir. Eski kuyruk kaydı worker tarafından
+desteklenmeyen tür olarak iptal edilir, geçmiş iş kayıtları görünmeye devam eder.
+Aşağıdaki kanıt ve belirsizlik kuralları geçerlidir; zamanlama ve API hükümleri geçersizdir.
 
 Proje sahibinin ek talebiyle `switch_mac_scan` işi, tam VLAN taramasından bağımsız olarak tüm etkin, yetkili envanter kapsamına ve SNMP profiline sahip switchlerin Q-BRIDGE FDB, VLAN/FID, arayüz ve komşuluk kanıtlarını okur. Türkiye saatiyle 00:00, 06:00, 12:00, 18:00'de bir kez kuyruğa alınır. Kesinti sonrası geçmiş slotlar yığılmaz; mevcut slot bir kez değerlendirilir. Ayarlar → Tarama → Switch MAC tablosu içindeki **Şimdi tara** eylemi operatör yetkisiyle aynı tekil kuyruğu kullanır. Etkin iş varsa ikinci iş oluşmaz. Kaynak başına 185 saniye sınır, en çok on eşzamanlı cihaz okuması ve taşıma hatalarında üç kontrollü deneme vardır. İptalde bekleyen görevler temizlenir. Ping, DNS, VMware, DHCP, gateway ARP/NDP ve trafik sayaçları bu işte okunmaz; envanter veya Komşuluklar değiştirilmez. Sayfa GET istekleri yalnız DB okur.
 

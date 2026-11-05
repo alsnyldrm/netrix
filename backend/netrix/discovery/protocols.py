@@ -139,9 +139,6 @@ class SNMPCollector:
     async def ipam(self, host, port, secret):
         return await self._collect(host, port, secret, ipam_only=True)
 
-    async def switch_macs(self, host, port, secret):
-        return await self._collect(host, port, secret, ipam_only=True, mac_only=True)
-
     async def collect(self, host, port, secret):
         return await self._collect(host, port, secret)
 
@@ -166,7 +163,6 @@ class SNMPCollector:
         probe_only=False,
         fast_probe=False,
         ipam_only=False,
-        mac_only=False,
         version_only=False,
     ):
         snmp = SnmpEngine()
@@ -192,7 +188,7 @@ class SNMPCollector:
             async with asyncio.timeout(30 if version_only else 180):
                 system_oids = {
                     **SYSTEM,
-                    **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only and not mac_only else {}),
+                    **({"ip_forwarding": "1.3.6.1.2.1.4.1.0"} if ipam_only else {}),
                 }
                 error, status, _, values = await get_cmd(
                     snmp,
@@ -236,10 +232,6 @@ class SNMPCollector:
                 limit = 65536
                 deadline = asyncio.get_running_loop().time() + 160
                 selected_tables = IPAM_TABLES if ipam_only else TABLES
-                if mac_only:
-                    selected_tables = {
-                        k: v for k, v in selected_tables.items() if not k.startswith(("arp_", "ndp_", "ip_"))
-                    }
                 # Resolve core port identity before optional vendor/neighbor tables
                 # can consume the collection deadline.
                 priority = (

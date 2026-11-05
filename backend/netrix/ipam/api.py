@@ -63,20 +63,6 @@ def assign_address(id: str, payload: s.IPInput, user=Depends(operator), db=Depen
     return assign(db, svc.get(db, m.VLAN, id), payload, user)
 
 
-@router.get("/ipam/switch-mac-cache")
-def switch_mac_status(user=Depends(current_user), db=Depends(db_session)):
-    from .mac_cache import status
-
-    return status(db)
-
-
-@router.post("/ipam/switch-mac-cache/scan", status_code=202)
-def scan_switch_macs(user=Depends(operator), db=Depends(db_session)):
-    from .mac_cache import enqueue
-
-    return svc.serialize(enqueue(db, user=user))
-
-
 @router.get("/ipam/vlans/{id}/addresses")
 def addresses(
     request: Request,

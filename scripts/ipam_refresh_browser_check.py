@@ -15,7 +15,7 @@ with sync_playwright() as p:
         lambda r: (
             collectors.append(r.url)
             if r.method == "POST"
-            and r.url.endswith(("/discover", "/ping", "/sync", "/switch-mac-cache/scan"))
+            and r.url.endswith(("/discover", "/ping", "/sync"))
             else None
         ),
     )

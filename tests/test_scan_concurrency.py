@@ -7,10 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 from netrix import models as m
-from netrix import runtime_limits, worker
+from netrix import runtime_limits
 from netrix.discovery import table_reads
 from netrix.discovery.table_reads import read_table
 from netrix.ipam import mac_cache
+from netrix.ipam.network import refresh
 from netrix.sources import network as source_network
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
@@ -138,43 +139,38 @@ def test_column_projection_matches_orm_relationship(network):
         )
 
 
-async def test_mac_scan_reads_ten_at_once_and_saves_every_switch(admin_client, network, monkeypatch):
-    sf, *_ = network
+async def test_group_read_uses_ten_slots_and_saves_every_device(network):
+    sf, vlan_id, *_ = network
     with sf() as db:
         template = db.scalar(select(m.Device).where(m.Device.kind == "switch"))
         for index in range(30):
             db.add(
                 m.Device(
                     name=f"bulk-{index}",
-                    management_ip=f"10.77.0.{index + 1}",
+                    management_ip=f"198.51.100.{index + 100}",
                     vrf_id=template.vrf_id,
                     kind="switch",
                     snmp_credential_id=template.snmp_credential_id,
                     discovery_scope_id=template.discovery_scope_id,
                 )
             )
+        job = m.Job(kind="ipam_discover", target_id=vlan_id)
+        db.add(job)
         db.commit()
-        expected = len(mac_cache.devices(db))
-    active = peak = reads = 0
+        job_id = job.id
+    active = peak = 0
 
-    async def read(*args):
-        nonlocal active, peak, reads
+    async def collect(*args):
+        nonlocal active, peak
         active += 1
-        reads += 1
         peak = max(peak, active)
         await asyncio.sleep(0.01)
         active -= 1
-        return {"failed": False, "tables": {}, "interfaces": [], "unsupported": []}
+        return {"tables": {}, "interfaces": [], "neighbors": []}
 
-    job = admin_client.post("/api/v1/ipam/switch-mac-cache/scan").json()
-    worker.claim(interactive=False, include_kinds=(mac_cache.KIND,))
-    await asyncio.wait_for(worker.execute(job["id"], SimpleNamespace(switch_macs=read)), 60)
-    assert peak == runtime_limits.DEVICE_READ_CONCURRENCY and reads == expected
-    with sf() as db:
-        saved = db.get(m.Job, job["id"])
-        assert saved.progress == expected
-        assert sum(saved.result["totals"][k] for k in ("read", "failed")) == expected
-        assert sum(s.attempted_at is not None for s in db.scalars(select(m.IPAMNetworkState))) >= expected
+    result = await refresh(job_id, SimpleNamespace(ipam=collect))
+    assert peak == runtime_limits.DEVICE_READ_CONCURRENCY
+    assert result["read"] == result["devices"] >= 30
 
 
 def test_modules_keep_no_private_read_limit():
