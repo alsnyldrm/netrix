@@ -32,7 +32,7 @@ from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
 from .ipam.connection_tests import KIND as INTEGRATION_TEST
 from .ipam.connection_tests import execute as test_integration_connection
-from .runtime_limits import device_slot, sql_write
+from .runtime_limits import device_slot, sql_quick, sql_write
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -302,6 +302,12 @@ async def discover(job_id, collector):
         db.commit()
     semaphore = asyncio.Semaphore(DISCOVERY_TARGETS)
 
+    def advance():
+        # A separate statement: this row changes every second under the heartbeat.
+        with session_factory()() as db:
+            db.execute(update(m.Job).where(m.Job.id == job_id).values(progress=m.Job.progress + 1))
+            db.commit()
+
     async def target(address):
         async with semaphore:
             with session_factory()() as db:
@@ -346,14 +352,7 @@ async def discover(job_id, collector):
                 except (NetworkError, TimeoutError, OSError):
                     continue
             else:
-
-                def unreachable():
-                    with session_factory()() as db:
-                        job = get(db, m.Job, job_id)
-                        job.progress += 1
-                        db.commit()
-
-                await sql_write(unreachable)
+                await sql_quick(advance)
                 return False
 
             def persist():
@@ -401,11 +400,11 @@ async def discover(job_id, collector):
                     ):
                         device.snmp_credential_id = profile_id
                     persist_collection(db, device, collected, job, secret["protocol"])
-                    job.progress += 1
                     db.commit()
                     publish()
 
             await sql_write(persist)
+            await sql_quick(advance)
             return True
 
     pending = iter(targets)
@@ -627,14 +626,13 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
             await asyncio.wait({task}, timeout=0.25 if interactive else 1)
 
             def beat():
-                # On the writer thread a long source write can never see the job row
-                # change under its snapshot (MariaDB 1020).
+                # Write before reading: no snapshot is open for MariaDB to reject (1020).
                 with session_factory()() as db:
                     db.execute(update(m.Job).where(m.Job.id == job_id).values(heartbeat_at=now()))
                     db.commit()
                     return get(db, m.Job, job_id).cancel_requested
 
-            cancelled = await sql_write(beat)
+            cancelled = await sql_quick(beat)
             heartbeat(heartbeat_role)
             if cancelled or (stop and not task.done()):
                 task.cancel()

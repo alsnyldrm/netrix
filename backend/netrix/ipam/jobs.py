@@ -11,7 +11,7 @@ from sqlalchemy import and_, or_, select
 from .. import models as m
 from ..core import now, session_factory
 from ..identity.security import decrypt
-from ..runtime_limits import sql_write
+from ..runtime_limits import sql_quick
 from ..services import get, in_scope, publish
 from . import adapters
 from .service import (
@@ -233,7 +233,7 @@ async def scan(job_id, collector=None):
             db.commit()
             return False, addresses
 
-    discover, addresses = await sql_write(begin)
+    discover, addresses = await sql_quick(begin)
     if discover:
         from ..discovery.protocols import SNMPCollector
         from .vlan_pipeline import scan as vlan_scan
@@ -280,7 +280,7 @@ async def scan(job_id, collector=None):
                         failed += failed_count
                         return prefix.id
 
-                publish(ping_vlan=await sql_write(store, values))
+                publish(ping_vlan=await sql_quick(store, values))
     return {
         "checked": len(addresses),
         "reachable": reached,

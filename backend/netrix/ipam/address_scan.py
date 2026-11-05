@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..runtime_limits import sql_read, sql_write
+from ..runtime_limits import sql_quick, sql_read, sql_write
 from ..services import in_scope, lock_vrf, publish
 from .service import hostname_vm_records, normalized_hostname, normalized_mac, observe, scan_boundary
 
@@ -211,10 +211,10 @@ async def execute(job_id, collector):
             job.total, job.progress = 1, 0
             db.commit()
 
-    await sql_write(begin)
+    await sql_quick(begin)
 
     async def progress(name):
-        await sql_write(phase, job_id, name)
+        await sql_quick(phase, job_id, name)
 
     result = await sources.resolve(progress)
 
@@ -228,7 +228,7 @@ async def execute(job_id, collector):
 
     await sql_write(save)
     publish(ipam_vlan=vlan_id)
-    await sql_write(
+    await sql_quick(
         phase, job_id, "complete", resolution_status=result["status"], source_errors=result["issues"]
     )
     return {

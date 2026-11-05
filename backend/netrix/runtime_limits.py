@@ -18,6 +18,9 @@ _slots = weakref.WeakKeyDictionary()
 # Source writes stay serialized as they were on the event loop: no new deadlock
 # or Galera certification conflicts between jobs of this process.
 _writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="netrix-sql-writer")
+# Heartbeats, ping results and job progress must not wait behind large source writes:
+# a job silent for 90 seconds is treated as abandoned and queued again.
+_quick = ThreadPoolExecutor(max_workers=1, thread_name_prefix="netrix-sql-quick")
 
 
 def device_slot():
@@ -44,18 +47,28 @@ async def _with_retry(submit):
             await asyncio.sleep(0.05 * 2**attempt)
 
 
-async def sql_write(fn, /, *args, **kwargs):
-    """Run a self-contained session function on the single writer thread.
-
-    `fn` may run again after a snapshot conflict: publish state only after commit.
-    """
+async def _on(executor, fn, args, kwargs):
     loop = asyncio.get_running_loop()
 
     def submit():
         call = functools.partial(contextvars.copy_context().run, fn, *args, **kwargs)
-        return loop.run_in_executor(_writer, call)
+        return loop.run_in_executor(executor, call)
 
     return await _with_retry(submit)
+
+
+async def sql_write(fn, /, *args, **kwargs):
+    """Run a source write on the serialized writer; `fn` may repeat after a conflict.
+
+    Publish state only after commit, and never update a job row at the end of a
+    long transaction: heartbeats change that row meanwhile.
+    """
+    return await _on(_writer, fn, args, kwargs)
+
+
+async def sql_quick(fn, /, *args, **kwargs):
+    """Run a short job or ping transaction that stays ahead of source writes."""
+    return await _on(_quick, fn, args, kwargs)
 
 
 async def sql_read(fn, /, *args, **kwargs):

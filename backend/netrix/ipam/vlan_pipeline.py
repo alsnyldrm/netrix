@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..runtime_limits import sql_read, sql_write
+from ..runtime_limits import sql_quick, sql_read, sql_write
 from ..services import in_scope, publish
 from . import pipeline
 from .bulk_sources import BulkContext
@@ -53,8 +53,8 @@ async def scan(job_id, collector):
             job.progress = 0
             db.commit()
 
-    await sql_write(begin)
-    await sql_write(scan_phase, job_id, "gateway")
+    await sql_quick(begin)
+    await sql_quick(scan_phase, job_id, "gateway")
     # Finish each source stage before advancing its dependent branch.
     await context.network("gateway")
     owned = set()
@@ -70,7 +70,7 @@ async def scan(job_id, collector):
             for address, bindings in projected["bindings"].items()
             if any(index in indexes for _, index in bindings)
         )
-    await sql_write(scan_phase, job_id, "addresses")
+    await sql_quick(scan_phase, job_id, "addresses")
     checked, reached, problems, resolved, ping_failed = 0, 0, 0, 0, 0
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
         context.check()
@@ -184,7 +184,7 @@ async def scan(job_id, collector):
                         job.result = {**job.result, "resolved": resolved, "problems": problems}
                         db.commit()
 
-                await sql_write(record)
+                await sql_quick(record)
                 publish(ipam_vlan=vlan.id)
 
     def finish():
@@ -217,7 +217,7 @@ async def scan(job_id, collector):
             return matching
 
     matching = await sql_write(finish)
-    await sql_write(scan_phase, job_id, "complete", resolved=resolved, problems=problems, matching=matching)
+    await sql_quick(scan_phase, job_id, "complete", resolved=resolved, problems=problems, matching=matching)
     return {
         "checked": checked,
         "reachable": reached,

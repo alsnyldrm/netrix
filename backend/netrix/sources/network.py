@@ -2,7 +2,8 @@
 
 import ipaddress
 
-from sqlalchemy import select
+from sqlalchemy import inspect, select, update
+from sqlalchemy.orm.attributes import set_committed_value
 
 from .. import models as m
 from .records import find, gateway, source_write
@@ -207,9 +208,6 @@ def write(db, state, data, at):
         )
     ]
     if reassigned:
-        from sqlalchemy import inspect, update
-        from sqlalchemy.orm.attributes import set_committed_value
-
         existing = [p for p in reassigned if inspect(p).persistent]
         if existing:
             db.execute(
@@ -275,6 +273,8 @@ def write(db, state, data, at):
     if fresh_fdb and "vlan_fdb_port" in tables and complete("bridge_ifindex"):
         # Partial tables may contribute proven positive rows, never prove absence.
         prior = {(e.fdb_id, e.mac_address, e.port): e for e in state.mac_entries}
+        prior_ids = {e.id for e in prior.values() if inspect(e).persistent}
+        seen = []
         found = {}
         unresolved = False
         for key, bridge in tables["vlan_fdb_port"].items():
@@ -309,8 +309,13 @@ def write(db, state, data, at):
                 e.vlan_vid = next(iter(by_fid[fid])) if len(by_fid.get(fid, ())) == 1 else 0
                 e.bridge_port, e.if_index = bridge, index
                 e.status = str(tables.get("vlan_fdb_status", {}).get(key, ""))[:10]
-                e.observed_at = at
-                e.present = True
+                # Unchanged rows are stamped together below: one UPDATE per MAC is
+                # thousands of cluster round trips for every switch read.
+                if e.id in prior_ids and e.present:
+                    seen.append(e)
+                else:
+                    e.observed_at = at
+                    e.present = True
                 found[identity] = e
             except (ValueError, TypeError):
                 unresolved = True
@@ -340,6 +345,16 @@ def write(db, state, data, at):
                     found[identity] = entry
         state.mac_entries = list(found.values())
         state.entry_count = sum(e.present for e in found.values())
+        for start in range(0, len(seen), 1000):
+            chunk = seen[start : start + 1000]
+            db.execute(
+                update(m.SwitchMacEntry)
+                .where(m.SwitchMacEntry.id.in_([e.id for e in chunk]))
+                .values(observed_at=at)
+                .execution_options(synchronize_session=False)
+            )
+            for e in chunk:
+                set_committed_value(e, "observed_at", at)
     if (
         complete("ip_addr_ifindex", "ip_addr_mask")
         or complete("ip_address_ifindex", "ip_address_prefix")
@@ -463,8 +478,6 @@ def write(db, state, data, at):
 
 def mac_rows(db, state):
     """Column rows for read-only projections; pending ORM changes keep the relationship."""
-    from sqlalchemy import inspect
-
     if db is None or "mac_entries" in state.__dict__ or not inspect(state).persistent:
         return [
             (e.vrf_id, e.vlan_vid, e.fdb_id, e.present, e.mac_address, e.bridge_port, e.if_index, e.status)

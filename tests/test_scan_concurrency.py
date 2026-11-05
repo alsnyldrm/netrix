@@ -111,6 +111,15 @@ async def test_other_database_errors_are_not_retried():
     assert attempts == 1
 
 
+async def test_quick_work_does_not_wait_behind_a_long_source_write():
+    release = threading.Event()
+    long_write = asyncio.create_task(runtime_limits.sql_write(release.wait, 5))
+    await asyncio.sleep(0.05)
+    assert await asyncio.wait_for(runtime_limits.sql_quick(lambda: "beat"), 1) == "beat"
+    release.set()
+    await long_write
+
+
 async def test_device_slot_is_shared_between_jobs():
     assert runtime_limits.DEVICE_READ_CONCURRENCY == 10
     active = peak = 0
@@ -173,7 +182,7 @@ async def test_group_read_uses_ten_slots_and_saves_every_device(network):
     assert result["read"] == result["devices"] >= 30
 
 
-async def test_slow_read_holds_no_job_write_and_heartbeat_shares_the_writer(network, monkeypatch):
+async def test_slow_read_holds_no_job_write_and_heartbeat_stays_ahead_of_source_writes(network, monkeypatch):
     """A job row written after a long snapshot is what MariaDB rejects with 1020."""
     from netrix import worker
     from netrix.ipam import bulk_sources, vlan_pipeline
@@ -205,13 +214,13 @@ async def test_slow_read_holds_no_job_write_and_heartbeat_shares_the_writer(netw
         assert db.get(m.Job, job_id).total > 0
 
     writers = []
-    original = runtime_limits.sql_write
+    original = runtime_limits.sql_quick
 
     async def spy(fn, /, *args, **kwargs):
         writers.append(fn.__name__)
         return await original(fn, *args, **kwargs)
 
-    monkeypatch.setattr(worker, "sql_write", spy)
+    monkeypatch.setattr(worker, "sql_quick", spy)
     gate = asyncio.Event()
 
     async def blocked(*_):
