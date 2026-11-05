@@ -851,6 +851,7 @@ export function IPAMWorkspace({
     (
       {
         schedule: "Zamanlanmış tarama",
+        group_manual: "Manuel grup taraması",
         manual: job?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
         vlan_create: "Yeni VLAN’ın ilk taraması",
         ping_timer: "Periyodik ping",

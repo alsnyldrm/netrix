@@ -303,6 +303,15 @@
   .scan-vlan-tools > button {
     flex: 1;
   }
+  /* UI UX Pro Max: one shared column keeps both edges of the action stack aligned. */
+  .scan-group-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .scan-group-actions > button {
+    justify-content: center;
+    width: 100%;
+  }
 }
 
 /* UI UX Pro Max: compact task summary, shared axes and responsive status controls. */

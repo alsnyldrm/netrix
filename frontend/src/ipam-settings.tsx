@@ -7,6 +7,7 @@ import {
   Clock,
   MagnifyingGlass,
   PencilSimple,
+  Play,
   Plus,
   Trash,
 } from "@phosphor-icons/react";
@@ -381,15 +382,17 @@ function RunHistory({
         )}
         {query.data?.items.length === 0 && (
           <p className="scan-empty">
-            Bu grup için henüz zamanlanmış tarama başlamadı.
+            Bu grup için henüz tarama başlamadı.
           </p>
         )}
         {query.data?.items.map((run: Row) => (
           <section key={run.id}>
             <h3>{date(run.created_at)}</h3>
             <p className="scan-note">
-              Planlanan: {date(run.scheduled_for)} · Zamanlama sürümü{" "}
-              {run.generation}
+              {run.jobs[0]?.origin === "group_manual"
+                ? "Manuel başlatıldı"
+                : `Planlanan: ${date(run.scheduled_for)}`}{" "}
+              · Zamanlama sürümü {run.generation}
             </p>
             {run.jobs.map((j: Row) => (
               <div key={j.vlan_id} className="scan-job">
@@ -515,8 +518,28 @@ export default function IPAMSettings({
   const [removing, setRemoving] = useState<Row | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [starting, setStarting] = useState("");
+  const [notice, setNotice] = useState("");
   const canWrite = canOperate(user);
   const data = query.data;
+  const startScan = async (group: Row) => {
+    setStarting(group.id);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api(`/ipam/scan-groups/${group.id}/scan`, "POST");
+      setNotice(
+        result.started
+          ? `${group.name}: ${result.started} VLAN için tam tarama başlatıldı.`
+          : `${group.name}: tarama zaten sürüyor.`,
+      );
+      setRevision((r) => r + 1);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setStarting("");
+    }
+  };
   const items = (data?.items || []).filter((g: Row) =>
     g.name.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")),
   );
@@ -542,6 +565,11 @@ export default function IPAMSettings({
         )}
       </div>
       <ErrorNote error={error || query.error || ""} />
+      {notice && (
+        <p className="scan-note" role="status">
+          {notice}
+        </p>
+      )}
       <SwitchMacStatus user={user} />
       <section className="panel scan-groups" aria-label="Tarama grupları">
         <div className="scan-group-tools">
@@ -630,6 +658,21 @@ export default function IPAMSettings({
                 </ul>
               </details>
               <div className="scan-group-actions">
+                {canWrite && (
+                  <button
+                    className="primary"
+                    disabled={starting === g.id || g.active_scans > 0}
+                    aria-busy={starting === g.id}
+                    onClick={() => startScan(g)}
+                  >
+                    <Play size={17} aria-hidden="true" />
+                    {starting === g.id
+                      ? "Başlatılıyor…"
+                      : g.active_scans > 0
+                        ? "Tarama sürüyor"
+                        : "Tarama başlat"}
+                  </button>
+                )}
                 <button className="secondary" onClick={() => setHistory(g)}>
                   <Clock size={17} aria-hidden="true" />
                   Tarama geçmişi

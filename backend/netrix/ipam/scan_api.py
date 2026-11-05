@@ -28,6 +28,11 @@ def remove(id: str, user=Depends(admin), db=Depends(db_session)):
     service.remove(db, id, user)
 
 
+@router.post("/{id}/scan", status_code=202)
+def start(id: str, user=Depends(operator), db=Depends(db_session)):
+    return service.start(db, id, user)
+
+
 @router.get("/{id}/runs")
 def history(id: str, user=Depends(current_user), db=Depends(db_session)):
     return service.history(db, id)

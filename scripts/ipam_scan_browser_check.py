@@ -71,6 +71,29 @@ with sync_playwright() as p:
     expect(page.locator(".scan-settings > .scan-note")).to_have_count(0)
     assert toggle.bounding_box()["height"] <= 60
     check("collapsed")
+    # The blue action shares one height and baseline with the neighbouring buttons.
+    toggle.click()
+    start = page.get_by_role("button", name="Tarama başlat", exact=True)
+    history_button = page.get_by_role("button", name="Tarama geçmişi", exact=True)
+    edit_button = page.get_by_role("button", name="Düzenle", exact=True)
+    for width in (1440, 375):
+        page.set_viewport_size({"width": width, "height": 1000})
+        page.wait_for_timeout(500)
+        boxes = [b.bounding_box() for b in (start, history_button, edit_button)]
+        assert len({round(b["height"]) for b in boxes}) == 1, boxes
+        if width == 375:
+            # Stacked actions share both edges on mobile.
+            assert len({(round(b["x"]), round(b["width"])) for b in boxes}) == 1, boxes
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        assert page.evaluate(
+            """() => {
+              const b = [...document.querySelectorAll('.scan-group-actions button.primary')][0];
+              return getComputedStyle(b).backgroundColor !== 'rgba(0, 0, 0, 0)';
+            }"""
+        )
+        page.screenshot(path=f"/tmp/netrix-scan-start-{width}.png")
+    page.set_viewport_size({"width": 1440, "height": 1000})
+    toggle.click()
     toggle.focus()
     toggle.press("Enter")
     expect(page.get_by_role("button", name="Düzenle", exact=True)).to_be_visible()

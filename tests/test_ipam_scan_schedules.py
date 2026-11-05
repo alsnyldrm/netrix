@@ -180,3 +180,43 @@ def test_roles_can_read_but_only_operators_can_write(setup):
         db.commit()
     assert c.put(url + f"/{group['id']}", json=payload).status_code == 200
     assert c.delete(url + f"/{group['id']}").status_code == 403
+
+
+def test_operator_start_collects_from_devices_without_moving_the_calendar(setup):
+    from netrix.ipam.triggers import GROUP_MANUAL, allowed_origin
+
+    c, sf, _ = setup
+    group = create(setup)
+    url = f"/api/v1/ipam/scan-groups/{group['id']}"
+    response = c.post(url + "/scan")
+    assert response.status_code == 202, response.text
+    first = response.json()
+    assert first["started"] == 2 and not first["errors"]
+    with sf() as db:
+        row = db.get(m.IPAMScanGroup, group["id"])
+        assert row.run_count == 0 and row.next_run_at.isoformat() == group["next_run_at"]
+        jobs = list(db.scalars(select(m.Job).where(m.Job.kind == "ipam_discover")))
+        # "manual" is the SQL-only VLAN action; this origin must reach the devices.
+        assert len(jobs) == 2 and {j.result["ipam_origin"] for j in jobs} == {GROUP_MANUAL}
+        assert all(j.requested_by for j in jobs)
+    assert not allowed_origin("ipam_discover", GROUP_MANUAL)
+    assert not allowed_origin("ipam_ping", GROUP_MANUAL, "user")
+    listed = c.get("/api/v1/ipam/scan-groups").json()["items"][0]
+    assert listed["active_scans"] == 2
+    again = c.post(url + "/scan").json()
+    assert again["started"] == 0
+    assert {j["job_id"] for j in again["jobs"]} == {j["job_id"] for j in first["jobs"]}
+    runs = c.get(url + "/runs").json()["items"]
+    assert len(runs) == 1 and runs[0]["jobs"][0]["origin"] == GROUP_MANUAL
+
+
+def test_viewer_cannot_start_a_group_scan(setup):
+    c, sf, _ = setup
+    group = create(setup)
+    with sf() as db:
+        db.scalar(select(m.User)).role = "viewer"
+        db.commit()
+    assert c.post(f"/api/v1/ipam/scan-groups/{group['id']}/scan").status_code == 403
+    with sf() as db:
+        assert not list(db.scalars(select(m.Job).where(m.Job.kind == "ipam_discover")))
+    assert c.post("/api/v1/ipam/scan-groups/missing/scan").status_code in (403, 404)

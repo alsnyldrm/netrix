@@ -1,5 +1,17 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Tarama grubunu manuel başlatma — 5 Kasım 2026
+
+Proje sahibinin talebiyle **Ayarlar → Tarama** grup kartındaki mavi **Tarama başlat**
+düğmesi, operatör/yöneticinin grubu takvim beklemeden çalıştırmasını sağlar
+(`POST /api/v1/ipam/scan-groups/{id}/scan`, HTTP 202). Bu eylem VLAN içindeki SQL-only
+**Tara** değildir: zamanlanmış turla aynı cihaz, entegrasyon, DNS ve ICMP okumalarını
+yapar ve sonucu SQL'e yazar. Köken `group_manual`, işi başlatan kullanıcı `requested_by`
+olarak kaydedilir. Takvim, `next_run_at` ve çalışma sayısı değişmez; tur Tarama
+geçmişinde **Manuel başlatıldı** olarak görünür. Aktif VLAN işi yeniden kullanılır,
+tekrar tıklama ikinci geçmiş kaydı açmaz. İzleyici başlatamaz. Şema değişikliği yoktur.
+Regresyonlar: `test_ipam_scan_schedules.py`, `scripts/ipam_scan_browser_check.py`.
+
 ## Eşzamanlı 10 cihaz okuması ve SQL yazımı — 5 Kasım 2026
 
 Proje sahibinin talebiyle worker genelinde **aynı anda en çok 10 cihaz** okunur

@@ -47,9 +47,19 @@ def catalog(db):
     groups = list(db.scalars(select(m.IPAMScanGroup).order_by(m.IPAMScanGroup.name)))
     members = list(db.execute(select(m.IPAMScanMember.group_id, m.IPAMScanMember.vlan_id)))
     owner = {vlan: group for group, vlan in members}
+    active = set(
+        db.scalars(
+            select(m.Job.target_id).where(m.Job.kind == "ipam_discover", m.Job.active_key.is_not(None))
+        )
+    )
     return {
         "items": [
-            {**serialize(g), "vlan_ids": [vlan for group, vlan in members if group == g.id]} for g in groups
+            {
+                **serialize(g),
+                "vlan_ids": [vlan for group, vlan in members if group == g.id],
+                "active_scans": sum(group == g.id and vlan in active for group, vlan in members),
+            }
+            for g in groups
         ],
         "vlans": [
             {"id": id, "vid": vid, "name": name, "cidr": cidr, "vrf": vrf, "group_id": owner.get(id)}
@@ -150,6 +160,56 @@ def history(db, id):
             for r in rows
         ]
     }
+
+
+def start(db, id, user):
+    """Queue the group's device scans now; the calendar and run count stay untouched."""
+    from .triggers import GROUP_MANUAL
+
+    group = db.scalar(select(m.IPAMScanGroup).where(m.IPAMScanGroup.id == id).with_for_update())
+    if not group:
+        raise HTTPException(404, "Tarama grubu bulunamadı")
+    ids = list(
+        db.scalars(
+            select(m.IPAMScanMember.vlan_id)
+            .where(m.IPAMScanMember.group_id == id)
+            .order_by(m.IPAMScanMember.vlan_id)
+        )
+    )
+    if not ids:
+        raise HTTPException(422, "Grupta taranacak VLAN yok")
+    active = set(db.scalars(select(m.Job.id).where(m.Job.active_key.is_not(None))))
+    jobs, errors = [], []
+    for vlan_id in ids:
+        try:
+            with db.begin_nested():
+                job = enqueue(db, "ipam_discover", vlan_id, user, commit=False, ipam_origin=GROUP_MANUAL)
+                vlan = db.get(m.VLAN, vlan_id)
+                jobs.append(
+                    {
+                        "vlan_id": vlan_id,
+                        "job_id": job.id,
+                        "vlan_label": f"VLAN-{vlan.vid} / {vlan.name}",
+                        "origin": GROUP_MANUAL,
+                    }
+                )
+        except HTTPException as exc:
+            errors.append({"vlan_id": vlan_id, "message": str(exc.detail)})
+    if not jobs:
+        db.rollback()
+        raise HTTPException(409, errors[0]["message"] if errors else "Tarama başlatılamadı")
+    started = [j for j in jobs if j["job_id"] not in active]
+    # Repeated clicks reuse running work and add no second history entry.
+    if started or errors:
+        db.add(
+            m.IPAMScanRun(
+                group_id=id, generation=group.generation, scheduled_for=now(), jobs=jobs, errors=errors
+            )
+        )
+        audit(db, user, "enqueue", "ipam_scan_groups", id, "VLAN tam tarama grubu manuel başlatıldı")
+    db.commit()
+    publish()
+    return {"jobs": jobs, "errors": errors, "started": len(started)}
 
 
 def dispatch_due(at=None):
