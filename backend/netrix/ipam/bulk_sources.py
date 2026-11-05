@@ -8,6 +8,7 @@ from collections import defaultdict
 from types import SimpleNamespace
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 from .. import models as m
 from ..core import now, session_factory
@@ -124,7 +125,12 @@ class BulkContext:
                         return
                 self.check()
                 self.base.device_check(id)
-                await sql_write(save, id, d, data, profile, ssh)
+                try:
+                    await sql_write(save, id, d, data, profile, ssh)
+                except OperationalError as exc:
+                    # One device's lost write is a failed source, not a failed VLAN scan.
+                    failures.append(type(exc).__name__)
+                    self.failed_devices.add(id)
 
             tasks = [asyncio.create_task(read(id)) for id in ids]
             try:

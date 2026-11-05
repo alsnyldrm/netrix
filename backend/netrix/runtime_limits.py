@@ -10,8 +10,8 @@ from sqlalchemy.exc import OperationalError
 
 # One switch counts once, whether its read uses SNMP alone or SNMP followed by SSH.
 DEVICE_READ_CONCURRENCY = 10
-# Snapshot conflict, lock wait timeout and deadlock: another transaction won the row.
-RETRIED_DB_ERRORS = (1020, 1205, 1213)
+# Snapshot conflict, lock wait timeout, deadlock and a connection lost to a cluster stall.
+RETRIED_DB_ERRORS = (1020, 1205, 1213, 2006, 2013)
 SQL_RETRIES = 6
 
 _slots = weakref.WeakKeyDictionary()

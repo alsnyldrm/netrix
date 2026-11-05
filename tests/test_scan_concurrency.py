@@ -98,13 +98,26 @@ async def test_sql_steps_retry_snapshot_conflicts(runner):
     assert await runner(write) == "saved" and attempts == 3
 
 
+async def test_lost_connection_during_a_cluster_stall_is_retried():
+    attempts = 0
+
+    def write():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise OperationalError("UPDATE", {}, Exception(2013, "Lost connection"))
+        return "saved"
+
+    assert await runtime_limits.sql_write(write) == "saved" and attempts == 2
+
+
 async def test_other_database_errors_are_not_retried():
     attempts = 0
 
     def write():
         nonlocal attempts
         attempts += 1
-        raise OperationalError("SELECT", {}, Exception(2013, "Lost connection"))
+        raise OperationalError("SELECT", {}, Exception(1146, "No such table"))
 
     with pytest.raises(OperationalError):
         await runtime_limits.sql_write(write)
