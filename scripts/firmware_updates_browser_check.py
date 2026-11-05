@@ -34,6 +34,10 @@ with sync_playwright() as p:
     ]
 
     def check(name):
+        page.evaluate("() => document.fonts.ready")
+        page.wait_for_function("""() => document.getAnimations().every(animation =>
+          animation.playState !== 'running' || animation.effect.getComputedTiming().iterations === Infinity
+        )""")
         assert page.locator("body").evaluate("e=>e.scrollWidth<=innerWidth"), name
         alignment = page.locator(".fw-table").evaluate_all("""tables => tables.flatMap(t => {
           const headers = [...t.querySelectorAll('th')]; const failures = [];
@@ -51,6 +55,15 @@ with sync_playwright() as p:
           return [...card.querySelectorAll('span,b')].filter(child => Math.abs(child.getBoundingClientRect().x - x) > 2).map(child => child.textContent);
         })""")
         assert not summary_alignment, (name, summary_alignment)
+        summary_rows = page.locator(".fw-device-summary").evaluate_all("""summaries => summaries.flatMap(summary => {
+          const rows = new Map();
+          for (const card of summary.children) {
+            const box = card.getBoundingClientRect(); const value = card.querySelector('b').getBoundingClientRect();
+            const key = Math.round(box.y); const row = rows.get(key) || []; row.push(value.y); rows.set(key, row);
+          }
+          return [...rows.values()].filter(row => Math.max(...row) - Math.min(...row) > 1);
+        })""")
+        assert not summary_rows, (name, summary_rows)
 
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
         reports[name] = page.evaluate(
@@ -59,8 +72,42 @@ with sync_playwright() as p:
         assert not reports[name], (name, reports[name])
         page.screenshot(path=f"artifacts/firmware-updates-{name}.png", full_page=True)
 
-    expect(page.get_by_role("button", name="Güncel değil 996", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Güncel değil 995", exact=True)).to_be_visible()
     expect(page.get_by_role("button", name="Güncel 3", exact=True)).to_be_visible()
+    no_image = page.get_by_role("button", name="Uyumlu imaj yok 1", exact=True)
+    expect(no_image).to_be_visible()
+    # Enter the filter from a later page using the keyboard: reset pagination,
+    # show only missing-image devices, and keep them out of update selection.
+    page.get_by_role("button", name="Sonraki", exact=True).click()
+    expect(page.locator(".fw-devices-table tbody tr").first).to_contain_text("Fixture 0050")
+    no_image.focus()
+    no_image.press("Enter")
+    expect(no_image).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_label("Güncellik filtresi", exact=True)).to_have_value("no_image")
+    expect(page.locator(".fw-devices-table tbody tr")).to_have_count(1)
+    expect(page.locator(".fw-devices-table tbody")).to_contain_text("Fixture 0998")
+    expect(page.get_by_label("Fixture 0998 cihazını seç", exact=True)).to_be_disabled()
+    expect(page.get_by_role("button", name="Önceki", exact=True)).to_be_disabled()
+    for width, theme in ((w, t) for w in (1920, 1440, 1360, 1024, 768, 375) for t in ("light", "dark")):
+        page.set_viewport_size({"width": width, "height": 1000})
+        page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+        check(f"no-image-{width}-{theme}")
+    search = page.get_by_label("Firmware kayıtlarında ara", exact=True)
+    search.fill("Fixture 0000")
+    expect(page.get_by_text("Uyumlu imajı olmayan cihaz bulunamadı.", exact=True)).to_be_visible()
+    check("no-image-search-empty")
+    search.fill("")
+    expect(page.locator(".fw-devices-table tbody tr")).to_have_count(1)
+    no_image.click()
+    expect(no_image).to_have_attribute("aria-pressed", "false")
+    expect(page.get_by_label("Güncellik filtresi", exact=True)).to_have_value("all")
+    expect(page.locator(".fw-devices-table tbody tr")).to_have_count(50)
+    page.get_by_label("Güncellik filtresi", exact=True).select_option("no_image")
+    expect(no_image).to_have_attribute("aria-pressed", "true")
+    expect(page.locator(".fw-devices-table tbody tr")).to_have_count(1)
+    page.get_by_label("Güncellik filtresi", exact=True).select_option("all")
+    expect(page.locator(".fw-devices-table tbody tr")).to_have_count(50)
+    page.set_viewport_size({"width": 1440, "height": 1100})
     expect(page.get_by_label("Fixture 0001 cihazını seç", exact=True)).to_be_disabled()
     expect(page.get_by_label("Fixture 0002 cihazını seç", exact=True)).to_be_disabled()
     expect(page.get_by_label("Fixture 0003 cihazını seç", exact=True)).to_be_disabled()
@@ -94,7 +141,7 @@ with sync_playwright() as p:
     expect(page.get_by_role("dialog").locator("tbody")).to_contain_text("Fixture 0005")
     page.keyboard.press("Escape")
     page.set_viewport_size({"width": 1440, "height": 1100})
-    page.get_by_role("button", name="Güncel değil 996", exact=True).click()
+    page.get_by_role("button", name="Güncel değil 995", exact=True).click()
     expect(page.locator(".fw-update-group")).to_have_count(4)
     group = page.get_by_role("region", name="Erişim güncelleme grubu", exact=True)
     group.get_by_text("Cihazları göster", exact=True).click()
@@ -131,11 +178,11 @@ with sync_playwright() as p:
     check("group-preview")
     for width, theme in ((w, t) for w in (1440, 375) for t in ("light", "dark")):
         page.set_viewport_size({"width": width, "height": 1000})
-        page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
         page.goto(BASE + "/#firmware-images")
         expect(page.locator(".fw-images-table tbody")).to_contain_text(
             "Model ve sürüm serisi otomatik doğrulanır"
         )
+        page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
         assert "JL675A" not in page.locator(".fw-images-table tbody").inner_text()
         check(f"legacy-image-family-{width}-{theme}")
         page.get_by_role("button", name="Fixture firmware", exact=True).click()

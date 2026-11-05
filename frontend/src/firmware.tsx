@@ -1513,7 +1513,7 @@ export default function FirmwareWorkspace({
         ? "/firmware/groups"
         : tab === "plans"
           ? `/firmware/plans?limit=30&offset=${offset}`
-          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}${tab === "devices" && deviceView === "current" ? "&update_status=current" : ""}`;
+          : `/firmware/${tab}?q=${encodeURIComponent(search)}&offset=${offset}${tab === "devices" && ["current", "no_image"].includes(deviceView) ? `&update_status=${deviceView}` : ""}`;
   const result = useLiveQuery<Row>(endpoint, refresh, undefined, q ? 200 : 0);
   useEffect(() => {
     setOffset(0);
@@ -1594,6 +1594,16 @@ export default function FirmwareWorkspace({
                 {overview.data?.devices?.outdated ?? "—"}
               </b>
             </button>
+            <button
+              className="fw-summary-action"
+              aria-pressed={deviceView === "no_image"}
+              onClick={() =>
+                selectView(deviceView === "no_image" ? "all" : "no_image")
+              }
+            >
+              <span>Uyumlu imaj yok</span>
+              <b>{overview.data?.devices?.no_image ?? "—"}</b>
+            </button>
           </>
         )}
         <div>
@@ -1657,6 +1667,7 @@ export default function FirmwareWorkspace({
                 <option value="all">Tüm cihazlar</option>
                 <option value="current">Güncel</option>
                 <option value="outdated">Güncel değil · Gruplar</option>
+                <option value="no_image">Uyumlu imaj yok</option>
               </select>
             )}
             {admin && tab === "images" && (
@@ -1738,7 +1749,9 @@ export default function FirmwareWorkspace({
                     : tab === "images"
                       ? "Henüz firmware dosyası yüklenmedi."
                       : tab === "devices"
-                        ? "Desteklenen cihaz kaydı bulunamadı."
+                        ? deviceView === "no_image"
+                          ? "Uyumlu imajı olmayan cihaz bulunamadı."
+                          : "Desteklenen cihaz kaydı bulunamadı."
                         : "Henüz firmware planı bulunmuyor."
                 }
               />

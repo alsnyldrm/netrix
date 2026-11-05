@@ -951,7 +951,7 @@
 }
 
 .fw-device-summary {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   overflow: hidden;
 }
 .fw-summary > .fw-summary-action {
@@ -1088,14 +1088,18 @@
   width: 220px;
   max-width: 100%;
 }
-@media (max-width: 1200px) and (min-width: 761px) {
+@media (max-width: 1439px) and (min-width: 761px) {
   .fw-device-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+  .fw-device-summary > * {
+    grid-column: span 3;
   }
   .fw-device-summary > :nth-child(3) {
     border-right: 0;
   }
   .fw-device-summary > :nth-child(-n + 3) {
+    grid-column: span 4;
     border-bottom: 1px solid var(--border);
   }
 }
@@ -1112,7 +1116,9 @@
   .fw-device-summary > :nth-child(even) {
     border-right: 0;
   }
-  .fw-device-summary > :nth-last-child(-n + 2) {
+  .fw-device-summary > :last-child {
+    grid-column: 1 / -1;
+    border-right: 0;
     border-bottom: 0;
   }
   .fw-device-selection {

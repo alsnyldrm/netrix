@@ -12,6 +12,8 @@ with session_factory()() as db:
     # that still contain SKU notes. No device query or worker is involved.
     for device in db.scalars(select(m.Device)):
         device.model = "6100" if device.adapter == "aruba_6100" else "2930F"
+    missing = db.scalar(select(m.Device).where(m.Device.name == "Fixture 0998"))
+    missing.adapter, missing.model, missing.software_version = "hp_1950", "1950-JG962A", "R3507P09"
     db.add(
         m.FirmwareImage(
             name="Aruba comparison image",
