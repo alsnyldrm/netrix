@@ -13,6 +13,7 @@ from .. import models as m
 from ..core import now, session_factory
 from ..discovery.protocols import NetworkError
 from ..identity.security import audit, secret_data
+from ..runtime_limits import device_slot, sql_write
 from ..services import get, publish
 from .connections import Evidence, Snapshot, projections
 
@@ -197,10 +198,71 @@ async def scan(job_id, collector):
             raise Cancelled()
         job.total, job.progress = len(ids), 0
         db.commit()
-    semaphore = asyncio.Semaphore(4)
+    pending_refresh = set()
+    refresh_guard = asyncio.Lock()
+
+    async def refresh_pending():
+        # At most one evidence build runs; switches finished meanwhile share the next one.
+        if refresh_guard.locked():
+            return
+        from .result_fallback import refresh_devices
+
+        async with refresh_guard:
+            while pending_refresh:
+                batch = tuple(pending_refresh)
+                pending_refresh.clear()
+                await sql_write(refresh_devices, batch)
+            publish(ipam_vlan="*")
+
+    def persist(id, name, expected, evidence, error):
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            current = db.get(m.Device, id)
+            profile = (
+                db.get(m.Credential, current.snmp_credential_id)
+                if current and current.snmp_credential_id
+                else None
+            )
+            if job.cancel_requested:
+                raise Cancelled()
+            if (
+                not profile
+                or context(current, profile) != expected
+                or current.archived
+                or current.lifecycle_status != "active"
+                or not is_switch(current)
+            ):
+                result = {
+                    "read": 0,
+                    "failed": 1,
+                    "added": 0,
+                    "removed": 0,
+                    "error_class": "SourceChanged",
+                }
+            else:
+                result = save_snapshot(db, current, profile, job_id, evidence, error=error)
+            job.progress += 1
+            totals = job.result.get("totals", {"read": 0, "failed": 0, "added": 0, "removed": 0})
+            totals = {key: totals[key] + result[key] for key in totals}
+            failures = job.result.get("failed_devices", [])
+            if result["failed"]:
+                failures = [
+                    *failures,
+                    {
+                        "device_id": id,
+                        "device_name": name,
+                        "error_class": result.get("error_class", "SourceFailed"),
+                    },
+                ]
+            job.result = {**job.result, "totals": totals, "failed_devices": failures}
+            from ..sources.cleanup import prune
+
+            prune(db)
+            db.commit()
+        return result
 
     async def read(id):
-        async with semaphore:
+        async with device_slot():
             with session_factory()() as db:
                 if get(db, m.Job, job_id).cancel_requested:
                     raise Cancelled()
@@ -223,57 +285,12 @@ async def scan(job_id, collector):
                             await asyncio.sleep(attempt + 1)
             except (TimeoutError, OSError, NetworkError) as exc:
                 error = type(exc).__name__
-            with session_factory()() as db:
-                job = get(db, m.Job, job_id)
-                current = db.get(m.Device, id)
-                profile = (
-                    db.get(m.Credential, current.snmp_credential_id)
-                    if current and current.snmp_credential_id
-                    else None
-                )
-                if job.cancel_requested:
-                    raise Cancelled()
-                if (
-                    not profile
-                    or context(current, profile) != expected
-                    or current.archived
-                    or current.lifecycle_status != "active"
-                    or not is_switch(current)
-                ):
-                    result = {
-                        "read": 0,
-                        "failed": 1,
-                        "added": 0,
-                        "removed": 0,
-                        "error_class": "SourceChanged",
-                    }
-                else:
-                    result = save_snapshot(db, current, profile, job_id, evidence, error=error)
-                job.progress += 1
-                totals = job.result.get("totals", {"read": 0, "failed": 0, "added": 0, "removed": 0})
-                totals = {key: totals[key] + result[key] for key in totals}
-                failures = job.result.get("failed_devices", [])
-                if result["failed"]:
-                    failures = [
-                        *failures,
-                        {
-                            "device_id": id,
-                            "device_name": device.name,
-                            "error_class": result.get("error_class", "SourceFailed"),
-                        },
-                    ]
-                job.result = {**job.result, "totals": totals, "failed_devices": failures}
-                from ..sources.cleanup import prune
-
-                prune(db)
-                db.commit()
-            from .result_fallback import refresh
-
-            with session_factory()() as db:
-                refresh(db, id)
-                db.commit()
-            publish(ipam_vlan="*")
-            return result
+        # The device slot is free once the answer is in memory; SQL queues on its own.
+        result = await sql_write(persist, id, device.name, expected, evidence, error)
+        publish(ipam_vlan="*")
+        pending_refresh.add(id)
+        await refresh_pending()
+        return result
 
     tasks = [asyncio.create_task(read(id)) for id in ids]
     try:

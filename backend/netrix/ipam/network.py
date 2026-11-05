@@ -10,6 +10,7 @@ from ..core import now, session_factory
 from ..discovery.neighbor_detail import AOS_SWITCH, enrich_neighbors
 from ..discovery.protocols import NetworkError, fetch_neighbor_detail
 from ..identity.security import secret_data
+from ..runtime_limits import device_slot
 from ..services import get, publish
 from .connections import network_device
 
@@ -70,10 +71,9 @@ async def refresh(job_id, collector, *, detail_reader=None, address_id=None):
             )
         )
         ids = [d.id for d in devices if network_device(d)]
-    semaphore = asyncio.Semaphore(4)
 
     async def read(id):
-        async with semaphore:
+        async with device_slot():
             with session_factory()() as db:
                 job = get(db, m.Job, job_id)
                 if address_id:

@@ -11,6 +11,7 @@ from sqlalchemy import and_, or_, select
 from .. import models as m
 from ..core import now, session_factory
 from ..identity.security import decrypt
+from ..runtime_limits import sql_write
 from ..services import get, in_scope, publish
 from . import adapters
 from .service import (
@@ -246,30 +247,35 @@ async def scan(job_id, collector=None):
             completed_batches(probe(address) for address in addresses[start : start + SCAN_BATCH_SIZE])
         ) as batches:
             async for values in batches:
-                with session_factory()() as db:
-                    job = get(db, m.Job, job_id)
-                    if job.cancel_requested:
-                        raise Cancelled()
-                    prefix = get(db, m.VLAN, job.target_id)
-                    scope = scan_boundary(db, prefix)
-                    for address, up in values:
-                        if up is None:
-                            failed += 1
-                            continue
-                        if in_scope(address, scope):
-                            reached += int(up)
-                            observe(
-                                db,
-                                prefix,
-                                address,
-                                "icmp",
-                                prefix.id,
-                                {"reachability": "reachable" if up else "no_reply"},
-                                create=False,
-                            )
-                    job.progress += len(values)
-                    db.commit()
-                publish(ping_vlan=prefix.id)
+
+                def store(values):
+                    nonlocal reached, failed
+                    with session_factory()() as db:
+                        job = get(db, m.Job, job_id)
+                        if job.cancel_requested:
+                            raise Cancelled()
+                        prefix = get(db, m.VLAN, job.target_id)
+                        scope = scan_boundary(db, prefix)
+                        for address, up in values:
+                            if up is None:
+                                failed += 1
+                                continue
+                            if in_scope(address, scope):
+                                reached += int(up)
+                                observe(
+                                    db,
+                                    prefix,
+                                    address,
+                                    "icmp",
+                                    prefix.id,
+                                    {"reachability": "reachable" if up else "no_reply"},
+                                    create=False,
+                                )
+                        job.progress += len(values)
+                        db.commit()
+                        return prefix.id
+
+                publish(ping_vlan=await sql_write(store, values))
     return {
         "checked": len(addresses),
         "reachable": reached,

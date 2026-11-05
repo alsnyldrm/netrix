@@ -266,7 +266,7 @@ class SNMPCollector:
                         )
                     else:
                         table, outcome = await read_table(
-                            snmp, auth, target, context, oid, limit=limit, timeout=min(15, remaining)
+                            snmp, auth, target, context, oid, limit=limit, timeout=15, deadline=deadline
                         )
                     tables[key], table_reads[key] = table, outcome
                     if outcome["status"] != "complete":

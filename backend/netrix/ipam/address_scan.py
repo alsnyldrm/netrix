@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
+from ..runtime_limits import sql_read, sql_write
 from ..services import in_scope, lock_vrf, publish
 from .service import hostname_vm_records, normalized_hostname, normalized_mac, observe, scan_boundary
 
@@ -193,24 +194,32 @@ async def execute(job_id, collector):
     from .sql_sources import SQLContext
 
     started = now()
-    with session_factory()() as db:
-        job = db.get(m.Job, job_id)
-        row, vlan = target(db, job)
-        vlan_id = vlan.id
-        sources = SQLContext(db, vlan, job_id).for_row(row)
-        job.total, job.progress = 1, 0
-        db.commit()
+
+    def prepare():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            row, vlan = target(db, job)
+            sources = SQLContext(db, vlan, job_id).for_row(row)
+            job.total, job.progress = 1, 0
+            db.commit()
+            return vlan.id, sources
+
+    vlan_id, sources = await sql_read(prepare)
 
     async def progress(name):
         phase(job_id, name)
 
     result = await sources.resolve(progress)
-    with session_factory()() as db:
-        job = db.get(m.Job, job_id)
-        row, vlan = target(db, job, lock=True)
-        pipeline.save_result(db, row, started, result)
-        job.progress = 1
-        db.commit()
+
+    def save():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            row, _ = target(db, job, lock=True)
+            pipeline.save_result(db, row, started, result)
+            job.progress = 1
+            db.commit()
+
+    await sql_write(save)
     publish(ipam_vlan=vlan_id)
     phase(job_id, "complete", resolution_status=result["status"], source_errors=result["issues"])
     return {

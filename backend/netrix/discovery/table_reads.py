@@ -42,11 +42,14 @@ async def walk_table(
     raise p.NetworkError("SNMP table request limit")
 
 
-async def read_table(snmp, auth, target, context, oid, *, limit=65536, timeout=15):
+async def read_table(snmp, auth, target, context, oid, *, limit=65536, timeout=15, deadline=None):
+    """`timeout` bounds silence between responses; `deadline` bounds the whole table."""
     rows = {}
     status, code = "complete", ""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 160 if deadline is None else deadline
     try:
-        async with asyncio.timeout(timeout):
+        async with asyncio.timeout_at(min(loop.time() + timeout, deadline)) as budget:
             async for error, error_status, _, bindings in walk_table(
                 snmp,
                 auth,
@@ -61,6 +64,8 @@ async def read_table(snmp, auth, target, context, oid, *, limit=65536, timeout=1
                 maxRows=limit + 1,
                 maxCalls=limit + 1,
             ):
+                # A slow table that keeps answering is not a stalled table.
+                budget.reschedule(min(loop.time() + timeout, deadline))
                 if error or error_status:
                     status = "error"
                     code = "pdu_" + str(int(error_status)) if error_status else type(error).__name__[:60]

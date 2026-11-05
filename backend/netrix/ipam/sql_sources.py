@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 
 from .. import models as m
 from ..core import now, session_factory
+from ..runtime_limits import sql_read, sql_write
 from ..services import in_scope, publish
 from ..sources import records
 from . import pipeline, service, teaming
@@ -191,75 +192,80 @@ async def scan_vlan(job_id):
     from ..worker import Cancelled
 
     started = now()
-    with session_factory()() as db:
-        job = db.get(m.Job, job_id)
-        vlan = db.get(m.VLAN, job.target_id)
-        if not vlan or job.cancel_requested:
-            raise Cancelled()
-        context = SQLContext(db, vlan, job_id)
-        scope = service.scan_boundary(db, vlan)
-        # Import only addresses already present in canonical SQL sources, inside
-        # this VLAN. No probing and no invented reachability state.
-        from ..services import lock_vrf
 
-        lock_vrf(db, vlan.vrf_id)
-        stored = set(
-            db.scalars(
-                select(m.GatewayBinding.address).where(
-                    m.GatewayBinding.vrf_id == vlan.vrf_id,
-                    m.GatewayBinding.present.is_(True),
-                    m.GatewayBinding.device_id.in_(context.evidence.devices),
-                )
-            )
-        )
-        stored.update(
-            db.scalars(
-                select(m.DHCPBinding.address).where(
-                    m.DHCPBinding.source_key.in_(context.integrations),
-                    m.DHCPBinding.present.is_(True),
-                )
-            )
-        )
-        stored.update(
-            db.scalars(
-                select(m.VMwareAddress.address)
-                .join(m.VMwareNIC)
-                .where(
-                    m.VMwareNIC.source_key.in_(context.integrations),
-                    m.VMwareAddress.present.is_(True),
-                )
-            )
-        )
-        existing = set(db.scalars(select(m.IPAddress.address).where(m.IPAddress.vrf_id == vlan.vrf_id)))
-        import ipaddress
+    def prepare():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            vlan = db.get(m.VLAN, job.target_id)
+            if not vlan or job.cancel_requested:
+                raise Cancelled()
+            context = SQLContext(db, vlan, job_id)
+            scope = service.scan_boundary(db, vlan)
+            # Import only addresses already present in canonical SQL sources, inside
+            # this VLAN. No probing and no invented reachability state.
+            from ..services import lock_vrf
 
-        subnet = ipaddress.ip_network(vlan.cidr)
-        for address in sorted(stored - existing):
-            try:
-                ip = ipaddress.ip_address(address)
-            except ValueError:
-                continue
-            if not in_scope(address, scope) or (
-                subnet.version == 4
-                and subnet.prefixlen < 31
-                and ip in (subnet.network_address, subnet.broadcast_address)
-            ):
-                continue
-            db.add(m.IPAddress(address=address, vrf_id=vlan.vrf_id, vlan_id=vlan.id))
-        db.flush()
-        ids = list(
-            db.scalars(
-                select(m.IPAddress.id)
-                .where(
-                    m.IPAddress.vlan_id == vlan.id,
-                    m.IPAddress.vrf_id == vlan.vrf_id,
+            lock_vrf(db, vlan.vrf_id)
+            stored = set(
+                db.scalars(
+                    select(m.GatewayBinding.address).where(
+                        m.GatewayBinding.vrf_id == vlan.vrf_id,
+                        m.GatewayBinding.present.is_(True),
+                        m.GatewayBinding.device_id.in_(context.evidence.devices),
+                    )
                 )
-                .order_by(m.IPAddress.address)
             )
-        )
-        job.total, job.progress = len(ids), 0
-        job.result = {**job.result, "scan_phase": "sql", "network": {"mode": "sql", "devices": 0}}
-        db.commit()
+            stored.update(
+                db.scalars(
+                    select(m.DHCPBinding.address).where(
+                        m.DHCPBinding.source_key.in_(context.integrations),
+                        m.DHCPBinding.present.is_(True),
+                    )
+                )
+            )
+            stored.update(
+                db.scalars(
+                    select(m.VMwareAddress.address)
+                    .join(m.VMwareNIC)
+                    .where(
+                        m.VMwareNIC.source_key.in_(context.integrations),
+                        m.VMwareAddress.present.is_(True),
+                    )
+                )
+            )
+            existing = set(db.scalars(select(m.IPAddress.address).where(m.IPAddress.vrf_id == vlan.vrf_id)))
+            import ipaddress
+
+            subnet = ipaddress.ip_network(vlan.cidr)
+            for address in sorted(stored - existing):
+                try:
+                    ip = ipaddress.ip_address(address)
+                except ValueError:
+                    continue
+                if not in_scope(address, scope) or (
+                    subnet.version == 4
+                    and subnet.prefixlen < 31
+                    and ip in (subnet.network_address, subnet.broadcast_address)
+                ):
+                    continue
+                db.add(m.IPAddress(address=address, vrf_id=vlan.vrf_id, vlan_id=vlan.id))
+            db.flush()
+            ids = list(
+                db.scalars(
+                    select(m.IPAddress.id)
+                    .where(
+                        m.IPAddress.vlan_id == vlan.id,
+                        m.IPAddress.vrf_id == vlan.vrf_id,
+                    )
+                    .order_by(m.IPAddress.address)
+                )
+            )
+            job.total, job.progress = len(ids), 0
+            job.result = {**job.result, "scan_phase": "sql", "network": {"mode": "sql", "devices": 0}}
+            db.commit()
+        return vlan, context, scope, ids
+
+    vlan, context, scope, ids = await sql_read(prepare)
     problems = resolved = 0
     for id in ids:
         context.check()
@@ -273,23 +279,30 @@ async def scan_vlan(job_id):
             ):
                 continue
         result = await context.for_row(row).resolve()
-        with session_factory()() as db:
-            job = db.get(m.Job, job_id)
-            current = db.get(m.IPAddress, id)
-            if job.cancel_requested:
-                raise Cancelled()
-            if not current or (current.address, current.vrf_id, current.vlan_id) != (
-                row.address,
-                row.vrf_id,
-                row.vlan_id,
-            ):
-                continue
-            pipeline.save_result(db, current, started, result)
-            resolved += 1
-            problems += result["status"] == "problem"
-            job.progress = resolved
-            job.result = {**job.result, "resolved": resolved, "problems": problems}
-            db.commit()
+
+        def save(row, result):
+            nonlocal resolved, problems
+            with session_factory()() as db:
+                job = db.get(m.Job, job_id)
+                current = db.get(m.IPAddress, id)
+                if job.cancel_requested:
+                    raise Cancelled()
+                if not current or (current.address, current.vrf_id, current.vlan_id) != (
+                    row.address,
+                    row.vrf_id,
+                    row.vlan_id,
+                ):
+                    return False
+                pipeline.save_result(db, current, started, result)
+                resolved += 1
+                problems += result["status"] == "problem"
+                job.progress = resolved
+                job.result = {**job.result, "resolved": resolved, "problems": problems}
+                db.commit()
+                return True
+
+        if not await sql_write(save, row, result):
+            continue
         publish(ipam_vlan=vlan.id)
     with session_factory()() as db:
         job = db.get(m.Job, job_id)

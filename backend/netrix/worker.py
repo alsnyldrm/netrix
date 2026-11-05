@@ -32,6 +32,7 @@ from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
 from .ipam.connection_tests import KIND as INTEGRATION_TEST
 from .ipam.connection_tests import execute as test_integration_connection
+from .runtime_limits import device_slot, sql_write
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -300,7 +301,6 @@ async def discover(job_id, collector):
         scope.last_run_at = now()
         db.commit()
     semaphore = asyncio.Semaphore(DISCOVERY_TARGETS)
-    collection_slots = asyncio.Semaphore(4)
 
     async def target(address):
         async with semaphore:
@@ -339,7 +339,7 @@ async def discover(job_id, collector):
                     if probe := getattr(collector, "discovery_probe", getattr(collector, "probe", None)):
                         async with asyncio.timeout(3):
                             await probe(address, port, secret)
-                    async with collection_slots:
+                    async with device_slot():
                         async with asyncio.timeout(180):
                             collected = await collector.collect(address, port, secret)
                     break
@@ -351,50 +351,57 @@ async def discover(job_id, collector):
                     job.progress += 1
                     db.commit()
                 return False
-            with session_factory()() as db:
-                job = get(db, m.Job, job_id)
-                current_scope = get(db, m.Scope, job.target_id)
-                profile = db.get(m.Credential, profile_id)
-                if (
-                    job.cancel_requested
-                    or not in_scope(address, current_scope)
-                    or profile_id not in current_scope.credential_ids
-                    or not profile
-                    or profile.updated_at != profile_version
-                ):
-                    raise Cancelled()
-                device = db.scalar(
-                    select(m.Device)
-                    .where(m.Device.vrf_id == current_scope.vrf_id, m.Device.management_ip == address)
-                    .with_for_update()
-                )
-                if not device:
-                    device = m.Device(
-                        name=(collected.get("hostname") or address)[:120],
-                        management_ip=address,
-                        vrf_id=current_scope.vrf_id,
-                        site_id=current_scope.site_id,
-                        snmp_credential_id=profile_id,
-                        kind="other",
+
+            def persist():
+                with session_factory()() as db:
+                    job = get(db, m.Job, job_id)
+                    current_scope = get(db, m.Scope, job.target_id)
+                    profile = db.get(m.Credential, profile_id)
+                    if (
+                        job.cancel_requested
+                        or not in_scope(address, current_scope)
+                        or profile_id not in current_scope.credential_ids
+                        or not profile
+                        or profile.updated_at != profile_version
+                    ):
+                        raise Cancelled()
+                    device = db.scalar(
+                        select(m.Device)
+                        .where(m.Device.vrf_id == current_scope.vrf_id, m.Device.management_ip == address)
+                        .with_for_update()
                     )
-                    db.add(device)
-                    db.flush()
-                    db.add(
-                        m.Event(
-                            device_id=device.id,
-                            kind="device_discovered",
-                            message=f"{device.name}: yeni cihaz keşfedildi",
-                            details={"address": address},
+                    if not device:
+                        device = m.Device(
+                            name=(collected.get("hostname") or address)[:120],
+                            management_ip=address,
+                            vrf_id=current_scope.vrf_id,
+                            site_id=current_scope.site_id,
+                            snmp_credential_id=profile_id,
+                            kind="other",
                         )
-                    )
-                device.discovery_scope_id = current_scope.id
-                # Keep a separately managed profile outside this scope intact.
-                if not device.snmp_credential_id or device.snmp_credential_id in current_scope.credential_ids:
-                    device.snmp_credential_id = profile_id
-                persist_collection(db, device, collected, job, secret["protocol"])
-                job.progress += 1
-                db.commit()
-                publish()
+                        db.add(device)
+                        db.flush()
+                        db.add(
+                            m.Event(
+                                device_id=device.id,
+                                kind="device_discovered",
+                                message=f"{device.name}: yeni cihaz keşfedildi",
+                                details={"address": address},
+                            )
+                        )
+                    device.discovery_scope_id = current_scope.id
+                    # Keep a separately managed profile outside this scope intact.
+                    if (
+                        not device.snmp_credential_id
+                        or device.snmp_credential_id in current_scope.credential_ids
+                    ):
+                        device.snmp_credential_id = profile_id
+                    persist_collection(db, device, collected, job, secret["protocol"])
+                    job.progress += 1
+                    db.commit()
+                    publish()
+
+            await sql_write(persist)
             return True
 
     pending = iter(targets)

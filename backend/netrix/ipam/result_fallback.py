@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import or_, select
 
 from .. import models as m
-from ..core import now
+from ..core import now, session_factory
 from ..services import lock_vrf
 from .connections import Evidence
 from .mac_cache import fallback
@@ -44,7 +44,16 @@ def eligible(row, result, vlan):
     return derived(v) or identity_current(result, vlan)
 
 
-def refresh(db, device_id):
+def refresh_devices(ids):
+    """Revisit several switches on one evidence build; scans coalesce into this."""
+    cache = {}
+    for device_id in ids:
+        with session_factory()() as db:
+            refresh(db, device_id, cache)
+            db.commit()
+
+
+def refresh(db, device_id, cache=None):
     # Only revisit decisions attached to this switch, or whose gateway MAC
     # occurs in its new FDB. Unrelated VLAN results must not be swept on every
     # scheduled switch read.
@@ -90,7 +99,9 @@ def refresh(db, device_id):
         candidates = [r for r in rows if eligible(r, results.get(r.id), vlans.get(r.vlan_id))]
         if not candidates:
             continue
-        evidence = Evidence(db, {r.vrf_id for r in candidates})
+        vrfs = frozenset(r.vrf_id for r in candidates)
+        cache = {} if cache is None else cache
+        evidence = cache.get(vrfs) or cache.setdefault(vrfs, Evidence(db, set(vrfs)))
         for row in candidates:
             scope = [row.address, row.vrf_id, row.vlan_id]
             lock_vrf(db, scope[1])

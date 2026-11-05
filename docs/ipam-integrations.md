@@ -1,5 +1,27 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Eşzamanlı 10 cihaz okuması ve SQL yazımı — 5 Kasım 2026
+
+Proje sahibinin talebiyle worker genelinde **aynı anda en çok 10 cihaz** okunur
+(`runtime_limits.DEVICE_READ_CONCURRENCY`). Sınır tam VLAN taraması, switch MAC
+taraması ve envanter keşfinin ortak yuvasıdır: işler üst üste binse de toplam 10'u
+geçmez. Switch MAC taraması yalnız SNMP kullanır. Tam VLAN taramasında SNMP ve
+AOS-S switchlerde isteğe bağlı SSH komşu ayrıntısı **aynı cihazın tek yuvasını ve tek
+185 saniyelik bütçesini** paylaşır; protokol başına ayrı yuva açılmaz. Yuva, yanıt
+belleğe alınınca boşalır, SQL yazımı ağ okumasını bekletmez.
+
+Ağır SQL işleri event loop dışındadır: kaynak ve sonuç yazımları tek yazıcı iş
+parçacığında sırayla yürür (işler arası yeni kilitlenme/sertifikasyon çakışması
+açılmaz), `Evidence` kurulumu ayrı okuma iş parçacığındadır. Böylece SNMP/ICMP
+zamanlayıcıları SQL sırasında durmaz. MAC taramasında bitmiş switchler tek `Evidence`
+kurulumunu paylaşan toplu bağlantı yenilemesine alınır; yenileme aynı anda bir tane
+çalışır.
+
+SNMP tablosunun 15 saniyelik süresi artık yanıtlar arası sessizlik sınırıdır. Yanıt
+vermeyi sürdüren büyük FDB/ARP tablosu kesilmez; cihaz başına 160 saniyelik toplama
+üst sınırı sürer. Tam tarama cihaz bütçesi 60 yerine 185 saniyedir. Regresyonlar:
+`test_scan_concurrency.py`, `test_switch_mac_jobs.py`, `test_ipam_network_worker.py`.
+
 ## Eksik VLAN–FID için hedefli SNMP doğrulaması — 5 Kasım 2026
 
 VLAN–FID tablosu hedef VLAN'ı vermiyorsa gateway ile doğrulanmış MAC'in aynı
@@ -167,7 +189,7 @@ Kuyruk işleri iç `ipam_origin` alanıyla `schedule`, `scheduled_source`, `ping
 
 ## Bağımsız switch MAC önbelleği — 3 Kasım 2026
 
-Proje sahibinin ek talebiyle `switch_mac_scan` işi, tam VLAN taramasından bağımsız olarak tüm etkin, yetkili envanter kapsamına ve SNMP profiline sahip switchlerin Q-BRIDGE FDB, VLAN/FID, arayüz ve komşuluk kanıtlarını okur. Türkiye saatiyle 00:00, 06:00, 12:00, 18:00'de bir kez kuyruğa alınır. Kesinti sonrası geçmiş slotlar yığılmaz; mevcut slot bir kez değerlendirilir. Ayarlar → Tarama → Switch MAC tablosu içindeki **Şimdi tara** eylemi operatör yetkisiyle aynı tekil kuyruğu kullanır. Etkin iş varsa ikinci iş oluşmaz. Kaynak başına 185 saniye sınır, en çok dört eşzamanlı okuma ve taşıma hatalarında üç kontrollü deneme vardır. İptalde bekleyen görevler temizlenir. Ping, DNS, VMware, DHCP, gateway ARP/NDP ve trafik sayaçları bu işte okunmaz; envanter veya Komşuluklar değiştirilmez. Sayfa GET istekleri yalnız DB okur.
+Proje sahibinin ek talebiyle `switch_mac_scan` işi, tam VLAN taramasından bağımsız olarak tüm etkin, yetkili envanter kapsamına ve SNMP profiline sahip switchlerin Q-BRIDGE FDB, VLAN/FID, arayüz ve komşuluk kanıtlarını okur. Türkiye saatiyle 00:00, 06:00, 12:00, 18:00'de bir kez kuyruğa alınır. Kesinti sonrası geçmiş slotlar yığılmaz; mevcut slot bir kez değerlendirilir. Ayarlar → Tarama → Switch MAC tablosu içindeki **Şimdi tara** eylemi operatör yetkisiyle aynı tekil kuyruğu kullanır. Etkin iş varsa ikinci iş oluşmaz. Kaynak başına 185 saniye sınır, en çok on eşzamanlı cihaz okuması ve taşıma hatalarında üç kontrollü deneme vardır. İptalde bekleyen görevler temizlenir. Ping, DNS, VMware, DHCP, gateway ARP/NDP ve trafik sayaçları bu işte okunmaz; envanter veya Komşuluklar değiştirilmez. Sayfa GET istekleri yalnız DB okur.
 
 `switch_mac_snapshots` her switchin son eksiksiz kanıtını ve kaynak bağlamını; `switch_mac_entries` VRF/VLAN/MAC/port/ifIndex konumlarını tutar. Başarılı okuma yalnız değişen bağları ekler/siler; aynı bağların kimlikleri korunur. Eksiksiz boş FDB eski bağları kaldırır. Eksik, zaman aşımına uğramış veya 65.536 satırlık sınırda kesilmiş tablolar başarılı sayılmaz: önceki satırlar teşhis için korunur, kaynak sağlıksız işaretlenir ve eşleştirmede kullanılmaz. Sonuçlar her switch commit'inden sonra IPAM WebSocket bildirimiyle görünür olur. İş ayrıntısı kaynak hatalarını sınıfıyla saklar; sırlar ve ham hata metni dışarı verilmez.
 
@@ -248,7 +270,7 @@ Regresyonlar: `test_ipam_host_connections.py`, `test_vmware_host_adapter.py`; ge
 
 VMware dışındaki sunucularda da IP'nin ARP MAC'i fiziksel kart MAC'inden farklı olabilir. AOS-S kabiliyetli envanter switchlerinde mevcut SSH profiliyle güncel, salt okunur LLDP/CDP ayrıntısı IPAM worker'ında okunur ve yalnız IPAM gözlemine eklenir. SSH'dan gelen iki protokolün aynı chassis MAC'inde anlaşması, CDP'nin istenen yönetim IP'sini açıkça bildirmesi ve LLDP'nin tipli, geçerli fiziksel port MAC'i vermesi bağımsız cihaz/NIC sahipliği kanıtıdır. Görünen isim tek başına kullanılmaz. Bu güncel bağımsız kanıt geçmiş Komşuluklar satırını geri açmaz; IP'nin MAC alanını değiştirmez. Farklı kartlar `physical_nics` ayrıntısında ayrı MAC'leriyle, bağlı switch/portlarıyla listelenir. Standart, tek protokollü MAC çakışmaları halen belirsizdir.
 
-SSH okuması mevcut 185 saniyelik cihaz bütçesi ve dört eşzamanlı kaynak sınırının içindedir. SSH hatası sır içerebilen ham yanıtı saklamaz; yalnız hata sınıfını işaretler, geçerli SNMP verisini korur ve yeniden başlatmada başarısız ayrıntıyı tekrar okur. SSH/SNMP profil sürümü, port, adaptör ve güven ayarı değişirse sürmekteki sonuç kullanılmaz. Gateway ve ayrıntı okuyabilen kaynaklar erken toplanır; kaynak sırası bağlantı adayı seçme kuralı değildir. Ek regresyonlar: `test_ipam_ssh_peer.py`.
+SSH okuması mevcut 185 saniyelik cihaz bütçesi ve on eşzamanlı cihaz sınırının içindedir. SSH hatası sır içerebilen ham yanıtı saklamaz; yalnız hata sınıfını işaretler, geçerli SNMP verisini korur ve yeniden başlatmada başarısız ayrıntıyı tekrar okur. SSH/SNMP profil sürümü, port, adaptör ve güven ayarı değişirse sürmekteki sonuç kullanılmaz. Gateway ve ayrıntı okuyabilen kaynaklar erken toplanır; kaynak sırası bağlantı adayı seçme kuralı değildir. Ek regresyonlar: `test_ipam_ssh_peer.py`.
 
 Protokol temelleri: [IP-MIB (RFC 4293)](https://www.rfc-editor.org/rfc/rfc4293.html), [Q-BRIDGE-MIB (RFC 4363)](https://www.rfc-editor.org/rfc/rfc4363.html). Davranış testleri: `test_ipam_source_contract.py`, `test_ipam_vmware_mac.py`, `test_ipam_network_worker.py`, `test_connection_inventory_boundary.py`.
 
@@ -258,7 +280,7 @@ IP adres yönetimi → VLAN alanları, CIDR, VRF, DNS, kurum/lokasyon ve zamanla
 
 VLAN ayrıntısındaki **Tara**, zamanlamanın kullandığı `ipam_discover` akışını kullanıcı isteğiyle başlatır. **Ping** yalnız ICMP kontrolü yapar. Etkin iş varsa aynı iş döner; buton işlem boyunca devre dışıdır. VLAN yeniden açıldığında son tarama ve aşaması `GET /api/v1/ipam/vlans/{id}/scan` ile görünür.
 
-Tarama ping/DNS kontrolünden sonra gateway/switch kaynaklarını en çok dört eşzamanlı okumayla toplar. Her cihazda taşıma yeniden denemesi ve 180 saniyelik toplam protokol sınırı vardır. Ardından DHCP eşitlemesini, sonra VMware eşitlemesini bekler; DHCP'nin oluşturduğu VMware işi yeniden kullanılır. Her kaynak aşamasında en çok 15 dakika bekler; başarısız, iptal edilmiş, bulunamayan veya zaman aşımına uğrayan bağımlılık kısmi sonuçtur. Ana görev kaynaklar kuyruğa konunca tamamlandı sayılmaz. Kaynak okumalarından sonra yeni/ICMP yanıtı vermeyen kayıtların DNS kontrolü tamamlanır, cihaz/port kanıtları çözülür ve alan başına eşleşme sayısı kaydedilir.
+Tarama ping/DNS kontrolünden sonra gateway/switch kaynaklarını en çok on eşzamanlı cihaz okumasıyla toplar. Her cihazda taşıma yeniden denemesi ve 180 saniyelik toplam protokol sınırı vardır. Ardından DHCP eşitlemesini, sonra VMware eşitlemesini bekler; DHCP'nin oluşturduğu VMware işi yeniden kullanılır. Her kaynak aşamasında en çok 15 dakika bekler; başarısız, iptal edilmiş, bulunamayan veya zaman aşımına uğrayan bağımlılık kısmi sonuçtur. Ana görev kaynaklar kuyruğa konunca tamamlandı sayılmaz. Kaynak okumalarından sonra yeni/ICMP yanıtı vermeyen kayıtların DNS kontrolü tamamlanır, cihaz/port kanıtları çözülür ve alan başına eşleşme sayısı kaydedilir.
 
 Envanter keşfi ve IPAM taraması birlikte en fazla iki worker yuvası kullanır; kalan yuvalar bağımlı entegrasyonlar ve kısa görevler için açıktır. Böylece kaynak bekleyen taramalar worker'ı kilitlemez. İptal beklemeyi ve sürmekte olan IPAM okumalarını durdurur; başka taramalarla paylaşılabilen entegrasyon işi otomatik iptal edilmez. Aynı iş yeniden başlarsa IPAM ağ gözlemleri yinelenmez; güncel, başarılı ve bağlantı/profil sürümü aynı okumalar korunarak kalan cihazlardan devam edilir. Başarısız/eski okumalar veya değişen erişim bilgileri yeniden okunur. Yeni bir tarama işi önceki işin okumalarını atlamaz. Ping ve yeni IP keşif zamanlamaları ayrı kalır. Ping sonucu yalnızca güncel ICMP gözlemidir; VM güç durumu değildir.
 

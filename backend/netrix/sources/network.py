@@ -461,6 +461,23 @@ def write(db, state, data, at):
                 link.is_current = False
 
 
+def mac_rows(db, state):
+    """Column rows for read-only projections; pending ORM changes keep the relationship."""
+    from sqlalchemy import inspect
+
+    if db is None or "mac_entries" in state.__dict__ or not inspect(state).persistent:
+        return [
+            (e.vrf_id, e.vlan_vid, e.fdb_id, e.present, e.mac_address, e.bridge_port, e.if_index, e.status)
+            for e in state.mac_entries
+        ]
+    e = m.SwitchMacEntry
+    return db.execute(
+        select(
+            e.vrf_id, e.vlan_vid, e.fdb_id, e.present, e.mac_address, e.bridge_port, e.if_index, e.status
+        ).where(e.snapshot_id == state.id)
+    ).all()
+
+
 def read(state):
     from sqlalchemy.orm import object_session
 
@@ -495,17 +512,18 @@ def read(state):
     for p in state.bridge_ports:
         tables["bridge_ifindex"][str(p.bridge_port)] = str(p.if_index)
     device = db.get(m.Device, state.device_id) if db and state.device_id else None
-    for e in state.mac_entries:
-        if device and e.vrf_id != device.vrf_id:
+    mapped = {(v.vlan_vid, v.fdb_id) for v in state.vlan_fdbs}
+    for vrf_id, vlan_vid, fdb_id, present, mac, bridge_port, if_index, status in mac_rows(db, state):
+        if device and vrf_id != device.vrf_id:
             continue
-        if e.vlan_vid and not any(v.vlan_vid == e.vlan_vid and v.fdb_id == e.fdb_id for v in state.vlan_fdbs):
+        if vlan_vid and (vlan_vid, fdb_id) not in mapped:
             continue
-        if e.present is False:
+        if present is False:
             continue
-        key = str(e.fdb_id) + "." + ".".join(str(int(v, 16)) for v in e.mac_address.split(":"))
-        tables["vlan_fdb_port"][key] = str(e.bridge_port or e.if_index)
-        tables["vlan_fdb_status"][key] = e.status
-        tables["bridge_ifindex"].setdefault(str(e.bridge_port or e.if_index), str(e.if_index))
+        key = str(fdb_id) + "." + ".".join(str(int(v, 16)) for v in mac.split(":"))
+        tables["vlan_fdb_port"][key] = str(bridge_port or if_index)
+        tables["vlan_fdb_status"][key] = status
+        tables["bridge_ifindex"].setdefault(str(bridge_port or if_index), str(if_index))
     tables["_prefixes"] = [
         dict(if_index=p.if_index, address=p.address, prefix_length=p.prefix_length) for p in state.prefixes
     ]

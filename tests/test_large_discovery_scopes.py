@@ -206,5 +206,5 @@ async def test_fast_probes_are_parallel_but_full_collection_is_bounded(
     result = await discover(id, Collector())
     assert result == {"reachable": 15, "unresponsive": 15, "total": 30}
     assert 4 < probe_peak <= DISCOVERY_TARGETS
-    assert collection_peak <= 4
+    assert collection_peak <= 10
     assert len(collected) == 15 and all(int(ip.split(".")[-1]) % 2 for ip in collected)

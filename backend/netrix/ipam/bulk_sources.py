@@ -14,11 +14,15 @@ from ..core import now, session_factory
 from ..discovery.neighbor_detail import enrich_neighbors
 from ..discovery.protocols import NetworkError, fetch_neighbor_detail
 from ..identity.security import decrypt, secret_data
+from ..runtime_limits import device_slot, sql_read, sql_write
 from . import adapters
 from .connections import Evidence, gateway_interfaces
 from .network import read_context
 from .point_sources import PointSources, integration_signature
 from .service import normalized_mac
+
+# Matches the SNMP collector ceiling; a full gateway ARP read does not fit in a minute.
+READ_BUDGET_SECONDS = 185
 
 
 class BulkContext:
@@ -35,7 +39,6 @@ class BulkContext:
         self.read_counts = {"gateway": 0, "switch": 0}
         self.gateway_evidence = None
         self.switch_evidence = None
-        self.semaphore = asyncio.Semaphore(4)
 
     def check(self):
         from ..worker import Cancelled
@@ -73,8 +76,20 @@ class BulkContext:
             ]
             failures = []
 
+            def save(id, d, data, profile, ssh):
+                with session_factory()() as db:
+                    item = db.scalar(
+                        select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == id).with_for_update()
+                    )
+                    if item is None:
+                        item = m.IPAMNetworkState(device_id=id, address=d.management_ip)
+                        db.add(item)
+                    item.evidence = {**data, "read_context": read_context(d, profile, ssh)}
+                    item.address, item.observed_at = d.management_ip, now()
+                    db.commit()
+
             async def read(id):
-                async with self.semaphore:
+                async with device_slot():
                     self.check()
                     self.read_counts[kind] += 1
                     self.base.device_check(id)
@@ -82,7 +97,8 @@ class BulkContext:
                     profile = self.base.profiles[id]
                     ssh = self.base.ssh[id]
                     try:
-                        async with asyncio.timeout(60):
+                        # SNMP and optional SSH of one device share this slot and budget.
+                        async with asyncio.timeout(READ_BUDGET_SECONDS):
                             data = await self.base.collector.ipam(
                                 d.management_ip, d.snmp_port, secret_data(profile)
                             )
@@ -106,20 +122,9 @@ class BulkContext:
                         self.failed_devices.add(id)
                         # Preserve the previous protocol snapshot on a transport error.
                         return
-                    self.check()
-                    self.base.device_check(id)
-                    with session_factory()() as db:
-                        item = db.scalar(
-                            select(m.IPAMNetworkState)
-                            .where(m.IPAMNetworkState.device_id == id)
-                            .with_for_update()
-                        )
-                        if item is None:
-                            item = m.IPAMNetworkState(device_id=id, address=d.management_ip)
-                            db.add(item)
-                        item.evidence = {**data, "read_context": read_context(d, profile, ssh)}
-                        item.address, item.observed_at = d.management_ip, now()
-                        db.commit()
+                self.check()
+                self.base.device_check(id)
+                await sql_write(save, id, d, data, profile, ssh)
 
             tasks = [asyncio.create_task(read(id)) for id in ids]
             try:
@@ -130,8 +135,12 @@ class BulkContext:
                         task.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
             self.values[kind] = True
-            with session_factory()() as db:
-                evidence = Evidence(db, {self.base.vlan.vrf_id})
+
+            def load():
+                with session_factory()() as db:
+                    return Evidence(db, {self.base.vlan.vrf_id})
+
+            evidence = await sql_read(load)
             evidence.snapshots = {
                 id: state for id, state in evidence.snapshots.items() if id not in self.failed_devices
             }

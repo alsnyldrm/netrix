@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from netrix import models as m
-from netrix import worker
+from netrix import runtime_limits, worker
 from netrix.ipam import adapters, mac_cache
 from sqlalchemy import delete, func, select
 from test_ipam_source_contract import network as network
@@ -158,7 +158,7 @@ async def test_cache_scan_concurrency_and_cancel_clean_up_pending_reads(admin_cl
     sf, _, _, ids = network
     with sf() as db:
         base = db.get(m.Device, ids[1])
-        for i in range(4, 10):
+        for i in range(4, 20):
             db.add(
                 m.Device(
                     name=f"Switch {i}",
@@ -177,7 +177,7 @@ async def test_cache_scan_concurrency_and_cancel_clean_up_pending_reads(admin_cl
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        if active == 4:
+        if active == runtime_limits.DEVICE_READ_CONCURRENCY:
             started.set()
         try:
             await asyncio.Event().wait()
@@ -192,7 +192,7 @@ async def test_cache_scan_concurrency_and_cancel_clean_up_pending_reads(admin_cl
         db.get(m.Job, job["id"]).cancel_requested = True
         db.commit()
     await asyncio.wait_for(task, 4)
-    assert peak == 4 and active == 0
+    assert peak == runtime_limits.DEVICE_READ_CONCURRENCY and active == 0
     with sf() as db:
         assert db.get(m.Job, job["id"]).status == "cancelled"
 

@@ -51,7 +51,7 @@ async def test_network_read_is_bounded_and_keeps_inventory_topology_unchanged(ne
 
     result = await refresh(job_id, SimpleNamespace(ipam=collect))
     assert result == {"devices": 6, "read": 5, "failed": 1}
-    assert maximum <= 4
+    assert maximum <= 10
     with sf() as db:
         assert devices_before == [
             (d.id, d.name, d.kind, d.discovery_scope_id)
