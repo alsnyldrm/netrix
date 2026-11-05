@@ -87,8 +87,16 @@ class BulkContext:
                                 d.management_ip, d.snmp_port, secret_data(profile)
                             )
                             if kind == "switch" and ssh:
-                                detail = await fetch_neighbor_detail(d, secret_data(ssh))
-                                data = enrich_neighbors(data, detail)
+                                try:
+                                    detail = await fetch_neighbor_detail(d, secret_data(ssh))
+                                    data = enrich_neighbors(data, detail)
+                                except Exception as exc:
+                                    from ..worker import Cancelled
+
+                                    if isinstance(exc, Cancelled):
+                                        raise
+                                    # Optional SSH detail must not discard a successful SNMP snapshot.
+                                    data = {**data, "neighbor_detail_failed": type(exc).__name__}
                     except Exception as exc:
                         from ..worker import Cancelled
 
@@ -271,6 +279,10 @@ class BulkSources:
                     self.context.switch_evidence,
                     scoped={self.point.row.id: guard},
                 )[0]
+        if not result["connections"] and not result["connection_ambiguous"]:
+            self.point.evidence = self.context.switch_evidence
+            # Run only in this explicit scheduled scan, not in SQL-only read projections.
+            result = await self.point.physical(address, mac, unmapped_only=True)
         return result
 
     async def dhcp(self, address, mac):

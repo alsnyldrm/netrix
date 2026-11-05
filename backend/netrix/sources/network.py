@@ -110,7 +110,7 @@ def write(db, state, data, at):
         if profile:
             state.read_context = read_context(device, profile, detail_profile(db, device))
     unsupported = set(data.get("unsupported") or [])
-    required = {"vlan_fdb_id", "vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
+    required = {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
     if "tables" in data and (not state.fdb_at or at >= state.fdb_at):
         state.fdb_at = at
         state.fdb_complete = required <= tables.keys() and not required.intersection(unsupported)
@@ -222,11 +222,13 @@ def write(db, state, data, at):
         ]
         for v in state.vlan_fdbs:
             v.fdb_id = values[v.vlan_vid]
+    if "tables" in data and ("vlan_fdb_id" not in tables or "vlan_fdb_id" in unsupported):
+        state.vlan_fdbs = []
     by_fid = {}
     for v in state.vlan_fdbs:
         by_fid.setdefault(v.fdb_id, set()).add(v.vlan_vid)
     if "vlan_fdb_port" in tables and not unsupported.intersection(
-        {"vlan_fdb_port", "vlan_fdb_status", "vlan_fdb_id", "bridge_ifindex"}
+        {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
     ):
         prior = {(e.fdb_id, e.mac_address, e.port): e for e in state.mac_entries}
         found = {}

@@ -1,5 +1,34 @@
 # VLAN tabanlı IP adres yönetimi
 
+## Eksik VLAN–FID için hedefli SNMP doğrulaması — 5 Kasım 2026
+
+VLAN–FID tablosu hedef VLAN'ı vermiyorsa gateway ile doğrulanmış MAC'in aynı
+VRF/cihaz bağlamındaki, en çok yedi saatlik ve sağlıklı SQL FDB adayları kullanılır.
+VLAN numarası FID kabul edilmez; en çok 16 aday FID'nin yalnız ilgili MAC hücresi
+SNMP GET ile tekrar okunur. Canlı VLAN–FID tablosunda başka/ortak VLAN'a ait olduğu
+bilinen FID kullanılamaz. Birden fazla canlı FID belirsizliktir; keyfi seçim yapılmaz.
+Aday yoksa bütün FDB'yi okumaya genişlenmez.
+
+Tek adayda bridge port → ifIndex → açık arayüz adı zinciri ve hedef VLAN'ın
+Q-BRIDGE statik egress PortList üyeliği SNMP ile doğrulanır. PortList bitleri bridge
+port numarasına göre yorumlanır. LLDP/CDP indeksleri SNMP'den yenilenir; hedef portun
+komşu kimlikleri GET ile okunur. Boş komşu tablosunun kanıt sayılması için canlı LLDP
+istatistik veya etkin CDP scalar desteği gerekir; çözülemeyen yerel port reddedilir.
+SQL'deki tek-MAC nüfusu, eksiksiz komşuluk kaynağı, uplink ve bağımsız aday
+kontrolleri korunur. Bu alternatif SSH çağırmaz; mevcut VLAN–FID yolu önceliklidir.
+
+Manuel tek-IP ve VLAN işi aynı yolu kullanır. Zamanlanmış VLAN işi mevcut
+çözümleyici/önbellek sonuç bulamazsa yalnız eşlemesi eksik aday switchlerde bu hedefli
+SNMP doğrulamasını kullanır. GET/sayfa açılışı pasiftir. Opsiyonel SSH ayrıntı hatası,
+zamanlanmış okumada başarılı SNMP snapshot'ını silmez.
+
+Eksik/desteklenmeyen VLAN–FID, ham MAC/FID/port kayıtlarının SQL'ye alınmasını
+engellemez; doğrulanmamış VLAN `0` kalır. Hedefli doğrulama aynı FID/MAC/port
+satırını günceller, yeni sahte FID veya genel VLAN–FID eşlemesi üretmez. IP sonucu
+bu kanonik satıra referans verir; diğer IP/VLAN kayıtları topluca yenilenmez.
+Regresyonlar `test_ipam_fid_candidates.py`, `test_ipam_point_protocols.py` ve
+`test_ipam_source_contract.py`; gerçek ağ erişimi testlerde yasaktır.
+
 ## Tür başına tek SQL kaynak ve NIC-Teaming — 4 Kasım 2026
 
 Bu bölüm eski JSON gözlem/snapshot saklama ve envanterden ayrı IPAM kaynak

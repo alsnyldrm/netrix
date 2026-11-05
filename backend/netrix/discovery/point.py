@@ -126,20 +126,29 @@ async def switch(host, port, secret, mac, vid, hint):
         # Read current VLAN->FID metadata: cached FID alone may have changed.
         mapping = await query.metadata(p.IPAM_TABLES["vlan_fdb_id"])
         fids = {v for k, v in mapping.items() if k.split(".")[-1] == str(vid)}
-        if len(fids) != 1 or any(
-            v == fid and k.split(".")[-1] != str(vid) for fid in fids for k, v in mapping.items()
-        ):
-            return {"ports": [], "neighbors": []}
-        fid = next(iter(fids))
-        index = fid + "." + suffix
-        portoid = p.IPAM_TABLES["vlan_fdb_port"] + "." + index
-        statusoid = p.IPAM_TABLES["vlan_fdb_status"] + "." + index
-        values = await query.get([portoid, statusoid])
-        if str(values.get(statusoid)) not in ("1", "3", "5"):
-            return {"ports": [], "neighbors": []}
-        bridge = p.number(values.get(portoid))
-        if not bridge or not 1 <= bridge <= 65535:
-            return {"ports": [], "neighbors": []}
+        unmapped = not fids
+        if unmapped:
+            from .fid_candidates import validate
+
+            candidate = await validate(query, hint, mac, vid, mapping)
+            if not candidate:
+                return {"ports": [], "neighbors": []}
+            fid, bridge = candidate
+        else:
+            if len(fids) != 1 or any(
+                v == fid and k.split(".")[-1] != str(vid) for fid in fids for k, v in mapping.items()
+            ):
+                return {"ports": [], "neighbors": []}
+            fid = next(iter(fids))
+            index = str(fid) + "." + suffix
+            portoid = p.IPAM_TABLES["vlan_fdb_port"] + "." + index
+            statusoid = p.IPAM_TABLES["vlan_fdb_status"] + "." + index
+            values = await query.get([portoid, statusoid])
+            if str(values.get(statusoid)) not in ("1", "3", "5"):
+                return {"ports": [], "neighbors": []}
+            bridge = p.number(values.get(portoid))
+            if not bridge or not 1 <= bridge <= 65535:
+                return {"ports": [], "neighbors": []}
         oid = p.IPAM_TABLES["bridge_ifindex"] + "." + str(bridge)
         ifindex = p.number((await query.get([oid])).get(oid))
         if not ifindex:
@@ -150,6 +159,23 @@ async def switch(host, port, secret, mac, vid, hint):
         name = str(values.get(nameoid) or "")
         if not name or str(values.get(upoid)) != "1":
             return {"ports": [], "neighbors": []}
+        if unmapped:
+            from .fid_candidates import neighbors as snmp_neighbors
+
+            neighbors = await snmp_neighbors(query, tables, name)
+            return {
+                "ports": [
+                    {
+                        "port": name,
+                        "if_index": ifindex,
+                        "fdb_id": int(fid),
+                        "bridge_port": bridge,
+                        "vlan_unmapped": True,
+                    }
+                ],
+                "neighbors": neighbors,
+                "unmapped_fid": True,
+            }
         # Cached local-index metadata locates exact LLDP/CDP rows; re-read their identities.
         exact = {}
         for key, base in p.IPAM_TABLES.items():

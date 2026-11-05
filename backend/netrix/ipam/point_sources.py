@@ -279,7 +279,7 @@ class PointSources:
         self.check()
         return await adapters.reverse_dns(address, self.dns_server)
 
-    async def physical(self, address, mac):
+    async def physical(self, address, mac, *, unmapped_only=False):
         # Query only roots and downstream devices indicated by cached topology/FDB.
         cached = self.evidence.resolve(self.row, self.vlan, identity_mac=mac)
         if not cached["connections"] and not cached["connection_ambiguous"]:
@@ -318,9 +318,28 @@ class PointSources:
                 for id, (_, p) in self.evidence.snapshots.items()
                 if id in self.devices and p["fdb"].get((self.vlan.vid, mac))
             ]
+        from ..discovery.fid_candidates import candidates
+
+        unmapped_ids = [
+            id
+            for id, (_, projected) in self.evidence.snapshots.items()
+            if id in self.devices
+            and not (self.devices[id].is_gateway or self.devices[id].kind in ("router", "firewall"))
+            and not any(
+                k.split(".")[-1] == str(self.vlan.vid) for k in projected["tables"].get("vlan_fdb_id", {})
+            )
+            and candidates(projected["evidence"], mac)
+        ]
+        if unmapped_only:
+            roots = unmapped_ids
+        elif not roots:
+            roots = unmapped_ids
         if len(roots) > 4:
             raise NetworkError("Ambiguous switch starting points")
-        queue = list(roots)
+        # The cached endpoint can be known even when an intermediate neighbor
+        # row is absent. Validate every relevant unresolved candidate, not a
+        # random first switch; the existing eight-device bound still applies.
+        queue = list(dict.fromkeys([*roots, *unmapped_ids]))
         visited = set()
         connections = []
         steps = []
@@ -353,7 +372,7 @@ class PointSources:
             )
             neighbors = data.get("neighbors", [])
             # Target-port SSH detail provides fresh IP/chassis, multiple NIC and LAG proof.
-            if self.ssh[id] and data["ports"]:
+            if self.ssh[id] and data["ports"] and not (data.get("unmapped_fid") or unmapped_only):
                 ports = {p["port"] for p in data["ports"]}
                 members = {
                     c["port"]
@@ -432,7 +451,11 @@ class PointSources:
                     peers
                     or not projected
                     or not projected["evidence"].get("neighbor_protocols_complete")
-                    or projected["population"].get(port) != {mac}
+                    or not (
+                        self.unmapped_edge(projected, port, mac)
+                        if data.get("unmapped_fid")
+                        else projected["population"].get(port) == {mac}
+                    )
                 ):
                     continue
                 connections.append(
@@ -441,7 +464,7 @@ class PointSources:
                         "device_name": d.name,
                         "port": port,
                         "aggregate": None,
-                        "source": "gateway+vlan_fdb",
+                        "source": "gateway+snmp_fdb" if data.get("unmapped_fid") else "gateway+vlan_fdb",
                         "endpoint_identity": None,
                         "confidence": 0.85,
                         "observed_at": now().isoformat(),
@@ -455,3 +478,25 @@ class PointSources:
             and not (len(aggregate) == 1 and connections[0].get("aggregate"))
         )
         return {"connections": connections, "connection_ambiguous": ambiguous, "steps": steps}
+
+    @staticmethod
+    def unmapped_edge(projected, port, mac):
+        """Count all cached FIDs; never hide transit MACs just because VLAN mapping is absent."""
+        root = (projected["evidence"].get("neighbor_detail") or {}).get("spanning_tree") or {}
+        if root.get("is_root") is False and root.get("port") == port:
+            return False
+        tables = projected["tables"]
+        population = set()
+        for key, bridge in tables.get("vlan_fdb_port", {}).items():
+            if tables.get("vlan_fdb_status", {}).get(key) not in ("1", "3", "5"):
+                continue
+            index = tables.get("bridge_ifindex", {}).get(str(bridge))
+            if tables.get("if_name", {}).get(str(index)) != port:
+                continue
+            try:
+                parts = key.split(".")[1:]
+                if len(parts) == 6:
+                    population.add(bytes(int(v) for v in parts).hex(":"))
+            except (ValueError, TypeError):
+                return False
+        return population == {mac}

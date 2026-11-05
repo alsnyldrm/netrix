@@ -33,9 +33,10 @@ def switch(db, device, vlan, mac, ports, peers):
     state.observed_at = max(state.observed_at, at) if state.observed_at else at
     state.updated_at = at
     mappings = [v.fdb_id for v in state.vlan_fdbs if v.vlan_vid == vlan.vid]
-    fid = mappings[0] if len(mappings) == 1 else 0
+    default_fid = mappings[0] if len(mappings) == 1 else 0
     found = set()
     for item in ports:
+        fid = item.get("fdb_id", default_fid)
         port = network.port_for(state, item["port"], item.get("if_index"))
         fact = next(
             (
@@ -49,14 +50,18 @@ def switch(db, device, vlan, mac, ports, peers):
             fact = m.SwitchMacEntry(
                 id=m.uid(),
                 vrf_id=device.vrf_id,
-                vlan_vid=vlan.vid,
+                vlan_vid=0 if item.get("vlan_unmapped") else vlan.vid,
                 fdb_id=fid,
                 mac_address=mac,
                 port=port.name,
             )
             state.mac_entries.append(fact)
         fact.if_index = item.get("if_index") or 0
-        fact.bridge_port = next((b.bridge_port for b in state.bridge_ports if b.if_index == fact.if_index), 0)
+        fact.bridge_port = item.get("bridge_port") or next(
+            (b.bridge_port for b in state.bridge_ports if b.if_index == fact.if_index), 0
+        )
+        if item.get("vlan_unmapped"):
+            fact.vlan_vid = 0
         fact.status, fact.observed_at, fact.present = "3", at, True
         found.add(fact.id)
     for fact in state.mac_entries:
