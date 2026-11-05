@@ -193,13 +193,23 @@ async def scan_vlan(job_id):
 
     started = now()
 
+    def load():
+        # Read-only and slow: never keep this snapshot open across a job row write.
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            vlan = db.get(m.VLAN, job.target_id)
+            if not vlan or job.cancel_requested:
+                raise Cancelled()
+            return SQLContext(db, vlan, job_id)
+
+    context = await sql_read(load)
+
     def prepare():
         with session_factory()() as db:
             job = db.get(m.Job, job_id)
             vlan = db.get(m.VLAN, job.target_id)
             if not vlan or job.cancel_requested:
                 raise Cancelled()
-            context = SQLContext(db, vlan, job_id)
             scope = service.scan_boundary(db, vlan)
             # Import only addresses already present in canonical SQL sources, inside
             # this VLAN. No probing and no invented reachability state.
@@ -263,9 +273,9 @@ async def scan_vlan(job_id):
             job.total, job.progress = len(ids), 0
             job.result = {**job.result, "scan_phase": "sql", "network": {"mode": "sql", "devices": 0}}
             db.commit()
-        return vlan, context, scope, ids
+        return vlan, scope, ids
 
-    vlan, context, scope, ids = await sql_read(prepare)
+    vlan, scope, ids = await sql_write(prepare)
     problems = resolved = 0
     for id in ids:
         context.check()
@@ -305,10 +315,14 @@ async def scan_vlan(job_id):
         if not await sql_write(save, row, result):
             continue
         publish(ipam_vlan=vlan.id)
-    with session_factory()() as db:
-        job = db.get(m.Job, job_id)
-        job.result = {**job.result, "scan_phase": "complete"}
-        db.commit()
+
+    def finish():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            job.result = {**job.result, "scan_phase": "complete"}
+            db.commit()
+
+    await sql_write(finish)
     return dict(
         checked=resolved,
         resolved=resolved,

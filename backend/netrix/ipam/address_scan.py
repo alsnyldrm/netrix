@@ -196,18 +196,25 @@ async def execute(job_id, collector):
     started = now()
 
     def prepare():
+        # Read-only and slow: never keep this snapshot open across a job row write.
         with session_factory()() as db:
             job = db.get(m.Job, job_id)
             row, vlan = target(db, job)
-            sources = SQLContext(db, vlan, job_id).for_row(row)
-            job.total, job.progress = 1, 0
-            db.commit()
-            return vlan.id, sources
+            return vlan.id, SQLContext(db, vlan, job_id).for_row(row)
 
     vlan_id, sources = await sql_read(prepare)
 
+    def begin():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            target(db, job)
+            job.total, job.progress = 1, 0
+            db.commit()
+
+    await sql_write(begin)
+
     async def progress(name):
-        phase(job_id, name)
+        await sql_write(phase, job_id, name)
 
     result = await sources.resolve(progress)
 
@@ -221,7 +228,9 @@ async def execute(job_id, collector):
 
     await sql_write(save)
     publish(ipam_vlan=vlan_id)
-    phase(job_id, "complete", resolution_status=result["status"], source_errors=result["issues"])
+    await sql_write(
+        phase, job_id, "complete", resolution_status=result["status"], source_errors=result["issues"]
+    )
     return {
         "checked": 1,
         "network": {"mode": "sql", "devices": 0},

@@ -34,19 +34,27 @@ async def scan(job_id, collector):
         return await scan_vlan(job_id)
 
     def prepare():
+        # Read-only and slow: never keep this snapshot open across a job row write.
         with session_factory()() as db:
             job = db.get(m.Job, job_id)
             vlan = db.get(m.VLAN, job.target_id)
-            addresses = targets(db, vlan, True)
-            context = BulkContext(db, vlan, collector, job_id)
-            vlan.last_discovery_at = started
+            return vlan, targets(db, vlan, True), BulkContext(db, vlan, collector, job_id)
+
+    vlan, addresses, context = await sql_read(prepare)
+
+    def begin():
+        with session_factory()() as db:
+            job = db.get(m.Job, job_id)
+            current = db.get(m.VLAN, job.target_id)
+            if job.cancel_requested or not current:
+                raise Cancelled()
+            current.last_discovery_at = started
             job.total = len(addresses)
             job.progress = 0
             db.commit()
-            return vlan, addresses, context
 
-    vlan, addresses, context = await sql_read(prepare)
-    scan_phase(job_id, "gateway")
+    await sql_write(begin)
+    await sql_write(scan_phase, job_id, "gateway")
     # Finish each source stage before advancing its dependent branch.
     await context.network("gateway")
     owned = set()
@@ -62,7 +70,7 @@ async def scan(job_id, collector):
             for address, bindings in projected["bindings"].items()
             if any(index in indexes for _, index in bindings)
         )
-    scan_phase(job_id, "addresses")
+    await sql_write(scan_phase, job_id, "addresses")
     checked, reached, problems, resolved, ping_failed = 0, 0, 0, 0, 0
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
         context.check()
@@ -166,13 +174,17 @@ async def scan(job_id, collector):
                         await asyncio.gather(*tasks, return_exceptions=True)
                     problems += statuses.count("problem")
                     resolved += sum(s is not None for s in statuses)
-                with session_factory()() as db:
-                    job = db.get(m.Job, job_id)
-                    if job.cancel_requested:
-                        raise Cancelled()
-                    job.progress = checked
-                    job.result = {**job.result, "resolved": resolved, "problems": problems}
-                    db.commit()
+
+                def record():
+                    with session_factory()() as db:
+                        job = db.get(m.Job, job_id)
+                        if job.cancel_requested:
+                            raise Cancelled()
+                        job.progress = checked
+                        job.result = {**job.result, "resolved": resolved, "problems": problems}
+                        db.commit()
+
+                await sql_write(record)
                 publish(ipam_vlan=vlan.id)
 
     def finish():
@@ -205,7 +217,7 @@ async def scan(job_id, collector):
             return matching
 
     matching = await sql_write(finish)
-    scan_phase(job_id, "complete", resolved=resolved, problems=problems, matching=matching)
+    await sql_write(scan_phase, job_id, "complete", resolved=resolved, problems=problems, matching=matching)
     return {
         "checked": checked,
         "reachable": reached,

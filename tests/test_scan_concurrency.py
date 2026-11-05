@@ -173,6 +173,62 @@ async def test_group_read_uses_ten_slots_and_saves_every_device(network):
     assert result["read"] == result["devices"] >= 30
 
 
+async def test_slow_read_holds_no_job_write_and_heartbeat_shares_the_writer(network, monkeypatch):
+    """A job row written after a long snapshot is what MariaDB rejects with 1020."""
+    from netrix import worker
+    from netrix.ipam import bulk_sources, vlan_pipeline
+
+    sf, vlan_id, *_ = network
+    with sf() as db:
+        job = m.Job(kind="ipam_discover", target_id=vlan_id, result={"ipam_origin": "schedule"})
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    events = []
+
+    class Context(bulk_sources.BulkContext):
+        def __init__(self, *args):
+            with sf() as db:
+                events.append(("evidence", db.get(m.Job, job_id).total))
+            events.append(("thread", threading.current_thread().name))
+            super().__init__(*args)
+
+        async def network(self, kind):
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(vlan_pipeline, "BulkContext", Context)
+    with pytest.raises(asyncio.CancelledError):
+        await vlan_pipeline.scan(job_id, SimpleNamespace())
+    assert ("evidence", 0) in events
+    assert not next(e[1] for e in events if e[0] == "thread").startswith("netrix-sql-writer")
+    with sf() as db:
+        assert db.get(m.Job, job_id).total > 0
+
+    writers = []
+    original = runtime_limits.sql_write
+
+    async def spy(fn, /, *args, **kwargs):
+        writers.append(fn.__name__)
+        return await original(fn, *args, **kwargs)
+
+    monkeypatch.setattr(worker, "sql_write", spy)
+    gate = asyncio.Event()
+
+    async def blocked(*_):
+        await gate.wait()
+        return {}
+
+    monkeypatch.setattr("netrix.ipam.jobs.execute", blocked)
+    run = asyncio.create_task(worker.execute(job_id, SimpleNamespace()))
+    for _ in range(300):
+        if "beat" in writers:
+            break
+        await asyncio.sleep(0.01)
+    gate.set()
+    await run
+    assert "beat" in writers
+
+
 def test_modules_keep_no_private_read_limit():
     import inspect
 

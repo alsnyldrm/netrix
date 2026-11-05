@@ -625,12 +625,16 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
     try:
         while not task.done():
             await asyncio.wait({task}, timeout=0.25 if interactive else 1)
-            with session_factory()() as db:
-                # Write before reading: no snapshot is open that the SQL writer thread's
-                # commit to this job row could invalidate (MariaDB 1020).
-                db.execute(update(m.Job).where(m.Job.id == job_id).values(heartbeat_at=now()))
-                db.commit()
-                cancelled = get(db, m.Job, job_id).cancel_requested
+
+            def beat():
+                # On the writer thread a long source write can never see the job row
+                # change under its snapshot (MariaDB 1020).
+                with session_factory()() as db:
+                    db.execute(update(m.Job).where(m.Job.id == job_id).values(heartbeat_at=now()))
+                    db.commit()
+                    return get(db, m.Job, job_id).cancel_requested
+
+            cancelled = await sql_write(beat)
             heartbeat(heartbeat_role)
             if cancelled or (stop and not task.done()):
                 task.cancel()

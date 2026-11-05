@@ -218,12 +218,11 @@ def connection_options(db, row, *, obs=None):
 async def scan(job_id, collector=None):
     from ..worker import Cancelled
 
-    with session_factory()() as db:
-        job = get(db, m.Job, job_id)
-        if job.kind == "ipam_discover":
-            discover = True
-        else:
-            discover = False
+    def begin():
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            if job.kind == "ipam_discover":
+                return True, []
             prefix = get(db, m.VLAN, job.target_id)
             addresses = targets(db, prefix, False)
             if job.cancel_requested:
@@ -232,6 +231,9 @@ async def scan(job_id, collector=None):
             job.total = len(addresses)
             job.progress = 0
             db.commit()
+            return False, addresses
+
+    discover, addresses = await sql_write(begin)
     if discover:
         from ..discovery.protocols import SNMPCollector
         from .vlan_pipeline import scan as vlan_scan
