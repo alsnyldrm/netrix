@@ -5,6 +5,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
 from netrix import models as m
 from netrix import runtime_limits, worker
 from netrix.discovery import table_reads
@@ -12,6 +13,7 @@ from netrix.discovery.table_reads import read_table
 from netrix.ipam import mac_cache
 from netrix.sources import network as source_network
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from test_ipam_source_contract import network as network
 
 OID = "1.3.6.1.2.1.17.7.1.2.2.1.2"
@@ -79,6 +81,33 @@ async def test_sql_writes_are_serialized_on_one_thread():
 
     await asyncio.gather(*(runtime_limits.sql_write(write) for _ in range(8)))
     assert peak == 1 and len(names) == 1
+
+
+@pytest.mark.parametrize("runner", [runtime_limits.sql_write, runtime_limits.sql_read])
+async def test_sql_steps_retry_snapshot_conflicts(runner):
+    attempts = 0
+
+    def write():
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise OperationalError("UPDATE jobs", {}, Exception(1020, "Record has changed"))
+        return "saved"
+
+    assert await runner(write) == "saved" and attempts == 3
+
+
+async def test_other_database_errors_are_not_retried():
+    attempts = 0
+
+    def write():
+        nonlocal attempts
+        attempts += 1
+        raise OperationalError("SELECT", {}, Exception(2013, "Lost connection"))
+
+    with pytest.raises(OperationalError):
+        await runtime_limits.sql_write(write)
+    assert attempts == 1
 
 
 async def test_device_slot_is_shared_between_jobs():

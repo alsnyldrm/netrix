@@ -294,11 +294,12 @@ async def scan_vlan(job_id):
                 ):
                     return False
                 pipeline.save_result(db, current, started, result)
-                resolved += 1
-                problems += result["status"] == "problem"
-                job.progress = resolved
-                job.result = {**job.result, "resolved": resolved, "problems": problems}
+                done = resolved + 1
+                issues = problems + (result["status"] == "problem")
+                job.progress = done
+                job.result = {**job.result, "resolved": done, "problems": issues}
                 db.commit()
+                resolved, problems = done, issues
                 return True
 
         if not await sql_write(save, row, result):

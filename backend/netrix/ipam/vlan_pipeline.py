@@ -79,6 +79,7 @@ async def scan(job_id, collector):
                 def store(ready):
                     nonlocal checked, reached, ping_failed
                     ids = []
+                    checked_count = reached_count = failed_count = 0
                     with session_factory()() as db:
                         job = db.get(m.Job, job_id)
                         vlan = db.get(m.VLAN, job.target_id)
@@ -89,8 +90,8 @@ async def scan(job_id, collector):
                             if not in_scope(address, scope):
                                 continue
                             if up is None:
-                                ping_failed += 1
-                                checked += 1
+                                failed_count += 1
+                                checked_count += 1
                                 row = db.scalar(
                                     select(m.IPAddress).where(
                                         m.IPAddress.vrf_id == vlan.vrf_id,
@@ -112,11 +113,14 @@ async def scan(job_id, collector):
                                 or address in owned
                                 or bool(isinstance(gateway, dict) and gateway.get("mac_address")),
                             )
-                            checked += 1
-                            reached += int(up)
+                            checked_count += 1
+                            reached_count += int(up)
                             if row:
                                 ids.append((row.id, gateway))
                         db.commit()
+                        checked += checked_count
+                        reached += reached_count
+                        ping_failed += failed_count
                         return ids, vlan
 
                 ids, vlan = await sql_write(store, ready)

@@ -250,6 +250,7 @@ async def scan(job_id, collector=None):
 
                 def store(values):
                     nonlocal reached, failed
+                    up_count = failed_count = 0
                     with session_factory()() as db:
                         job = get(db, m.Job, job_id)
                         if job.cancel_requested:
@@ -258,10 +259,10 @@ async def scan(job_id, collector=None):
                         scope = scan_boundary(db, prefix)
                         for address, up in values:
                             if up is None:
-                                failed += 1
+                                failed_count += 1
                                 continue
                             if in_scope(address, scope):
-                                reached += int(up)
+                                up_count += int(up)
                                 observe(
                                     db,
                                     prefix,
@@ -273,6 +274,8 @@ async def scan(job_id, collector=None):
                                 )
                         job.progress += len(values)
                         db.commit()
+                        reached += up_count
+                        failed += failed_count
                         return prefix.id
 
                 publish(ping_vlan=await sql_write(store, values))

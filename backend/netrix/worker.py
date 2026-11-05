@@ -5,7 +5,7 @@ import signal
 import time
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 
 from . import models as m
@@ -346,10 +346,14 @@ async def discover(job_id, collector):
                 except (NetworkError, TimeoutError, OSError):
                     continue
             else:
-                with session_factory()() as db:
-                    job = get(db, m.Job, job_id)
-                    job.progress += 1
-                    db.commit()
+
+                def unreachable():
+                    with session_factory()() as db:
+                        job = get(db, m.Job, job_id)
+                        job.progress += 1
+                        db.commit()
+
+                await sql_write(unreachable)
                 return False
 
             def persist():
@@ -627,10 +631,11 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         while not task.done():
             await asyncio.wait({task}, timeout=0.25 if interactive else 1)
             with session_factory()() as db:
-                job = get(db, m.Job, job_id)
-                job.heartbeat_at = now()
-                cancelled = job.cancel_requested
+                # Write before reading: no snapshot is open that the SQL writer thread's
+                # commit to this job row could invalidate (MariaDB 1020).
+                db.execute(update(m.Job).where(m.Job.id == job_id).values(heartbeat_at=now()))
                 db.commit()
+                cancelled = get(db, m.Job, job_id).cancel_requested
             heartbeat(heartbeat_role)
             if cancelled or (stop and not task.done()):
                 task.cancel()
