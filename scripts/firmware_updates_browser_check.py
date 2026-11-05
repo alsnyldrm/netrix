@@ -129,6 +129,20 @@ with sync_playwright() as p:
     expect(dialog).to_contain_text("1 aynı sürüm · 1 daha yeni · 1 karşılaştırılamıyor")
     expect(dialog.get_by_role("status").filter(has_text="1 cihaz taslak plana alınacak.")).to_be_visible()
     check("group-preview")
+    for width, theme in ((w, t) for w in (1440, 375) for t in ("light", "dark")):
+        page.set_viewport_size({"width": width, "height": 1000})
+        page.evaluate("t=>document.documentElement.dataset.theme=t", theme)
+        page.goto(BASE + "/#firmware-images")
+        expect(page.locator(".fw-images-table tbody")).to_contain_text(
+            "Model ve sürüm serisi otomatik doğrulanır"
+        )
+        assert "JL675A" not in page.locator(".fw-images-table tbody").inner_text()
+        check(f"legacy-image-family-{width}-{theme}")
+        page.get_by_role("button", name="Fixture firmware", exact=True).click()
+        expect(page.get_by_role("dialog")).to_be_visible()
+        assert "Mevcut model kısıtları" not in page.get_by_role("dialog").inner_text()
+        check(f"legacy-image-detail-{width}-{theme}")
+        page.keyboard.press("Escape")
     assert not errors, errors
     Path("artifacts/firmware-updates-browser-report.json").write_text(
         json.dumps({"views": len(reports), "axe": reports, "errors": errors}, indent=2)

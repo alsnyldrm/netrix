@@ -8,6 +8,10 @@ from scripts.firmware_fixture import app  # noqa: F401
 
 with session_factory()() as db:
     user = db.scalar(select(m.User))
+    # Reproduce inventory normalization: generic series names with older uploads
+    # that still contain SKU notes. No device query or worker is involved.
+    for device in db.scalars(select(m.Device)):
+        device.model = "6100" if device.adapter == "aruba_6100" else "2930F"
     db.add(
         m.FirmwareImage(
             name="Aruba comparison image",

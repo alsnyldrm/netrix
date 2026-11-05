@@ -252,16 +252,16 @@ def test_status_queries_are_batched(fw):
 def test_latest_image_is_numeric_model_compatible_and_not_upload_date(fw):
     with fw["sf"]() as db:
         original = db.get(m.FirmwareImage, fw["image"]["id"])
-        for name, version, models in (
-            ("Newest compatible", "WC.16.12.0001", ["JL256A"]),
-            ("Other model", "WC.16.99.9999", ["JL258A"]),
-            ("Old uploaded last", "WC.16.09.9999", ["JL256A"]),
-            ("Other branch", "WB.16.99.9999", ["JL256A"]),
+        for name, family, version, models in (
+            ("Newest compatible", "aos_s_29xx", "WC.16.12.0001", ["JL256A"]),
+            ("Other family", "aos_s_54xx", "KB.16.99.9999", ["J9850A"]),
+            ("Old uploaded last", "aos_s_29xx", "WC.16.09.9999", ["JL256A"]),
+            ("Other branch", "aos_s_29xx", "WB.16.99.9999", ["JL256A"]),
         ):
             db.add(
                 m.FirmwareImage(
                     name=name,
-                    family="aos_s_29xx",
+                    family=family,
                     version=version,
                     models=models,
                     original_name=name.replace(" ", "") + ".swi",

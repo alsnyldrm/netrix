@@ -78,14 +78,11 @@ def image_path(image):
 
 
 def compatible(image, device):
+    """Use hardware family/branch; historical upload SKU notes are not an allowlist."""
     if FAMILIES.get(device.adapter) != image.family:
         return False
-    if model_branch(device) != version_branch(image.version) or version_branch(image.version) is None:
-        return False
-    if not image.models:
-        return True
-    tokens = set(re.findall(r"[A-Z0-9]+", device.model.upper()))
-    return any(code in tokens or code == device.model.upper() for code in image.models)
+    branch = version_branch(image.version)
+    return branch is not None and model_branch(device) == branch
 
 
 def validate_device(db, device, image=None):

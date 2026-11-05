@@ -1,4 +1,4 @@
-"""Hardware family selection never merges software branches or widens legacy images."""
+"""Hardware family selection uses model evidence and never merges software branches."""
 
 from types import SimpleNamespace
 
@@ -98,17 +98,86 @@ def test_api_rejects_wrong_branch_and_removed_combined_family(fw, family, versio
     assert response.status_code == 422
 
 
-def test_family_filters_split_54xx_from_29xx_and_legacy_model_limits_remain(fw):
+def test_family_filters_split_54xx_from_29xx_and_old_model_notes_do_not_limit_family(fw):
     with fw["sf"]() as db:
         device = db.get(m.Device, fw["devices"][0].id)
         device.adapter, device.model, device.software_version = "aruba_5400", "J9850A", "KB.16.10.0025"
         image = db.get(m.FirmwareImage, fw["image"]["id"])
         other = db.get(m.Device, fw["devices"][1].id)
         image.models = ["JL558A"]
-        assert not compatible(image, other)
+        assert compatible(image, other)
         db.commit()
     c = fw["client"]
     assert c.get("/api/v1/firmware/devices", params={"family": "aos_s_54xx"}).json()["total"] == 1
     assert c.get("/api/v1/firmware/devices", params={"family": "aos_s_29xx"}).json()["total"] == 2
     assert c.get("/api/v1/firmware/devices", params={"family": "aos_s"}).status_code == 422
     assert runtime.AOS_S_FAMILIES == ("aos_s_54xx", "aos_s_29xx")
+
+
+@pytest.mark.parametrize(
+    "adapter,model,current,family,target,old_models",
+    [
+        ("aruba_6100", "6100", "PL.10.17.1030", "cx6100", "PL.10.18.1010", ["JL675A"]),
+        ("aruba_6100", "6100", "PL.10.18.1010", "cx6100", "PL.10.18.1010", ["JL675A"]),
+        ("aruba_6100", "6100", "", "cx6100", "PL.10.18.1010", ["JL675A"]),
+        ("aruba_6100", "JL677A", "PL.10.17.1030", "cx6100", "PL.10.18.1010", ["JL675A"]),
+        ("aruba_2900", "2930F", "WC.16.10.0025", "aos_s_29xx", "WC.16.11.0032", ["JL256A"]),
+        ("aruba_2900", "JL558A", "WC.16.10.0025", "aos_s_29xx", "WC.16.11.0032", ["JL256A"]),
+        ("aruba_5400", "5400R", "KB.16.10.0025", "aos_s_54xx", "KB.16.11.0032", ["J9850A"]),
+    ],
+)
+def test_old_upload_model_notes_accept_confirmed_hardware_family(
+    adapter, model, current, family, target, old_models
+):
+    device = SimpleNamespace(adapter=adapter, model=model, software_version=current)
+    image = SimpleNamespace(family=family, version=target, models=old_models)
+    assert compatible(image, device)
+    assert image.models == old_models  # Retain history; do not rewrite upload metadata.
+
+
+@pytest.mark.parametrize("family", ["cx6100", "aos_s_29xx"])
+def test_generic_series_with_legacy_upload_has_current_outdated_and_unknown_states_without_groups(fw, family):
+    from sqlalchemy import func, select
+
+    cx = family == "cx6100"
+    older, target = ("PL.10.17.1030", "PL.10.18.1010") if cx else ("WC.16.10.0025", "WC.16.11.0026")
+    with fw["sf"]() as db:
+        image = db.get(m.FirmwareImage, fw["image"]["id"])
+        image.family, image.version, image.models = family, target, ["JL675A"] if cx else ["JL256A"]
+        for device, version in zip(fw["devices"], (older, target, ""), strict=True):
+            row = db.get(m.Device, device.id)
+            row.adapter, row.model, row.software_version = (
+                ("aruba_6100", "6100", version) if cx else ("aruba_2900", "2930F", version)
+            )
+        db.commit()
+    client = fw["client"]
+    for group in fw["groups"]:
+        assert client.delete("/api/v1/firmware/groups/" + group["id"]).status_code == 204
+    rows = client.get("/api/v1/firmware/devices", params={"image_id": image.id}).json()["items"]
+    assert [r["update_status"] for r in rows] == ["outdated", "current", "unknown"]
+    assert all(r["compatible"] for r in rows)
+    assert client.get("/api/v1/firmware/overview").json()["devices"] == {
+        "outdated": 1,
+        "current": 1,
+        "unknown": 1,
+        "no_image": 0,
+    }
+    selection = client.post(
+        "/api/v1/firmware/plans/prepare", json={"device_ids": [fw["devices"][0].id]}
+    ).json()
+    assert selection["target_total"] == 1
+    response = client.post(
+        "/api/v1/firmware/plans",
+        json={
+            "name": "Legacy family selection",
+            "mode": "stage",
+            "steps": [{"image_id": image.id, "device_ids": [d.id for d in fw["devices"]]}],
+            "acknowledge_upgrade_path": True,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["steps"][0]["excluded"] == {"current": 1, "newer": 0, "unknown": 1}
+    with fw["sf"]() as db:
+        assert db.scalar(select(func.count()).select_from(m.FirmwareGroup)) == 0
+        assert db.scalar(select(func.count()).select_from(m.FirmwareTarget)) == 1
+        assert db.scalar(select(func.count()).select_from(m.Job)) == 0

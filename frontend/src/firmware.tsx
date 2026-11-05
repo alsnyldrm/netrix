@@ -1900,9 +1900,7 @@ export default function FirmwareWorkspace({
                                   {FAMILIES[r.family]}
                                 </div>
                                 <small>
-                                  {r.models.length
-                                    ? r.models.join(", ")
-                                    : "Model ve sürüm serisi otomatik doğrulanır"}
+                                  Model ve sürüm serisi otomatik doğrulanır
                                 </small>
                               </div>
                             </td>
@@ -2094,12 +2092,6 @@ export default function FirmwareWorkspace({
               <dd>{FAMILIES[modal.row!.family]}</dd>
               <dt>Hedef sürüm</dt>
               <dd>{modal.row!.version}</dd>
-              {modal.row!.models.length > 0 && (
-                <>
-                  <dt>Mevcut model kısıtları</dt>
-                  <dd>{modal.row!.models.join(", ")}</dd>
-                </>
-              )}
               <dt>SHA-256</dt>
               <dd className="mono fw-hash">
                 {modal.row!.sha256 || modal.row!.expected_sha256}

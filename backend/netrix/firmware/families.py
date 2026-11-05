@@ -69,6 +69,13 @@ def model_branch(device):
         return branch if BRANCH_FAMILY[branch] == family else None
     if branches:
         return None
+    # A series such as 6100 or 2930F has one software branch, even before
+    # inventory has read its running revision. Catalog can then report the
+    # image as available and the current revision as unknown; planning still
+    # excludes unknown revisions and never guesses that a device is current.
+    if len(named_branches) == 1:
+        branch = next(iter(named_branches))
+        return branch if BRANCH_FAMILY[branch] == family else None
     # A complete series name can identify hardware when no SKU was stored.
     named = {
         "aos_s_54xx": r"\b54(?:00|06|12)(?:R|ZL2?)?\b",
