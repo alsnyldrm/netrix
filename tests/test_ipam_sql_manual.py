@@ -264,3 +264,28 @@ async def test_sql_failure_keeps_verified_previous_resolution(admin_client, netw
         assert result.status == "problem"
         assert result.values["connected_port"] == previous["connected_port"]
         assert result.values["mac_address"] == previous["mac_address"]
+
+
+@pytest.mark.parametrize("empty_dns", [True, False])
+async def test_only_used_dns_facts_can_make_sql_result_stale(admin_client, network, blocked, empty_dns):
+    sf, vid, rid, ids = network
+    with sf() as db:
+        dns = db.scalar(select(m.DNSRecord).where(m.DNSRecord.address_id == rid))
+        dns.hostname = "" if empty_dns else "old.example"
+        dns.updated_at = now() - timedelta(days=2)
+        # Inactive gateway is absence evidence, never resurrect it to fill the UI.
+        for g in db.scalars(select(m.GatewayBinding)):
+            g.present = False
+        db.commit()
+        before = source_snapshot(db)
+    job = admin_client.post(f"/api/v1/ipam/addresses/{rid}/scan").json()
+    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
+    await worker.execute(job["id"], NoNetwork())
+    with sf() as db:
+        result = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid))
+        codes = {i["code"] for i in result.issues}
+        assert ("stale_source" in codes) == (not empty_dns)
+        assert "identity_missing" in codes
+        assert not result.values["connections"]
+        assert not result.values["mac_address"]
+        assert source_snapshot(db) == before

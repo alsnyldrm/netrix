@@ -659,6 +659,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
             elif kind == MAC_KIND and result.get("failed"):
                 job.status = "partial" if result.get("read") else "failed"
                 job.error = "Bazı switch MAC kaynakları okunamadı; kaynak ve SNMP profillerini kontrol edin."
+            elif kind == "ipam_ping" and result.get("ping_failed"):
+                job.status = "partial"
+                job.error = f"{result['ping_failed']} IP için ping işlemi çalıştırılamadı; önceki ping durumları korundu."
             elif kind in ("ipam_discover", "ipam_address_scan") and (
                 (result.get("network") or {}).get("failed") or result.get("source_failed")
             ):

@@ -8,14 +8,14 @@ from sqlalchemy import select
 from .. import models as m
 from ..core import now, session_factory
 from ..services import in_scope, publish
-from . import adapters, pipeline
+from . import pipeline
 from .bulk_sources import BulkContext
 from .service import observe, scan_boundary, targets
 
 
 async def scan(job_id, collector):
     from ..worker import Cancelled
-    from .jobs import SCAN_BATCH_SIZE, completed_batches, scan_phase
+    from .jobs import SCAN_BATCH_SIZE, completed_batches, ping_result, scan_phase
 
     started = now()
     with session_factory()() as db:
@@ -57,12 +57,12 @@ async def scan(job_id, collector):
             if any(index in indexes for _, index in bindings)
         )
     scan_phase(job_id, "addresses")
-    checked, reached, problems, resolved = 0, 0, 0, 0
+    checked, reached, problems, resolved, ping_failed = 0, 0, 0, 0, 0
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
         context.check()
 
         async def ping(address):
-            up = await adapters.ping(address)
+            up = await ping_result(address)
             return address, up, None
 
         async with aclosing(
@@ -78,6 +78,19 @@ async def scan(job_id, collector):
                     scope = scan_boundary(db, vlan)
                     for address, up, gateway in ready:
                         if not in_scope(address, scope):
+                            continue
+                        if up is None:
+                            ping_failed += 1
+                            checked += 1
+                            row = db.scalar(
+                                select(m.IPAddress).where(
+                                    m.IPAddress.vrf_id == vlan.vrf_id,
+                                    m.IPAddress.vlan_id == vlan.id,
+                                    m.IPAddress.address == address,
+                                )
+                            )
+                            if row:
+                                ids.append((row.id, gateway))
                             continue
                         row = observe(
                             db,
@@ -164,9 +177,10 @@ async def scan(job_id, collector):
     return {
         "checked": checked,
         "reachable": reached,
-        "no_reply": checked - reached,
+        "no_reply": checked - reached - ping_failed,
+        "ping_failed": ping_failed,
         "source_jobs": [],
-        "source_failed": int(bool(context.errors) or problems > 0),
+        "source_failed": int(bool(context.errors) or problems > 0 or ping_failed > 0),
         "resolved": resolved,
         "problems": problems,
         "matching": matching,

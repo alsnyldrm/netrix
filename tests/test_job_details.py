@@ -97,3 +97,38 @@ def test_running_job_badge_excludes_background_ping(admin_client, env):
     result = admin_client.get("/api/v1/dashboard", headers={"Cache-Control": "no-cache"})
     assert result.status_code == 200
     assert result.json()["counts"]["running_jobs"] == 2
+
+
+@pytest.mark.parametrize("kind", ["ipam_address_scan", "ipam_discover"])
+@pytest.mark.parametrize("network", [{"mode": "sql", "devices": 0}, {}, None])
+def test_manual_sql_job_details_do_not_require_live_source_counters(admin_client, env, kind, network):
+    with env() as db:
+        job = m.Job(
+            kind=kind,
+            target_id="removed",
+            status="partial",
+            result={"network": network, "ipam_origin": "manual", "secret": "DO-NOT-EXPOSE"},
+        )
+        db.add(job)
+        db.commit()
+        id = job.id
+    response = admin_client.get(f"/api/v1/jobs/{id}/details")
+    assert response.status_code == 200, response.text
+    paragraphs = " ".join(response.json()["paragraphs"])
+    assert "SQL" in paragraphs and "cihazlara bağlanmaz" in paragraphs
+    assert "kaynak verileri eksik" in paragraphs
+    assert "DO-NOT-EXPOSE" not in response.text
+
+
+def test_legacy_targeted_job_without_read_counter_remains_readable(admin_client, env):
+    with env() as db:
+        job = m.Job(
+            kind="ipam_address_scan",
+            target_id="removed",
+            status="partial",
+            result={"network": {"devices": 3, "failed": 1}},
+        )
+        db.add(job)
+        db.commit()
+        id = job.id
+    assert admin_client.get(f"/api/v1/jobs/{id}/details").status_code == 200

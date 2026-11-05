@@ -32,6 +32,16 @@ SCAN_BATCH_SIZE = 32
 SOURCE_WAIT_SECONDS = 900
 
 
+async def ping_result(address):
+    """Execution failures are unknown, never a negative reply or a whole-job failure."""
+    from ..discovery.protocols import NetworkError
+
+    try:
+        return await adapters.ping(address)
+    except (TimeoutError, OSError, NetworkError):
+        return None
+
+
 async def completed_batches(probes):
     """Persist ready results within 200 ms without waiting for slow peers (at most 32 tasks)."""
     tasks = {asyncio.create_task(probe) for probe in probes}
@@ -226,11 +236,11 @@ async def scan(job_id, collector=None):
         from .vlan_pipeline import scan as vlan_scan
 
         return await vlan_scan(job_id, collector or SNMPCollector())
-    reached = 0
+    reached = failed = 0
     for start in range(0, len(addresses), SCAN_BATCH_SIZE):
 
         async def probe(address):
-            return address, await adapters.ping(address)
+            return address, await ping_result(address)
 
         async with aclosing(
             completed_batches(probe(address) for address in addresses[start : start + SCAN_BATCH_SIZE])
@@ -243,6 +253,9 @@ async def scan(job_id, collector=None):
                     prefix = get(db, m.VLAN, job.target_id)
                     scope = scan_boundary(db, prefix)
                     for address, up in values:
+                        if up is None:
+                            failed += 1
+                            continue
                         if in_scope(address, scope):
                             reached += int(up)
                             observe(
@@ -257,7 +270,12 @@ async def scan(job_id, collector=None):
                     job.progress += len(values)
                     db.commit()
                 publish(ping_vlan=prefix.id)
-    return {"checked": len(addresses), "reachable": reached, "no_reply": len(addresses) - reached}
+    return {
+        "checked": len(addresses),
+        "reachable": reached,
+        "no_reply": len(addresses) - reached - failed,
+        "ping_failed": failed,
+    }
 
 
 async def integration(job_id, collector=None):

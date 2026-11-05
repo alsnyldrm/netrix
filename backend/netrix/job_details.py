@@ -14,7 +14,7 @@ DESCRIPTIONS = {
     ),
     "ipam_address_scan": (
         "Tek IP taraması",
-        "Yalnızca seçilen IP adresinin ping, DNS ve kaynak eşleştirmelerini günceller. Diğer IP kayıtlarını ve VLAN zamanlamasını değiştirmez.",
+        "Seçilen IP adresini SQL kaynak kayıtlarından yeniden eşleştirir. Cihaz sorgusu veya ping başlatmaz.",
     ),
     "discovery": (
         "SNMP ağ keşfi",
@@ -111,6 +111,12 @@ def details(db, job):
         job.kind, ("Geçmiş görev", "Bu eski görev türü için açıklama bulunmuyor.")
     )
     target = db.get(target_model(job.kind), job.target_id)
+    sql_only = ((job.result or {}).get("network") or {}).get("mode") == "sql" or (
+        job.kind in ("ipam_address_scan", "ipam_discover")
+        and (job.result or {}).get("ipam_origin") == "manual"
+    )
+    if sql_only:
+        description = "Seçili IP/VLAN kayıtlarını yalnız SQL kaynak verilerinden yeniden eşleştirir; cihazlara bağlanmaz."
     paragraphs = [description]
     if isinstance(target, m.Scope):
         profiles = list(
@@ -147,13 +153,21 @@ def details(db, job):
     elif job.status == "succeeded":
         paragraphs.append("Görev başarıyla tamamlandı.")
     elif job.status == "partial":
-        paragraphs.append("Görev kısmen tamamlandı. Bazı hedeflerden yanıt veya bilgi alınamadı.")
+        paragraphs.append(
+            "SQL kayıtları işlendi; bazı kaynak verileri eksik, eski veya çelişkili."
+            if sql_only
+            else "Görev kısmen tamamlandı. Bazı hedeflerden yanıt veya bilgi alınamadı."
+        )
     else:
         paragraphs.append("Görev tamamlanamadı.")
     result = job.result or {}
     if job.kind in ("discovery", "ipam_ping", "ipam_discover", "ipam_address_scan") and "reachable" in result:
         paragraphs.append(
             f"Yanıt veren: {result['reachable']}. Yanıt alınamayan: {result.get('unresponsive', result.get('no_reply', 0))}."
+        )
+    if result.get("ping_failed"):
+        paragraphs.append(
+            f"Ping işlemi çalıştırılamayan: {result['ping_failed']}. Önceki ping durumları korundu."
         )
     if job.kind == "test_integration" and result.get("message"):
         paragraphs.append(result["message"])
@@ -164,7 +178,9 @@ def details(db, job):
     if job.kind in ("ipam_discover", "ipam_address_scan") and result.get("network"):
         network = result["network"]
         paragraphs.append(
-            f"Gateway/switch kaynakları: {network['read']} okundu, {network['failed']} okunamadı."
+            "SQL kaynak kayıtları işlendi; canlı cihaz sorgusu yapılmadı."
+            if network.get("mode") == "sql"
+            else f"Gateway/switch kaynakları: {network.get('read', 0)} okundu, {network.get('failed', 0)} okunamadı."
         )
     if job.kind == "ipam_discover" and result.get("source_statuses"):
         statuses = result["source_statuses"].values()

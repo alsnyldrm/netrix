@@ -327,3 +327,18 @@ birlikte doğrulanmış pozitif MAC/port satırları eklenebilir; yokluk çıkar
 Yalnız tam ve başarılı tablo okuması kaybolan kayıtları pasifleştirir. Eski tamamlanan
 iş yeni kaydı ezmez. Arayüz numarası değişince MAC kaydının ifIndex'i de güncellenir.
 Genel bağlantı eksikliği gerçek uplink kanıtı gibi raporlanmaz.
+
+### SQL görev ayrıntısı ve ping hatası ayrımı — 5 Kasım 2026
+
+- Görev ayrıntısı SQL sonucunda canlı okuma sayaçları (`read`/`failed`) aramaz;
+  eski ve yeni sonuç biçimleri HTTP 200 ile okunur. SQL işleminin kaynaklara
+  bağlanmadığı ve eksik veriyi yeniden doğrulayamadığı açıkça belirtilir.
+- Değeri boş DNS kaydı, kullanılmadığı halde sonuç yaşını eskitemez. Etkin olmayan
+  gateway kimliği yeni MAC/port eşleştirmesine dayanak yapılmaz. Önceki doğrulanmış
+  değerlerin korunması, güncel eşleştirmenin başarılı olduğu anlamına gelmez.
+- Tek ICMP sürecinin zaman aşımı/çalıştırma hatası tüm VLAN görevini durdurmaz.
+  Hatalı IP için yeni ping gözlemi yazılmaz; önceki yanıt ve gözlem zamanı korunur.
+  Diğer IP'ler işlenir. `ping_failed` ayrı sayılır; yanıt vermeyen IP sayısına
+  eklenmez ve görev kısmi sonuç olur. Görev iptali bu hata yolunda yutulmaz.
+- Testler: `test_job_details.py`, `test_ipam_sql_manual.py`,
+  `test_ipam_incremental.py` (sahte protokol istemcileri; gerçek ağa erişmez).

@@ -135,7 +135,7 @@ class SQLSources:
                     m.DNSRecord.source_key == (self.context.vlan.dns_server_id or "system"),
                 )
             )
-            if fact:
+            if fact and fact.hostname:
                 self.ref("dns", fact, fact.source_key, fact.updated_at)
             return fact.hostname if fact else ""
 
@@ -158,6 +158,13 @@ class SQLSources:
                 result = teaming.result(hostname, teaming.neighbors(db, self.row, hostname), stored=True)
         else:
             result = await pipeline.resolve(self.row.address, self, progress)
+        for issue in result["issues"]:
+            if issue["code"] == "identity_missing":
+                issue["message"] = "SQL'de etkin gateway IP/MAC kaydı yok; cihaz sorgulanmadı."
+            elif issue["code"] == "missing_hostname":
+                issue["message"] = (
+                    "SQL kaynaklarından güncel hostname doğrulanamadı; varsa önceki doğrulanmış ad korunur."
+                )
         result["values"]["observations"] = []
         result["values"]["_sql_only"] = True
         result["values"]["_sql_refs"] = self.refs

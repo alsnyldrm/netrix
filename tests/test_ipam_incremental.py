@@ -2,6 +2,7 @@
 
 import asyncio
 
+import pytest
 from conftest import make_vlan
 from netrix import models as m
 from netrix.core import now
@@ -21,7 +22,10 @@ def running_scan(env):
         return vlan.id, job.id, row.id
 
 
-async def test_fast_results_are_readable_before_slow_ip_and_later_sources(admin_client, env, monkeypatch):
+@pytest.mark.parametrize("probe_failure", [False, True])
+async def test_fast_results_are_readable_before_slow_ip_and_later_sources(
+    admin_client, env, monkeypatch, probe_failure
+):
     from types import SimpleNamespace
 
     from netrix.ipam import vlan_pipeline
@@ -32,6 +36,8 @@ async def test_fast_results_are_readable_before_slow_ip_and_later_sources(admin_
     slow, source, source_started = (asyncio.Event() for _ in range(3))
 
     async def ping(address):
+        if probe_failure and address.endswith(".4"):
+            raise TimeoutError()
         if address.endswith(".3"):
             await slow.wait()
         return address.endswith((".1", ".2"))
@@ -92,7 +98,10 @@ async def test_fast_results_are_readable_before_slow_ip_and_later_sources(admin_
         assert admin_client.get(f"/api/v1/ipam/addresses/{row_id}").json()["availability"] == "active"
         source.set()
         slow.set()
-        await asyncio.wait_for(task, 3)
+        result = await asyncio.wait_for(task, 3)
+        assert result["checked"] == 6
+        assert result["ping_failed"] == int(probe_failure)
+        assert result["no_reply"] == 4 - int(probe_failure)
         rows = admin_client.get(url).json()["items"]
         assert {r["hostname"] for r in rows} == {"host-1.example.test", "host-2.example.test"}
     finally:
@@ -160,3 +169,48 @@ async def test_cancelling_incremental_scan_cleans_up_pending_probes(admin_client
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     assert stopped.is_set() and active == 0
+
+
+async def test_ping_timeout_preserves_last_state_and_processes_other_ips(admin_client, env, monkeypatch):
+    from netrix import worker
+
+    vlan_id, job_id, row_id = running_scan(env)
+    with env() as db:
+        job = db.get(m.Job, job_id)
+        job.kind = "ipam_ping"
+        job.result = {"ipam_origin": "ping_timer"}
+        vlan = db.get(m.VLAN, vlan_id)
+        jobs.observe(db, vlan, "192.0.2.1", "icmp", vlan.id, {"reachability": "no_reply"})
+        before = db.scalar(select(m.PingState).where(m.PingState.address_id == row_id)).updated_at
+        db.commit()
+
+    async def ping(address):
+        if address.endswith(".2"):
+            raise TimeoutError("process wait timed out")
+        return True
+
+    monkeypatch.setattr(adapters, "ping", ping)
+    await worker.execute(job_id)
+    with env() as db:
+        job = db.get(m.Job, job_id)
+        assert job.status == "partial", job.error
+        assert job.progress == 2
+        assert job.result["ping_failed"] == 1
+        assert job.result["reachable"] == 1
+        assert job.result["no_reply"] == 0
+        state = db.scalar(select(m.PingState).where(m.PingState.address_id == row_id))
+        assert state.updated_at == before
+        assert admin_client.get(f"/api/v1/ipam/addresses/{row_id}").json()["availability"] != "active"
+        rows = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses?active_only=true").json()["items"]
+        assert [r["address"] for r in rows] == ["192.0.2.1"]
+
+
+async def test_ping_cancellation_is_not_treated_as_unknown(monkeypatch):
+    import pytest
+
+    async def cancelled(address):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(adapters, "ping", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await jobs.ping_result("192.0.2.1")
