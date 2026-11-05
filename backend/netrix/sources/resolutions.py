@@ -169,7 +169,30 @@ def write(db, result, value):
     obs.extend(
         o for o in db.new if isinstance(o, m.IPObservation) and o.address_id == iprow.id and o not in obs
     )
-    for i, item in enumerate(value.get("observations", [])):
+    if value.get("_sql_only"):
+        for ref in value.get("_sql_refs", []):
+            model, relation = {
+                "gateway": (m.GatewayBinding, "gateway"),
+                "vcenter": (m.VMwareAddress, "vmware"),
+                "windows_dhcp": (m.DHCPBinding, "dhcp"),
+                "dns": (m.DNSRecord, "dns"),
+            }[ref["kind"]]
+            fact = db.get(model, ref["id"])
+            if fact is None:
+                continue
+            link = next(
+                (o for o in obs if o.source == ref["kind"] and o.source_key == ref["source_key"]), None
+            )
+            if link is None:
+                link = m.IPObservation(
+                    id=m.uid(), address_id=iprow.id, source=ref["kind"], source_key=ref["source_key"]
+                )
+                db.add(link)
+                obs.append(link)
+            setattr(link, relation, fact)
+            link.present = True
+            link.observed_at = records.stamp(ref["observed_at"])
+    for i, item in enumerate([] if value.get("_sql_only") else value.get("observations", [])):
         source = item["source"]
         if source not in ("dns", "icmp", "vcenter", "windows_dhcp", "gateway"):
             continue
@@ -186,7 +209,7 @@ def write(db, result, value):
             obs.append(link)
         link.observed_at = records.stamp(item.get("observed_at"))
         records.write_observation(db, link, data)
-    for i, data in enumerate(value.get("gateway_evidence") or []):
+    for i, data in enumerate([] if value.get("_sql_only") else value.get("gateway_evidence") or []):
         g = records.gateway(db, iprow, data, data.get("observed_at"))
         link = next((o for o in obs if o.source == "gateway" and o.source_key == g.source_key), None)
         if link is None:
@@ -197,7 +220,8 @@ def write(db, result, value):
         link.observed_at = g.observed_at
         link.present = True
     if (
-        value.get("mac_address")
+        not value.get("_sql_only")
+        and value.get("mac_address")
         and value.get("field_sources", {}).get("mac_address") == "gateway"
         and not any(o.gateway and o.gateway.mac_address == value["mac_address"] for o in obs)
     ):
@@ -364,14 +388,20 @@ def write(db, result, value):
                 elif len(matches) == 1 and c.get("source") in ("neighbors", "nic_teaming"):
                     neighbor = matches[0]
                 if not neighbor:
-                    state = state_for(db, did, device.management_ip)
+                    state = (
+                        db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == did))
+                        if value.get("_sql_only")
+                        else state_for(db, did, device.management_ip)
+                    )
+                    if state is None:
+                        continue
                     mac = value.get("mac_address") or ""
                     candidates = [
                         e for e in state.mac_entries if e.mac_address == mac and e.port == c["port"]
                     ]
                     if candidates:
                         macport = max(candidates, key=lambda e: e.observed_at or now())
-                    elif mac:
+                    elif mac and not value.get("_sql_only"):
                         # Retain a last-known fact from the old result when its current
                         # source has already aged out. It is not a new network observation.
                         macport = m.SwitchMacEntry(

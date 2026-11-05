@@ -164,6 +164,7 @@ async def test_software_probe_reads_system_then_only_needed_entity_tables(
     monkeypatch, description, expected_walks
 ):
     from netrix.discovery import protocols as p
+    from netrix.discovery import table_reads
     from test_protocols import Engine, Transport
 
     engine = Engine()
@@ -177,14 +178,14 @@ async def test_software_probe_reads_system_then_only_needed_entity_tables(
 
     walked = []
 
-    async def walk(engine, auth, target, context, oid, **kwargs):
+    async def walk(engine, auth, target, context, nonrepeat, repeats, oid, **kwargs):
         walked.append(oid)
         assert oid in (p.TABLES["entity_class"], p.TABLES["entity_software"])
         value = 3 if oid == p.TABLES["entity_class"] else "KB.16.11.0032"
         yield None, 0, 0, [(oid + ".1", value)]
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "walk_cmd", walk)
+    monkeypatch.setattr(table_reads, "walk_table", walk)
     result = await p.SNMPCollector().software(
         "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
     )

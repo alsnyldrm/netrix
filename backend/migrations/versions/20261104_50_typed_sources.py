@@ -367,6 +367,13 @@ def upgrade():
         "source_unsupported_tables",
         sa.Column("state_id", sa.String(length=36), nullable=False),
         sa.Column("name", sa.String(length=80), nullable=False),
+        # The verified transfer uses current source repositories. Fresh installs
+        # need their read-outcome columns before that transfer (51 is idempotent).
+        sa.Column("status", sa.String(20), nullable=False, server_default="unsupported"),
+        sa.Column("row_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("error_code", sa.String(80), nullable=False, server_default=""),
+        sa.Column("attempted_at", UTCDateTime(), nullable=True),
+        sa.Column("successful_at", UTCDateTime(), nullable=True),
         sa.ForeignKeyConstraint(["state_id"], ["network_source_states.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("state_id", "name"),
     )

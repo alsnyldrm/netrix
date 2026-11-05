@@ -172,11 +172,10 @@ from test_ipam_source_contract import network as network  # noqa: E402
 
 
 @pytest.mark.parametrize("fault", [None, "multi_mac", "uplink", "no_neighbors", "two_switches", "no_route"])
-async def test_address_worker_fallback_and_sql_identity(admin_client, network, monkeypatch, fault):
+async def test_scheduled_point_fallback_and_sql_identity(admin_client, network, monkeypatch, fault):
     import json
 
     from netrix import models as m
-    from netrix import worker
     from netrix.identity.security import encrypt
     from netrix.ipam import adapters, point_sources
     from netrix.ipam.network import read_context
@@ -280,9 +279,16 @@ async def test_address_worker_fallback_and_sql_identity(admin_client, network, m
     monkeypatch.setattr(adapters, "reverse_dns", dns)
     monkeypatch.setattr(point, "reader", reader)
     for _ in range(2):
-        job = admin_client.post(f"/api/v1/ipam/addresses/{address_id}/scan").json()
-        assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
-        await worker.execute(job["id"], Collector())
+        from netrix.ipam import pipeline
+
+        with sf() as db:
+            row = db.get(m.IPAddress, address_id)
+            sources = point_sources.PointSources(db, row, db.get(m.VLAN, row.vlan_id), Collector())
+        started = now()
+        result = await pipeline.resolve(row.address, sources)
+        with sf() as db:
+            pipeline.save_result(db, db.get(m.IPAddress, address_id), started, result)
+            db.commit()
         item = admin_client.get(f"/api/v1/ipam/addresses/{address_id}").json()
         if fault and fault != "no_route":
             assert item["scan_status"] == "problem", item["scan_result"]
@@ -302,7 +308,7 @@ async def test_address_worker_fallback_and_sql_identity(admin_client, network, m
             assert db.scalar(select(func.count()).select_from(m.IPAMResult)) == 1
 
 
-@pytest.mark.parametrize("origin", ["manual", "schedule", "schedule_ssh_failure"])
+@pytest.mark.parametrize("origin", ["schedule", "schedule_ssh_failure"])
 async def test_vlan_scan_uses_same_targeted_fallback(admin_client, network, monkeypatch, origin):
     from netrix import models as m
     from netrix import worker
@@ -320,6 +326,7 @@ async def test_vlan_scan_uses_same_targeted_fallback(admin_client, network, monk
         data["unsupported"] = ["vlan_fdb_id"]
         data["interfaces"][0]["name"] = "A7"
         state = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[1]))
+        state.vlan_fdbs = []  # Device has never supplied a VLAN/FID mapping.
         state.evidence = data
         db.commit()
 

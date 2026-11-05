@@ -88,6 +88,7 @@ async def test_cancelled_network_read_does_not_touch_a_device(network):
 
 async def test_snmp_ipam_reads_bulk_gateway_and_vlan_tables_only(monkeypatch):
     from netrix.discovery import protocols as p
+    from netrix.discovery import table_reads
     from pysnmp.proto.rfc1902 import OctetString
     from test_protocols import Engine, Transport
 
@@ -107,7 +108,7 @@ async def test_snmp_ipam_reads_bulk_gateway_and_vlan_tables_only(monkeypatch):
     walked = []
 
     async def bulk(engine, auth, target, context, nonrepeat, repeats, oid, **kwargs):
-        assert nonrepeat == 0 and repeats == 25 and kwargs["maxRows"] == 16384
+        assert nonrepeat == 0 and repeats == 25 and kwargs["maxRows"] == 65537
         walked.append(oid)
         data = {
             p.IPAM_TABLES["arp_mac"]: {"4.192.0.2.10": OctetString(bytes.fromhex("001122334455"))},
@@ -118,7 +119,7 @@ async def test_snmp_ipam_reads_bulk_gateway_and_vlan_tables_only(monkeypatch):
             yield None, 0, 0, [(oid + "." + index, value)]
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "bulk_walk_cmd", bulk)
+    monkeypatch.setattr(table_reads, "walk_table", bulk)
     result = await p.SNMPCollector().ipam("192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"})
     assert result["ip_forwarding"] == "1"
     assert result["tables"]["arp_mac"]["4.192.0.2.10"] == "00:11:22:33:44:55"

@@ -10,7 +10,6 @@ from ..core import now, session_factory
 from ..services import in_scope, publish
 from . import adapters, pipeline
 from .bulk_sources import BulkContext
-from .scoped_vlan_sources import ScopedVLANContext
 from .service import observe, scan_boundary, targets
 
 
@@ -24,30 +23,32 @@ async def scan(job_id, collector):
         vlan = db.get(m.VLAN, job.target_id)
         if job.cancel_requested or not vlan:
             raise Cancelled()
+        if job.result.get("ipam_origin") == "manual":
+            from .sql_sources import scan_vlan
+
+            manual_sql = True
+        else:
+            manual_sql = False
+    if manual_sql:
+        return await scan_vlan(job_id)
+    with session_factory()() as db:
+        job = db.get(m.Job, job_id)
+        vlan = db.get(m.VLAN, job.target_id)
         addresses = targets(db, vlan, True)
-        manual = job.result.get("ipam_origin") == "manual"
-        context = (ScopedVLANContext if manual else BulkContext)(db, vlan, collector, job_id)
-        teamed = set(
-            db.scalars(
-                select(m.IPAddress.address).where(
-                    m.IPAddress.vlan_id == vlan.id, m.IPAddress.nic_teaming.is_(True)
-                )
-            )
-        )
+        context = BulkContext(db, vlan, collector, job_id)
         vlan.last_discovery_at = started
         job.total = len(addresses)
         job.progress = 0
         db.commit()
     scan_phase(job_id, "gateway")
     # Finish each source stage before advancing its dependent branch.
-    if not manual:
-        await context.network("gateway")
+    await context.network("gateway")
     owned = set()
     import ipaddress
 
     from .connections import gateway_interfaces
 
-    snapshots = () if manual else context.gateway_evidence.snapshots.values()
+    snapshots = context.gateway_evidence.snapshots.values()
     for _, projected in snapshots:
         indexes = gateway_interfaces(projected["tables"], ipaddress.ip_network(vlan.cidr))
         owned.update(
@@ -62,8 +63,7 @@ async def scan(job_id, collector):
 
         async def ping(address):
             up = await adapters.ping(address)
-            gateway = await context.gateway(address) if manual and address not in teamed else None
-            return address, up, gateway
+            return address, up, None
 
         async with aclosing(
             completed_batches(ping(a) for a in addresses[start : start + SCAN_BATCH_SIZE])
@@ -103,11 +103,9 @@ async def scan(job_id, collector):
                         row = db.get(m.IPAddress, id)
                         if not row or row.vlan_id != vlan.id:
                             return None
-                        sources = context.for_row(row, gateway) if manual else context.for_row(row)
+                        sources = context.for_row(row)
                     result = await pipeline.resolve(row.address, sources)
                     context.check()
-                    if manual:
-                        sources.check()
                     with session_factory()() as db:
                         current = db.get(m.IPAddress, id)
                         if not current or [current.address, current.vrf_id, current.vlan_id] != [
@@ -173,12 +171,6 @@ async def scan(job_id, collector):
         "problems": problems,
         "matching": matching,
         "network": {
-            "mode": "targeted",
-            "targeted_ips": context.read_counts["gateway"],
-            "failed": len(context.errors),
-        }
-        if manual
-        else {
             "devices": sum(context.read_counts.values()),
             "read": sum(context.read_counts.values()) - len(context.failed_devices),
             "failed": len(context.failed_devices),

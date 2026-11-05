@@ -163,6 +163,7 @@ def test_unproven_switch_port_is_never_selected(network, fault):
             tables["vlan_fdb_id"] = {"0.99": "700"}
         if fault == "missing_fid_mapping":
             tables.pop("vlan_fdb_id")
+            observation.network_state.vlan_fdbs = []
         if fault == "truncated":
             data["unsupported"] = ["vlan_fdb_port"]
         if fault == "down":

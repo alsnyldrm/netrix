@@ -110,14 +110,50 @@ def write(db, state, data, at):
         if profile:
             state.read_context = read_context(device, profile, detail_profile(db, device))
     unsupported = set(data.get("unsupported") or [])
+    known = {r.name: r for r in state.unsupported}
+    previous_success = {name: r.successful_at for name, r in known.items()}
+    outcomes = data.get("table_reads") or {
+        key: dict(status="error" if key in unsupported else "complete", row_count=len(value))
+        for key, value in tables.items()
+        if not key.startswith("_")
+    }
+    for key in unsupported:
+        outcomes.setdefault(key, dict(status="error", row_count=0))
+    # Unqueried tables are untouched. Late completions cannot replace newer data.
+    stale_tables = {
+        key for key in tables if key in known and known[key].attempted_at and known[key].attempted_at > at
+    }
+    for key, outcome in outcomes.items():
+        old = known.get(key)
+        if old and old.attempted_at and old.attempted_at > at:
+            continue
+        entry = old or m.UnsupportedTable(name=key)
+        if old is None:
+            state.unsupported.append(entry)
+        entry.status = outcome.get("status", "error")
+        if key in unsupported and entry.status == "complete":
+            entry.status = "error"
+        entry.row_count = outcome.get("row_count", 0)
+        entry.error_code = outcome.get("error_code", "")[:80]
+        entry.attempted_at = at
+        if entry.status == "complete":
+            entry.successful_at = at
+        known[key] = entry
+    tables = {k: v for k, v in tables.items() if k not in stale_tables}
+    if data.get("failed"):
+        tables = {}
+
+    def complete(*keys):
+        return all(
+            k in tables
+            and k not in unsupported
+            and outcomes.get(k, {}).get("status", "complete") == "complete"
+            for k in keys
+        )
+
     required = {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
-    if "tables" in data and (not state.fdb_at or at >= state.fdb_at):
-        state.fdb_at = at
-        state.fdb_complete = required <= tables.keys() and not required.intersection(unsupported)
-    # Unsupported identifiers are typed rows, not a serialized MIB payload.
-    if "unsupported" in data and (not state.attempted_at or at >= state.attempted_at):
-        known = {r.name: r for r in state.unsupported}
-        state.unsupported = [known.get(name) or m.UnsupportedTable(name=name) for name in sorted(unsupported)]
+    fresh_fdb = not state.fdb_at or at >= state.fdb_at
+    fdb_complete = fresh_fdb and complete(*required)
     if "neighbor_detail_failed" in data:
         state.neighbor_detail_failed = str(data["neighbor_detail_failed"] or "")[:80]
     elif "neighbor_detail" in data or (
@@ -187,9 +223,20 @@ def write(db, state, data, at):
     for item in interfaces:
         if item.get("if_index") is None:
             continue
-        port = port_for(state, item.get("name") or "", int(item["if_index"]))
+        port_name = item.get("name") or ""
+        if "if_name" in unsupported:
+            previous_port = next((p for p in state.ports if p.if_index == int(item["if_index"])), None)
+            if previous_port:
+                port_name = previous_port.name
+        port = port_for(state, port_name, int(item["if_index"]))
+        field_tables = {
+            "description": "if_descr",
+            "mac_address": "if_mac",
+            "oper_status": "if_status",
+            "speed_bps": "if_speed",
+        }
         for name in ("description", "mac_address", "admin_status", "oper_status", "speed_bps"):
-            if item.get(name) is not None:
+            if item.get(name) is not None and field_tables.get(name) not in unsupported:
                 setattr(port, name, item[name])
         port.alias = str(tables.get("if_alias", {}).get(str(port.if_index), port.alias or ""))[:400]
         port.updated_at = at
@@ -200,7 +247,7 @@ def write(db, state, data, at):
             for k, v in tables.items()
             if k not in {"bridge_ifindex", "vlan_fdb_id", "vlan_fdb_port", "vlan_fdb_status"}
         }
-    if "bridge_ifindex" in tables and "bridge_ifindex" not in unsupported:
+    if complete("bridge_ifindex"):
         previous = {p.bridge_port: p for p in state.bridge_ports}
         state.bridge_ports = [
             previous.get(int(k)) or m.SourceBridgePort(bridge_port=int(k), if_index=int(v))
@@ -210,7 +257,7 @@ def write(db, state, data, at):
         for p in state.bridge_ports:
             p.if_index = int(tables["bridge_ifindex"][str(p.bridge_port)])
     bridges = {p.bridge_port: p.if_index for p in state.bridge_ports}
-    if "vlan_fdb_id" in tables and "vlan_fdb_id" not in unsupported:
+    if complete("vlan_fdb_id"):
         values = {
             int(k.split(".")[-1]): int(v)
             for k, v in tables["vlan_fdb_id"].items()
@@ -222,27 +269,35 @@ def write(db, state, data, at):
         ]
         for v in state.vlan_fdbs:
             v.fdb_id = values[v.vlan_vid]
-    if "tables" in data and ("vlan_fdb_id" not in tables or "vlan_fdb_id" in unsupported):
-        state.vlan_fdbs = []
     by_fid = {}
     for v in state.vlan_fdbs:
         by_fid.setdefault(v.fdb_id, set()).add(v.vlan_vid)
-    if "vlan_fdb_port" in tables and not unsupported.intersection(
-        {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
-    ):
+    if fresh_fdb and "vlan_fdb_port" in tables and complete("bridge_ifindex"):
+        # Partial tables may contribute proven positive rows, never prove absence.
         prior = {(e.fdb_id, e.mac_address, e.port): e for e in state.mac_entries}
         found = {}
+        unresolved = False
         for key, bridge in tables["vlan_fdb_port"].items():
             try:
                 fid, *octets = map(int, key.split("."))
                 if len(octets) != 6:
+                    unresolved = True
                     continue
                 mac = bytes(octets).hex(":")
                 bridge = int(bridge)
                 index = bridges.get(bridge, 0)
                 port = portmap.get(index)
                 name = port.name if port else ""
+                status = str(tables.get("vlan_fdb_status", {}).get(key, ""))
+                if status in ("2", "4"):
+                    continue
+                if not name or status not in ("1", "3", "5"):
+                    unresolved = True
+                    continue
                 identity = (fid, mac, name)
+                if identity in prior and prior[identity].observed_at and prior[identity].observed_at > at:
+                    found[identity] = prior[identity]
+                    continue
                 e = prior.get(identity) or m.SwitchMacEntry(
                     id=m.uid(),
                     fdb_id=fid,
@@ -252,15 +307,28 @@ def write(db, state, data, at):
                     if_index=index,
                 )
                 e.vlan_vid = next(iter(by_fid[fid])) if len(by_fid.get(fid, ())) == 1 else 0
-                e.bridge_port = bridge
+                e.bridge_port, e.if_index = bridge, index
                 e.status = str(tables.get("vlan_fdb_status", {}).get(key, ""))[:10]
                 e.observed_at = at
                 e.present = True
                 found[identity] = e
             except (ValueError, TypeError):
+                unresolved = True
                 continue
+        if unresolved:
+            fdb_complete = False
+            diagnostic = known.get("vlan_fdb_port")
+            if diagnostic and diagnostic.status == "complete":
+                diagnostic.status = "incomplete"
+                diagnostic.error_code = "unresolved_row_dependencies"
+                diagnostic.successful_at = previous_success.get("vlan_fdb_port")
+        if fdb_complete:
+            state.fdb_at, state.fdb_complete = at, True
         for identity, entry in prior.items():
             if identity not in found:
+                if not fdb_complete or (entry.observed_at and entry.observed_at > at):
+                    found[identity] = entry
+                    continue
                 entry.present = False
                 # Keep only referenced last-known facts; subsequent collection reclaims others.
                 referenced = db.scalar(
@@ -272,7 +340,11 @@ def write(db, state, data, at):
                     found[identity] = entry
         state.mac_entries = list(found.values())
         state.entry_count = sum(e.present for e in found.values())
-    if any(k.startswith(("ip_addr_", "ip_address_")) for k in tables) or "_prefixes" in tables:
+    if (
+        complete("ip_addr_ifindex", "ip_addr_mask")
+        or complete("ip_address_ifindex", "ip_address_prefix")
+        or "_prefixes" in tables
+    ):
         old = {(p.if_index, p.address, p.prefix_length): p for p in state.prefixes}
         state.prefixes = [
             old.get(k) or m.SourcePrefix(if_index=k[0], address=k[1], prefix_length=k[2])
@@ -283,7 +355,9 @@ def write(db, state, data, at):
         and (not state.gateway_at or at >= state.gateway_at)
         and ("arp_mac" in tables or "ndp_mac" in tables)
     ):
-        state.gateway_at = at
+        gateway_complete = complete("arp_mac", "ndp_mac")
+        if gateway_complete:
+            state.gateway_at = at
         from types import SimpleNamespace
 
         from ..ipam.connections import bindings
@@ -297,13 +371,13 @@ def write(db, state, data, at):
                 at,
             )
             found.add(item.id)
-        if not data.get("partial"):
+        if gateway_complete and not data.get("partial"):
             for item in db.scalars(
                 select(m.GatewayBinding).where(
                     m.GatewayBinding.device_id == device.id, m.GatewayBinding.present.is_(True)
                 )
             ):
-                if item.id not in found:
+                if item.id not in found and item.observed_at <= at:
                     item.present = False
     complete = set(data.get("neighbor_protocols_complete") or [])
     if "neighbor_protocols_complete" in data and (not state.neighbors_at or at >= state.neighbors_at):
@@ -512,20 +586,23 @@ def read(state):
         gateway_at=state.gateway_at.isoformat() if state.gateway_at else None,
         fdb_at=state.fdb_at.isoformat() if state.fdb_at else None,
         failed=state.healthy is False,
+        fdb_complete=bool(state.fdb_complete),
+        table_reads={
+            r.name: dict(
+                status=r.status,
+                row_count=r.row_count,
+                error_code=r.error_code,
+                attempted_at=r.attempted_at.isoformat() if r.attempted_at else None,
+            )
+            for r in state.unsupported
+        },
         tables=tables,
         interfaces=interfaces,
         neighbors=neighbors,
         neighbor_protocols_complete=[
             k for k, v in [("lldp", state.lldp_complete), ("cdp", state.cdp_complete)] if v
         ],
-        unsupported=sorted(
-            {v.name for v in state.unsupported}
-            | (
-                set()
-                if state.fdb_complete
-                else {"vlan_fdb_id", "vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
-            )
-        ),
+        unsupported=sorted({v.name for v in state.unsupported if v.status != "complete"}),
     )
     if state.identity:
         info = state.identity

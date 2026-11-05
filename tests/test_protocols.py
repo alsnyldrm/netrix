@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 from netrix.core import settings
 from netrix.discovery import protocols as p
+from netrix.discovery import table_reads
 from netrix.discovery.correlation import correlate
 from pysnmp.proto.rfc1902 import OctetString
 
@@ -59,10 +60,10 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
             ],
         )
 
-    async def walk(engine, auth, target, context, oid, **kwargs):
+    async def walk(engine, auth, target, context, nonrepeat, repeats, oid, **kwargs):
         walked.append(oid)
         assert kwargs["lexicographicMode"] is False
-        assert kwargs["maxRows"] == 2048
+        assert kwargs["maxRows"] == 65537
         table = {
             p.TABLES["entity_class"]: {"1": 3, "2": 9},
             p.TABLES["entity_vendor"]: {"1": "Cisco", "2": "Transceiver vendor"},
@@ -83,7 +84,7 @@ async def test_snmp_adapter_parses_standard_tables_and_closes_transport(monkeypa
             yield None, 0, 0, [(oid + "." + index, value)]
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "walk_cmd", walk)
+    monkeypatch.setattr(table_reads, "walk_table", walk)
     data = await p.SNMPCollector().collect("192.0.2.1", 161, secret)
     assert data["hostname"] == "edge-observed"
     assert data["identity"] == {"vendor": "Cisco", "model": "C9300-48P", "kind": "switch"}
@@ -261,7 +262,7 @@ async def test_unsupported_or_failed_neighbor_walks_are_not_complete(monkeypatch
     async def get(*args, **kwargs):
         return None, 0, 0, list(zip(p.SYSTEM.values(), ["switch", "1.3.6.1.4.1", 1000, "core"]))
 
-    async def walk(engine, auth, target, context, oid, **kwargs):
+    async def walk(engine, auth, target, context, nonrepeat, repeats, oid, **kwargs):
         if oid == p.TABLES["lldp_name"]:
             yield None, 0, 0, [(oid + ".0", NoSuchObject())]
         elif oid == p.TABLES["cdp_name"]:
@@ -270,7 +271,7 @@ async def test_unsupported_or_failed_neighbor_walks_are_not_complete(monkeypatch
             yield None, 0, 0, [(oid + ".1", "port-1")]
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "walk_cmd", walk)
+    monkeypatch.setattr(table_reads, "walk_table", walk)
     result = await p.SNMPCollector().collect(
         "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
     )
@@ -304,8 +305,7 @@ async def test_fortigate_version_scalar_when_sysdescr_is_hostname(monkeypatch, m
             yield
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "walk_cmd", walk)
-    monkeypatch.setattr(p, "bulk_walk_cmd", walk)
+    monkeypatch.setattr(table_reads, "walk_table", walk)
     result = await getattr(p.SNMPCollector(), mode)(
         "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
     )

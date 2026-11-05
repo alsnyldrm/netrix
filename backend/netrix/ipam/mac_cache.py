@@ -14,14 +14,14 @@ from ..core import now, session_factory
 from ..discovery.protocols import NetworkError
 from ..identity.security import audit, secret_data
 from ..services import get, publish
-from .connections import Evidence, Snapshot, project, projections
+from .connections import Evidence, Snapshot, projections
 
 KIND = "switch_mac_scan"
 TARGET = "switch-mac-cache"
 LEDGER = "switch_mac_scan_slot"
 FRESHNESS = timedelta(hours=7)
 SCHEDULE_TIMES = ["00:00", "06:00", "12:00", "18:00"]
-REQUIRED = {"vlan_fdb_id", "vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
+REQUIRED = {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
 
 
 def is_switch(device):
@@ -149,28 +149,25 @@ def save_snapshot(db, device, profile, job_id, evidence, *, error=""):
         or {"if_name", "if_descr"} <= set(evidence.get("unsupported") or [])
     )
     if error or evidence.get("failed") or incomplete:
+        # Persist read diagnostics and valid positive rows; never retire previous facts.
+        from ..sources.network import write
+
+        write(db, state, {**evidence, "failed": bool(error or evidence.get("failed"))}, now())
         state.healthy = False
         state.error_class = error or ("IncompleteFDB" if incomplete else "SourceFailed")
         db.flush()
         return {"read": 0, "failed": 1, "added": 0, "removed": 0, "error_class": state.error_class}
-    projected = project(evidence)
-    names = {
-        p["name"]: index
-        for index, p in projected["interfaces"].items()
-        if p.get("name") and index and index > 0
-    }
-    bindings = {
-        (vid, mac, port): names[port]
-        for (vid, mac), ports in projected["fdb"].items()
-        for port in ports
-        if len(port) <= 190 and port in names
-    }
-    existing = {(e.vlan_vid, e.mac_address, e.port) for e in state.mac_entries if e.present}
-    added, removed = len(bindings.keys() - existing), len(existing - bindings.keys())
+    existing = {(e.fdb_id, e.mac_address, e.port) for e in state.mac_entries if e.present}
     state.observed_at, state.healthy, state.error_class = now(), True, ""
     state.read_context = context(device, profile)
     state.evidence = evidence
-    state.entry_count = len(bindings)
+    db.flush()
+    current = {(e.fdb_id, e.mac_address, e.port) for e in state.mac_entries if e.present}
+    added, removed = len(current - existing), len(existing - current)
+    if any(r.name in REQUIRED and r.status != "complete" for r in state.unsupported):
+        state.healthy, state.error_class = False, "IncompleteFDB"
+        db.flush()
+        return {"read": 0, "failed": 1, "added": added, "removed": 0, "error_class": state.error_class}
     if added or removed:
         db.add(
             m.Event(

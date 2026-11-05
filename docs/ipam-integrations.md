@@ -295,3 +295,35 @@ Açık VLAN’ın **Yeni IP kaydı** düğmesi yanındaki **VLAN incele**, yaln�
 Boş/dolu hesabı IP ekleme listesinin SQL kuralını paylaşır: en son güncel ICMP yanıtı olan, rezerve veya gateway işaretli adresler doludur; diğer adresler boştur. Önceki pasif keşif kaydının bulunması adresi tek başına dolu yapmaz. Kayıt sırasında mevcut kilit ve yeniden doğrulama davranışı korunur. VLAN/VRF kapsamları birbirine karışmaz. Pencere açılışı, adres araması ve sayfalama kaynak taraması başlatmaz; mevcut WebSocket bildirimleri ve görünür ekranın 10 saniyelik SQL yenilemesi durumları günceller.
 
 `GET /api/v1/ipam/vlans/{id}/inspection` yalnız veritabanını okur. Yanıt en fazla 256 adres, tam adres/varsa kayıt kimliği, boş/dolu durumu, sayfa sayıları ve metin türünde önceki/sonraki ofsetleri içerir. Tam IP araması ilgili sayfaya gider. IPv4 ağ/yayın adresleri /31 ve /32 dışında listelenmez; IPv6 aralıkları bütünüyle üretilmez. Büyük IPv6 kapasite ve ofsetleri JavaScript sayı hassasiyetinden etkilenmez. Şema veya yeni görev türü eklenmez. Doğrulama: `test_ipam_allocation.py`, gerçek yerel API kullanan ve protokol işleri engellenmiş `scripts/vlan_inspector_fixture.py` ile `scripts/vlan_inspector_browser_check.py`.
+
+## Manuel tarama SQL sözleşmesi — 5 Kasım 2026
+
+- Kullanıcının IP ayrıntısında **Tara** ve VLAN içinde **Tara** eylemleri yalnız
+  kanonik SQL kaynaklarını yeniden eşleştirir. SNMP, SSH, VMware, DHCP, DNS veya
+  ICMP istemcisi çalıştırmaz. NIC-Teaming de SQL DNS/LLDP/CDP kayıtlarını kullanır.
+- VLAN işlemi yalnız seçili VLAN/VRF/CIDR içindeki kayıtları işler; kaynak SQL'de
+  bulunan yeni adresleri içeri alabilir. Kaynağın zamanı korunur; yeniden hesaplama
+  eski gözlemi yeni gözlem yapmaz. Her IP sonucu ayrı transaction ile yayımlanır.
+- Kaynak toplama zamanlanmış işlerdedir; yeni VLAN'ın ilk otomatik taraması sürer.
+  Ayrı **Ping** eylemi ve periyodik ICMP işi değişmez. Sayfa açılışı pasiftir.
+- SQL kaynaklarına yeniden kopyalama yapılmaz: sonuç alanları mevcut kanonik
+  kayıtlara foreign key ile bağlanır. Kaynak hatasında son doğrulanmış sonuç
+  korunur; çelişki/belirsizlik veya eski kaynak sonucu sorunsuz diye sunulmaz.
+
+### SNMP okuma bütünlüğü
+
+Envanter ve IPAM MAC okumaları MAC-port, MAC durumu ve bridge-ifIndex kolonlarını
+birlikte ister. VLAN-FID ayrı metadatadır; eksikliği ham MAC-port kayıtlarının
+saklanmasını engellemez ve FID hiçbir zaman VLAN kimliği varsayılmaz.
+
+Her tablo için sınırlı GETBULK, ayrı süre bütçesi ve 65.536 satır koruması kullanılır.
+Tam, zaman aşımı, SNMP hata yanıtı, desteklenmeyen ve kesilmiş okumalar ayrılır.
+`source_unsupported_tables` mevcut metadata tablosu artık tüm tablo okumalarının
+son durumunu, güvenli hata kodunu, satır sayısını, deneme ve başarı zamanını tutar;
+anahtar cihaz+tablodur, geçmiş payload veya JSON çoğaltılmaz.
+
+Sorgulanmayan/başarısız kolon önceki doğrulanmış alanı temizlemez. Kısmi okumada
+birlikte doğrulanmış pozitif MAC/port satırları eklenebilir; yokluk çıkarımı yapılamaz.
+Yalnız tam ve başarılı tablo okuması kaybolan kayıtları pasifleştirir. Eski tamamlanan
+iş yeni kaydı ezmez. Arayüz numarası değişince MAC kaydının ifIndex'i de güncellenir.
+Genel bağlantı eksikliği gerçek uplink kanıtı gibi raporlanmaz.

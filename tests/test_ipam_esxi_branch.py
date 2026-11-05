@@ -2,7 +2,7 @@
 
 import pytest
 from netrix import models as m
-from netrix import worker
+from netrix.core import now
 from netrix.ipam import adapters, pipeline
 from sqlalchemy import select
 from test_ipam_source_contract import MAC
@@ -10,14 +10,12 @@ from test_ipam_source_contract import network as network
 
 
 @pytest.mark.parametrize("record_type", ["host", "vm"])
-async def test_manual_ip_classifies_vm_and_host_before_selecting_sources(
+async def test_resolver_classifies_vm_and_host_before_selecting_sources(
     admin_client, network, monkeypatch, record_type
 ):
     sf, vlan_id, id, _ = network
     calls = []
     if record_type == "host":
-        from netrix.core import now
-
         with sf() as db:
             vlan = db.get(m.VLAN, vlan_id)
             for number, (name, ports) in enumerate((("BB1", ("H7", "H8")), ("BB2", ("B7",)))):
@@ -94,14 +92,14 @@ async def test_manual_ip_classifies_vm_and_host_before_selecting_sources(
             calls.append("dns")
             return "esxi.example.test"
 
-    monkeypatch.setattr(pipeline, "sources_for", lambda *_: Sources())
-
     async def ping(address):
         return True
 
     monkeypatch.setattr(adapters, "ping", ping)
-    job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
-    await worker.execute(job["id"], object())
+    result = await pipeline.resolve("192.0.2.10", Sources())
+    with sf() as db:
+        pipeline.save_result(db, db.get(m.IPAddress, id), now(), result)
+        db.commit()
     detail = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert detail["scan_status"] == "success"
     if record_type == "host":

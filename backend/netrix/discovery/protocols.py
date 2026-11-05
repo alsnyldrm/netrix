@@ -16,12 +16,13 @@ from pysnmp.hlapi.v3arch.asyncio import (
     Udp6TransportTarget,
     UdpTransportTarget,
     UsmUserData,
-    bulk_walk_cmd,
     get_cmd,
     usmAesCfb128Protocol,
     usmHMAC192SHA256AuthProtocol,
     usmHMACSHAAuthProtocol,
-    walk_cmd,
+)
+from pysnmp.hlapi.v3arch.asyncio import (
+    bulk_walk_cmd as bulk_walk_cmd,
 )
 from pysnmp.proto.rfc1905 import EndOfMibView, NoSuchInstance, NoSuchObject
 
@@ -78,6 +79,8 @@ TABLES = {
     "fdb_port": "1.3.6.1.2.1.17.4.3.1.2",
     "bridge_ifindex": "1.3.6.1.2.1.17.1.4.1.2",
     "vlan_fdb_port": "1.3.6.1.2.1.17.7.1.2.2.1.2",
+    "vlan_fdb_id": "1.3.6.1.2.1.17.7.1.4.2.1.3",
+    "vlan_fdb_status": "1.3.6.1.2.1.17.7.1.2.2.1.3",
 }
 
 # IPAM reads address/bridge evidence only. No traffic counters are collected.
@@ -185,7 +188,7 @@ class SNMPCollector:
             )
             target = await transport_type.create((host, port), timeout=1 if fast_probe else 2, retries=1)
             context = ContextData()
-            tables, unsupported = {}, []
+            tables, unsupported, table_reads = {}, [], {}
             async with asyncio.timeout(30 if version_only else 180):
                 system_oids = {
                     **SYSTEM,
@@ -228,54 +231,52 @@ class SNMPCollector:
                     fields = snmp_identity(system, {})
                     if fields.get("software_version"):
                         return {"identity": {"software_version": fields["software_version"]}}
-                limit = 65536 if mac_only else 16384 if ipam_only else 2048
+                from .table_reads import read_table
+
+                limit = 65536
+                deadline = asyncio.get_running_loop().time() + 160
                 selected_tables = IPAM_TABLES if ipam_only else TABLES
                 if mac_only:
                     selected_tables = {
                         k: v for k, v in selected_tables.items() if not k.startswith(("arp_", "ndp_", "ip_"))
                     }
-                for key, oid in selected_tables.items():
+                # Resolve core port identity before optional vendor/neighbor tables
+                # can consume the collection deadline.
+                priority = (
+                    "if_name",
+                    "if_descr",
+                    "if_status",
+                    "bridge_ifindex",
+                    "vlan_fdb_port",
+                    "vlan_fdb_status",
+                    "vlan_fdb_id",
+                )
+                ordered = dict.fromkeys((*[k for k in priority if k in selected_tables], *selected_tables))
+                for key in ordered:
+                    oid = selected_tables[key]
                     if version_only and key not in ("entity_class", "entity_software"):
                         continue
                     if identity_only and not key.startswith("entity_"):
                         continue
-                    table = {}
-                    walker = bulk_walk_cmd if ipam_only else walk_cmd
-                    async for error, status, _, bindings in walker(
-                        snmp,
-                        auth,
-                        target,
-                        context,
-                        *([0, 25] if ipam_only else []),
-                        ObjectType(ObjectIdentity(oid)),
-                        lexicographicMode=False,
-                        lookupMib=False,
-                        maxRows=limit,
-                        maxCalls=limit,
-                    ):
-                        if error or status:
-                            unsupported.append(key)
-                            break
-                        for binding in bindings:
-                            if isinstance(binding[1], (EndOfMibView, NoSuchInstance, NoSuchObject)):
-                                unsupported.append(key)
-                                continue
-                            if not str(binding[0]).startswith(oid + "."):
-                                unsupported.append(key)
-                                continue
-                            index = str(binding[0])[len(oid) + 1 :]
-                            table[index] = binding[1]
-                    if mac_only and len(table) >= limit:
-                        unsupported.append(key)
-                    tables[key] = table
-                for key, table in tables.items():
-                    if len(table) >= limit:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        table, outcome = (
+                            {},
+                            dict(status="timeout", row_count=0, error_code="collection_budget"),
+                        )
+                    else:
+                        table, outcome = await read_table(
+                            snmp, auth, target, context, oid, limit=limit, timeout=min(15, remaining)
+                        )
+                    tables[key], table_reads[key] = table, outcome
+                    if outcome["status"] != "complete":
                         unsupported.append(key)
                 system["identity"] = snmp_identity(system, tables)
                 if identity_only:
                     return system
                 interfaces = []
-                for index, label in tables["if_descr"].items():
+                labels = {**tables["if_name"], **tables["if_descr"]}
+                for index, label in labels.items():
                     if not index.isdigit():
                         continue
                     item = {
@@ -304,7 +305,15 @@ class SNMPCollector:
                     for key in (
                         tuple(selected_tables)
                         if ipam_only
-                        else ("arp_mac", "ndp_mac", "fdb_port", "bridge_ifindex", "vlan_fdb_port")
+                        else (
+                            "arp_mac",
+                            "ndp_mac",
+                            "fdb_port",
+                            "bridge_ifindex",
+                            "vlan_fdb_port",
+                            "vlan_fdb_id",
+                            "vlan_fdb_status",
+                        )
                     )
                 }
                 return {
@@ -334,6 +343,8 @@ class SNMPCollector:
                     ],
                     "tables": raw,
                     "unsupported": unsupported,
+                    "table_reads": table_reads,
+                    "partial": bool(unsupported),
                 }
         except TimeoutError as exc:
             raise NetworkError("SNMP toplama zaman aşımı") from exc

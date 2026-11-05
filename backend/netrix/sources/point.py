@@ -25,7 +25,7 @@ def gateway(db, iprow, device, macs):
 
 
 @records.source_write
-def switch(db, device, vlan, mac, ports, peers):
+def switch(db, device, vlan, mac, ports, peers, *, absence_confirmed=False):
     from ..discovery.links import legacy_match
 
     at = now()
@@ -65,7 +65,12 @@ def switch(db, device, vlan, mac, ports, peers):
         fact.status, fact.observed_at, fact.present = "3", at, True
         found.add(fact.id)
     for fact in state.mac_entries:
-        if fact.mac_address == mac and fact.vlan_vid == vlan.vid and fact.id not in found:
+        if (
+            absence_confirmed
+            and fact.mac_address == mac
+            and fact.vlan_vid == vlan.vid
+            and fact.id not in found
+        ):
             fact.present = False
     links = list(db.scalars(select(m.Link).where(m.Link.device_id == device.id)))
     for peer in peers:

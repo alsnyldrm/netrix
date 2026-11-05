@@ -298,6 +298,11 @@ class UnsupportedTable(Base):
         ForeignKey("network_source_states.id", ondelete="CASCADE"), primary_key=True
     )
     name: Mapped[str] = mapped_column(String(80), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="unsupported")
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str] = mapped_column(String(80), default="")
+    attempted_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    successful_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class DeviceSourceIdentity(Base):

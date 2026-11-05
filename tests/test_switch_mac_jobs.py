@@ -209,6 +209,7 @@ def test_no_configured_switch_does_not_create_fictional_success(admin_client, en
 
 async def test_mac_protocol_reads_fdb_and_neighbors_without_arp_or_traffic(monkeypatch):
     from netrix.discovery import protocols as p
+    from netrix.discovery import table_reads
     from test_protocols import Engine, Transport
 
     monkeypatch.setattr(p, "SnmpEngine", Engine)
@@ -222,13 +223,13 @@ async def test_mac_protocol_reads_fdb_and_neighbors_without_arp_or_traffic(monke
     walked = set()
 
     async def bulk(engine, auth, target, context, nonrepeat, repeats, oid, **kwargs):
-        assert kwargs["maxRows"] == 65536
+        assert kwargs["maxRows"] == 65537
         walked.add(oid)
         if oid == p.IPAM_TABLES["vlan_fdb_id"]:
             yield None, 0, 0, [(oid + ".0.20", 700)]
 
     monkeypatch.setattr(p, "get_cmd", get)
-    monkeypatch.setattr(p, "bulk_walk_cmd", bulk)
+    monkeypatch.setattr(table_reads, "walk_table", bulk)
     result = await p.SNMPCollector().switch_macs(
         "192.0.2.1", 161, {"protocol": "snmpv2c", "community": "fixture"}
     )

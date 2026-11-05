@@ -45,16 +45,15 @@ async def test_vm_branch_never_reads_dns_dhcp_or_switches(admin_client, network,
         async def dns(self, *_):
             raise AssertionError("VM branch cannot query DNS")
 
-    monkeypatch.setattr(pipeline, "sources_for", lambda *a, **k: Sources())
-
     async def ping(_):
         return True
 
     monkeypatch.setattr(adapters, "ping", ping)
     sf, _, id, _ = network
-    job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
-    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
-    await worker.execute(job["id"], object())
+    result = await pipeline.resolve("192.0.2.10", Sources())
+    with sf() as db:
+        pipeline.save_result(db, db.get(m.IPAddress, id), now(), result)
+        db.commit()
     assert [c[0] for c in calls] == ["gateway", "vmware"]
     row = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert (row["hostname"], row["mac_address"], row["connected_device"], row["connected_port"]) == (
@@ -179,7 +178,7 @@ async def test_partial_failure_preserves_last_good_fields_and_row_count(admin_cl
 
 
 @pytest.mark.parametrize("action", ["address", "vlan"])
-async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, network, monkeypatch, action):
+async def test_manual_jobs_use_sql_gateway_and_mac_path(admin_client, network, monkeypatch, action):
     sf, _, id, _ = network
     calls = []
 
@@ -215,9 +214,7 @@ async def test_point_sources_read_only_gateway_and_the_mac_path(admin_client, ne
         job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
     assert worker.claim(interactive=False, include_kinds=(job["kind"],)) == job["id"]
     await worker.execute(job["id"], Collector())
-    assert calls == [("gateway", "198.51.100.1", "192.0.2.10"), ("switch", "198.51.100.2", MAC)], str(
-        admin_client.get(f"/api/v1/ipam/addresses/{id}").json().get("scan_result")
-    )
+    assert calls == []
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert item["connected_device"] == "Access" and item["connected_port"] == "Gi1/0/1"
     assert item["scan_status"] == "success"
@@ -383,9 +380,16 @@ async def test_live_point_groups_two_nics_with_current_port_detail(admin_client,
     monkeypatch.setattr(point_sources, "fetch_neighbor_ports", detail)
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns)
-    job = admin_client.post(f"/api/v1/ipam/addresses/{id}/scan").json()
-    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
-    await worker.execute(job["id"], Collector())
+    from netrix.ipam import pipeline
+
+    with sf() as db:
+        sources = point_sources.PointSources(
+            db, db.get(m.IPAddress, id), db.get(m.VLAN, vlan_id), Collector()
+        )
+    result = await pipeline.resolve("192.0.2.10", sources)
+    with sf() as db:
+        pipeline.save_result(db, db.get(m.IPAddress, id), now(), result)
+        db.commit()
     item = admin_client.get(f"/api/v1/ipam/addresses/{id}").json()
     assert item["scan_status"] == "success", item["scan_result"]
     assert item["connected_port"] == "H7 Trk1 - H8 Trk1"

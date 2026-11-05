@@ -146,7 +146,7 @@ def test_invalid_secondary_proof_is_never_displayed(network, fault):
             ).vrf_id = vrf.id
         elif fault == "no_gateway":
             db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[0])).evidence = {
-                "tables": {"arp_mac": {}, "arp_type": {}}
+                "tables": {"arp_mac": {}, "arp_type": {}, "ndp_mac": {}, "ndp_type": {}}
             }
         db.commit()
     assert read(network)["connected_port"] == ""

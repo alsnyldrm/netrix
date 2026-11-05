@@ -267,7 +267,7 @@ async def resolve(address, sources, progress=None):
         issue(
             "resolution",
             "attachment_missing",
-            "Bağlı switch ve port doğrulanamadı; transit/uplink port uç bağlantısı sayılmadı.",
+            "Bağlı switch ve port için yeterli doğrulanmış kaynak verisi bulunamadı.",
         )
     if vm_candidates and not values["operating_system"]:
         issue("vmware", "os_missing", "VMware işletim sistemi bilgisi bulunamadı.")
