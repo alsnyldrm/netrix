@@ -35,3 +35,4 @@ backups/
 artifacts/
 *.tsbuildinfo
 *.sql
+!backend/pg_migrations/versions/*.sql
