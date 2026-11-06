@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 
 from .. import models as m
 from ..core import now, settings
+from ..db_errors import conflict
 from ..identity.security import audit
 from ..services import get, publish, serialize
 from .adapters import ERRORS
@@ -232,7 +233,7 @@ def start_plan(db, plan, user):
         # MariaDB snapshot conflicts (1020), deadlocks and lock timeouts are
         # competing reservations, never permission to replay a device operation.
         db.rollback()
-        if getattr(exc, "orig", None) and exc.orig.args[0] in (1020, 1205, 1213):
+        if conflict(exc):
             raise HTTPException(409, "Cihaz rezervasyonu değişti; planı yeniden başlatın") from None
         raise
 

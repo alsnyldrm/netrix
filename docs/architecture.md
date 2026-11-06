@@ -1,15 +1,17 @@
+> **6 Kasım 2026:** Kalıcı veri artık mevcut PostgreSQL kümesinin `10.2.0.31:5432` yazma VIP'sindedir. MariaDB/Galera hakkında aşağıdaki tarihli açıklamalar eski uygulamaya aittir. Güncel tablo sahipliği ve veri geçişi: [PostgreSQL geçişi](postgresql-migration.md).
+
 # NETRIX çalışan mimarisi
 
-NETRIX; FastAPI, SQLAlchemy/Alembic, harici MariaDB ve Redis kullanan modüler monolittir. Cihaz kimlikleri ortaktır; envanter keşfi ile VLAN IPAM toplama akışları ayrıdır. Hazır ağ yönetimi ürünü kullanılmaz.
+NETRIX; FastAPI, SQLAlchemy/Alembic, harici PostgreSQL ve Redis kullanan modüler monolittir. Cihaz kimlikleri ortaktır; envanter keşfi ile VLAN IPAM toplama akışları ayrıdır. Hazır ağ yönetimi ürünü kullanılmaz.
 
 Bağlantı menüsündeki harita, komşuluk cihaz listesi, bağlantı ayrıntıları ve işlemleri cihaz envanterine aittir (`devices.discovery_scope_id` dolu). IPAM için ortak tabloda tutulan envanter dışı cihazlar bu görünümlere veya bağlantı kimliği eşlemesine katılmaz. Kaynak ve eşleşmiş uzak cihaz için aynı sınır API sorgularında, sayaçlarda ve işlemlerde uygulanır; serbest protokol gözlemleri envanterdeki kaynak cihazın kanıtı olarak kalır. Silinen komşuluklarda arşivlenmiş envanter cihazının geçmişi korunur; geri yüklemeden önce cihaz geri alınmalıdır.
 
 ## Süreçler
 
-Dağıtım tek servisli `netrix` Docker Compose stack'tir. `netrix-app` servisi yalnızca `netrix` container'ını oluşturur. Aşağıdaki adlar container değil, aynı container içinde Supervisor'ın yönettiği süreç adlarıdır. Harici MariaDB ve mevcut host Nginx bu uygulama stack'inin dışındadır. Container UID/GID 10001 ile çalışır; Redis yalnızca container loopback'ini dinler, `/data` kalıcı volume'dadır.
+Dağıtım tek servisli `netrix` Docker Compose stack'tir. `netrix-app` servisi yalnızca `netrix` container'ını oluşturur. Aşağıdaki adlar container değil, aynı container içinde Supervisor'ın yönettiği süreç adlarıdır. Mevcut PostgreSQL kümesi ve host Nginx bu uygulama stack'inin dışındadır. Container UID/GID 10001 ile çalışır; Redis yalnızca container loopback'ini dinler, `/data` kalıcı volume'dadır.
 
 - `netrix-api`: React arayüzünü ve `/api/v1` API'lerini sunar. Ağ sorgusu yürütmez.
-- `netrix-worker`: MariaDB'den `FOR UPDATE SKIP LOCKED` ile iş alır. SNMPv3, SSH ve HTTPS REST bağlantıları bu süreçtedir.
+- `netrix-worker`: PostgreSQL'den `FOR UPDATE SKIP LOCKED` ile iş alır. SNMPv3, SSH ve HTTPS REST bağlantıları bu süreçtedir.
 - `netrix-tests`: kullanıcı bağlantı testleri için ayrı worker süreci; en fazla dört eşzamanlı salt okunur probe. Normal keşif/yedekleme ve toplu aktarım işleri bu kapasiteyi kullanmaz.
 - `netrix-ssh`: kullanıcıya özel SSH oturumları ve toplu komutlar; şifreli ve süreli Redis akışları, ayrı sınırlı eşzamanlılık. [Yetki ve kaynak sınırları](ssh-workspace.md).
 - `netrix-scheduler`: etkin politikaları 15 saniyede bir değerlendirir; işler aynı kuyruk servisinden geçer.

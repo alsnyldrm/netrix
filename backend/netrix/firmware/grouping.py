@@ -256,7 +256,7 @@ def save_group(db, user, payload, row):
         ) from None
     except OperationalError as exc:
         db.rollback()
-        if getattr(exc.orig, "args", (None,))[0] not in (1020, 1205, 1213):
+        if not conflict(exc):
             raise
         raise HTTPException(
             409, "Cihaz üyeliği eşzamanlı bir işlemde değişti. Güncel listeyi kontrol edin."

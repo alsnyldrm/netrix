@@ -3,7 +3,7 @@ pythonpath = ["backend"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-markers = ["integration: requires dedicated MariaDB test database"]
+markers = ["integration: requires dedicated database"]
 
 [tool.ruff]
 target-version = "py311"

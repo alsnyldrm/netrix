@@ -136,7 +136,7 @@ def assign(db, vlan, payload, user):
             )
             .order_by(m.IPObservation.observed_at.desc(), m.IPObservation.id.desc())
             .limit(1)
-            .with_for_update()
+            .with_for_update(of=m.IPObservation)
         )
         if (
             row.status == "reserved"

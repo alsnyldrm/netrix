@@ -410,7 +410,9 @@ def verify(connection):
         }
     }
     for name in source_tables:
-        if any(isinstance(c.type, JSON) for c in m.Base.metadata.tables[name].columns):
+        from ..db_layout import qualified
+
+        if any(isinstance(c.type, JSON) for c in m.Base.metadata.tables[qualified(name)].columns):
             raise RuntimeError("Serialized source payload remains")
     # Database UNIQUE/FK constraints validate source identity and reference parity.
     for table in (m.LLDPNeighbor.__table__, m.CDPNeighbor.__table__):

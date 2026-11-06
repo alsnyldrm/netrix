@@ -1,3 +1,5 @@
+> **6 Kasım 2026:** Uygulanan PostgreSQL menü şemaları için [geçiş ve tablo sahipliğini](postgresql-migration.md), `backend/netrix/db_layout.py` ve `backend/pg_migrations` dizinini esas alın. Aşağıdaki eski PostgreSQL hedefi/MariaDB revision açıklamaları tarihsel bağlamdır.
+
 # NETRIX kapsamlı veri modeli
 
 > **1 Kasım 2026:** Trafik izleme kaldırılmıştır. VLAN merkezli IPAM ve envantere özel keşif önceki ortak keşif tasarımının yerini alır. `devices.discovery_scope_id` envanter aidiyetini; `base_snapshot_id` ve onay alanları konfigürasyon referansını tutar. Geçerli şema migration dosyalarıdır.

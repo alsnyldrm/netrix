@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from sqlalchemy.exc import OperationalError
 
+from .db_errors import retryable
+
 # One switch counts once, whether its read uses SNMP alone or SNMP followed by SSH.
 DEVICE_READ_CONCURRENCY = 10
 # Snapshot conflict, lock wait timeout, deadlock and a connection lost to a cluster stall.
@@ -32,8 +34,7 @@ def device_slot():
 
 
 def _conflict(exc):
-    args = getattr(getattr(exc, "orig", None), "args", ())
-    return bool(args) and args[0] in RETRIED_DB_ERRORS
+    return retryable(exc)
 
 
 async def _with_retry(submit):

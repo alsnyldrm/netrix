@@ -38,7 +38,9 @@ def accepted_contexts(db, device, profile):
 def save_snapshot(db, device, profile, job_id, evidence, *, error=""):
     """Diff current rows in one transaction; failed/partial reads never retire old bindings."""
     state = db.scalar(
-        select(m.SwitchMacSnapshot).where(m.SwitchMacSnapshot.device_id == device.id).with_for_update()
+        select(m.SwitchMacSnapshot)
+        .where(m.SwitchMacSnapshot.device_id == device.id)
+        .with_for_update(of=m.SwitchMacSnapshot)
     )
     if state is None:
         state = m.SwitchMacSnapshot(device_id=device.id)

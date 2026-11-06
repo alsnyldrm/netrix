@@ -44,7 +44,9 @@ def update_labels(db, id, payload, user):
     from .visibility import inventory_links
 
     link = db.scalar(
-        select(m.Link).where(m.Link.id == id, inventory_links(include_archived=True)).with_for_update()
+        select(m.Link)
+        .where(m.Link.id == id, inventory_links(include_archived=True))
+        .with_for_update(of=m.Link)
     )
     if link is None:
         raise HTTPException(404, "Bağlantı kaydı bulunamadı")

@@ -1,3 +1,4 @@
+import os
 import socket
 from contextlib import nullcontext
 
@@ -39,10 +40,20 @@ class MemoryRedis:
 @pytest.fixture(autouse=True)
 def prohibit_real_network(monkeypatch):
     original = socket.socket.connect
+    from sqlalchemy.engine import make_url
+
+    test_url = os.environ.get("NETRIX_TEST_DATABASE_URL")
+    allowed = None
+    if test_url:
+        url = make_url(test_url)
+        if url.get_backend_name() != "postgresql" or not url.database.endswith("_test"):
+            raise RuntimeError("PostgreSQL integration tests require an explicit *_test database")
+        allowed = (url.host, url.port or 5432)
 
     def connect(sock, address):
         if sock.family in (socket.AF_INET, socket.AF_INET6):
-            raise AssertionError("Real network access is forbidden in unit tests")
+            if not allowed or address[:2] != allowed:
+                raise AssertionError("Real network access is forbidden in unit tests")
         return original(sock, address)
 
     monkeypatch.setattr(socket.socket, "connect", connect)
@@ -50,7 +61,10 @@ def prohibit_real_network(monkeypatch):
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    monkeypatch.setenv("NETRIX_DATABASE_URL", "sqlite+pysqlite:///" + str(tmp_path / "test.db"))
+    database_url = os.environ.get("NETRIX_TEST_DATABASE_URL") or "sqlite+pysqlite:///" + str(
+        tmp_path / "test.db"
+    )
+    monkeypatch.setenv("NETRIX_DATABASE_URL", database_url)
     monkeypatch.setenv("NETRIX_ENCRYPTION_KEY", Fernet.generate_key().decode())
     monkeypatch.setenv("NETRIX_SETUP_TOKEN", "test-only-setup-token-32-characters")
     monkeypatch.setenv("NETRIX_SECURE_COOKIES", "false")
@@ -59,7 +73,19 @@ def env(tmp_path, monkeypatch):
     engine.cache_clear()
     from netrix import main, services, worker
 
-    Base.metadata.create_all(engine())
+    if engine().dialect.name == "postgresql":
+        from netrix.db_layout import SCHEMA_TABLES
+        from sqlalchemy import text
+
+        with engine().begin() as connection:
+            for schema in SCHEMA_TABLES:
+                connection.execute(text("CREATE SCHEMA IF NOT EXISTS " + schema))
+        Base.metadata.create_all(engine())
+        with engine().begin() as connection:
+            tables = ", ".join(table.fullname for table in Base.metadata.tables.values())
+            connection.execute(text("TRUNCATE " + tables + " CASCADE"))
+    else:
+        Base.metadata.create_all(engine())
     sf = sessionmaker(engine(), expire_on_commit=False)
     with sf() as db:
         from netrix.inventory.device_types import seed_defaults

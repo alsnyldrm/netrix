@@ -80,7 +80,9 @@ class BulkContext:
             def save(id, d, data, profile, ssh):
                 with session_factory()() as db:
                     item = db.scalar(
-                        select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == id).with_for_update()
+                        select(m.IPAMNetworkState)
+                        .where(m.IPAMNetworkState.device_id == id)
+                        .with_for_update(of=m.IPAMNetworkState)
                     )
                     if item is None:
                         item = m.IPAMNetworkState(device_id=id, address=d.management_ip)

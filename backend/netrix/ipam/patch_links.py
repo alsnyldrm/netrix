@@ -23,6 +23,11 @@ TARGET = (*PATH, "panel_unit", "port_id", *ENDPOINT)
 
 
 def lock(db):
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy import text
+
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended('patch-cabling', 0))"))
+        return
     # One short DB mutex covers reciprocal writes and structural reconciliation.
     # A real increment also participates in Galera write-set certification.
     if db.get_bind().dialect.name == "sqlite":

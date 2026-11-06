@@ -100,17 +100,19 @@ async def integrity_error(request, exc):
 
 @app.exception_handler(OperationalError)
 async def database_error(request, exc):
-    code = exc.orig.args[0] if getattr(exc, "orig", None) and exc.orig.args else None
+    from .db_errors import code as error_code
+
+    code = error_code(exc)
     # Record actionable diagnostics without SQL, parameters or credential values.
     logging.getLogger("netrix.api").warning(
         "Database operation failed: method=%s path=%s code=%s",
         request.method,
         request.url.path,
-        code if isinstance(code, int) else "unknown",
+        code or "unknown",
     )
     if code in (4025, 3819):
         return JSONResponse({"detail": "Veritabanı kısıtı bu kaydı reddetti"}, status_code=409)
-    if code in (1020, 1213):
+    if code in (1020, 1213, "40001", "40P01"):
         # Snapshot conflicts and deadlocks mean a concurrent change, not an outage.
         return JSONResponse({"detail": "Kayıt eşzamanlı olarak değişti; yeniden deneyin"}, status_code=409)
     return JSONResponse({"detail": "Veri hizmeti geçici olarak kullanılamıyor"}, status_code=503)

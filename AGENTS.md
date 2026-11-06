@@ -28,7 +28,7 @@ NETRIX, sıfırdan geliştirilecek, proje sahibine ait, web tabanlı ve merkezi 
 | Katman | Tercih |
 | --- | --- |
 | Backend | Python / FastAPI |
-| Kalıcı veri | MariaDB (harici sunucu) |
+| Kalıcı veri | PostgreSQL (mevcut harici üç düğümlü küme, VIP 10.2.0.31:5432) |
 | Görev altyapısı | Redis destekli kuyruk ve zamanlayıcı |
 | Veri toplama | NETRIX için Python ile geliştirilen worker servisleri |
 | Protokoller | SNMPv3, SSH, REST API; komşuluk verisi için LLDP/CDP |
@@ -146,3 +146,15 @@ Proje sahibinin açık yeni talebi olmadan bu sözleşmeyi değiştirme:
 - Tamamlanan IP/DNS sonuçlarını ve biten cihaz kaynak okumalarını tüm tarama aşamalarını bekletmeden kaydet ve ilgili VLAN’a bildir. En çok 32 probe ve kısa sonuç birleştirme penceresi kullan; VMware/DHCP kanonik kaynak kayıtlarının kimlik doğrulama bütünlüğünü koru.
 - Ping sonucu açık liste/ayrıntıya WebSocket bildirimiyle yansır. Bağlantı yoksa görünür IPAM ekranı 10 saniyede bir yalnız veritabanından yenilenir; bu yenileme ping veya tam tarama tetiklemez.
 - Bu davranışı doğrularken gerçek ağda tarama/entegrasyon eşitlemesi başlatma; sahte protokol istemcileri ve yerel fixture kullan. Ayrıntılar [IPAM davranışında](docs/ipam-integrations.md).
+
+
+## PostgreSQL ve menü sahipliği kararı (6 Kasım 2026)
+
+Bu bölüm, yukarıdaki eski MariaDB ve ortak SQL yerleşimi kararlarının yerine geçer.
+
+- Yeni SQL/PostgreSQL sunucusu veya container'ı kurma. Mevcut üç düğümlü PostgreSQL kümesini yalnız yazma VIP'si `10.2.0.31:5432` üzerinden kullan. Veritabanı `netrix`.
+- Her ana menünün kendi şeması vardır: `genel_bakis`, `envanter`, `baglanti`, `ip_adres_yonetimi`, `firmware`, `konfigurasyon`, `operasyon`, `yonetim`. Uygulama tablolarını ortak şema, `kaynaklar` veya `public` altında oluşturma.
+- Her tablo tek bir menünün şemasına aittir. Yeni tablo eklerken `backend/netrix/db_layout.py` içindeki sahipliği zorunlu olarak belirle; FK hedeflerini tam `schema.table.column` adıyla yaz. Aynı cihaz için başka menüye ikinci yönetilen cihaz tablosu oluşturma. Başka menünün kaydına erişim, sahibi menünün servis sözleşmesini korur.
+- PostgreSQL migration'ları `backend/pg_migrations` ve `backend/postgresql.ini` ile yürür. Eski MariaDB migration zincirini PostgreSQL üzerinde çalıştırma. Zamanlar `TIMESTAMPTZ`, yapılandırma JSON alanları JSONB, kaynak kanıtları tipli ilişkisel tablolardır.
+- Çalışma zamanı `netrix_app` hesabıdır; DDL yalnız migration hesabıyla yapılır. Parolaları korumalı sunucu secret dosyasında tut; Git'e, API'ye veya loga yazma. Migration hesabının URL'sini servis süreçleri başlamadan ortamdan kaldır.
+- Geçiş ve DB işleri yaparken [PostgreSQL veri aktarımı ve tablo sahipliği](docs/postgresql-migration.md) belgesini oku. Testlerde varsayılan SQLite şema çevirisi kullanılır; gerçek PostgreSQL testi yalnız açıkça verilmiş `*_test` veritabanına erişebilir. Testler gerçek ağ cihazlarına bağlanmaz.

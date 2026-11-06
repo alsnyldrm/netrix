@@ -9,6 +9,8 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 | Pillow | 13.0.0 | MIT-CMU |
 | Mako | 1.4.3 | MIT |
 | MarkupSafe | 3.0.4 | BSD-3-Clause |
+| psycopg | 3.3.8 | LGPL-3.0-only (Python sürücüsü) |
+| psycopg-binary | 3.3.8 | LGPL-3.0-only; libpq PostgreSQL lisansı |
 | PyMySQL | 1.2.3 | MIT |
 | SQLAlchemy | 2.1.6 | MIT |
 | alembic | 1.20.1 | MIT |
@@ -98,3 +100,5 @@ Yeni doğrudan bağımlılıklar: `pyvmomi==9.1.1.0` (Apache-2.0, vSphere Web Se
 Debian `iputils-ping` (BSD-3-Clause/GPL-2.0-or-later, paket copyright dosyası image içinde) ICMP için kullanılır. Ping binary’sinin `cap_net_raw` dosya capability’si imajda kaldırılır. `net.ipv4.ping_group_range=10001 10001` yalnız NETRIX kullanıcısına ping datagram soketi açma izni verir; `cap_drop: ALL` ve `no-new-privileges` korunur.
 
 SSH terminali için xterm.js ve boyutlandırma eklentisi değiştirilmeden kullanılır; sürümler `package-lock.json` içinde sabittir ve iki paketin MIT bildirimleri `frontend/public/third-party-notices.txt` içinde dağıtılır. Terminal ilk açılışta yerel paketten yüklenir; CDN, URL veya sistem panosu eklentisi yoktur. [Terminal güvenlik rehberi](https://xtermjs.org/docs/guides/security/) ve [AsyncSSH API](https://asyncssh.readthedocs.io/en/latest/api.html) uygulanmıştır.
+
+PostgreSQL çalışma zamanı sürücüsü Psycopg 3'tür; binary dağıtım libpq kullanır. PostgreSQL 18 istemci araçları mevcut sunucu kümesinin yedekleri için kullanılır. PyMySQL ve MariaDB istemcisi eski kaynaktan doğrulanmış aktarım/geri dönüş içindir.

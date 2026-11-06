@@ -1,5 +1,6 @@
 """Read budgets and freshness: optimizations must keep connection evidence correct."""
 
+import re
 from contextlib import contextmanager
 
 from netrix import models as m
@@ -42,7 +43,10 @@ def test_detail_resolves_once_and_cache_is_invalidated(admin_client, inventory, 
     path = f"/api/v1/ipam/addresses/{id}"
     with queries() as sql:
         first = admin_client.get(path)
-    assert sum("FROM ip_source_links" in statement for statement in sql) == 1
+    assert (
+        sum(re.search(r"FROM (?:[a-z_]+\.)?ip_source_links\b", statement) is not None for statement in sql)
+        == 1
+    )
     assert first.status_code == 200
     assert first.json()["hostname"] == "before.example.test"
     assert len(calls) == 1

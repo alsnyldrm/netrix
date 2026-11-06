@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import aliased, lazyload
 
 from .. import models as m
+from ..db_errors import conflict
 from ..identity.security import audit
 from ..services import get, publish, serialize
 from .model_images import model_images
@@ -209,7 +210,7 @@ def place_from_ip(db, cabinet_id, payload, user):
         try:
             return _place_from_ip(db, cabinet_id, payload, user)
         except OperationalError as exc:
-            if not exc.orig.args or exc.orig.args[0] not in (1020, 1205, 1213):
+            if not conflict(exc):
                 raise
             db.rollback()
             if attempt:

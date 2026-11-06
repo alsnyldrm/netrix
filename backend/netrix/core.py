@@ -2,9 +2,14 @@ from datetime import datetime, timezone
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import DateTime, create_engine, event
+from sqlalchemy import DateTime, ForeignKeyConstraint, String, Table, create_engine, event
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.sql.compiler import DDLCompiler
 from sqlalchemy.types import TypeDecorator
+
+from .db_layout import SCHEMA_TABLES, TABLE_SCHEMAS
+from .db_types import PostgreSQLValue
 
 
 def now():
@@ -14,6 +19,7 @@ def now():
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="NETRIX_", env_file=".env", extra="ignore")
     database_url: str = "sqlite+pysqlite:///.secrets/netrix.db"
+    migration_database_url: str = ""
     redis_url: str = "redis://localhost:6379/0"
     encryption_key: str = ""
     public_url: str = "https://netrix.fbu.edu.tr"
@@ -43,21 +49,40 @@ class UTCDateTime(TypeDecorator):
             from sqlalchemy.dialects.mysql import DATETIME
 
             return dialect.type_descriptor(DATETIME(fsp=6))
-        return dialect.type_descriptor(DateTime())
+        return dialect.type_descriptor(DateTime(timezone=dialect.name == "postgresql"))
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
         if value.tzinfo is None:
             raise ValueError("Timezone required")
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        value = value.astimezone(timezone.utc)
+        return value if dialect.name == "postgresql" else value.replace(tzinfo=None)
 
     def process_result_value(self, value, dialect):
-        return value.replace(tzinfo=timezone.utc) if value else None
+        if value is None:
+            return None
+        return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 class Base(DeclarativeBase):
-    pass
+    @classmethod
+    def __table_cls__(cls, name, metadata, *args, **kwargs):
+        table = Table(name, metadata, *args, schema=TABLE_SCHEMAS[name], **kwargs)
+        for column in table.columns:
+            if isinstance(column.type, String) and "postgresql" not in column.type._variant_mapping:
+                column.type = column.type.with_variant(PostgreSQLValue(column.type), "postgresql")
+        for constraint in table.foreign_key_constraints:
+            constraint.deferrable = True
+            constraint.initially = "IMMEDIATE"
+        return table
+
+
+@compiles(ForeignKeyConstraint, "sqlite")
+def sqlite_translated_foreign_keys(constraint, compiler, **kwargs):
+    # The test engine maps all menu schemas into SQLite's one namespace. Its
+    # default DDL compiler otherwise silently drops every cross-schema FK.
+    return DDLCompiler.visit_foreign_key_constraint(compiler, constraint, **kwargs)
 
 
 @lru_cache
@@ -69,15 +94,20 @@ def engine():
         hide_parameters=True,
         connect_args={"check_same_thread": False}
         if url.startswith("sqlite")
+        else {"connect_timeout": 5, "options": "-c timezone=UTC -c statement_timeout=30000"}
+        if url.startswith("postgresql")
         else {"connect_timeout": 5, "read_timeout": 15, "write_timeout": 15},
     )
-    if not url.startswith("sqlite"):
+    if obj.dialect.name in ("mysql", "mariadb"):
 
         @event.listens_for(obj, "connect")
         def configure_mariadb(connection, _):
             with connection.cursor() as cursor:
                 cursor.execute("SET SESSION time_zone = '+00:00'")
                 cursor.execute("SET SESSION wsrep_sync_wait = 1")
+
+    if obj.dialect.name != "postgresql":
+        obj = obj.execution_options(schema_translate_map={schema: None for schema in SCHEMA_TABLES})
 
     if url.startswith("sqlite"):
 

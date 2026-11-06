@@ -48,7 +48,7 @@ def sync_links(db, device, collected):
             select(m.Link)
             .where(m.Link.device_id == device.id)
             .order_by(m.Link.id)
-            .with_for_update()
+            .with_for_update(of=m.Link)
             .execution_options(populate_existing=True)
         )
     )
@@ -151,7 +151,7 @@ def repair_stored_ports(db):
     """Repair current labels using already stored evidence, without fabricating a new observation."""
     from .neighbor_detail import remote_port
 
-    rows = list(db.scalars(select(m.Link).order_by(m.Link.id).with_for_update()))
+    rows = list(db.scalars(select(m.Link).order_by(m.Link.id).with_for_update(of=m.Link)))
     by_key = {(r.device_id, r.interface_name, r.remote_name, r.remote_port): r for r in rows}
     changed = retired = 0
     for row in rows:

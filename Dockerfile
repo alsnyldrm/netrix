@@ -13,7 +13,11 @@ LABEL org.opencontainers.image.revision=$NETRIX_REVISION
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/backend
 WORKDIR /app
 COPY requirements.txt requirements.lock ./
-RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client iputils-ping \
+RUN apt-get update && apt-get install -y --no-install-recommends mariadb-client iputils-ping ca-certificates curl \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main' > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 \
     && setcap -r /usr/bin/ping \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir -r requirements.lock \

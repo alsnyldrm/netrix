@@ -24,7 +24,14 @@ PROCESSES = {
 
 def start():
     # Migrations only need the external database. No service is exposed before success.
-    migration = subprocess.Popen(["alembic", "-c", "backend/alembic.ini", "upgrade", "head"])
+    from .core import settings
+
+    config = (
+        "backend/postgresql.ini"
+        if settings().database_url.startswith("postgresql")
+        else "backend/alembic.ini"
+    )
+    migration = subprocess.Popen(["alembic", "-c", config, "upgrade", "head"])
     interrupted = 0
 
     def terminate(signum, frame):
@@ -40,6 +47,13 @@ def start():
         return 128 + interrupted
     if result:
         return result if result > 0 else 128 - result
+    migration = subprocess.Popen(["python", "-m", "netrix.bootstrap"])
+    result = migration.wait()
+    if interrupted:
+        return 128 + interrupted
+    if result:
+        return result if result > 0 else 128 - result
+    os.environ.pop("NETRIX_MIGRATION_DATABASE_URL", None)
     os.execvp("supervisord", ["supervisord", "-c", SUPERVISOR_CONFIG])
 
 

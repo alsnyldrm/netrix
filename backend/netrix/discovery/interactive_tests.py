@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from .. import models as m
 from ..core import now, redis_client
+from ..db_errors import conflict
 
 CAPACITY = 4
 POLL_SECONDS = 0.25
@@ -37,7 +38,7 @@ def start(db, kind, device_id, user, *, prepare=None, create=None):
                     job = _admit(db, kind, device_id, user, prepare=prepare, create=create)
                     break
                 except OperationalError as exc:
-                    if attempt or exc.orig.args[0] not in (1020, 1213):
+                    if attempt or not conflict(exc):
                         raise
                     # Retry the DB transaction once, not the device probe. No
                     # request is left waiting in a network work queue.

@@ -1,4 +1,4 @@
-"""Run native MariaDB clients inside the application container, without argv secrets."""
+"""Native database backups; credentials are passed in private files, never argv."""
 
 import argparse
 import os
@@ -11,13 +11,25 @@ from sqlalchemy.engine import make_url
 
 def run(restore=False, confirm_database=""):
     url = make_url(os.environ["NETRIX_DATABASE_URL"])
+    if restore and url.get_backend_name() == "postgresql":
+        migration_url = os.environ.get("NETRIX_MIGRATION_DATABASE_URL")
+        if not migration_url:
+            raise ValueError("PostgreSQL restore requires the migration account")
+        target = make_url(migration_url)
+        if (target.host, target.port, target.database) != (url.host, url.port, url.database):
+            raise ValueError("Migration account must point to the same target database")
+        url = target
     database = url.database or ""
-    if url.get_backend_name() != "mysql" or not database or any(
-        c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for c in database
+    if (
+        url.get_backend_name() not in ("mysql", "postgresql")
+        or not database
+        or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" for c in database)
     ):
-        raise ValueError("A named MariaDB database is required")
+        raise ValueError("A named supported database is required")
     if restore and confirm_database != database:
         raise ValueError("Restore requires explicit confirmation of the database name")
+    if url.get_backend_name() == "postgresql":
+        return postgres(url, restore)
 
     def quote(value):
         return '"' + value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
@@ -27,15 +39,57 @@ def run(restore=False, confirm_database=""):
         descriptor = os.open(client, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(descriptor, "w") as target:
             target.write(
-                "[client]\nhost=" + quote(url.host or "")
-                + "\nport=" + str(url.port or 3306)
-                + "\nuser=" + quote(url.username or "")
-                + "\npassword=" + quote(url.password or "") + "\n"
+                "[client]\nhost="
+                + quote(url.host or "")
+                + "\nport="
+                + str(url.port or 3306)
+                + "\nuser="
+                + quote(url.username or "")
+                + "\npassword="
+                + quote(url.password or "")
+                + "\n"
             )
         command = ["mariadb" if restore else "mariadb-dump", f"--defaults-extra-file={client}"]
         if not restore:
             command += ["--single-transaction", "--skip-lock-tables", "--no-tablespaces"]
         subprocess.run(command + [database], check=True)
+
+
+def postgres(url, restore):
+    def escape(value):
+        return value.replace("\\", "\\\\").replace(":", "\\:")
+
+    with tempfile.TemporaryDirectory(prefix="netrix-backup-") as directory:
+        client = Path(directory) / "pgpass"
+        with os.fdopen(os.open(client, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as out:
+            out.write(
+                ":".join(
+                    escape(str(v))
+                    for v in (url.host, url.port or 5432, url.database, url.username, url.password or "")
+                )
+                + "\n"
+            )
+        env = {**os.environ, "PGPASSFILE": str(client), "PGCONNECT_TIMEOUT": "5"}
+        command = (
+            ["psql", "-X", "-v", "ON_ERROR_STOP=1"]
+            if restore
+            else ["pg_dump", "--format=plain", "--no-owner", "--no-privileges"]
+        )
+        subprocess.run(
+            command
+            + [
+                "--host",
+                url.host,
+                "--port",
+                str(url.port or 5432),
+                "--username",
+                url.username,
+                "--dbname",
+                url.database,
+            ],
+            env=env,
+            check=True,
+        )
 
 
 if __name__ == "__main__":

@@ -47,3 +47,5 @@ requests==2.34.2
 urllib3==2.8.0
 xmltodict==1.0.4
 Pillow==13.0.0
+psycopg==3.3.8
+psycopg-binary==3.3.8

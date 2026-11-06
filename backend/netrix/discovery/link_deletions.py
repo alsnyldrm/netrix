@@ -97,7 +97,10 @@ def repair_stored_exclusions(db):
     """Repair old resurfaced copies without scanning devices or deleting history."""
     links = list(
         db.scalars(
-            select(m.Link).order_by(m.Link.id).with_for_update().execution_options(populate_existing=True)
+            select(m.Link)
+            .order_by(m.Link.id)
+            .with_for_update(of=m.Link)
+            .execution_options(populate_existing=True)
         )
     )
     current_ids = {link.id for link in links if link.is_current}
@@ -136,7 +139,7 @@ def locked_selection(db, ids):
             select(m.Link)
             .where(m.Link.device_id.in_({target.device_id for target in targets}))
             .order_by(m.Link.id)
-            .with_for_update()
+            .with_for_update(of=m.Link)
             .execution_options(populate_existing=True)
         )
     )

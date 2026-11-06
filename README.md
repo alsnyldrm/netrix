@@ -4,13 +4,13 @@
 
 Akıllı Ağ Keşif ve Yönetim Platformu
 
-NETRIX; envantere özel ağ keşfi, VLAN üzerinden IPAM ve cihaz konfigürasyon sürümleme platformudur. Python/FastAPI backend, MariaDB, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
+NETRIX; envantere özel ağ keşfi, VLAN üzerinden IPAM ve cihaz konfigürasyon sürümleme platformudur. Python/FastAPI backend, PostgreSQL, Redis, aynı container içindeki Python worker/zamanlayıcı süreçleri ve özgün Türkçe React arayüzü içerir. NetBox/Oxidized/LibreNMS/Zabbix motoru kullanılmaz.
 
 ## Dağıtım
 
 Tek servisli Compose stack: `netrix`; tek container: `netrix`. API/arayüz, Redis, worker ve zamanlayıcı Supervisor ile aynı container içinde çalışır; migration servisler açılmadan uygulanır. Redis verisi kalıcı volume'dadır.
 
-Hedef: `10.2.0.87:/opt/netrix`, harici MariaDB `10.2.0.31/netrix`. Dış adres `https://netrix.fbu.edu.tr`; host Nginx → `127.0.0.1:8101`.
+Hedef: `10.2.0.87:/opt/netrix`, mevcut üç düğümlü PostgreSQL kümesi `10.2.0.31:5432/netrix`. Dış adres `https://netrix.fbu.edu.tr`; host Nginx → `127.0.0.1:8101`.
 
 ```bash
 cp .env.example .env
@@ -65,3 +65,7 @@ API dokümantasyonu `/api/v1/docs`, liveness `/api/v1/health/live`, DB/Redis rea
 ## Lisans
 
 NETRIX için açık kaynak lisansı seçilmemiştir. Deponun public olması yeniden kullanım lisansı vermez. Kullanılan kütüphanelerin lisansları kendilerine aittir.
+
+## PostgreSQL ve menü şemaları — 6 Kasım 2026
+
+Her ana menünün kendi PostgreSQL şeması vardır. Uygulama tabloları `public`, `ortak` veya `kaynaklar` altında oluşturulmaz. Tam tablo sahipliği, aktarım, doğrulama ve geri dönüş: [PostgreSQL geçişi](docs/postgresql-migration.md). PostgreSQL sunucusu kurulmaz; mevcut kümenin yazma VIP'si kullanılır.

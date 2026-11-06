@@ -1,3 +1,5 @@
+> **6 Kasım 2026:** Güncel veri deposu mevcut PostgreSQL kümesidir (`10.2.0.31:5432/netrix`). Yerel MariaDB kontrolleri aşağıda tarihsel olarak korunmuştur. Geçiş, doğrulama ve geri dönüş işlemleri [PostgreSQL yönergesindedir](postgresql-migration.md). `scripts/backup.py` artık PostgreSQL 18 istemcisini kullanır.
+
 # NETRIX işletim rehberi
 
 ## Sunucu yerleşimi
@@ -88,7 +90,7 @@ Geri yükleme mevcut tabloları değiştirebilir. Önce çalışan yedek alın; 
 ```bash
 docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf stop netrix-scheduler netrix-worker netrix-tests netrix-firmware netrix-api
 python3 scripts/backup.py --restore --confirm-database netrix --output backups/netrix-YYYYMMDD.sql
-docker compose exec -T netrix-app alembic -c backend/alembic.ini upgrade head
+docker compose exec -T netrix-app alembic -c backend/postgresql.ini upgrade head
 docker compose exec -T netrix-app supervisorctl -c /app/deploy/supervisord.conf start netrix-api netrix-worker netrix-tests netrix-firmware netrix-scheduler
 ```
 

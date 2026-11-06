@@ -4,6 +4,7 @@ import pytest
 import sqlalchemy as sa
 from netrix import models as m
 from netrix.core import now
+from netrix.db_layout import qualified
 from netrix.sources import migrate_v1, records
 from test_ipam_source_contract import network as network
 
@@ -33,8 +34,10 @@ def test_sources_have_no_serialized_payloads():
         "cdp_neighbors",
     }
     for name in names:
-        assert name in m.Base.metadata.tables
-        assert not any(isinstance(c.type, sa.JSON) for c in m.Base.metadata.tables[name].columns), name
+        assert qualified(name) in m.Base.metadata.tables
+        assert not any(
+            isinstance(c.type, sa.JSON) for c in m.Base.metadata.tables[qualified(name)].columns
+        ), name
     assert not set(migrate_v1.LEGACY).intersection(m.Base.metadata.tables)
 
 

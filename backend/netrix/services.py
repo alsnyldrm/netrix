@@ -115,6 +115,14 @@ def require_ref(db, model, id):
 
 
 def lock_vrf(db, vrf_id):
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy import text
+
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "vrf:" + vrf_id})
+        row = db.scalar(select(m.VRF).where(m.VRF.id == vrf_id).with_for_update(read=True))
+        if not row:
+            raise HTTPException(422, "VRF bulunamadı")
+        return row
     # Serialize IP writers on a dedicated state row, not their shared FK parent.
     # An exclusive lock on vrfs also blocks unrelated scope/device FK inserts.
     # Upsert both initializes the mutex safely and performs a real version write

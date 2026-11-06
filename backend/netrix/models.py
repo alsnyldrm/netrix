@@ -20,10 +20,12 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.mysql import LONGTEXT
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .core import Base, UTCDateTime, now
+from .db_types import PostgreSQLValue
 from .sources.proxy import DiscoveryPayload, NetworkPayload, Payload, ResultPayload
 
 
@@ -56,7 +58,7 @@ class User(Entity, Base):
 
 class UserAvatar(Base):
     __tablename__ = "user_avatars"
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id", ondelete="CASCADE"), primary_key=True)
     preset_id: Mapped[str | None] = mapped_column(String(40))
     image: Mapped[bytes | None] = mapped_column(LargeBinary)
     version: Mapped[str] = mapped_column(String(36))
@@ -72,19 +74,21 @@ class UserAvatar(Base):
 class AuthSession(Base):
     __tablename__ = "auth_sessions"
     token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id"), index=True)
     expires_at: Mapped[object] = mapped_column(UTCDateTime(), index=True)
 
 
 class Audit(Entity, Base):
     __tablename__ = "audit_events"
     __table_args__ = (Index("ix_audit_events_created_at", text("created_at DESC"), "id"),)
-    actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    actor_id: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(80))
     entity_type: Mapped[str] = mapped_column(String(60))
     entity_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     summary: Mapped[str] = mapped_column(String(400))
-    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    details: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), nullable=True
+    )
 
 
 class Institution(Entity, Base):
@@ -96,8 +100,10 @@ class Institution(Entity, Base):
 
 class Site(Entity, Base):
     __tablename__ = "sites"
-    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
-    parent_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.institutions.id"), index=True
+    )
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("ip_adres_yonetimi.sites.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     code: Mapped[str] = mapped_column(String(40), unique=True)
     description: Mapped[str] = mapped_column(String(400), default="")
@@ -108,7 +114,7 @@ class Site(Entity, Base):
 
 class Cabinet(Entity, Base):
     __tablename__ = "cabinets"
-    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
+    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("ip_adres_yonetimi.sites.id"), index=True)
     units: Mapped[int] = mapped_column(Integer, default=42, server_default="42")
     lock_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     __table_args__ = (
@@ -116,7 +122,9 @@ class Cabinet(Entity, Base):
         UniqueConstraint("sub_site_id", "name", name="uq_cabinet_room_number"),
     )
     name: Mapped[str] = mapped_column(String(120))
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
+    site_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.sites.id"), nullable=True, index=True
+    )
     description: Mapped[str] = mapped_column(String(400), default="")
 
 
@@ -131,8 +139,8 @@ class ModelImage(Entity, Base):
 
 class RackPlacement(Entity, Base):
     __tablename__ = "rack_placements"
-    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), unique=True)
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.cabinets.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), unique=True)
     start_unit: Mapped[int] = mapped_column(Integer)
     units: Mapped[int] = mapped_column(Integer)
     __table_args__ = (
@@ -144,7 +152,7 @@ class RackPlacement(Entity, Base):
 
 class RackAccessory(Entity, Base):
     __tablename__ = "rack_accessories"
-    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.cabinets.id"), index=True)
     kind: Mapped[str] = mapped_column(String(30), default="brush_organizer")
     start_unit: Mapped[int] = mapped_column(Integer)
     units: Mapped[int] = mapped_column(Integer)
@@ -159,7 +167,7 @@ class RackAccessory(Entity, Base):
 
 class PatchPanel(Entity, Base):
     __tablename__ = "patch_panels"
-    cabinet_id: Mapped[str] = mapped_column(ForeignKey("cabinets.id"), index=True)
+    cabinet_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.cabinets.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     kind: Mapped[str] = mapped_column(String(20))
     start_unit: Mapped[int] = mapped_column(Integer)
@@ -177,21 +185,28 @@ class PatchPanel(Entity, Base):
 
 class PatchPort(Entity, Base):
     __tablename__ = "patch_ports"
-    panel_id: Mapped[str] = mapped_column(ForeignKey("patch_panels.id", ondelete="CASCADE"), index=True)
+    panel_id: Mapped[str] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.patch_panels.id", ondelete="CASCADE"), index=True
+    )
     position: Mapped[int] = mapped_column(Integer)
     number: Mapped[str] = mapped_column(String(40))
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id", ondelete="SET NULL"), index=True)
+    device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.devices.id", ondelete="SET NULL"), index=True
+    )
     interface_id: Mapped[str | None] = mapped_column(
-        ForeignKey("interfaces.id", ondelete="SET NULL"), index=True
+        ForeignKey("envanter.interfaces.id", ondelete="SET NULL"), index=True
     )
     device_name: Mapped[str] = mapped_column(String(190), default="")
     port_name: Mapped[str] = mapped_column(String(120), default="")
     cable_model: Mapped[str] = mapped_column(String(30), default="")
     fiber_mode: Mapped[str] = mapped_column(String(12), default="", server_default="")
     peer_port_id: Mapped[str | None] = mapped_column(
-        ForeignKey("patch_ports.id", name="fk_patch_peer_port", ondelete="SET NULL"), nullable=True
+        ForeignKey("ip_adres_yonetimi.patch_ports.id", name="fk_patch_peer_port", ondelete="SET NULL"),
+        nullable=True,
     )
-    external_data: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    external_data: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=dict, server_default="{}"
+    )
     __table_args__ = (
         UniqueConstraint("peer_port_id", name="uq_patch_peer_port"),
         UniqueConstraint("panel_id", "number", name="uq_patch_port_number"),
@@ -223,12 +238,18 @@ class VLAN(Entity, Base):
     name: Mapped[str] = mapped_column(String(120))
     domain: Mapped[str] = mapped_column(String(80), default="default")
     vid: Mapped[int] = mapped_column(Integer)
-    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.institutions.id"), index=True
+    )
     cidr: Mapped[str | None] = mapped_column(String(49), nullable=True)
-    vrf_id: Mapped[str | None] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
+    vrf_id: Mapped[str | None] = mapped_column(ForeignKey("ip_adres_yonetimi.vrfs.id"), index=True)
+    site_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.sites.id"), nullable=True, index=True
+    )
     description: Mapped[str] = mapped_column(String(400), default="")
-    dns_server_id: Mapped[str | None] = mapped_column(ForeignKey("dns_servers.id"), index=True)
+    dns_server_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.dns_servers.id"), index=True
+    )
     warning_threshold: Mapped[int] = mapped_column(Integer, default=80, server_default="80")
     ping_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     ping_interval: Mapped[int] = mapped_column(Integer, default=30, server_default="30")
@@ -272,20 +293,26 @@ class IPAMScanGroup(Entity, Base):
 class IPAMScanMember(Base):
     __tablename__ = "ipam_scan_members"
     group_id: Mapped[str] = mapped_column(
-        ForeignKey("ipam_scan_groups.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("ip_adres_yonetimi.ipam_scan_groups.id", ondelete="CASCADE"), primary_key=True
     )
     vlan_id: Mapped[str] = mapped_column(
-        ForeignKey("vlans.id", ondelete="CASCADE"), primary_key=True, unique=True
+        ForeignKey("ip_adres_yonetimi.vlans.id", ondelete="CASCADE"), primary_key=True, unique=True
     )
 
 
 class IPAMScanRun(Entity, Base):
     __tablename__ = "ipam_scan_runs"
-    group_id: Mapped[str] = mapped_column(ForeignKey("ipam_scan_groups.id", ondelete="CASCADE"), index=True)
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.ipam_scan_groups.id", ondelete="CASCADE"), index=True
+    )
     scheduled_for: Mapped[object] = mapped_column(UTCDateTime())
     generation: Mapped[int] = mapped_column(Integer)
-    jobs: Mapped[list] = mapped_column(JSON, default=list)
-    errors: Mapped[list] = mapped_column(JSON, default=list)
+    jobs: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
+    errors: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
     __table_args__ = (UniqueConstraint("group_id", "generation", "scheduled_for", name="uq_ipam_scan_slot"),)
 
 
@@ -322,18 +349,25 @@ class DeviceType(Entity, Base):
 class Device(Entity, Base):
     __tablename__ = "devices"
     discovery_scope_id: Mapped[str | None] = mapped_column(
-        ForeignKey("discovery_scopes.id", ondelete="SET NULL"), index=True
+        ForeignKey("envanter.discovery_scopes.id", ondelete="SET NULL"), index=True
     )
     name: Mapped[str] = mapped_column(String(120))
     management_ip: Mapped[str] = mapped_column(String(45))
-    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
+    vrf_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.vrfs.id"), index=True)
+    site_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.sites.id"), nullable=True, index=True
+    )
     vendor: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
-    manual_identity_fields: Mapped[list] = mapped_column(JSON, default=list, server_default="[]")
+    manual_identity_fields: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list, server_default="[]"
+    )
     software_version: Mapped[str] = mapped_column(String(120), default="", server_default="")
     kind: Mapped[str] = mapped_column(
-        String(20), ForeignKey("device_types.code", name="fk_device_type"), default="other", index=True
+        String(20),
+        ForeignKey("envanter.device_types.code", name="fk_device_type"),
+        default="other",
+        index=True,
     )
     # Keep FOR UPDATE confined to devices, without locking the shared type catalog.
     device_type: Mapped[DeviceType] = relationship(lazy="selectin")
@@ -341,10 +375,10 @@ class Device(Entity, Base):
     reachability: Mapped[str] = mapped_column(String(20), default="unknown")
     adapter: Mapped[str] = mapped_column(String(20), default="ios")
     snmp_credential_id: Mapped[str | None] = mapped_column(
-        ForeignKey("credentials.id"), nullable=True, index=True
+        ForeignKey("yonetim.credentials.id"), nullable=True, index=True
     )
     config_credential_id: Mapped[str | None] = mapped_column(
-        ForeignKey("credentials.id"), nullable=True, index=True
+        ForeignKey("yonetim.credentials.id"), nullable=True, index=True
     )
     snmp_port: Mapped[int] = mapped_column(Integer, default=161)
     config_port: Mapped[int] = mapped_column(Integer, default=22)
@@ -358,16 +392,17 @@ class Device(Entity, Base):
     last_seen_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     backup_group_id: Mapped[str | None] = mapped_column(
-        ForeignKey("backup_groups.id"), nullable=True, index=True
+        ForeignKey("konfigurasyon.backup_groups.id"), nullable=True, index=True
     )
     backup_retention: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_backup_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     base_snapshot_id: Mapped[str | None] = mapped_column(
-        ForeignKey("config_snapshots.id", name="fk_device_base_snapshot", use_alter=True), index=True
+        ForeignKey("konfigurasyon.config_snapshots.id", name="fk_device_base_snapshot", use_alter=True),
+        index=True,
     )
     approved_config_hash: Mapped[str] = mapped_column(String(64), default="", server_default="")
     config_approved_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    config_approved_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
+    config_approved_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"), index=True)
     __table_args__ = (
         UniqueConstraint("vrf_id", "management_ip"),
         CheckConstraint(
@@ -379,7 +414,7 @@ class Device(Entity, Base):
 
 class Interface(Entity, Base):
     __tablename__ = "interfaces"
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     if_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mac_address: Mapped[str] = mapped_column(String(40), default="")
@@ -422,14 +457,18 @@ class Integration(Entity, Base):
 
 class IPAddress(Entity, Base):
     __tablename__ = "ip_addresses"
-    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
-    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), index=True)
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.institutions.id"), index=True
+    )
+    site_id: Mapped[str | None] = mapped_column(ForeignKey("ip_adres_yonetimi.sites.id"), index=True)
+    sub_site_id: Mapped[str | None] = mapped_column(ForeignKey("ip_adres_yonetimi.sites.id"), index=True)
+    device_id: Mapped[str | None] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
     address: Mapped[str] = mapped_column(String(45))
-    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    vlan_id: Mapped[str] = mapped_column(ForeignKey("vlans.id"), index=True)
-    interface_id: Mapped[str | None] = mapped_column(ForeignKey("interfaces.id"), nullable=True, index=True)
+    vrf_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.vrfs.id"), index=True)
+    vlan_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.vlans.id"), index=True)
+    interface_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.interfaces.id"), nullable=True, index=True
+    )
     hostname: Mapped[str] = mapped_column(String(190), default="")
     mac_address: Mapped[str] = mapped_column(String(17), default="", server_default="")
     operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")
@@ -446,29 +485,31 @@ class IPAddress(Entity, Base):
 
 class IPObservation(Payload, Entity, Base):
     __tablename__ = "ip_source_links"
-    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), index=True)
+    address_id: Mapped[str] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.ip_addresses.id", ondelete="CASCADE"), index=True
+    )
     source: Mapped[str] = mapped_column(String(20))
     source_key: Mapped[str] = mapped_column(String(120))
     observed_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
     present: Mapped[bool] = mapped_column(Boolean, default=True)
     matched_by: Mapped[str] = mapped_column(String(40), default="")
     dns_id: Mapped[str | None] = mapped_column(
-        ForeignKey("dns_records.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("ip_adres_yonetimi.dns_records.id", ondelete="CASCADE"), nullable=True
     )
     ping_id: Mapped[str | None] = mapped_column(
-        ForeignKey("ping_states.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("ip_adres_yonetimi.ping_states.id", ondelete="CASCADE"), nullable=True
     )
     dhcp_id: Mapped[str | None] = mapped_column(
-        ForeignKey("dhcp_bindings.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("ip_adres_yonetimi.dhcp_bindings.id", ondelete="CASCADE"), nullable=True
     )
     vmware_id: Mapped[str | None] = mapped_column(
-        ForeignKey("vmware_addresses.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("ip_adres_yonetimi.vmware_addresses.id", ondelete="CASCADE"), nullable=True
     )
     gateway_id: Mapped[str | None] = mapped_column(
-        ForeignKey("gateway_bindings.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("envanter.gateway_bindings.id", ondelete="CASCADE"), nullable=True
     )
     network_id: Mapped[str | None] = mapped_column(
-        ForeignKey("network_source_states.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("envanter.network_source_states.id", ondelete="CASCADE"), nullable=True
     )
     scope_address: Mapped[str] = mapped_column(String(45), default="")
     scope_vrf: Mapped[str] = mapped_column(String(36), default="")
@@ -484,7 +525,9 @@ class IPObservation(Payload, Entity, Base):
 
 class IPAMResult(ResultPayload, Entity, Base):
     __tablename__ = "ip_resolution_results"
-    address_id: Mapped[str] = mapped_column(ForeignKey("ip_addresses.id", ondelete="CASCADE"), unique=True)
+    address_id: Mapped[str] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.ip_addresses.id", ondelete="CASCADE"), unique=True
+    )
     scope_address: Mapped[str] = mapped_column(String(45), default="")
     scope_vrf: Mapped[str] = mapped_column(String(36), default="")
     scope_vlan: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -514,12 +557,14 @@ class IPAMResult(ResultPayload, Entity, Base):
 class IPAMNetworkState(NetworkPayload, Entity, Base):
     __tablename__ = "network_source_states"
     device_id: Mapped[str | None] = mapped_column(
-        ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, unique=True
+        ForeignKey("envanter.devices.id", ondelete="CASCADE"), nullable=True, unique=True
     )
     address: Mapped[str] = mapped_column(String(45), default="")
     observed_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True, default=now)
     attempted_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
-    job_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"), nullable=True)
+    job_id: Mapped[str | None] = mapped_column(
+        ForeignKey("operasyon.jobs.id", ondelete="SET NULL"), nullable=True
+    )
     healthy: Mapped[bool] = mapped_column(Boolean, default=True)
     error_class: Mapped[str] = mapped_column(String(80), default="")
     entry_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -610,11 +655,13 @@ class IPAMNetworkState(NetworkPayload, Entity, Base):
 class Scope(Entity, Base):
     __tablename__ = "discovery_scopes"
     vlan_vid: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.institutions.id"), index=True
+    )
     name: Mapped[str] = mapped_column(String(120))
     cidr: Mapped[str] = mapped_column(String(49))
-    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"), index=True)
-    credential_id: Mapped[str] = mapped_column(ForeignKey("credentials.id"), index=True)
+    vrf_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.vrfs.id"), index=True)
+    credential_id: Mapped[str] = mapped_column(ForeignKey("yonetim.credentials.id"), index=True)
     profiles: Mapped[list["ScopeCredential"]] = relationship(
         cascade="all, delete-orphan", passive_deletes=True, order_by="ScopeCredential.position"
     )
@@ -623,9 +670,15 @@ class Scope(Entity, Base):
     def credential_ids(self):
         return [profile.credential_id for profile in self.profiles] or [self.credential_id]
 
-    site_id: Mapped[str | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
-    exclusions: Mapped[list] = mapped_column(JSON, default=list)
-    seeds: Mapped[list] = mapped_column(JSON, default=list)
+    site_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ip_adres_yonetimi.sites.id"), nullable=True, index=True
+    )
+    exclusions: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
+    seeds: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     interval_seconds: Mapped[int] = mapped_column(Integer, default=0)
     last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -637,9 +690,11 @@ class Scope(Entity, Base):
 class ScopeCredential(Base):
     __tablename__ = "discovery_scope_credentials"
     scope_id: Mapped[str] = mapped_column(
-        ForeignKey("discovery_scopes.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("envanter.discovery_scopes.id", ondelete="CASCADE"), primary_key=True
     )
-    credential_id: Mapped[str] = mapped_column(ForeignKey("credentials.id"), primary_key=True, index=True)
+    credential_id: Mapped[str] = mapped_column(
+        ForeignKey("yonetim.credentials.id"), primary_key=True, index=True
+    )
     position: Mapped[int] = mapped_column(Integer)
     __table_args__ = (UniqueConstraint("scope_id", "position"),)
 
@@ -650,11 +705,13 @@ class Job(Entity, Base):
     target_id: Mapped[str] = mapped_column(String(36), index=True)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     active_key: Mapped[str | None] = mapped_column(String(100), unique=True, nullable=True)
-    requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"), nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     progress: Mapped[int] = mapped_column(Integer, default=0)
     total: Mapped[int] = mapped_column(Integer, default=0)
-    result: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=dict
+    )
     error: Mapped[str] = mapped_column(String(200), default="")
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     heartbeat_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -672,14 +729,14 @@ class FirmwareImage(Entity, Base):
     name: Mapped[str] = mapped_column(String(120))
     family: Mapped[str] = mapped_column(String(20), index=True)
     version: Mapped[str] = mapped_column(String(120))
-    models: Mapped[list] = mapped_column(JSON)
+    models: Mapped[list] = mapped_column(JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"))
     original_name: Mapped[str] = mapped_column(String(160))
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     sha256: Mapped[str] = mapped_column(String(64), default="")
     expected_sha256: Mapped[str] = mapped_column(String(64))
     notes: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default="uploading", index=True)
-    uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"))
     __table_args__ = (
         CheckConstraint("family in ('aos_s_54xx','aos_s_29xx','cx6100','hp1950')", name="ck_fw_image_family"),
         CheckConstraint("status in ('uploading','ready')", name="ck_fw_image_status"),
@@ -696,9 +753,9 @@ class FirmwareGroup(Entity, Base):
 class FirmwareMember(Base):
     __tablename__ = "firmware_group_members"
     group_id: Mapped[str] = mapped_column(
-        ForeignKey("firmware_groups.id", ondelete="CASCADE"), primary_key=True
+        ForeignKey("firmware.firmware_groups.id", ondelete="CASCADE"), primary_key=True
     )
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), primary_key=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), primary_key=True)
     __table_args__ = (UniqueConstraint("device_id", name="uq_firmware_member_device"),)
 
 
@@ -707,10 +764,10 @@ class FirmwarePlan(Entity, Base):
     name: Mapped[str] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     mode: Mapped[str] = mapped_column(String(20), default="check")
-    steps: Mapped[list] = mapped_column(JSON)
+    steps: Mapped[list] = mapped_column(JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"))
     concurrency: Mapped[int] = mapped_column(Integer, default=1)
     available_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, index=True)
-    requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"))
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     force_stop_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     deleted_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
@@ -728,9 +785,9 @@ class FirmwarePlan(Entity, Base):
 
 class FirmwareTarget(Entity, Base):
     __tablename__ = "firmware_targets"
-    plan_id: Mapped[str] = mapped_column(ForeignKey("firmware_plans.id"), index=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
-    image_id: Mapped[str] = mapped_column(ForeignKey("firmware_images.id"), index=True)
+    plan_id: Mapped[str] = mapped_column(ForeignKey("firmware.firmware_plans.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
+    image_id: Mapped[str] = mapped_column(ForeignKey("firmware.firmware_images.id"), index=True)
     stage: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     phase: Mapped[str] = mapped_column(String(30), default="waiting")
@@ -738,10 +795,12 @@ class FirmwareTarget(Entity, Base):
     previous_bank: Mapped[str] = mapped_column(String(12), default="")
     previous_version: Mapped[str] = mapped_column(String(120), default="")
     verified_version: Mapped[str] = mapped_column(String(120), default="")
-    snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("config_snapshots.id"))
+    snapshot_id: Mapped[str | None] = mapped_column(ForeignKey("konfigurasyon.config_snapshots.id"))
     active_device: Mapped[str | None] = mapped_column(String(36), unique=True, nullable=True)
     heartbeat_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=dict
+    )
     error_code: Mapped[str] = mapped_column(String(40), default="")
     error: Mapped[str] = mapped_column(String(400), default="")
     transfer_username: Mapped[str | None] = mapped_column(String(60), unique=True, nullable=True)
@@ -767,7 +826,7 @@ class FirmwareEvent(Base):
     )
     created_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
     updated_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, onupdate=now)
-    target_id: Mapped[str] = mapped_column(ForeignKey("firmware_targets.id", ondelete="CASCADE"))
+    target_id: Mapped[str] = mapped_column(ForeignKey("firmware.firmware_targets.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(20))
     phase: Mapped[str] = mapped_column(String(30))
     title: Mapped[str] = mapped_column(String(160))
@@ -786,15 +845,17 @@ class FirmwareEvent(Base):
 
 class Observation(DiscoveryPayload, Entity, Base):
     __tablename__ = "discovery_reads"
-    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("operasyon.jobs.id"), index=True)
+    device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.devices.id"), nullable=True, index=True
+    )
     address: Mapped[str] = mapped_column(String(45))
     source: Mapped[str] = mapped_column(String(20), default="snmpv3")
     failed: Mapped[bool] = mapped_column(Boolean, default=False)
     error_class: Mapped[str] = mapped_column(String(80), default="")
     confidence: Mapped[float] = mapped_column(Float, default=1)
     network_state_id: Mapped[str | None] = mapped_column(
-        ForeignKey("network_source_states.id", ondelete="SET NULL"), nullable=True, index=True
+        ForeignKey("envanter.network_source_states.id", ondelete="SET NULL"), nullable=True, index=True
     )
     network_state: Mapped[IPAMNetworkState | None] = relationship(lazy="selectin")
     __table_args__ = (UniqueConstraint("job_id", "address"),)
@@ -802,14 +863,18 @@ class Observation(DiscoveryPayload, Entity, Base):
 
 class Link(Entity, Base):
     __tablename__ = "neighbor_links"
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
-    port_id: Mapped[str] = mapped_column(ForeignKey("source_ports.id"))
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
+    port_id: Mapped[str] = mapped_column(ForeignKey("envanter.source_ports.id"))
     local_port: Mapped["SourcePort"] = relationship("SourcePort", lazy="joined")
     identity_key: Mapped[str] = mapped_column(String(64))
-    remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    remote_device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.devices.id"), nullable=True, index=True
+    )
     manual_remote_name: Mapped[str | None] = mapped_column(String(190), nullable=True)
     manual_remote_port: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    manual_remote_device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True)
+    manual_remote_device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.devices.id"), nullable=True
+    )
     source: Mapped[str] = mapped_column(String(20), default="lldp")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     auto_add_excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
@@ -959,8 +1024,8 @@ class Link(Entity, Base):
 
 class Snapshot(Entity, Base):
     __tablename__ = "config_snapshots"
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
-    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("operasyon.jobs.id"), index=True)
     fingerprint: Mapped[str] = mapped_column(String(64))
     encrypted_content: Mapped[str] = mapped_column(Text().with_variant(LONGTEXT(), "mysql", "mariadb"))
     changed: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -985,8 +1050,8 @@ class AlertRule(Entity, Base):
 
 class Alert(Entity, Base):
     __tablename__ = "alert_instances"
-    rule_id: Mapped[str] = mapped_column(ForeignKey("alert_rules.id"), index=True)
-    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id"), index=True)
+    rule_id: Mapped[str] = mapped_column(ForeignKey("operasyon.alert_rules.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
     active_key: Mapped[str | None] = mapped_column(String(80), nullable=True, unique=True)
     state: Mapped[str] = mapped_column(String(20), default="pending")
     severity: Mapped[str] = mapped_column(String(20))
@@ -994,17 +1059,21 @@ class Alert(Entity, Base):
     observed_value: Mapped[float] = mapped_column(Float, default=0)
     resolved_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     acknowledged_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
-    acknowledged_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    acknowledged_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"), nullable=True)
     __table_args__ = (CheckConstraint("state in ('pending','firing','resolved')", name="ck_alert_state"),)
 
 
 class Event(Entity, Base):
     __tablename__ = "change_events"
     __table_args__ = (Index("ix_change_events_created_at", text("created_at DESC"), "id"),)
-    device_id: Mapped[str | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    device_id: Mapped[str | None] = mapped_column(
+        ForeignKey("envanter.devices.id"), nullable=True, index=True
+    )
     kind: Mapped[str] = mapped_column(String(50))
     message: Mapped[str] = mapped_column(String(400))
-    details: Mapped[dict] = mapped_column(JSON, default=dict)
+    details: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=dict
+    )
 
 
 class SystemState(Base):
@@ -1015,14 +1084,16 @@ class SystemState(Base):
 
 class UserWorkspace(Base):
     __tablename__ = "user_workspaces"
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    preferences: Mapped[dict] = mapped_column(JSON, default=dict)
+    user_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id", ondelete="CASCADE"), primary_key=True)
+    preferences: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=dict
+    )
     encrypted_commands: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class UserSSHProfile(Entity, Base):
     __tablename__ = "user_ssh_profiles"
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    owner_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(120))
     encrypted_ssh: Mapped[str] = mapped_column(Text)
     __table_args__ = (
@@ -1033,7 +1104,7 @@ class UserSSHProfile(Entity, Base):
 
 class AccessGroup(Entity, Base):
     __tablename__ = "access_groups"
-    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     description: Mapped[str] = mapped_column(String(400), default="")
     ssh_profile_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -1043,7 +1114,7 @@ class AccessGroup(Entity, Base):
         Index("ix_access_group_ssh_profile_owner", "ssh_profile_id", "owner_id"),
         ForeignKeyConstraint(
             ["ssh_profile_id", "owner_id"],
-            ["user_ssh_profiles.id", "user_ssh_profiles.owner_id"],
+            ["yonetim.user_ssh_profiles.id", "yonetim.user_ssh_profiles.owner_id"],
             name="fk_access_group_ssh_owner",
         ),
     )
@@ -1054,14 +1125,14 @@ class AccessGroupDevice(Base):
     group_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(36))
     device_id: Mapped[str] = mapped_column(
-        ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True, index=True
+        ForeignKey("envanter.devices.id", ondelete="CASCADE"), primary_key=True, index=True
     )
     __table_args__ = (
         UniqueConstraint("owner_id", "device_id", name="uq_access_group_user_device"),
         Index("ix_access_group_device_owner", "group_id", "owner_id"),
         ForeignKeyConstraint(
             ["group_id", "owner_id"],
-            ["access_groups.id", "access_groups.owner_id"],
+            ["yonetim.access_groups.id", "yonetim.access_groups.owner_id"],
             name="fk_access_group_device_owner",
             ondelete="CASCADE",
         ),
@@ -1071,9 +1142,9 @@ class AccessGroupDevice(Base):
 class SwitchMacEntry(Entity, Base):
     __tablename__ = "mac_port_records"
     snapshot_id: Mapped[str] = mapped_column(
-        ForeignKey("network_source_states.id", ondelete="CASCADE"), index=True
+        ForeignKey("envanter.network_source_states.id", ondelete="CASCADE"), index=True
     )
-    vrf_id: Mapped[str] = mapped_column(ForeignKey("vrfs.id"))
+    vrf_id: Mapped[str] = mapped_column(ForeignKey("ip_adres_yonetimi.vrfs.id"))
     vlan_vid: Mapped[int] = mapped_column(Integer, default=0)
     fdb_id: Mapped[int] = mapped_column(Integer, default=0)
     bridge_port: Mapped[int] = mapped_column(Integer, default=0)
