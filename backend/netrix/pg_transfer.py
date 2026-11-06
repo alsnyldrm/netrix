@@ -130,6 +130,7 @@ def transfer(confirm, report):
                         flush=True,
                     )
                     raise RuntimeError("Content mismatch: " + table.fullname)
+            sync_sequences(dst)
             dst.execute(text("ANALYZE"))
     if report:
         with open(report, "w") as out:
@@ -140,6 +141,24 @@ def transfer(confirm, report):
         )
     )
     source.dispose()
+
+
+def sync_sequences(connection):
+    """Explicitly imported integer IDs must advance their PostgreSQL sequence."""
+    for table in Base.metadata.tables.values():
+        for column in table.primary_key.columns:
+            if column is not table.autoincrement_column:
+                continue
+            sequence = connection.scalar(
+                text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+                {"table_name": table.fullname, "column_name": column.name},
+            )
+            if sequence:
+                maximum = connection.scalar(select(func.max(column)))
+                connection.execute(
+                    text("SELECT setval(CAST(:sequence AS regclass), :value, :called)"),
+                    {"sequence": sequence, "value": maximum or 1, "called": maximum is not None},
+                )
 
 
 if __name__ == "__main__":

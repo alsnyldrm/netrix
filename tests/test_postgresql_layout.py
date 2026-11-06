@@ -112,3 +112,28 @@ def test_postgresql_vrf_lock_uses_no_shared_state_table(admin_client, env):
         first.commit()
         lock_vrf(second, vrf.id)
         assert second.get(m.SystemState, "vrf:" + vrf.id) is None
+
+
+def test_imported_integer_ids_advance_postgresql_sequence(env, monkeypatch):
+    import pytest
+    from netrix import pg_transfer
+    from sqlalchemy import Column, Integer, MetaData, Table, select, text
+
+    with env() as db:
+        if db.get_bind().dialect.name != "postgresql":
+            pytest.skip("PostgreSQL sequence integration")
+        metadata = MetaData()
+        table = Table("sequence_probe", metadata, Column("id", Integer, primary_key=True), schema="envanter")
+        monkeypatch.setattr(pg_transfer.Base, "metadata", metadata)
+        with db.get_bind().begin() as c:
+            table.create(c)
+            c.execute(table.insert().values(id=900))
+            pg_transfer.sync_sequences(c)
+            value = c.scalar(table.insert().values().returning(table.c.id))
+            assert value == 901
+            assert c.scalar(select(table.c.id).order_by(table.c.id.desc()).limit(1)) == 901
+            # Empty tables retain the first usable sequence value.
+            c.execute(text("TRUNCATE envanter.sequence_probe RESTART IDENTITY"))
+            pg_transfer.sync_sequences(c)
+            assert c.scalar(table.insert().values().returning(table.c.id)) == 1
+            table.drop(c)

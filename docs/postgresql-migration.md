@@ -15,6 +15,7 @@ Otorite `backend/netrix/db_layout.py` içindeki kapalı listedir. Liste dışı 
 - Yapılandırma JSON alanları JSONB olur. Kaynak kanıtları JSON payload'a dönüştürülmez; tipli ilişkisel kayıtlar korunur.
 - SNMP metinlerinde PostgreSQL'in kabul etmediği NUL karakteri silinmez; görünür `\u0000` biçimine dönüştürülür. Aynı dönüşüm çalışma zamanı bağlamalarında uygulanır. Kaynak MariaDB ve korumalı yedeği özgün karakterleri korur. Doğrulama, bu açık dönüşümden sonraki bütün sütunları karşılaştırır.
 - PostgreSQL dış birleşimlerinde satır kilidi yalnız ana modele `FOR UPDATE OF ...` uygulanır. VRF ve patch düzenlemelerinde transaction advisory lock kullanılır; kilit için başka menünün genel durum tablosuna yazılmaz.
+- Açıkça taşınan sayısal kimliklerin sequence değerleri son kayıt kimliğine ilerletilir. Çalışma zamanı hesabı dizilerde yalnız USAGE/SELECT alır; böylece yeni olay kimlikleri ve native `pg_dump` çalışır. `20261106_02` mevcut kurulumların dizi/yetkilerini de düzeltir.
 - SQLSTATE `40001`, `40P01`, `55P03` ve geçici bağlantı hataları güvenli işlem yeniden deneme/çatışma yanıtlarına çevrilir. Cihaz komutu otomatik olarak tekrar oynatılmaz.
 
 ## Migration
