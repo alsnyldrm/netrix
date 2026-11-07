@@ -405,3 +405,21 @@ izinlerinin yerine geçer. Switch kaynaklarının tek yazarı Envanter'dir.
 - Regresyonlar `tests/test_ipam_inventory_only.py`: zamanlanmış gerçek worker
   yolu, SQL verisi bulunan/bulunmayan uç, gateway işaretli switch, doğrudan port
   alternatifi ve kaynak satırlarının/zamanlarının değişmediği kontrol edilir.
+
+### Tek IP için SQL işlem süresi — 7 Kasım 2026
+
+- Tek IP işi, kimlik ve DNS/VMware dalı belirlenmeden bütün envanter FDB'sini
+  yüklemez. SQL cihaz kataloğu ayrıdır; fiziksel kanıt gerektiğinde ilgili MAC'in
+  tek-MAC port adayları ve IP/MAC ile eşleşen tüm LLDP/CDP cihazları seçilir.
+- Çok-MAC portlar tek başına uç kanıtı olamaz. Seçilen cihazların tam port nüfusu,
+  komşulukları, VLAN–FID, kaynak bağlamı, güncellik ve uplink kontrolleri korunur;
+  iki port/iki switch adayları birlikte değerlendirilir. Yeni ağ sorgusu yapılmaz.
+- Noktasal SQL işlemleri ayrı, tek kapasiteli worker ve SQL yürütme sırası kullanır;
+  uzun keşif/VLAN işleri ile toplu kaynak/ping yazımları bu kapasiteyi tüketmez.
+- IP sonucunun yazımı genel VRF mutex'i yerine ilgili IP satırını ve sonuç satırını
+  kilitler. Güncel IP/VRF/VLAN bağı yeniden doğrulanır; eski iş yeni sonucu ezemez.
+- Manuel **Tara** DNS dahil mevcut SQL verisini okur. Gerçek DNS sorgusu zamanlanmış
+  kaynak toplamasına aittir; bu süreyle SQL kayıt okuması birbirine karıştırılmaz.
+- Regresyonlar: `test_ipam_point_latency.py`, `test_ipam_inventory_only.py`,
+  `test_ipam_sql_manual.py`. Süreler üretim SQL'inde salt okunur profil ile ölçülür;
+  ölçüm için switch/entegrasyon/DNS sorgusu başlatılmaz.

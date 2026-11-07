@@ -10,16 +10,37 @@ from ..runtime_limits import sql_read, sql_write
 from ..services import in_scope, publish
 from ..sources import records
 from . import pipeline, service, teaming
-from .connections import Evidence
+from .connections import Evidence, network_device
 
 
 class SQLContext:
-    def __init__(self, db, vlan, job_id):
+    def __init__(self, db, vlan, job_id, *, point=False):
         self.vlan, self.job_id = vlan, job_id
-        self.evidence = Evidence(db, {vlan.vrf_id})
+        self.point = point
+        self._evidence = None
+        # Identity reads need only the small device catalogue, not every FDB/port.
+        self.devices = {
+            d.id: d
+            for d in db.scalars(
+                select(m.Device).where(
+                    m.Device.vrf_id == vlan.vrf_id,
+                    m.Device.archived.is_(False),
+                    m.Device.discovery_scope_id.is_not(None),
+                    m.Device.lifecycle_status.in_(("active", "maintenance")),
+                )
+            )
+            if network_device(d)
+        }
         self.integrations = {
             i.id for i in db.scalars(select(m.Integration).where(m.Integration.enabled.is_(True)))
         }
+
+    @property
+    def evidence(self):
+        if self._evidence is None:
+            with session_factory()() as db:
+                self._evidence = Evidence(db, {self.vlan.vrf_id})
+        return self._evidence
 
     def check(self):
         from ..worker import Cancelled
@@ -60,7 +81,7 @@ class SQLSources:
                     m.GatewayBinding.present.is_(True),
                 )
             ):
-                d = self.context.evidence.devices.get(g.device_id)
+                d = self.context.devices.get(g.device_id)
                 if not d or not (d.is_gateway or d.kind in ("router", "firewall")):
                     continue
                 self.ref("gateway", g, g.source_key, g.observed_at)
@@ -97,10 +118,18 @@ class SQLSources:
         return rows
 
     async def physical(self, address, mac):
-        from .inventory_sources import attachment
+        from .inventory_sources import attachment, point_evidence
 
-        with session_factory()() as db:
-            return attachment(db, self.row, self.context.vlan, mac, evidence=self.context.evidence)
+        def resolve():
+            with session_factory()() as db:
+                evidence = (
+                    point_evidence(db, self.row, self.context.vlan, mac)
+                    if self.context.point
+                    else self.context.evidence
+                )
+                return attachment(db, self.row, self.context.vlan, mac, evidence=evidence)
+
+        return await sql_read(resolve)
 
     async def dhcp(self, address, mac):
         rows = []

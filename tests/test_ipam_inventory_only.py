@@ -145,7 +145,8 @@ async def test_switch_source_and_point_fallback_are_read_only_even_if_no_match(n
         assert inventory_facts(db, ids) == before
 
 
-async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device_access(network):
+@pytest.mark.parametrize("point", [False, True])
+async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device_access(network, point):
     from netrix.core import now
     from netrix.ipam import sql_sources
 
@@ -183,7 +184,7 @@ async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device
         db.add(job)
         db.commit()
         row = db.get(m.IPAddress, rid)
-        context = sql_sources.SQLContext(db, db.get(m.VLAN, vid), job.id)
+        context = sql_sources.SQLContext(db, db.get(m.VLAN, vid), job.id, point=point)
         before = inventory_facts(db, ids[1:])
     result = await context.for_row(row).resolve()
     assert {(c["device_id"], c["port"]) for c in result["values"]["connections"]} == {

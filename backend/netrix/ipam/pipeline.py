@@ -281,9 +281,15 @@ async def resolve(address, sources, progress=None):
 
 
 def save_result(db, row, started, result):
-    from ..services import lock_vrf
-
-    lock_vrf(db, row.vrf_id)
+    expected_scope = [row.address, row.vrf_id, row.vlan_id]
+    current = db.scalar(
+        select(m.IPAddress)
+        .where(m.IPAddress.id == row.id)
+        .with_for_update(of=m.IPAddress)
+        .execution_options(populate_existing=True)
+    )
+    if not current or [current.address, current.vrf_id, current.vlan_id] != expected_scope:
+        return False
     item = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == row.id).with_for_update())
     scope = [row.address, row.vrf_id, row.vlan_id]
     if (

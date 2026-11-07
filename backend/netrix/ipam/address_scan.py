@@ -7,8 +7,8 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..runtime_limits import sql_quick, sql_read, sql_write
-from ..services import in_scope, lock_vrf, publish
+from ..runtime_limits import sql_point, sql_read
+from ..services import in_scope, publish
 from .service import hostname_vm_records, normalized_hostname, normalized_mac, observe, scan_boundary
 
 NETWORK_SOURCE = "address_network"
@@ -19,7 +19,6 @@ def target(db, job, *, lock=False):
 
     row = db.get(m.IPAddress, job.target_id)
     if row and lock:
-        lock_vrf(db, row.vrf_id)
         row = db.scalar(
             select(m.IPAddress)
             .where(m.IPAddress.id == job.target_id)
@@ -200,7 +199,7 @@ async def execute(job_id, collector):
         with session_factory()() as db:
             job = db.get(m.Job, job_id)
             row, vlan = target(db, job)
-            return vlan.id, SQLContext(db, vlan, job_id).for_row(row)
+            return vlan.id, SQLContext(db, vlan, job_id, point=True).for_row(row)
 
     vlan_id, sources = await sql_read(prepare)
 
@@ -211,10 +210,10 @@ async def execute(job_id, collector):
             job.total, job.progress = 1, 0
             db.commit()
 
-    await sql_quick(begin)
+    await sql_point(begin)
 
     async def progress(name):
-        await sql_quick(phase, job_id, name)
+        await sql_point(phase, job_id, name)
 
     result = await sources.resolve(progress)
 
@@ -226,9 +225,9 @@ async def execute(job_id, collector):
             job.progress = 1
             db.commit()
 
-    await sql_write(save)
+    await sql_point(save)
     publish(ipam_vlan=vlan_id)
-    await sql_quick(
+    await sql_point(
         phase, job_id, "complete", resolution_status=result["status"], source_errors=result["issues"]
     )
     return {

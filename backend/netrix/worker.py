@@ -50,6 +50,7 @@ stop = False
 BACKGROUND_CAPACITY = 4
 PING_CAPACITY = 2
 DISCOVERY_CAPACITY = 2
+POINT_CAPACITY = 1
 DISCOVERY_TARGETS = 16
 
 
@@ -777,17 +778,32 @@ async def worker_loop():
                         ping_target = get(db, m.Job, ping_id).target_id
                     tasks[asyncio.create_task(execute(ping_id))] = ("ipam_ping", ping_target)
                 while (
-                    not stop and sum(kind != "ipam_ping" for kind, _ in tasks.values()) < BACKGROUND_CAPACITY
+                    not stop
+                    and sum(kind == "ipam_address_scan" for kind, _ in tasks.values()) < POINT_CAPACITY
                 ):
-                    scans = sum(
-                        kind in ("discovery", "ipam_discover", "ipam_address_scan")
-                        for kind, _ in tasks.values()
+                    point_id = claim(
+                        interactive=False,
+                        include_kinds=("ipam_address_scan",),
+                        exclude_targets=tuple(
+                            target for kind, target in tasks.values() if kind == "ipam_address_scan"
+                        ),
                     )
+                    if not point_id:
+                        break
+                    with session_factory()() as db:
+                        point_target = get(db, m.Job, point_id).target_id
+                    tasks[asyncio.create_task(execute(point_id))] = ("ipam_address_scan", point_target)
+                while (
+                    not stop
+                    and sum(kind not in ("ipam_ping", "ipam_address_scan") for kind, _ in tasks.values())
+                    < BACKGROUND_CAPACITY
+                ):
+                    scans = sum(kind in ("discovery", "ipam_discover") for kind, _ in tasks.values())
                     job_id = claim(
                         interactive=False,
                         exclude_kinds=("ipam_ping", "discovery", "ipam_discover", "ipam_address_scan")
                         if scans >= DISCOVERY_CAPACITY
-                        else ("ipam_ping",),
+                        else ("ipam_ping", "ipam_address_scan"),
                         exclude_targets=tuple(
                             target for kind, target in tasks.values() if target and kind != "ipam_ping"
                         ),

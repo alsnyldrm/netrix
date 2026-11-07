@@ -23,6 +23,8 @@ _writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="netrix-sql-write
 # Heartbeats, ping results and job progress must not wait behind large source writes:
 # a job silent for 90 seconds is treated as abandoned and queued again.
 _quick = ThreadPoolExecutor(max_workers=1, thread_name_prefix="netrix-sql-quick")
+# A single-IP decision must not queue behind a whole VLAN's source/ping writes.
+_point = ThreadPoolExecutor(max_workers=1, thread_name_prefix="netrix-sql-point")
 
 
 def device_slot():
@@ -70,6 +72,11 @@ async def sql_write(fn, /, *args, **kwargs):
 async def sql_quick(fn, /, *args, **kwargs):
     """Run a short job or ping transaction that stays ahead of source writes."""
     return await _on(_quick, fn, args, kwargs)
+
+
+async def sql_point(fn, /, *args, **kwargs):
+    """Short per-address transactions with row locks, independent of bulk writers."""
+    return await _on(_point, fn, args, kwargs)
 
 
 async def sql_read(fn, /, *args, **kwargs):

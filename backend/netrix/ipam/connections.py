@@ -219,7 +219,7 @@ class Evidence:
         # per-IP protocol payload to overlay on the same source record.
         return self
 
-    def __init__(self, db, vrfs):
+    def __init__(self, db, vrfs, *, source_devices=None):
         self.at = now()
         self.devices = {
             d.id: d
@@ -246,8 +246,11 @@ class Evidence:
         # latest before checking age/content so stale locations cannot reappear.
         from types import SimpleNamespace
 
+        source_ids = (
+            set(self.devices) if source_devices is None else set(source_devices) & self.devices.keys()
+        )
         self.state_rows = list(
-            db.scalars(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id.in_(self.devices)))
+            db.scalars(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id.in_(source_ids)))
         )
         states = [
             SimpleNamespace(
@@ -297,7 +300,7 @@ class Evidence:
         self.links = list(
             db.scalars(
                 select(m.Link).where(
-                    m.Link.device_id.in_(self.devices),
+                    m.Link.device_id.in_(source_ids),
                     m.Link.is_current.is_(True),
                     m.Link.auto_add_excluded.is_(False),
                     inventory_links(),
@@ -306,7 +309,7 @@ class Evidence:
         )
 
         for link in db.scalars(
-            select(m.Link).where(m.Link.device_id.in_(self.devices), m.Link.auto_add_excluded.is_(True))
+            select(m.Link).where(m.Link.device_id.in_(source_ids), m.Link.auto_add_excluded.is_(True))
         ):
             self.exclusions[(link.device_id, link.interface_name)].append(link)
         # Evidence is used after the collection session closes. Resolve the
