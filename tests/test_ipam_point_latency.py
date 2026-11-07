@@ -152,3 +152,19 @@ def test_point_projection_excludes_multi_mac_uplinks_but_keeps_all_edge_candidat
         assert set(ids) <= evidence.snapshots.keys()
         result = evidence.resolve(row, vlan, identity_mac="00:11:22:33:44:55")
         assert {(c["device_id"], c["port"]) for c in result["connections"]} == {(ids[1], "Gi1/0/1")}
+
+
+async def test_point_worker_heartbeat_does_not_use_ping_writer(admin_client, network, monkeypatch):
+    sf, _, rid, _ = network
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Point heartbeat must not queue behind ping writes")
+
+    monkeypatch.setattr(worker, "sql_quick", forbidden)
+    job = admin_client.post(f"/api/v1/ipam/addresses/{rid}/scan").json()
+    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
+    await worker.execute(job["id"])
+    with sf() as db:
+        saved = db.get(m.Job, job["id"])
+        assert saved.status in ("succeeded", "partial"), saved.error
+        assert saved.result["network"] == {"mode": "sql", "devices": 0}

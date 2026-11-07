@@ -32,7 +32,7 @@ from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
 from .ipam.connection_tests import KIND as INTEGRATION_TEST
 from .ipam.connection_tests import execute as test_integration_connection
-from .runtime_limits import device_slot, sql_quick, sql_write
+from .runtime_limits import device_slot, sql_point, sql_quick, sql_write
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -633,7 +633,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                     db.commit()
                     return get(db, m.Job, job_id).cancel_requested
 
-            cancelled = await sql_quick(beat)
+            cancelled = await (sql_point(beat) if kind == "ipam_address_scan" else sql_quick(beat))
             heartbeat(heartbeat_role)
             if cancelled or (stop and not task.done()):
                 task.cancel()
