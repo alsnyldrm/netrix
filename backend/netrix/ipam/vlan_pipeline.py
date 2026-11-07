@@ -191,7 +191,7 @@ async def scan(job_id, collector):
         from ..sources.cleanup import prune
 
         with session_factory()() as db:
-            prune(db)
+            prune(db, inventory=False)
             db.commit()
             results = list(
                 db.scalars(
@@ -229,6 +229,7 @@ async def scan(job_id, collector):
         "problems": problems,
         "matching": matching,
         "network": {
+            "switch_mode": "inventory_sql",
             "devices": sum(context.read_counts.values()),
             "read": sum(context.read_counts.values()) - len(context.failed_devices),
             "failed": len(context.failed_devices),

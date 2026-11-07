@@ -294,6 +294,8 @@ def write(db, result, value):
         if entry.source_link or entry.gateway:
             fields.append(entry)
     result.fields = fields
+    # IPAM can reference inventory facts, never create a replacement MAC-port row.
+    inventory_only = value.get("_sql_only") or value.get("_inventory_switches_only")
     old = {(r.neighbor_id, r.mac_port_id, r.vmware_nic_id): r for r in result.connection_rows}
     rows = []
     connections = value.get("connections") or []
@@ -385,12 +387,17 @@ def write(db, result, value):
                 ]
                 if exact:
                     neighbor = max(exact, key=lambda l: l.last_seen_at or l.updated_at or now())
-                elif len(matches) == 1 and c.get("source") in ("neighbors", "nic_teaming"):
+                elif len(matches) == 1 and c.get("source") in (
+                    "neighbors",
+                    "nic_teaming",
+                    "ipam_ssh_neighbors",
+                    "vcenter_host+neighbors",
+                ):
                     neighbor = matches[0]
                 if not neighbor:
                     state = (
                         db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == did))
-                        if value.get("_sql_only")
+                        if inventory_only
                         else state_for(db, did, device.management_ip)
                     )
                     if state is None:
@@ -401,7 +408,7 @@ def write(db, result, value):
                     ]
                     if candidates:
                         macport = max(candidates, key=lambda e: e.observed_at or now())
-                    elif mac and not value.get("_sql_only"):
+                    elif mac and not inventory_only:
                         # Retain a last-known fact from the old result when its current
                         # source has already aged out. It is not a new network observation.
                         macport = m.SwitchMacEntry(

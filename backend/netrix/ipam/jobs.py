@@ -477,7 +477,7 @@ async def integration(job_id, collector=None):
                     old.observed_at = now()
         from ..sources.cleanup import prune
 
-        prune(db)
+        prune(db, inventory=False)
         source_jobs = []
         current.last_success_at = now()
         job.total = job.progress = len(records)

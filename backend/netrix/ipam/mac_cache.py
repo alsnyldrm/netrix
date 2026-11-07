@@ -1,4 +1,4 @@
-"""FDB rows written by group scans; read-only fallback to primary IPAM evidence."""
+"""Read-only IPAM fallback to canonical switch facts maintained by inventory."""
 
 from datetime import timedelta
 
@@ -9,7 +9,7 @@ from .. import models as m
 from ..core import now
 from .connections import Evidence, Snapshot, projections
 
-# Group scans are the only collector; a daily group plus margin stays usable all day.
+# Inventory owns collection; readers keep the existing daily freshness margin.
 FRESHNESS = timedelta(hours=25)
 REQUIRED = {"vlan_fdb_port", "vlan_fdb_status", "bridge_ifindex"}
 
@@ -29,7 +29,7 @@ def context(device, profile):
 
 
 def accepted_contexts(db, device, profile):
-    """Group scans record the SSH profile of switches they also read over SSH."""
+    """Accept inventory snapshots collected with optional SSH metadata."""
     from .network import detail_profile, read_context
 
     return (context(device, profile), read_context(device, profile, detail_profile(db, device)))

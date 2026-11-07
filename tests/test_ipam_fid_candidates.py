@@ -172,7 +172,9 @@ from test_ipam_source_contract import network as network  # noqa: E402
 
 
 @pytest.mark.parametrize("fault", [None, "multi_mac", "uplink", "no_neighbors", "two_switches", "no_route"])
-async def test_scheduled_point_fallback_and_sql_identity(admin_client, network, monkeypatch, fault):
+async def test_ipam_missing_fid_keeps_sql_identity_without_switch_probe(
+    admin_client, network, monkeypatch, fault
+):
     import json
 
     from netrix import models as m
@@ -274,7 +276,7 @@ async def test_scheduled_point_fallback_and_sql_identity(admin_client, network, 
                 return await point.switch(host, port, secret, mac, vid, data)
             return {"ports": [{"port": "Gi1/0/1", "if_index": 101}], "neighbors": []}
 
-    monkeypatch.setattr(point_sources, "fetch_neighbor_ports", ssh_forbidden)
+    monkeypatch.setattr(p, "fetch_neighbor_ports", ssh_forbidden)
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns)
     monkeypatch.setattr(point, "reader", reader)
@@ -290,12 +292,9 @@ async def test_scheduled_point_fallback_and_sql_identity(admin_client, network, 
             pipeline.save_result(db, db.get(m.IPAddress, address_id), started, result)
             db.commit()
         item = admin_client.get(f"/api/v1/ipam/addresses/{address_id}").json()
-        if fault and fault != "no_route":
-            assert item["scan_status"] == "problem", item["scan_result"]
-            assert item["connected_port"] == ""
-        else:
-            assert item["scan_status"] == "success", item["scan_result"]
-            assert item["connected_device"] == "Access" and item["connected_port"] == "A7"
+        # No live VLAN/FID validation is permitted in IPAM. A7 lacks SQL proof.
+        assert item["connected_port"] != "A7"
+        assert query.calls == [] and query.walks == []
         with sf() as db:
             entries = list(
                 db.scalars(
@@ -309,7 +308,9 @@ async def test_scheduled_point_fallback_and_sql_identity(admin_client, network, 
 
 
 @pytest.mark.parametrize("origin", ["schedule", "schedule_ssh_failure"])
-async def test_vlan_scan_uses_same_targeted_fallback(admin_client, network, monkeypatch, origin):
+async def test_vlan_scan_does_not_probe_when_inventory_fid_is_missing(
+    admin_client, network, monkeypatch, origin
+):
     from netrix import models as m
     from netrix import worker
     from netrix.ipam import adapters
@@ -350,10 +351,11 @@ async def test_vlan_scan_uses_same_targeted_fallback(admin_client, network, monk
         async def unavailable(*_):
             raise p.NetworkError("Fixture SSH unavailable")
 
-        monkeypatch.setattr("netrix.ipam.bulk_sources.fetch_neighbor_detail", unavailable)
+        monkeypatch.setattr(p, "fetch_neighbor_detail", unavailable)
 
     class Collector:
         async def ipam(self, host, *_):
+            assert host == "198.51.100.1", "IPAM must never read a switch"
             return snapshots[host]
 
         async def ipam_gateway(self, *_):
@@ -388,20 +390,10 @@ async def test_vlan_scan_uses_same_targeted_fallback(admin_client, network, monk
     assert worker.claim(interactive=False, include_kinds=("ipam_discover",)) == job["id"]
     await worker.execute(job["id"], Collector())
     item = admin_client.get(f"/api/v1/ipam/addresses/{address_id}").json()
-    assert item["scan_status"] == "success", item["scan_result"]
-    assert item["connected_port"] == "A7" and item["connected_device"] == "Access"
+    assert item["scan_status"] == "problem", item["scan_result"]
+    assert not item["connected_port"]
     with sf() as db:
         assert not list(db.get(m.IPAMNetworkState, state.id).vlan_fdbs)
-
-
-def test_unmapped_edge_does_not_accept_a_known_stp_root_port():
-    from netrix.ipam.point_sources import PointSources
-
-    data = hint()
-    projected = {"tables": data["tables"], "evidence": data}
-    assert PointSources.unmapped_edge(projected, "A7", MAC)
-    data["neighbor_detail"] = {"spanning_tree": {"is_root": False, "port": "A7"}}
-    assert not PointSources.unmapped_edge(projected, "A7", MAC)
 
 
 async def test_missing_neighbor_protocol_does_not_prove_an_empty_edge(monkeypatch):

@@ -97,15 +97,10 @@ class SQLSources:
         return rows
 
     async def physical(self, address, mac):
-        result = self.context.evidence.resolve(self.row, self.context.vlan, identity_mac=mac)
-        if not result["connections"] and not result["connection_ambiguous"]:
-            from .mac_cache import fallback
+        from .inventory_sources import attachment
 
-            with session_factory()() as db:
-                result = fallback(
-                    db, [self.row], [result], {self.context.vlan.id: self.context.vlan}, self.context.evidence
-                )[0]
-        return result
+        with session_factory()() as db:
+            return attachment(db, self.row, self.context.vlan, mac, evidence=self.context.evidence)
 
     async def dhcp(self, address, mac):
         rows = []

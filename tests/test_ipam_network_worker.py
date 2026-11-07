@@ -50,7 +50,7 @@ async def test_network_read_is_bounded_and_keeps_inventory_topology_unchanged(ne
         return {"tables": {}, "interfaces": [], "neighbors": [], "hostname": "not-an-inventory-rename"}
 
     result = await refresh(job_id, SimpleNamespace(ipam=collect))
-    assert result == {"devices": 6, "read": 5, "failed": 1}
+    assert result == {"devices": 1, "read": 1, "failed": 0}
     assert maximum <= 10
     with sf() as db:
         assert devices_before == [
@@ -59,13 +59,13 @@ async def test_network_read_is_bounded_and_keeps_inventory_topology_unchanged(ne
         ]
         assert db.scalar(select(func.count()).select_from(m.Link)) == links_before
         observations = list(db.scalars(select(m.Observation).where(m.Observation.job_id == job_id)))
-        assert len(observations) == 6 and all(o.source == "ipam_network" for o in observations)
+        assert len(observations) == 1 and all(o.source == "ipam_network" for o in observations)
         assert "secret-must-not-be-stored" not in str([o.evidence for o in observations])
     await refresh(job_id, SimpleNamespace(ipam=collect))
     with sf() as db:
         assert (
             db.scalar(select(func.count()).select_from(m.Observation).where(m.Observation.job_id == job_id))
-            == 6
+            == 1
         )
 
 
@@ -147,32 +147,32 @@ async def test_restart_reuses_only_fresh_success_from_same_job_and_connection(ne
 
     collector = SimpleNamespace(ipam=collect)
     await refresh(id, collector)
-    assert len(calls) == 3
+    assert len(calls) == 1
     await refresh(id, collector)
-    assert len(calls) == 3
+    assert len(calls) == 1
     with sf() as db:
-        device = db.get(m.Device, ids[1])
+        device = db.get(m.Device, ids[0])
         device.snmp_port = 1161
         db.commit()
     await refresh(id, collector)
-    assert calls.count("198.51.100.2") == 2 and len(calls) == 4
+    assert calls.count("198.51.100.1") == 2 and len(calls) == 2
     with sf() as db:
         db.scalar(
             select(m.Observation).where(m.Observation.job_id == id, m.Observation.device_id == ids[0])
         ).created_at = now() - timedelta(days=2)
         db.commit()
     await refresh(id, collector)
-    assert calls.count("198.51.100.1") == 2 and len(calls) == 5
+    assert calls.count("198.51.100.1") == 3 and len(calls) == 3
     with sf() as db:
         other = m.Job(kind="ipam_discover", target_id=vlan_id)
         db.add(other)
         db.commit()
         other_id = other.id
     await refresh(other_id, collector)
-    assert len(calls) == 8
+    assert len(calls) == 4
 
 
-async def test_finished_device_notifies_before_other_switches_finish(network, monkeypatch):
+async def test_finished_gateway_notifies_without_querying_other_switches(network, monkeypatch):
     from netrix.ipam import network as reader
 
     sf, vlan_id, _, _ = network
@@ -200,7 +200,7 @@ async def test_finished_device_notifies_before_other_switches_finish(network, mo
     task = asyncio.create_task(refresh(job_id, SimpleNamespace(ipam=collect)))
     try:
         await asyncio.wait_for(notified.wait(), 2)
-        assert not task.done()
+        # Switch .3 is never queried, so it cannot hold the IPAM task open.
         slow.set()
         await asyncio.wait_for(task, 2)
     finally:

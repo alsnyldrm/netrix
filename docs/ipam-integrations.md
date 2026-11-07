@@ -382,3 +382,26 @@ Genel bağlantı eksikliği gerçek uplink kanıtı gibi raporlanmaz.
   eklenmez ve görev kısmi sonuç olur. Görev iptali bu hata yolunda yutulmaz.
 - Testler: `test_job_details.py`, `test_ipam_sql_manual.py`,
   `test_ipam_incremental.py` (sahte protokol istemcileri; gerçek ağa erişmez).
+
+## Envanterden salt okunur switch kanıtı — 7 Kasım 2026
+
+Bu karar, önceki zamanlanmış IPAM switch toplaması ve canlı eksik-FID doğrulaması
+izinlerinin yerine geçer. Switch kaynaklarının tek yazarı Envanter'dir.
+
+- IPAM zamanlanmış VLAN/grup işi, manuel VLAN/IP işi ve yardımcı kaynak yolları
+  switch/backbone/corner cihazına SNMP, SSH veya API oturumu açmaz. Gateway olarak
+  işaretlenmiş switch de doğrudan sorgulanmaz. Gerçek gateway/router/firewall,
+  VMware, DHCP, DNS ve ICMP toplaması kendi sözleşmesiyle devam eder.
+- Switch/port çözümü `envanter.network_source_states`, `source_ports`,
+  `source_vlan_fdb`, `source_bridge_ports`, `mac_port_records` ve mevcut
+  `baglanti.neighbor_links`/`lldp_neighbors`/`cdp_neighbors` kayıtlarına dayanır.
+  Mevcut servis üzerinden okunur; ikinci bir IPAM kaynak tablosu oluşturulmaz.
+- Görev içinde switch kanıtı SQL'den okunur; `network.switch_mode=inventory_sql`
+  olarak bildirilir ve switch ağ okuma sayısı sıfır kalır. Veri yokluğu veya
+  VLAN–FID/port kanıtının eksikliği canlı sorguya dönüşmez; belirsiz port seçilmez.
+- Sonuç yazıcısı mevcut MAC-port/komşuluk satırına FK ile bağlanır. IPAM adına
+  envantere MAC-port satırı veya yeni kaynak durumu oluşturmaz. Kaynağın zamanı ve
+  tamlık bilgisi değişmez. Başarısız eşleştirmede önceki doğrulanmış sonuç korunur.
+- Regresyonlar `tests/test_ipam_inventory_only.py`: zamanlanmış gerçek worker
+  yolu, SQL verisi bulunan/bulunmayan uç, gateway işaretli switch, doğrudan port
+  alternatifi ve kaynak satırlarının/zamanlarının değişmediği kontrol edilir.

@@ -161,7 +161,7 @@ def test_column_projection_matches_orm_relationship(network):
         )
 
 
-async def test_group_read_uses_ten_slots_and_saves_every_device(network):
+async def test_ipam_gateway_read_skips_all_thirty_inventory_switches(network):
     sf, vlan_id, *_ = network
     with sf() as db:
         template = db.scalar(select(m.Device).where(m.Device.kind == "switch"))
@@ -191,8 +191,8 @@ async def test_group_read_uses_ten_slots_and_saves_every_device(network):
         return {"tables": {}, "interfaces": [], "neighbors": []}
 
     result = await refresh(job_id, SimpleNamespace(ipam=collect))
-    assert peak == runtime_limits.DEVICE_READ_CONCURRENCY
-    assert result["read"] == result["devices"] >= 30
+    assert peak == 1
+    assert result["read"] == result["devices"] == 1
 
 
 async def test_slow_read_holds_no_job_write_and_heartbeat_stays_ahead_of_source_writes(network, monkeypatch):

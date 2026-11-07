@@ -158,3 +158,13 @@ Bu bölüm, yukarıdaki eski MariaDB ve ortak SQL yerleşimi kararlarının yeri
 - PostgreSQL migration'ları `backend/pg_migrations` ve `backend/postgresql.ini` ile yürür. Eski MariaDB migration zincirini PostgreSQL üzerinde çalıştırma. Zamanlar `TIMESTAMPTZ`, yapılandırma JSON alanları JSONB, kaynak kanıtları tipli ilişkisel tablolardır.
 - Çalışma zamanı `netrix_app` hesabıdır; DDL yalnız migration hesabıyla yapılır. Parolaları korumalı sunucu secret dosyasında tut; Git'e, API'ye veya loga yazma. Migration hesabının URL'sini servis süreçleri başlamadan ortamdan kaldır.
 - Geçiş ve DB işleri yaparken [PostgreSQL veri aktarımı ve tablo sahipliği](docs/postgresql-migration.md) belgesini oku. Testlerde varsayılan SQLite şema çevirisi kullanılır; gerçek PostgreSQL testi yalnız açıkça verilmiş `*_test` veritabanına erişebilir. Testler gerçek ağ cihazlarına bağlanmaz.
+
+## IPAM switch erişimi yasağı (7 Kasım 2026)
+
+Bu karar, yukarıdaki IPAM ve tarama gruplarının switch toplamasıyla ilgili eski izinlerin yerine geçer.
+
+- Switch MAC–port, arayüz, VLAN–FID ve LLDP/CDP kanıtlarını Envanter toplar ve sahibi SQL tablolarına yazar. IPAM bu kayıtları yalnız okur; başka tabloya kopyalamaz veya kaynak gözlem zamanını yenilemez.
+- Zamanlanmış gruplar dahil hiçbir IPAM işi switch/backbone/corner cihazına SNMP, SSH veya API bağlantısı açamaz. Eksik SQL verisinde doğrudan sorgu veya noktasal port sorgusu denenmez. Switch gateway olarak işaretli olsa da bu yasak geçerlidir.
+- Manuel IP/VLAN **Tara** yalnız SQL’den eşleştirme yapar. Zamanlanmış işin switch dışındaki gateway, VMware, DHCP, DNS ve ICMP adımları devam eder.
+- Eksik/eski/çelişkili envanter verisinde önceki doğrulanmış sonuç korunur ve sorun belirtilir. Envanter keşif işini IPAM otomatik başlatmaz.
+- IPAM kaynak veya zamanlama değişikliğinde `docs/ipam-integrations.md` içindeki **Envanterden salt okunur switch kanıtı** sözleşmesini ve `tests/test_ipam_inventory_only.py` regresyonlarını uygula.

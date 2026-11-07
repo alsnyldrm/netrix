@@ -1,4 +1,4 @@
-"""One-address source plan. Topology/cache are routing hints, not live whole-network reads."""
+"""Gateway/integration sources; switch attachments are read only from inventory SQL."""
 
 import asyncio
 import ipaddress
@@ -8,12 +8,11 @@ from sqlalchemy import select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..discovery.protocols import NetworkError, fetch_neighbor_ports
+from ..discovery.protocols import NetworkError
 from ..identity.security import decrypt, secret_data
 from . import adapters
-from .connections import Evidence, Snapshot, gateway_interfaces, lldp_mac, projections
+from .connections import Evidence, gateway_interfaces
 from .network import detail_profile
-from .protocol_peers import peer
 from .service import normalized_mac
 
 
@@ -125,7 +124,13 @@ class PointSources:
 
     async def gateway(self, address):
         matches, errors = [], []
-        devices = [id for id, d in self.devices.items() if d.is_gateway or d.kind in ("router", "firewall")]
+        from .mac_cache import is_switch
+
+        devices = [
+            id
+            for id, d in self.devices.items()
+            if (d.is_gateway or d.kind in ("router", "firewall")) and not is_switch(d)
+        ]
         if not devices:
             raise NetworkError("No authorized gateway configured")
         known, unknown = [], []
@@ -279,224 +284,10 @@ class PointSources:
         self.check()
         return await adapters.reverse_dns(address, self.dns_server)
 
-    async def physical(self, address, mac, *, unmapped_only=False):
-        # Query only roots and downstream devices indicated by cached topology/FDB.
-        cached = self.evidence.resolve(self.row, self.vlan, identity_mac=mac)
-        if not cached["connections"] and not cached["connection_ambiguous"]:
-            from .mac_cache import fallback
+    async def physical(self, address, mac):
+        """Resolve existing inventory facts; a missing match never opens a switch session."""
+        from .inventory_sources import attachment
 
-            gateway = getattr(self, "gateway_result", {"gateway_evidence": []})
-            probe = {**cached, "gateway_evidence": gateway["gateway_evidence"], "sources": []}
-            with session_factory()() as db:
-                cached = fallback(db, [self.row], [probe], {self.vlan.id: self.vlan}, self.evidence)[0]
-                source_ids = {c["device_id"] for c in cached["connections"]}
-                states = list(
-                    db.scalars(
-                        select(m.SwitchMacSnapshot).where(m.SwitchMacSnapshot.device_id.in_(source_ids))
-                    )
-                )
-                for state, projected in projections(db, states, model=m.SwitchMacSnapshot):
-                    if state.device_id not in self.evidence.snapshots:
-                        self.evidence.snapshots[state.device_id] = (
-                            Snapshot(state.id, state.observed_at),
-                            projected,
-                        )
-        roots = [
-            id
-            for id, d in self.devices.items()
-            if not (d.is_gateway or d.kind in ("router", "firewall"))
-            and (
-                "backbone" in ((d.device_type.name if d.device_type else d.kind).casefold())
-                or "-BB-" in d.name.upper()
-            )
-        ]
-        if not roots:
-            roots = list(dict.fromkeys([c["device_id"] for c in cached["connections"]]))
-        if not roots:
-            roots = [
-                id
-                for id, (_, p) in self.evidence.snapshots.items()
-                if id in self.devices and p["fdb"].get((self.vlan.vid, mac))
-            ]
-        from ..discovery.fid_candidates import candidates
-
-        unmapped_ids = [
-            id
-            for id, (_, projected) in self.evidence.snapshots.items()
-            if id in self.devices
-            and not (self.devices[id].is_gateway or self.devices[id].kind in ("router", "firewall"))
-            and not any(
-                k.split(".")[-1] == str(self.vlan.vid) for k in projected["tables"].get("vlan_fdb_id", {})
-            )
-            and candidates(projected["evidence"], mac)
-        ]
-        if unmapped_only:
-            roots = unmapped_ids
-        elif not roots:
-            roots = unmapped_ids
-        if len(roots) > 4:
-            raise NetworkError("Ambiguous switch starting points")
-        # The cached endpoint can be known even when an intermediate neighbor
-        # row is absent. Validate every relevant unresolved candidate, not a
-        # random first switch; the existing eight-device bound still applies.
-        queue = list(dict.fromkeys([*roots, *unmapped_ids]))
-        visited = set()
-        connections = []
-        steps = []
-        while queue:
-            id = queue.pop(0)
-            if id in visited:
-                continue
-            if len(visited) >= 8:
-                raise NetworkError("Switch path depth limit exceeded")
-            visited.add(id)
-            if id not in self.devices:
-                continue
-            self.check()
-            self.device_check(id)
-            d = self.devices[id]
-            snapshot = self.evidence.snapshots.get(id)
-            hint = snapshot[1]["evidence"] if snapshot else {}
-            async with asyncio.timeout(10):
-                data = await self.collector.ipam_switch(
-                    d.management_ip, d.snmp_port, secret_data(self.profiles[id]), mac, self.vlan.vid, hint
-                )
-            self.device_check(id)
-            steps.append(
-                {
-                    "source": "switch",
-                    "device": d.name,
-                    "status": "ok",
-                    "ports": [p["port"] for p in data["ports"]],
-                }
-            )
-            neighbors = data.get("neighbors", [])
-            # Target-port SSH detail provides fresh IP/chassis, multiple NIC and LAG proof.
-            if self.ssh[id] and data["ports"] and not (data.get("unmapped_fid") or unmapped_only):
-                ports = {p["port"] for p in data["ports"]}
-                members = {
-                    c["port"]
-                    for c in cached["connections"]
-                    if c["device_id"] == id and c.get("aggregate") in ports
-                }
-                if members:
-                    ports = members
-                else:
-                    ports.update(c["port"] for c in cached["connections"] if c["device_id"] == id)
-                async with asyncio.timeout(10):
-                    detail = await fetch_neighbor_ports(d, secret_data(self.ssh[id]), sorted(ports))
-                from ..discovery.neighbor_detail import merge_neighbors
-
-                neighbors = merge_neighbors(neighbors, detail.get("neighbors", []))
-                for n in neighbors:
-                    n["evidence"]["local_aggregate"] = detail.get("trunks", {}).get(n["interface_name"])
-            from ..sources.point import switch as store_switch
-
-            self.device_check(id)
-            with session_factory()() as db:
-                store_switch(db, d, self.vlan, mac, data["ports"], neighbors)
-                db.commit()
-            direct = []
-            for n in neighbors:
-                proof = peer(n.get("evidence") or {}, address)
-                lldp = (n.get("evidence") or {}).get("lldp", {})
-                identity = (
-                    proof["identity"]
-                    if proof
-                    else ("mac:" + mac if lldp_mac(lldp.get("chassis_id")) == mac else None)
-                )
-                if identity:
-                    direct.append(
-                        {
-                            "device_id": id,
-                            "device_name": d.name,
-                            "port": n["interface_name"],
-                            "aggregate": ((n.get("evidence") or {}).get("local_aggregate") or {}).get("name"),
-                            "source": "neighbors",
-                            "endpoint_identity": identity,
-                            "confidence": 0.95,
-                            "observed_at": now().isoformat(),
-                        }
-                    )
-            if direct:
-                connections.extend(direct)
-                continue
-            for entry in data["ports"]:
-                port = entry["port"]
-                peers = [n for n in neighbors if n["interface_name"] == port]
-                next_ids = set()
-                for n in peers:
-                    name = n.get("remote_name", "").casefold().rstrip(".")
-                    next_ids.update(
-                        rid
-                        for rid, remote in self.devices.items()
-                        if rid != id
-                        and name
-                        in {
-                            remote.name.casefold().rstrip("."),
-                            getattr(remote, "hostname", "").casefold().rstrip("."),
-                        }
-                    )
-                next_ids.update(
-                    l.remote_device_id
-                    for l in self.evidence.links
-                    if l.device_id == id and l.interface_name == port and l.remote_device_id in self.devices
-                )
-                if next_ids:
-                    queue.extend(sorted(next_ids))
-                    continue
-                # Reconfirm the exact FDB row; single-MAC edge evidence must already exist.
-                projected = snapshot[1] if snapshot else None
-                if (
-                    peers
-                    or not projected
-                    or not projected["evidence"].get("neighbor_protocols_complete")
-                    or not (
-                        self.unmapped_edge(projected, port, mac)
-                        if data.get("unmapped_fid")
-                        else projected["population"].get(port) == {mac}
-                    )
-                ):
-                    continue
-                connections.append(
-                    {
-                        "device_id": id,
-                        "device_name": d.name,
-                        "port": port,
-                        "aggregate": None,
-                        "source": "gateway+snmp_fdb" if data.get("unmapped_fid") else "gateway+vlan_fdb",
-                        "endpoint_identity": None,
-                        "confidence": 0.85,
-                        "observed_at": now().isoformat(),
-                    }
-                )
-        identities = {c.get("endpoint_identity") for c in connections}
-        aggregate = {(c["device_id"], c.get("aggregate")) for c in connections}
-        ambiguous = (
-            len(connections) > 1
-            and not (len(identities) == 1 and None not in identities)
-            and not (len(aggregate) == 1 and connections[0].get("aggregate"))
-        )
-        return {"connections": connections, "connection_ambiguous": ambiguous, "steps": steps}
-
-    @staticmethod
-    def unmapped_edge(projected, port, mac):
-        """Count all cached FIDs; never hide transit MACs just because VLAN mapping is absent."""
-        root = (projected["evidence"].get("neighbor_detail") or {}).get("spanning_tree") or {}
-        if root.get("is_root") is False and root.get("port") == port:
-            return False
-        tables = projected["tables"]
-        population = set()
-        for key, bridge in tables.get("vlan_fdb_port", {}).items():
-            if tables.get("vlan_fdb_status", {}).get(key) not in ("1", "3", "5"):
-                continue
-            index = tables.get("bridge_ifindex", {}).get(str(bridge))
-            if tables.get("if_name", {}).get(str(index)) != port:
-                continue
-            try:
-                parts = key.split(".")[1:]
-                if len(parts) == 6:
-                    population.add(bytes(int(v) for v in parts).hex(":"))
-            except (ValueError, TypeError):
-                return False
-        return population == {mac}
+        self.check()
+        with session_factory()() as db:
+            return attachment(db, self.row, self.vlan, mac, evidence=self.evidence)

@@ -305,11 +305,12 @@ async def test_offline_backfill_is_idempotent_and_never_probes(admin_client, net
         assert db.scalar(select(func.count()).select_from(m.IPAMResult)) == 1
 
 
-async def test_live_point_groups_two_nics_with_current_port_detail(admin_client, network, monkeypatch):
+async def test_sql_inventory_groups_two_nics_without_switch_queries(admin_client, network, monkeypatch):
     import json
 
     from netrix.identity.security import encrypt
     from netrix.ipam import point_sources
+    from netrix.ipam.network import read_context
 
     sf, vlan_id, id, ids = network
     neighbors = []
@@ -357,19 +358,19 @@ async def test_live_point_groups_two_nics_with_current_port_detail(admin_client,
                 for i, p in ((101, "H7"), (102, "H8"), (103, "Trk1"))
             ],
             "neighbors": neighbors,
+            "read_context": read_context(device, db.get(m.Credential, device.snmp_credential_id), profile),
         }
         db.commit()
 
-    async def detail(device, secret, ports):
-        assert ports == ["H7", "H8"]
-        return {"neighbors": neighbors, "trunks": {p: {"name": "Trk1"} for p in ("H7", "H8")}}
+    async def detail(*_):
+        raise AssertionError("IPAM must use stored NIC neighbors, not SSH")
 
     class Collector:
         async def ipam_gateway(self, *_):
             return [MAC]
 
         async def ipam_switch(self, *_):
-            return {"ports": [{"port": "Trk1", "if_index": 103}], "neighbors": []}
+            raise AssertionError("IPAM must not query switch ports")
 
     async def ping(_):
         return True
@@ -377,7 +378,7 @@ async def test_live_point_groups_two_nics_with_current_port_detail(admin_client,
     async def dns(*_):
         return "server.example"
 
-    monkeypatch.setattr(point_sources, "fetch_neighbor_ports", detail)
+    monkeypatch.setattr("netrix.discovery.protocols.fetch_neighbor_ports", detail)
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns)
     from netrix.ipam import pipeline

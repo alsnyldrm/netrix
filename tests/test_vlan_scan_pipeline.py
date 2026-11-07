@@ -120,11 +120,30 @@ async def test_new_vlan_waits_for_sources_and_matches_all_fields(
             "neighbor_protocols_complete": ["lldp"],
         }
 
+    # Inventory has already collected this switch; IPAM only consumes its SQL facts.
+    data = await network("198.51.100.2")
+    with env() as db:
+        db.add(
+            m.Observation(
+                job_id=initial["id"],
+                device_id=switch.id,
+                address=switch.management_ip,
+                source="snmpv3",
+                evidence=data,
+            )
+        )
+        db.commit()
+    gateway_read = network
+
+    async def gateway_only(host, *args):
+        assert host == "198.51.100.1", "IPAM must not query a switch"
+        return await gateway_read(host, *args)
+
     monkeypatch.setattr(adapters, "ping", ping)
     monkeypatch.setattr(adapters, "reverse_dns", dns)
     monkeypatch.setattr(adapters, "windows_dhcp", dhcp_read)
     monkeypatch.setattr(adapters, "vcenter_records", vm_read)
-    monkeypatch.setattr(worker, "SNMPCollector", lambda: SimpleNamespace(ipam=network))
+    monkeypatch.setattr(worker, "SNMPCollector", lambda: SimpleNamespace(ipam=gateway_only))
     assert (
         await run_scan(
             env, monkeypatch, initial["id"], check=lambda db, j: phases.add(j.result.get("scan_phase"))

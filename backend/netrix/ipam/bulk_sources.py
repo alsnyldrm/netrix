@@ -12,12 +12,12 @@ from sqlalchemy.exc import OperationalError
 
 from .. import models as m
 from ..core import now, session_factory
-from ..discovery.neighbor_detail import enrich_neighbors
-from ..discovery.protocols import NetworkError, fetch_neighbor_detail
+from ..discovery.protocols import NetworkError
 from ..identity.security import decrypt, secret_data
 from ..runtime_limits import device_slot, sql_read, sql_write
 from . import adapters
 from .connections import Evidence, gateway_interfaces
+from .mac_cache import is_switch
 from .network import read_context
 from .point_sources import PointSources, integration_signature
 from .service import normalized_mac
@@ -70,10 +70,20 @@ class BulkContext:
             if kind in self.values:
                 return
             self.check()
+            if kind == "switch":
+                # Inventory is the only switch collector. IPAM reads its canonical
+                # facts even when they are absent/incomplete; never probe a fallback.
+                def load_inventory():
+                    with session_factory()() as db:
+                        return Evidence(db, {self.base.vlan.vrf_id})
+
+                self.switch_evidence = await sql_read(load_inventory)
+                self.values[kind] = True
+                return
             ids = [
                 id
                 for id, d in self.base.devices.items()
-                if bool(d.is_gateway or d.kind in ("router", "firewall")) == (kind == "gateway")
+                if (d.is_gateway or d.kind in ("router", "firewall")) and not is_switch(d)
             ]
             failures = []
 
@@ -100,22 +110,11 @@ class BulkContext:
                     profile = self.base.profiles[id]
                     ssh = self.base.ssh[id]
                     try:
-                        # SNMP and optional SSH of one device share this slot and budget.
+                        # Only non-switch gateway devices may be contacted by IPAM.
                         async with asyncio.timeout(READ_BUDGET_SECONDS):
                             data = await self.base.collector.ipam(
                                 d.management_ip, d.snmp_port, secret_data(profile)
                             )
-                            if kind == "switch" and ssh:
-                                try:
-                                    detail = await fetch_neighbor_detail(d, secret_data(ssh))
-                                    data = enrich_neighbors(data, detail)
-                                except Exception as exc:
-                                    from ..worker import Cancelled
-
-                                    if isinstance(exc, Cancelled):
-                                        raise
-                                    # Optional SSH detail must not discard a successful SNMP snapshot.
-                                    data = {**data, "neighbor_detail_failed": type(exc).__name__}
                     except Exception as exc:
                         from ..worker import Cancelled
 
@@ -153,10 +152,7 @@ class BulkContext:
                 id: state for id, state in evidence.snapshots.items() if id not in self.failed_devices
             }
             evidence.static = {}
-            if kind == "gateway":
-                self.gateway_evidence = evidence
-            else:
-                self.switch_evidence = evidence
+            self.gateway_evidence = evidence
             if failures:
                 self.errors[kind] = failures
 
@@ -273,34 +269,10 @@ class BulkSources:
 
     async def physical(self, address, mac):
         await self.context.network("switch")
-        result = self.context.switch_evidence.resolve(self.point.row, self.point.vlan, identity_mac=mac)
-        if not result["connections"] and not result["connection_ambiguous"]:
-            from copy import copy
+        from .inventory_sources import attachment
 
-            from .connections import Snapshot
-            from .mac_cache import fallback
-
-            gateway = await self.gateway(address)
-            result["gateway_evidence"] = gateway["gateway_evidence"]
-            result["sources"] = []
-            guard = copy(self.context.switch_evidence)
-            guard.snapshots = dict(guard.snapshots)
-            for id in self.context.failed_devices:
-                guard.snapshots[id] = (Snapshot("", now()), {})
-            with session_factory()() as db:
-                result = fallback(
-                    db,
-                    [self.point.row],
-                    [result],
-                    {self.point.vlan.id: self.point.vlan},
-                    self.context.switch_evidence,
-                    scoped={self.point.row.id: guard},
-                )[0]
-        if not result["connections"] and not result["connection_ambiguous"]:
-            self.point.evidence = self.context.switch_evidence
-            # Run only in this explicit scheduled scan, not in SQL-only read projections.
-            result = await self.point.physical(address, mac, unmapped_only=True)
-        return result
+        with session_factory()() as db:
+            return attachment(db, self.point.row, self.point.vlan, mac, evidence=self.context.switch_evidence)
 
     async def dhcp(self, address, mac):
         await self.context.integration("windows_dhcp")

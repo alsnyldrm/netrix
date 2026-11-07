@@ -1,4 +1,4 @@
-"""Bounded worker-only network evidence reads, separate from inventory discovery."""
+"""Bounded non-switch gateway reads; switch collection belongs to inventory."""
 
 import asyncio
 from datetime import timedelta
@@ -12,7 +12,7 @@ from ..discovery.protocols import NetworkError, fetch_neighbor_detail
 from ..identity.security import secret_data
 from ..runtime_limits import device_slot
 from ..services import get, publish
-from .connections import network_device
+from .mac_cache import is_switch
 
 
 def detail_profile(db, device):
@@ -70,7 +70,9 @@ async def refresh(job_id, collector, *, detail_reader=None, address_id=None):
                 )
             )
         )
-        ids = [d.id for d in devices if network_device(d)]
+        ids = [
+            d.id for d in devices if (d.is_gateway or d.kind in ("router", "firewall")) and not is_switch(d)
+        ]
 
     async def read(id):
         async with device_slot():

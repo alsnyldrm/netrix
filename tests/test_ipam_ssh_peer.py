@@ -100,7 +100,7 @@ def test_ssh_peer_requires_current_consistent_dual_protocol_identity(network, fa
     assert not read(network)["connected_port"]
 
 
-async def test_worker_collects_ssh_detail_without_mutating_inventory(network):
+async def test_ipam_legacy_reader_never_collects_switch_ssh_detail(network):
     sf, vlan_id, _, ids = network
     with sf() as db:
         credential = m.Credential(
@@ -133,28 +133,10 @@ async def test_worker_collects_ssh_detail_without_mutating_inventory(network):
         assert secret["password"] == "fixture-secret"
         return {"neighbors": [peer("A1", 1)], "neighbor_protocols_complete": ["lldp", "cdp"]}
 
-    await refresh(job_id, SimpleNamespace(ipam=collect), detail_reader=detail)
-    assert calls == [ids[1]]
-    with sf() as db:
-        obs = db.scalar(
-            select(m.Observation).where(m.Observation.job_id == job_id, m.Observation.device_id == ids[1])
-        )
-        assert obs.evidence["neighbors"][0]["evidence"]["cdp"]["management_address"] == "192.0.2.10"
-        assert "fixture-secret" not in str(obs.evidence)
-        assert before == [(d.id, d.updated_at) for d in db.scalars(select(m.Device))]
-        db.get(m.Device, ids[1]).config_port = 2222
-        db.commit()
-
-    async def failed_detail(*_):
-        raise RuntimeError("fixture-secret")
-
-    result = await refresh(job_id, SimpleNamespace(ipam=collect), detail_reader=failed_detail)
-    assert result["failed"] == 1
-    with sf() as db:
-        obs = db.scalar(
-            select(m.Observation).where(m.Observation.job_id == job_id, m.Observation.device_id == ids[1])
-        )
-        assert obs.evidence["neighbor_detail_failed"] == "RuntimeError"
-        assert "fixture-secret" not in str(obs.evidence) and not obs.evidence.get("failed")
     result = await refresh(job_id, SimpleNamespace(ipam=collect), detail_reader=detail)
-    assert result["failed"] == 0 and len(calls) == 2
+    assert calls == [] and result["failed"] == 0
+    with sf() as db:
+        assert not db.scalar(
+            select(m.Observation).where(m.Observation.job_id == job_id, m.Observation.device_id == ids[1])
+        )
+        assert before == [(d.id, d.updated_at) for d in db.scalars(select(m.Device))]

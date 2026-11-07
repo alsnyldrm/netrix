@@ -5,7 +5,7 @@ from sqlalchemy import delete, exists, or_, select
 from .. import models as m
 
 
-def prune(db):
+def prune(db, *, inventory=True):
     db.flush()
     # Association metadata is not a history store. Keep a retired association
     # only while a retained resolution explicitly depends on it.
@@ -42,22 +42,27 @@ def prune(db):
         (m.DHCPBinding, m.IPObservation.dhcp_id, ()),
         (m.VMwareAddress, m.IPObservation.vmware_id, ()),
     ):
+        if model is m.SwitchMacEntry and not inventory:
+            continue
         conditions = [model.present.is_(False), ~exists(select(reference).where(reference == model.id))]
         conditions.extend(~exists(select(column).where(column == model.id)) for column in columns)
         db.execute(delete(model).where(*conditions).execution_options(synchronize_session=False))
-    db.execute(
-        delete(m.Link)
-        .where(
-            m.Link.is_current.is_(False),
-            m.Link.auto_add_excluded.is_(False),
-            m.Link.source != "manual",
-            m.Link.manual_remote_name.is_(None),
-            m.Link.manual_remote_port.is_(None),
-            m.Link.manual_remote_device_id.is_(None),
-            ~exists(select(m.ResolutionConnection.id).where(m.ResolutionConnection.neighbor_id == m.Link.id)),
+    if inventory:
+        db.execute(
+            delete(m.Link)
+            .where(
+                m.Link.is_current.is_(False),
+                m.Link.auto_add_excluded.is_(False),
+                m.Link.source != "manual",
+                m.Link.manual_remote_name.is_(None),
+                m.Link.manual_remote_port.is_(None),
+                m.Link.manual_remote_device_id.is_(None),
+                ~exists(
+                    select(m.ResolutionConnection.id).where(m.ResolutionConnection.neighbor_id == m.Link.id)
+                ),
+            )
+            .execution_options(synchronize_session=False)
         )
-        .execution_options(synchronize_session=False)
-    )
 
     db.execute(
         delete(m.VMwareNIC)

@@ -53,6 +53,7 @@ async def resolve(address, sources, progress=None):
         "field_sources": {},
         "observations": [],
         "cached_import": False,
+        "_inventory_switches_only": True,
     }
     issues, steps = [], []
 
