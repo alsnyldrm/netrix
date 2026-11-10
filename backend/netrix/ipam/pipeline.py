@@ -93,7 +93,11 @@ async def resolve(address, sources, progress=None):
             {
                 "id": f"{source}:{index}",
                 "source": source,
-                "source_key": data.get("integration_id") or source,
+                "source_key": (
+                    getattr(sources, "dns_source_key", "system")
+                    if source == "dns"
+                    else data.get("integration_id") or source
+                ),
                 "observed_at": now().isoformat(),
                 "data": dict(data),
             }

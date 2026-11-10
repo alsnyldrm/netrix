@@ -118,6 +118,10 @@ async def test_scheduled_scan_reads_switch_sql_without_touching_or_refreshing_it
                     before[did]["payload"][key],
                 )
             assert after[did]["mac_rows"] == before[did]["mac_rows"]
+        stored = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid))
+        hostname = next(f for f in stored.fields if f.field == "hostname")
+        assert hostname.source_link.source_key == "system"
+        assert hostname.source_link.dns.hostname == "dns.example"
         row = service.enrich(db, [db.get(m.IPAddress, rid)])[0]
         if available:
             assert (row["connected_device"], row["connected_port"]) == ("Access", "Gi1/0/1")
@@ -146,7 +150,13 @@ async def test_switch_source_and_point_fallback_are_read_only_even_if_no_match(n
 
 
 @pytest.mark.parametrize("point", [False, True])
-async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device_access(network, point):
+async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device_access(
+    network, point, monkeypatch
+):
+    async def dns(*args):
+        return "dns.example"
+
+    monkeypatch.setattr(adapters, "reverse_dns", dns)
     from netrix.core import now
     from netrix.ipam import sql_sources
 

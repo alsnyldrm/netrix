@@ -218,6 +218,11 @@ async def test_newer_point_result_is_not_overwritten_by_parallel_vlan_work(netwo
             dns = db.scalar(select(m.DNSRecord).where(m.DNSRecord.address_id == rid))
             dns.hostname = "newer.example"
             db.commit()
+
+        async def latest_dns(*args):
+            return "newer.example"
+
+        monkeypatch.setattr("netrix.ipam.adapters.reverse_dns", latest_dns)
         latest = await original(self.context.for_row(self.row))
         latest["status"], latest["issues"] = "success", []
         with sf() as db:

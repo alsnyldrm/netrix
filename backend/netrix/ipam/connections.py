@@ -111,7 +111,16 @@ def project(evidence):
             fids[str(fid)].add(vid)
     fdb = defaultdict(set)
     population = defaultdict(set)
-    if not unsupported.intersection({"vlan_fdb_port", "vlan_fdb_status", "vlan_fdb_id", "bridge_ifindex"}):
+    fdb_times = {}
+    canonical_times = evidence.get("_canonical_fdb_times")
+    required = {"vlan_fdb_port", "vlan_fdb_status", "vlan_fdb_id", "bridge_ifindex"}
+    partial_positives = canonical_times is not None and all(
+        name == "vlan_fdb_port"
+        and evidence.get("table_reads", {}).get(name, {}).get("status") == "incomplete"
+        and evidence.get("table_reads", {}).get(name, {}).get("error_code") == "unresolved_row_dependencies"
+        for name in unsupported & required
+    )
+    if partial_positives or not unsupported.intersection(required):
         for index, bridge in tables.get("vlan_fdb_port", {}).items():
             try:
                 fid, *octets = index.split(".")
@@ -131,6 +140,8 @@ def project(evidence):
                     continue
                 vid = next(iter(fids[fid]))
                 fdb[(vid, mac)].add(interface["name"])
+                if canonical_times is not None:
+                    fdb_times[(vid, mac, interface["name"])] = canonical_times.get(index)
             except (ValueError, TypeError):
                 continue
     addresses = defaultdict(list)
@@ -139,6 +150,7 @@ def project(evidence):
     return {
         "bindings": addresses,
         "fdb": fdb,
+        "fdb_times": fdb_times,
         "population": population,
         "tables": tables,
         "unsupported": unsupported,
@@ -638,7 +650,11 @@ class Evidence:
             mac = next(iter(macs))
             for id, (obs, p) in snapshots.items():
                 fdb_at = p["evidence"].get("fdb_at")
-                if fdb_at and datetime.fromisoformat(fdb_at) < cutoff:
+                if (
+                    "_canonical_fdb_times" not in p["evidence"]
+                    and fdb_at
+                    and datetime.fromisoformat(fdb_at) < cutoff
+                ):
                     continue
                 if not p["evidence"].get("neighbor_protocols_complete"):
                     continue
@@ -647,6 +663,11 @@ class Evidence:
                     # Do not infer an edge until every advertised port is mapped.
                     continue
                 for port in p["fdb"].get((vlan.vid, mac), ()):
+                    row_at = p["fdb_times"].get((vlan.vid, mac, port))
+                    if "_canonical_fdb_times" in p["evidence"] and (
+                        not row_at or datetime.fromisoformat(row_at) < cutoff
+                    ):
+                        continue
                     # Multi-MAC ports may hide another bridge, phone or hypervisor.
                     # They are not evidence of a direct endpoint attachment.
                     if (id, port) in blocked or p["population"].get(port) != {mac}:
@@ -657,7 +678,7 @@ class Evidence:
                         "port": port,
                         "aggregate": None,
                         "source": identity_source + "+vlan_fdb",
-                        "observed_at": obs.created_at.isoformat(),
+                        "observed_at": row_at or obs.created_at.isoformat(),
                         "evidence_id": obs.id,
                         "endpoint_identity": None,
                         "confidence": 0.85,

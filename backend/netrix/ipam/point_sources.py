@@ -25,6 +25,7 @@ def integration_signature(config):
 class PointSources:
     def __init__(self, db, row, vlan, collector):
         self.row, self.vlan, self.collector = row, vlan, collector
+        self.dns_source_key = vlan.dns_server_id or "system"
         self.evidence = Evidence(db, {row.vrf_id})
         self.devices = {
             id: d
