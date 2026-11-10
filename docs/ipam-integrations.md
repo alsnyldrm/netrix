@@ -433,3 +433,29 @@ Gateway kaynak adreslerini içeri alırken tam switch envanteri hazırlanmaz. Fi
 Aynı görev yeniden başladığında sabit `sql_started_at` ve giriş imzası kullanılır. Güncel sonuç tablosunda bu başlangıçtan sonra tamamlanmış, IP/VRF/VLAN bağı aynı olan kayıtlar atlanır; ilerleme bu sonuçlardan yeniden hesaplanır. CIDR/VLAN kimliği, DNS, hedef IP/teaming seçimi veya profil/entegrasyon ayarı değişirse başlangıç yenilenir. Yeni kullanıcı isteği yeni görev olduğundan tekrar eşleştirme yapar. Daha yeni tek-IP sonucu eski VLAN kararıyla ezilmez. Yeni tablo/migration gerekmez; sonuçların tek SQL sahibi değişmez.
 
 Ağsız regresyonlar: `test_ipam_sql_throughput.py` (eski kodda üç ana hata yeniden üretildi), `test_ipam_sql_manual.py`, `test_switch_mac_cache.py`, `test_ipam_point_latency.py`, `test_ipam_inventory_only.py`. Performans karşılaştırması yalnız SQL okuyan ayrı süreçte, aynı IP/MAC ve aynı kanıtlarla yapılır; ölçüm kaynak sorgusu veya gerçek ağ taraması başlatmaz.
+
+## DNS yenileme ve komşusuz uçta MAC–port — 10 Kasım 2026
+
+Bu karar, manuel IP/VLAN işlerinin DNS'i yalnız SQL'den okuması kuralının yerine
+geçer. Yetkili manuel IP/VLAN taraması worker'da yalnız seçili hedefler için VLAN'ın
+DNS sunucusuna PTR sorgusu yapar. Zamanlanmış tarama da aynı DNS kaynağını kullanır.
+Başarılı yanıt kanonik `ip_adres_yonetimi.dns_records` kaydına yazılır; hostname
+aynı kalsa da kaydın güncelleme zamanı yenilenir, değişirse yeni hostname saklanır.
+DNS için değer değişikliği yaşı üzerinden ikinci bir 24 saat kontrolü yapılmaz.
+Kaynak anahtarı VLAN'ın DNS sunucusu kimliğidir; sistem DNS'i için `system` kullanılır.
+VMware kimliği doğrulanmış VM dalının kaynak önceliği, manuel alanlar, pasif sayfa
+okumaları ve NIC-Teaming'in DNS → SQL komşuluk dalı korunur.
+
+LLDP/CDP ile hedef uç eşleşmiyorsa gateway MAC'i, envanter SQL'indeki VLAN/FID ve
+MAC–port kanıtıyla terminal switch/yerel portuna çözülebilir. Başka FDB satırlarının
+bağımlılıkları eksik olduğu için tablonun kısmi olması, kendi bağımlılıkları geçerli
+pozitif satırı tek başına geçersiz kılmaz. Her adayın kendi gözlem zamanı denetlenir;
+sonraki genel cihaz okuması eski MAC satırını güncel yapmaz. VRF, VLAN–FID tekilliği,
+port durumu, çoklu MAC, uplink, komşuluk ve birden fazla aday kontrolleri korunur.
+Komşusuz MAC–port kanıtından uzak cihaz portu, işletim sistemi veya komşu hostname'i
+üretilmez; IP hostname'i DNS/öncelikli kimlik kaynağından gelir. IPAM switch'e bağlanmaz
+ve envanter kaynak satırlarını güncellemez.
+
+Regresyonlar: `tests/test_ipam_dns_mac_fallback.py`, `tests/test_ipam_sql_manual.py`
+ve `tests/test_ipam_inventory_only.py`. Gerçek DNS/cihaz sorguları yerine sahte
+istemciler ve yerel SQL fixture'ları kullanılır.

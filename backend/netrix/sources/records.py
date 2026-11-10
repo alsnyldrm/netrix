@@ -366,6 +366,8 @@ def write_observation(db, row, data):
     if row.source == "dns":
         row.dns = find(db, m.DNSRecord, address_id=row.address_id, source_key=row.source_key)
         row.dns.hostname = str(data.get("hostname") or "")[:190]
+        # A successful read refreshes this canonical record even when the value is unchanged.
+        row.dns.updated_at = row.observed_at
     elif row.source == "icmp":
         row.ping = find(db, m.PingState, address_id=row.address_id)
         row.ping.reachability = data.get("reachability", "unknown")

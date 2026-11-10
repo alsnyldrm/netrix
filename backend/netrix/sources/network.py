@@ -480,13 +480,31 @@ def mac_rows(db, state):
     """Column rows for read-only projections; pending ORM changes keep the relationship."""
     if db is None or "mac_entries" in state.__dict__ or not inspect(state).persistent:
         return [
-            (e.vrf_id, e.vlan_vid, e.fdb_id, e.present, e.mac_address, e.bridge_port, e.if_index, e.status)
+            (
+                e.vrf_id,
+                e.vlan_vid,
+                e.fdb_id,
+                e.present,
+                e.mac_address,
+                e.bridge_port,
+                e.if_index,
+                e.status,
+                e.observed_at,
+            )
             for e in state.mac_entries
         ]
     e = m.SwitchMacEntry
     return db.execute(
         select(
-            e.vrf_id, e.vlan_vid, e.fdb_id, e.present, e.mac_address, e.bridge_port, e.if_index, e.status
+            e.vrf_id,
+            e.vlan_vid,
+            e.fdb_id,
+            e.present,
+            e.mac_address,
+            e.bridge_port,
+            e.if_index,
+            e.status,
+            e.observed_at,
         ).where(e.snapshot_id == state.id)
     ).all()
 
@@ -526,7 +544,11 @@ def read(state):
         tables["bridge_ifindex"][str(p.bridge_port)] = str(p.if_index)
     device = db.get(m.Device, state.device_id) if db and state.device_id else None
     mapped = {(v.vlan_vid, v.fdb_id) for v in state.vlan_fdbs}
-    for vrf_id, vlan_vid, fdb_id, present, mac, bridge_port, if_index, status in mac_rows(db, state):
+    fdb_row_times = {}
+    fdb_conflicts = set()
+    for vrf_id, vlan_vid, fdb_id, present, mac, bridge_port, if_index, status, observed_at in mac_rows(
+        db, state
+    ):
         if device and vrf_id != device.vrf_id:
             continue
         if vlan_vid and (vlan_vid, fdb_id) not in mapped:
@@ -534,9 +556,17 @@ def read(state):
         if present is False:
             continue
         key = str(fdb_id) + "." + ".".join(str(int(v, 16)) for v in mac.split(":"))
-        tables["vlan_fdb_port"][key] = str(bridge_port or if_index)
+        projected_port = str(bridge_port or if_index)
+        if key in tables["vlan_fdb_port"] and tables["vlan_fdb_port"][key] != projected_port:
+            fdb_conflicts.add(key)
+        tables["vlan_fdb_port"][key] = projected_port
+        if observed_at:
+            fdb_row_times[key] = observed_at.isoformat()
         tables["vlan_fdb_status"][key] = status
         tables["bridge_ifindex"].setdefault(str(bridge_port or if_index), str(if_index))
+    for key in fdb_conflicts:
+        # Two present locations for one FDB identity cannot prove a unique edge.
+        tables["vlan_fdb_status"][key] = "2"
     tables["_prefixes"] = [
         dict(if_index=p.if_index, address=p.address, prefix_length=p.prefix_length) for p in state.prefixes
     ]
@@ -614,6 +644,7 @@ def read(state):
                     tables.setdefault("lldp_local_desc", {})[str(raw["local_port_number"])] = l.interface_name
     value = dict(
         _bindings=gateway_rows,
+        _canonical_fdb_times=fdb_row_times,
         gateway_at=state.gateway_at.isoformat() if state.gateway_at else None,
         fdb_at=state.fdb_at.isoformat() if state.fdb_at else None,
         failed=state.healthy is False,

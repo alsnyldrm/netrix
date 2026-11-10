@@ -192,11 +192,17 @@ def write(db, result, value):
             setattr(link, relation, fact)
             link.present = True
             link.observed_at = records.stamp(ref["observed_at"])
-    for i, item in enumerate([] if value.get("_sql_only") else value.get("observations", [])):
+    for i, item in enumerate(value.get("observations", [])):
+        if value.get("_sql_only") and item["source"] != "dns":
+            continue
         source = item["source"]
         if source not in ("dns", "icmp", "vcenter", "windows_dhcp", "gateway"):
             continue
         data = item.get("data") or {}
+        # Missing PTR / DNS failure is not evidence that the last valid name changed.
+        # Keep its canonical row and observation time for retained results.
+        if source == "dns" and not data.get("hostname"):
+            continue
         key = source_key(source, data, i)
         if source == "dns":
             key = item.get("source_key") or "system"

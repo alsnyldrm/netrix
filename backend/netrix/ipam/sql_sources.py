@@ -1,4 +1,4 @@
-"""Explicit manual reconciliation: SQL facts only, no protocol clients or ICMP."""
+"""Manual reconciliation: inventory SQL plus a targeted DNS query; no switch access."""
 
 import asyncio
 import hashlib
@@ -13,7 +13,7 @@ from ..core import now, session_factory
 from ..runtime_limits import sql_quick, sql_read, sql_write
 from ..services import in_scope, publish
 from ..sources import records
-from . import pipeline, service, teaming
+from . import adapters, pipeline, service, teaming
 from .connections import Evidence, network_device
 
 
@@ -167,16 +167,22 @@ class SQLSources:
         return rows
 
     async def dns(self, address):
+        self.context.check()
         with session_factory()() as db:
-            fact = db.scalar(
-                select(m.DNSRecord).where(
-                    m.DNSRecord.address_id == self.row.id,
-                    m.DNSRecord.source_key == (self.context.vlan.dns_server_id or "system"),
-                )
+            server = (
+                db.get(m.DNSServer, self.context.vlan.dns_server_id)
+                if self.context.vlan.dns_server_id
+                else None
             )
-            if fact and fact.hostname:
-                self.ref("dns", fact, fact.source_key, fact.updated_at)
-            return fact.hostname if fact else ""
+        hostname = await adapters.reverse_dns(address, server)
+        self.context.check()
+        self.dns_observation = dict(
+            source="dns",
+            source_key=self.context.vlan.dns_server_id or "system",
+            observed_at=now().isoformat(),
+            data=dict(hostname=hostname),
+        )
+        return hostname
 
     async def resolve(self, progress=None):
         self.context.check()
@@ -192,9 +198,15 @@ class SQLSources:
             ):
                 raise Cancelled()
         if self.row.nic_teaming:
-            hostname = await self.dns(self.row.address)
+            error = None
+            try:
+                hostname = await self.dns(self.row.address)
+            except Cancelled:
+                raise
+            except Exception as exc:
+                hostname, error = "", exc
             with session_factory()() as db:
-                result = teaming.result(hostname, teaming.neighbors(db, self.row, hostname), stored=True)
+                result = teaming.result(hostname, teaming.neighbors(db, self.row, hostname), error=error)
         else:
             result = await pipeline.resolve(self.row.address, self, progress)
         for issue in result["issues"]:
@@ -204,7 +216,7 @@ class SQLSources:
                 issue["message"] = (
                     "SQL kaynaklarından güncel hostname doğrulanamadı; varsa önceki doğrulanmış ad korunur."
                 )
-        result["values"]["observations"] = []
+        result["values"]["observations"] = [self.dns_observation] if hasattr(self, "dns_observation") else []
         result["values"]["_sql_only"] = True
         result["values"]["_sql_refs"] = self.refs
         if any(t < now() - timedelta(hours=24) for t in self.times):

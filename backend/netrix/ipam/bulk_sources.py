@@ -230,6 +230,7 @@ class BulkContext:
 class BulkSources:
     def __init__(self, point, context):
         self.point, self.context = point, context
+        self.dns_source_key = point.vlan.dns_server_id or "system"
 
     async def gateway(self, address):
         c = self.context

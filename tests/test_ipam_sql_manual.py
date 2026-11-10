@@ -1,4 +1,4 @@
-"""Manual IP/VLAN jobs reconcile SQL without touching any external source."""
+"""Manual IP/VLAN jobs reconcile SQL and query only targeted DNS."""
 
 from copy import deepcopy
 from datetime import timedelta
@@ -25,7 +25,6 @@ def blocked(monkeypatch):
 
     for name in (
         "ping",
-        "reverse_dns",
         "windows_dhcp",
         "windows_dhcp_point",
         "vcenter_records",
@@ -33,6 +32,11 @@ def blocked(monkeypatch):
     ):
         if hasattr(adapters, name):
             monkeypatch.setattr(adapters, name, forbidden)
+
+    async def dns(address, server):
+        return "dns.example"
+
+    monkeypatch.setattr(adapters, "reverse_dns", dns)
     # Guard low-level UDP too: connect-only guards miss SNMP datagrams.
     import socket
 
@@ -47,7 +51,6 @@ def source_snapshot(db):
         )
         for cls in (
             m.GatewayBinding,
-            m.DNSRecord,
             m.DHCPBinding,
             m.PingState,
             m.SwitchMacEntry,
@@ -60,7 +63,7 @@ def source_snapshot(db):
 
 
 @pytest.mark.parametrize("kind", ["address", "vlan"])
-async def test_manual_jobs_use_sql_and_preserve_all_sources(admin_client, network, blocked, kind):
+async def test_manual_jobs_query_dns_and_preserve_other_sources(admin_client, network, blocked, kind):
     sf, vid, rid, ids = network
     with sf() as db:
         d = db.get(m.Device, ids[0])
@@ -135,7 +138,7 @@ async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(admin_
         assert source_snapshot(db) == before
 
 
-async def test_sql_teaming_uses_stored_dns_and_both_ports(admin_client, network, blocked):
+async def test_sql_teaming_queries_dns_and_uses_both_stored_ports(admin_client, network, blocked):
     sf, vid, rid, ids = network
     with sf() as db:
         db.get(m.IPAddress, rid).nic_teaming = True
@@ -267,7 +270,7 @@ async def test_sql_failure_keeps_verified_previous_resolution(admin_client, netw
 
 
 @pytest.mark.parametrize("empty_dns", [True, False])
-async def test_only_used_dns_facts_can_make_sql_result_stale(admin_client, network, blocked, empty_dns):
+async def test_old_dns_is_queried_again_without_stale_value_age(admin_client, network, blocked, empty_dns):
     sf, vid, rid, ids = network
     with sf() as db:
         dns = db.scalar(select(m.DNSRecord).where(m.DNSRecord.address_id == rid))
@@ -284,7 +287,8 @@ async def test_only_used_dns_facts_can_make_sql_result_stale(admin_client, netwo
     with sf() as db:
         result = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid))
         codes = {i["code"] for i in result.issues}
-        assert ("stale_source" in codes) == (not empty_dns)
+        assert "stale_source" not in codes
+        assert result.values["hostname"] == "dns.example"
         assert "identity_missing" in codes
         assert not result.values["connections"]
         assert not result.values["mac_address"]
