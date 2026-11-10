@@ -54,49 +54,109 @@ def test_fallback_prepares_each_source_set_once_but_invalidates_new_source(netwo
     assert len(calls) == 2, "Changed canonical facts must invalidate transient reuse"
 
 
-async def test_fast_ip_commits_before_slow_first_ip_finishes(network, blocked, monkeypatch):
+@pytest.mark.parametrize(
+    "cidr,addresses",
+    [
+        (
+            "192.0.2.0/24",
+            ["192.0.2." + n for n in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "22", "100", "254")],
+        ),
+        (
+            "2001:db8::/64",
+            [
+                "2001:db8::" + n
+                for n in ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "22", "100", "fe")
+            ],
+        ),
+    ],
+)
+async def test_manual_vlan_uses_four_numeric_targets_and_publishes_before_batch_finishes(
+    network, blocked, monkeypatch, cidr, addresses
+):
+    import ipaddress
+
     sf, vid, rid, _ = network
     with sf() as db:
         vlan = db.get(m.VLAN, vid)
+        vlan.cidr = cidr
+        db.get(m.IPAddress, rid).address = addresses[3]
         db.add_all(
-            [m.IPAddress(address=f"192.0.2.{n}", vrf_id=vlan.vrf_id, vlan_id=vid) for n in range(11, 18)]
+            [
+                m.IPAddress(address=a, vrf_id=vlan.vrf_id, vlan_id=vid)
+                for a in reversed(addresses)
+                if a != addresses[3]
+            ]
         )
-        task = m.Job(kind="ipam_discover", target_id=vid, status="running", result={"ipam_origin": "manual"})
-        db.add(task)
+        job = m.Job(kind="ipam_discover", target_id=vid, status="running", result={"ipam_origin": "manual"})
+        db.add(job)
         db.commit()
-        job_id = task.id
-    slow_started, fast_visible, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        job_id = job.id
+    expected = sorted(addresses, key=lambda a: int(ipaddress.ip_address(a)))
+    calls, published = [], []
+    first_started, fast_saved, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
     active = peak = 0
-    original = sql_sources.SQLSources.resolve
 
-    async def delayed(self, *args, **kwargs):
+    async def resolve(self, *args, **kwargs):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
+        calls.append(self.row.address)
         try:
-            if self.row.id == rid:
-                slow_started.set()
+            if len(calls) == 4:
+                first_started.set()
+            if self.row.address in expected[:4]:
+                await first_started.wait()
+            if self.row.address == expected[0]:
                 await release.wait()
-            return await original(self, *args, **kwargs)
+            return dict(status="success", issues=[], steps=[], values={"connections": []})
         finally:
             active -= 1
 
-    def published(**kwargs):
+    def notify(**kwargs):
+        assert kwargs == {"ipam_vlan": vid}
         with sf() as db:
-            if not release.is_set() and db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id != rid)):
-                fast_visible.set()
-                assert db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid)) is None
+            # Read in a fresh transaction: notifications must follow durable writes.
+            rows = list(
+                db.execute(
+                    select(m.IPAddress.address, m.IPAMResult.completed_at).join(
+                        m.IPAMResult, m.IPAMResult.address_id == m.IPAddress.id
+                    )
+                )
+            )
+            published.append(sorted([a for a, _ in rows], key=lambda a: int(ipaddress.ip_address(a))))
+            assert db.get(m.Job, job_id).progress >= len(rows)
+            if len(rows) == 3 and not release.is_set():
+                fast_saved.set()
 
-    monkeypatch.setattr(sql_sources.SQLSources, "resolve", delayed)
-    monkeypatch.setattr(sql_sources, "publish", published)
-    running = asyncio.create_task(sql_sources.scan_vlan(job_id))
+    monkeypatch.setattr(sql_sources.SQLSources, "resolve", resolve)
+    monkeypatch.setattr(sql_sources, "publish", notify)
+    task = asyncio.create_task(sql_sources.scan_vlan(job_id))
     try:
-        await asyncio.wait_for(slow_started.wait(), 2)
-        await asyncio.wait_for(fast_visible.wait(), 2)
-        assert 1 < peak <= 4
+        await asyncio.wait_for(first_started.wait(), 3)
+        await asyncio.wait_for(fast_saved.wait(), 3)
+        assert not task.done(), "Ready IPs must be published before the batch and VLAN finish"
+        assert calls == expected[:4], "The fifth IP must wait for all four current IPs"
+        assert published[-1] == expected[1:4]
+        assert peak == 4
+        with sf() as db:
+            assert db.get(m.Job, job_id).progress == 3
+            assert (
+                db.scalar(select(m.IPAMResult).join(m.IPAddress).where(m.IPAddress.address == expected[0]))
+                is None
+            )
+            assert (
+                db.scalar(
+                    select(m.IPAMResult).join(m.IPAddress).where(m.IPAddress.address == expected[1])
+                ).status
+                == "success"
+            )
     finally:
         release.set()
-        await asyncio.wait_for(running, 5)
+        await asyncio.wait_for(task, 5)
+    assert calls == expected
+    assert published[-1] == expected
+    assert len(published) == len(expected)
+    assert peak == 4
 
 
 async def test_restart_skips_committed_results_and_fresh_job_reprocesses(network, blocked, monkeypatch):

@@ -315,6 +315,9 @@ async def scan_vlan(job_id):
                     .order_by(m.IPAddress.address)
                 )
             )
+            targets.sort(
+                key=lambda item: (ipaddress.ip_address(item[1]).version, int(ipaddress.ip_address(item[1])))
+            )
             # Resume only the same job and unchanged inputs. A new explicit job
             # always gets a new start boundary. No second per-IP result is kept.
             signature = hashlib.sha256(
@@ -326,7 +329,9 @@ async def scan_vlan(job_id):
                         vlan.discovery_interval,
                         vlan.vrf_id,
                         vlan.dns_server_id,
-                        [list(t) for t in targets],
+                        # Keep the existing input signature independent of execution order:
+                        # an in-flight job resumes without replaying committed IPs.
+                        [list(t) for t in sorted(targets, key=lambda item: item[1])],
                         sorted(context.integrations),
                         sorted(
                             (
@@ -401,7 +406,6 @@ async def scan_vlan(job_id):
         return vlan, scope, ids, started, resolved, problems
 
     vlan, scope, ids, started, resolved, problems = await sql_write(prepare)
-    pending = iter(ids)
 
     def save(row, result):
         nonlocal resolved, problems
@@ -441,30 +445,32 @@ async def scan_vlan(job_id):
             db.commit()
             resolved, problems = done, issues
 
-    async def process():
-        for id in pending:
-            await sql_quick(context.check)
-            with session_factory()() as db:
-                row = db.get(m.IPAddress, id)
-                if (
-                    not row
-                    or row.vlan_id != vlan.id
-                    or row.vrf_id != vlan.vrf_id
-                    or not in_scope(row.address, scope)
-                ):
-                    raise Cancelled()
-            result = await context.for_row(row).resolve()
-            await sql_write(save, row, result)
-            publish(ipam_vlan=vlan.id)
+    async def process(id):
+        await sql_quick(context.check)
+        with session_factory()() as db:
+            row = db.get(m.IPAddress, id)
+            if (
+                not row
+                or row.vlan_id != vlan.id
+                or row.vrf_id != vlan.vrf_id
+                or not in_scope(row.address, scope)
+            ):
+                raise Cancelled()
+        result = await context.for_row(row).resolve()
+        await sql_write(save, row, result)
+        publish(ipam_vlan=vlan.id)
 
-    tasks = [asyncio.create_task(process()) for _ in range(min(4, len(ids)))]
-    try:
-        await asyncio.gather(*tasks)
-    finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    # Numeric batches: each IP commits/notifies immediately, but the next four
+    # do not start until every decision in the current batch has finished.
+    for start in range(0, len(ids), 4):
+        tasks = [asyncio.create_task(process(id)) for id in ids[start : start + 4]]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def finish():
         with session_factory()() as db:
