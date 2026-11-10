@@ -750,6 +750,7 @@ class FirmwareImage(Entity, Base):
     sha256: Mapped[str] = mapped_column(String(64), default="")
     expected_sha256: Mapped[str] = mapped_column(String(64))
     notes: Mapped[str] = mapped_column(Text, default="")
+    release_notes: Mapped[str] = mapped_column(Text, default="", server_default="")
     status: Mapped[str] = mapped_column(String(20), default="uploading", index=True)
     uploaded_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"))
     __table_args__ = (

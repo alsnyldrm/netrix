@@ -2,6 +2,12 @@
 
 NETRIX'in **Firmware** bölümü sol menüde **IP adres yönetimi** bölümünün hemen altındadır. Sırasıyla Cihazlar, Güncelleme planları, Firmware deposu, Gruplar ve İşlem geçmişi ekranlarını kapsar. Aktarım ve kurtarma bilgi menüsü kullanıcının 3 Kasım 2026 talebiyle kaldırılmıştır; dosya aktarım motoru ve plan ayrıntılarındaki doğrulama/kurtarma işlemleri devam eder. Cihaz envanteri ortaktır; firmware grupları yedekleme gruplarından bağımsızdır. Kurulum boş başlar; örnek cihaz, imaj, grup veya başarılı işlem eklenmez.
 
+## Release notları — 10 Kasım 2026
+
+Firmware yükleme formundaki isteğe bağlı **Release notları** alanı üreticinin yenilik/hata/bilinen sorun metnini veya kullanıcının açıklamasını tutar; BootROM, sürüm geçişi ve kurtarma talimatları ayrı kalır. En fazla 50.000 karakter kabul edilir. İmaj adına basıldığında notlar satır sonları ve uzun metin sarımı korunarak düz metin gösterilir; HTML çalıştırılmaz. Firmware yöneticisi aynı ayrıntıda **Release notlarını düzenle** ile mevcut imajın notlarını ekleyebilir, değiştirebilir veya temizleyebilir; görüntüleme yetkili oturumlara açıktır. Not değişikliği firmware dosyası, hash, uyumluluk veya plan hedefini değiştirmez ve cihaz işi başlatmaz.
+
+`GET /api/v1/firmware/images/{id}` ayrıntıyı okur; `PATCH /api/v1/firmware/images/{id}/release-notes` yalnız notu günceller ve içeriğini kopyalamayan denetim kaydı oluşturur. Uzun release metni SQL depo listesi sorgusuna ve liste yanıtına dahil edilmez; yalnız ayrıntı veya yarım yükleme yeniden açılırken okunur. PostgreSQL `20261110_02`, mevcut `firmware.firmware_images` tablosuna boş varsayılanlı `release_notes TEXT NOT NULL` ekler. Eski imajlar ve yükseltme notları korunur; dolu release notu varsa kayıplı downgrade reddedilir.
+
 ## Kapsam ve protokoller
 
 Cihazların HTTPS/WebUI/REST servisi kullanılmaz ve kendiliğinden açılıp kapatılmaz. Uygulamanın kullanıcıya sunduğu mevcut HTTPS erişimi korunur.

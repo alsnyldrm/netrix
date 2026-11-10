@@ -17,6 +17,9 @@ import { api, clearReadCache, useLiveQuery } from "./data";
 import { Dialog, date } from "./main";
 import "./firmware.css";
 import FirmwareHistory from "./firmware-history";
+import FirmwareReleaseNotes, {
+  ReleaseNotesField,
+} from "./firmware-release-notes";
 import OutdatedGroups, { UpdateState, type PlanStep } from "./firmware-updates";
 
 import {
@@ -607,12 +610,23 @@ function ImageForm({
     version: row?.version || "",
     expected_sha256: row?.expected_sha256 || "",
     notes: row?.notes || "",
+    release_notes: row?.release_notes || "",
   });
   const [file, setFile] = useState<File | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState(0);
   const [created, setCreated] = useState<Row | undefined>(row);
+  const metadata = useLiveQuery<Row>(
+    row?.id ? `/firmware/images/${row.id}` : null,
+  );
+  useEffect(() => {
+    if (metadata.data)
+      setValues((old) => ({
+        ...old,
+        release_notes: metadata.data!.release_notes,
+      }));
+  }, [metadata.data]);
   const familyDetails = IMAGE_FAMILY_DETAILS[values.family];
   const uploadHintId = useId();
   const field = (key: string) => ({
@@ -780,6 +794,11 @@ function ImageForm({
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
           </label>
+          <ReleaseNotesField
+            value={values.release_notes}
+            disabled={!!created || busy}
+            onChange={(value) => setValues({ ...values, release_notes: value })}
+          />
           <details
             className="fw-full fw-upload-notes"
             open={values.notes ? true : undefined}
@@ -2110,6 +2129,12 @@ export default function FirmwareWorkspace({
                 {modal.row!.sha256 || modal.row!.expected_sha256}
               </dd>
             </dl>
+            <FirmwareReleaseNotes
+              imageId={modal.row!.id}
+              admin={admin}
+              refresh={refresh}
+              onSaved={saved}
+            />
             <h3>Sürüm geçişi ve kurtarma notları</h3>
             <p className="fw-notes">{modal.row!.notes || "Not eklenmemiş."}</p>
             <button className="secondary" onClick={() => setModal(null)}>

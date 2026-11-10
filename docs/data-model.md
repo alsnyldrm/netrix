@@ -216,6 +216,8 @@ Alembic `20261103_35`, `ipam_scan_groups` (takvim, başlangıç/sonraki UTC zama
 
 ## Firmware — 2 Kasım 2026
 
+10 Kasım 2026 eklemesi: PostgreSQL migration `20261110_02`, sahibi Firmware olan `firmware.firmware_images.release_notes` alanını `TEXT NOT NULL DEFAULT ''` olarak ekler. Kullanıcının release notları mevcut `notes` (BootROM/geçiş/kurtarma talimatları) alanından ayrıdır. Eski satırlar boş release notuyla kalır; kimlik, dosya/hash, plan ve grup ilişkileri değişmez. Dolu not varken downgrade veri kaybını engeller.
+
 Alembic `20261102_32`, `firmware_images`, `firmware_groups`, `firmware_group_members`, `firmware_plans` ve `firmware_targets` tablolarını ekler. Cihazlar ortak `devices` kimliğini kullanır; yedekleme grupları ayrı kalır. Grup üyeliği bileşik PK, planda cihaz tekilliği UNIQUE, etkin cihaz rezervasyonu nullable UNIQUE, aile/durum/eşzamanlılık sınırları CHECK ve ilişkiler indeksli FK ile korunur. Planların adları, sırası, imajları ve üyeleri JSON snapshot'ıdır; dosyaların kendisi volume'dadır. Dosya hash'i, boyutu ve açık uyumluluk metadata'sı MariaDB'de tutulur.
 
 Target durumları, yazma sınırı öncesi/sonrası fazı, önceki/hedef/doğrulanmış sürüm, banka, korunan şifreli snapshot FK'si ve süreli aktarım erişimi ayrı alanlardır. Aktarım parolası API'ye dönmez; rastgele credential'ın yalnız hash'i saklanır. UTC `DATETIME(6)` kullanılır. Geçmişi olan cihaz/dosya/yedeğin kalıcı silinmesi engellenir; kayıt varken kayıplı downgrade reddedilir. Davranış ve sınırlar: [Firmware yönetimi](firmware-management.md).

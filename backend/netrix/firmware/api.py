@@ -23,6 +23,7 @@ from .service import (
     ImageInput,
     PlanInput,
     RecoveryInput,
+    ReleaseNotesInput,
     groups_view,
     image_path,
     new_plan,
@@ -30,6 +31,7 @@ from .service import (
     service_info,
     start_plan,
     target_view,
+    update_release_notes,
     validate_device,
 )
 
@@ -64,11 +66,13 @@ def images(
     user=Depends(current_user),
 ):
     conditions = [m.FirmwareImage.name.contains(q)] if q else []
+    # Long release notes are fetched only when image details are opened.
+    columns = [column for column in m.FirmwareImage.__table__.columns if column.name != "release_notes"]
     return {
         "items": [
-            serialize(i)
-            for i in db.scalars(
-                select(m.FirmwareImage)
+            dict(row._mapping)
+            for row in db.execute(
+                select(*columns)
                 .where(*conditions)
                 .order_by(m.FirmwareImage.created_at.desc())
                 .offset(offset)
@@ -77,6 +81,16 @@ def images(
         ],
         "total": db.scalar(select(func.count()).select_from(m.FirmwareImage).where(*conditions)),
     }
+
+
+@router.get("/images/{id}")
+def image_details(id: str, db=Depends(db_session), user=Depends(current_user)):
+    return serialize(get(db, m.FirmwareImage, id))
+
+
+@router.patch("/images/{id}/release-notes")
+def edit_release_notes(id: str, payload: ReleaseNotesInput, db=Depends(db_session), user=Depends(admin)):
+    return update_release_notes(db, id, payload, user)
 
 
 @router.get("/plan-images")

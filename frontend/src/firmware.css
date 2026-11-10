@@ -1192,6 +1192,32 @@
 }
 
 /* Firmware upload follows the same control axes in both themes and on mobile. */
+.fw-release-notes,
+.fw-release-notes-field,
+.fw-release-notes-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.fw-release-notes-field {
+  gap: 8px;
+}
+.fw-release-notes-field textarea {
+  width: 100%;
+  min-height: 132px;
+  resize: vertical;
+}
+.fw-release-notes-field small {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.fw-release-notes .fw-notes {
+  margin: 0;
+}
+.fw-release-notes > button {
+  justify-self: start;
+}
 .fw-upload-intro {
   display: flex;
   align-items: flex-start;

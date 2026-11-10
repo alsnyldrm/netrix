@@ -31,7 +31,11 @@ class Input(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class ImageInput(Input):
+class ReleaseNotesInput(Input):
+    release_notes: str = Field(default="", max_length=50000)
+
+
+class ImageInput(ReleaseNotesInput):
     name: str = Field(min_length=1, max_length=120)
     family: str = Field(pattern=r"^(aos_s_54xx|aos_s_29xx|cx6100|hp1950)$")
     version: str = Field(min_length=3, max_length=120, pattern=r"^[\w., ()-]+$")
@@ -76,6 +80,15 @@ def image_path(image):
     suffix = ".ipe" if image.family == "hp1950" else ".swi"
     # Paths never contain a user-controlled filename.
     return Path(settings().firmware_directory) / (image.id + suffix)
+
+
+def update_release_notes(db, id, payload, user):
+    row = get(db, m.FirmwareImage, id)
+    row.release_notes = payload.release_notes
+    audit(db, user, "update", "firmware_images", row.id, "Firmware release notları güncellendi")
+    db.commit()
+    publish()
+    return {"id": row.id, "release_notes": row.release_notes}
 
 
 def compatible(image, device):
