@@ -25,6 +25,7 @@ import { WorkspaceSearch } from "./workspace-search";
 import { AvailableIPChoice } from "./available-ip-choice";
 import { VLANInspector } from "./vlan-inspector";
 export { api } from "./data";
+import { ArchiveJobsButton, JobArchives } from "./job-archives";
 import { JobDetails } from "./job-details";
 import { AuditDetails, AuditSummary } from "./audit-details";
 import { DiscoveryScopeForm } from "./discovery-scope-form";
@@ -560,6 +561,13 @@ export const PAGES: Page[] = [
       ["created_at", "Kuyruğa alınma"],
       ["error", "Açıklama"],
     ],
+  },
+  {
+    key: "job-archives",
+    title: "Görev Arşivi",
+    desc: "Görev geçmişinin ZIP kayıtlarını indirin ve yönetin.",
+    group: "Operasyon",
+    icon: Archive,
   },
   {
     key: "firmware-devices",
@@ -3252,6 +3260,9 @@ function App() {
                   <div
                     className={`page-actions${page.key === "configuration" ? " configuration-actions" : ""}`}
                   >
+                    {page.key === "jobs" && canWrite && (
+                      <ArchiveJobsButton onSaved={reload} />
+                    )}
                     {page.key === "vlans" && ipamVLAN && (
                       <button
                         className="secondary"
@@ -3332,6 +3343,8 @@ function App() {
                   refresh={refresh}
                 />
               </React.Suspense>
+            ) : page.key === "job-archives" ? (
+              <JobArchives refresh={refresh} canWrite={canWrite} />
             ) : page.key === "ipam-settings" ? (
               <React.Suspense
                 fallback={<p role="status">Tarama ayarları yükleniyor…</p>}
@@ -3470,6 +3483,15 @@ function App() {
               <Settings section={settingsSection} />
             ) : (
               <>
+                {page.key === "jobs" && (
+                  <div className="info-note job-archive-note">
+                    <Clock size={20} aria-hidden="true" />
+                    <p>
+                      Sonuçlanmış görevler her gece 00:00’da (İstanbul) ZIP
+                      arşivine taşınır. Çalışan ve kuyruktaki görevler korunur.
+                    </p>
+                  </div>
+                )}
                 {page.key === "discovery" && (
                   <div className="scope-banner">
                     <div className="scope-banner-icon">

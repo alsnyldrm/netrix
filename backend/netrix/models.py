@@ -699,8 +699,23 @@ class ScopeCredential(Base):
     __table_args__ = (UniqueConstraint("scope_id", "position"),)
 
 
+class JobArchive(Entity, Base):
+    __tablename__ = "job_archives"
+    filename: Mapped[str] = mapped_column(String(160))
+    job_count: Mapped[int] = mapped_column(Integer)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    source: Mapped[str] = mapped_column(String(20))
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    __table_args__ = (
+        CheckConstraint("job_count > 0 AND size_bytes > 0", name="ck_job_archive_size"),
+        CheckConstraint("source in ('manual','scheduled')", name="ck_job_archive_source"),
+        Index("ix_job_archives_created_at", "created_at"),
+    )
+
+
 class Job(Entity, Base):
     __tablename__ = "jobs"
+    archived_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True, index=True)
     kind: Mapped[str] = mapped_column(String(20))
     target_id: Mapped[str] = mapped_column(String(36), index=True)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)

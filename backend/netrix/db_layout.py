@@ -65,7 +65,7 @@ SCHEMA_TABLES = {
         "firmware_events",
     ),
     "konfigurasyon": ("config_snapshots", "backup_groups"),
-    "operasyon": ("jobs", "change_events", "alert_rules", "alert_instances"),
+    "operasyon": ("jobs", "job_archives", "change_events", "alert_rules", "alert_instances"),
     "yonetim": (
         "users",
         "user_avatars",

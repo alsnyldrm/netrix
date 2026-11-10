@@ -41,6 +41,7 @@ from .identity.security import (
 from .ipam.api import router as ipam_router
 from .ipam.patch_api import router as patch_router
 from .ipam.scan_api import router as ipam_scan_router
+from .job_archives import router as job_archives_router
 
 
 @asynccontextmanager
@@ -637,6 +638,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
 app.include_router(access_router)
 app.include_router(avatar_router)
 app.include_router(firmware_router)
+app.include_router(job_archives_router)
 app.include_router(ipam_router)
 app.include_router(ipam_scan_router)
 app.include_router(patch_router)

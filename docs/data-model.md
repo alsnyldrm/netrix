@@ -280,3 +280,7 @@ adımları yeniden çalıştırılabilir; doğrulama geçmeden cleanup yapılmaz
 kaynak çözümü DNS → SQL LLDP/CDP olarak dallanır; fiziksel/sanal kaynak kararına
 karışmaz. Ayrıntı için `docs/ipam-integrations.md` dosyasındaki güncel sözleşme
 uygulanır.
+
+## 10 Kasım 2026: Görev Arşivi
+
+PostgreSQL migration `20261110_01`, Operasyon sahibi `operasyon.job_archives` tablosunu ekler: UUID metin kimliği, UTC `TIMESTAMPTZ` oluşturma/güncelleme, ZIP adı, görev sayısı, byte boyutu, `manual/scheduled` kaynak ve ertelenerek okunan BYTEA içerik. Pozitif sayı/boyut ve kaynak CHECK kısıtları, oluşturulma indeksi vardır. `operasyon.jobs.archived_at`, ZIP ile aynı transaction'da yazılan indeksli nullable UTC zamandır. Ana liste yalnız NULL olanları okur; operasyonel FK'ler ve son görev zamanı silinmez. ZIP silmek görevleri yeniden görünür yapmaz. Zamanlama, ZIP içerik sözleşmesi ve yetkiler [operasyon belgesinde](operations.md#görev-arşivi--10-kasım-2026) açıklanır.

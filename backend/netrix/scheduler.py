@@ -29,11 +29,14 @@ def dispatch_pings(at=None):
 
 def tick(*, include_ping=True):
     from .ipam.scan_schedules import dispatch_due
+    from .job_archives import archive_jobs, midnight
 
     if include_ping:
         dispatch_pings()
     dispatch_due()
     with session_factory()() as db:
+        archive_jobs(db, cutoff=midnight(now()))
+        db.commit()
         for scope in db.scalars(
             select(m.Scope).where(m.Scope.enabled.is_(True), m.Scope.interval_seconds > 0)
         ):
