@@ -1,9 +1,11 @@
 """Read-only IPAM fallback to canonical switch facts maintained by inventory."""
 
+from collections import OrderedDict
+from contextlib import nullcontext
 from datetime import timedelta
 
 from sqlalchemy import select, tuple_
-from sqlalchemy.orm import load_only
+from sqlalchemy.orm import lazyload, load_only
 
 from .. import models as m
 from ..core import now
@@ -127,14 +129,9 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
         list(
             db.scalars(
                 select(m.SwitchMacSnapshot)
-                .options(
-                    load_only(
-                        m.SwitchMacSnapshot.id,
-                        m.SwitchMacSnapshot.device_id,
-                        m.SwitchMacSnapshot.observed_at,
-                        m.SwitchMacSnapshot.updated_at,
-                    )
-                )
+                # Validation reads only scalar context columns. Deferred context
+                # columns used to issue ten extra SELECTs for every switch/IP.
+                .options(lazyload("*"))
                 .where(
                     m.SwitchMacSnapshot.id.in_(ids),
                     m.SwitchMacSnapshot.healthy.is_(True),
@@ -150,13 +147,18 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
             p.id: p
             for p in db.scalars(
                 select(m.Credential)
-                .options(load_only(m.Credential.id, m.Credential.updated_at))
+                .options(load_only(m.Credential.id, m.Credential.updated_at, m.Credential.protocol))
                 .where(
                     m.Credential.id.in_(
                         {
-                            primary.devices[s.device_id].snmp_credential_id
+                            profile_id
                             for s in states
                             if s.device_id in primary.devices
+                            for profile_id in (
+                                primary.devices[s.device_id].snmp_credential_id,
+                                primary.devices[s.device_id].config_credential_id,
+                            )
+                            if profile_id
                         }
                     )
                 )
@@ -179,16 +181,32 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
             valid.append(state)
     if not valid:
         return items
-    cached = CachedEvidence.__new__(CachedEvidence)
-    cached.__dict__.update(primary.__dict__)
-    cached.static, cached.attached = {}, {}
-    cached.snapshots = {
-        s.device_id: (Snapshot(s.id, s.observed_at), p)
-        for s, p in projections(db, valid, model=m.SwitchMacSnapshot)
-    }
-    cached.links = [l for l in primary.links if l.device_id in cached.snapshots]
-    cached.raw_neighbors, cached.excluded_raw_neighbors = {}, {}
-    cached.refresh_neighbors()
+    with getattr(primary, "_fallback_lock", nullcontext()):
+        # These are transient, job-owned views of the canonical facts, never a SQL
+        # source copy. Recheck scalar source versions and profile context each time;
+        # reuse projection/topology work only while the entire candidate set matches.
+        signature = tuple(sorted((s.id, s.observed_at, s.updated_at, tuple(s.read_context)) for s in valid))
+        views = getattr(primary, "_fallback_views", None)
+        if views is None:
+            views = primary._fallback_views = OrderedDict()
+        cached = views.get(signature)
+        if cached is None:
+            cached = CachedEvidence.__new__(CachedEvidence)
+            cached.__dict__.update(primary.__dict__)
+            cached.static, cached.attached = {}, {}
+            cached.snapshots = {
+                s.device_id: (Snapshot(s.id, s.observed_at), p)
+                for s, p in projections(db, valid, model=m.SwitchMacSnapshot)
+            }
+            cached.links = [l for l in primary.links if l.device_id in cached.snapshots]
+            cached.raw_neighbors, cached.excluded_raw_neighbors = {}, {}
+            cached.refresh_neighbors()
+            views[signature] = cached
+            if len(views) > 8:
+                views.popitem(last=False)
+        views.move_to_end(signature)
+        for vrf in {v.vrf_id for v in prefixes.values()}:
+            cached._static_links(vrf, cached.at - FRESHNESS)
     for row, item in zip(rows, items):
         if row.id not in eligible:
             continue

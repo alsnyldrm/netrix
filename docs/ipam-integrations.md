@@ -423,3 +423,13 @@ izinlerinin yerine geçer. Switch kaynaklarının tek yazarı Envanter'dir.
 - Regresyonlar: `test_ipam_point_latency.py`, `test_ipam_inventory_only.py`,
   `test_ipam_sql_manual.py`. Süreler üretim SQL'inde salt okunur profil ile ölçülür;
   ölçüm için switch/entegrasyon/DNS sorgusu başlatılmaz.
+
+### Manuel VLAN SQL eşleştirme: hız ve devam noktası — 10 Kasım 2026
+
+Manuel VLAN işi en fazla dört IP kararını eşzamanlı yürütür. Her IP sonucu ve ilerleme aynı kısa transaction'da commit edilir; bildirim bundan sonra yayımlanır. Yavaş bir IP diğer hazır sonuçların commit/bildirimini bekletmez. İptal veya hata halinde bütün bekleyen coroutine'ler temizlenir; commit edilmiş sonuçlar korunur.
+
+Gateway kaynak adreslerini içeri alırken tam switch envanteri hazırlanmaz. Fiziksel kanıt gerektiğinde ortak görünüm bir kez hazırlanır. MAC-port yedek kanıtı için bağlam sütunları ve SNMP/SSH profil sürümleri toplu okunur; sütun başına SELECT ve IP başına aynı topoloji projeksiyonu üretilmez. Aynı iş içinde en fazla sekiz aday-kümesi görünümü bellekte paylaşılır; kaynak kimliği/gözlem/güncelleme zamanı ve erişim bağlamı değişirse yeniden hazırlanır. SQL'ye kaynak kopyası veya yeni payload yazılmaz. Gateway kimliği, 25 saat sınırı, VLAN/FID, uplink elemesi, belirsizlik ve NIC kanıt kuralları değişmez.
+
+Aynı görev yeniden başladığında sabit `sql_started_at` ve giriş imzası kullanılır. Güncel sonuç tablosunda bu başlangıçtan sonra tamamlanmış, IP/VRF/VLAN bağı aynı olan kayıtlar atlanır; ilerleme bu sonuçlardan yeniden hesaplanır. CIDR/VLAN kimliği, DNS, hedef IP/teaming seçimi veya profil/entegrasyon ayarı değişirse başlangıç yenilenir. Yeni kullanıcı isteği yeni görev olduğundan tekrar eşleştirme yapar. Daha yeni tek-IP sonucu eski VLAN kararıyla ezilmez. Yeni tablo/migration gerekmez; sonuçların tek SQL sahibi değişmez.
+
+Ağsız regresyonlar: `test_ipam_sql_throughput.py` (eski kodda üç ana hata yeniden üretildi), `test_ipam_sql_manual.py`, `test_switch_mac_cache.py`, `test_ipam_point_latency.py`, `test_ipam_inventory_only.py`. Performans karşılaştırması yalnız SQL okuyan ayrı süreçte, aynı IP/MAC ve aynı kanıtlarla yapılır; ölçüm kaynak sorgusu veya gerçek ağ taraması başlatmaz.
