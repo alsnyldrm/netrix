@@ -59,9 +59,7 @@ def routed_ports(roots, static, vid, mac, cutoff):
                 continue
             if previous is None or key in transit or port in peer_ports[device, previous]:
                 continue
-            if any(n.get("interface_name") not in p["names"] for n in evidence.get("neighbors", [])):
-                continue
-            # Other learned MACs and endpoint neighbors on this port do not
-            # contradict the target's exact VLAN/MAC forwarding entry.
+            # Only mapped transit evidence can disqualify this exact port.
+            # Unmapped neighbors on the switch do not invalidate the FDB match.
             found[key] = obs, at
     return found

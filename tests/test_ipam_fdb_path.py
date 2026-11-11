@@ -1,3 +1,4 @@
+import pytest
 from netrix import models as m
 from netrix.core import now
 from netrix.ipam.inventory_sources import attachment, point_evidence
@@ -6,7 +7,8 @@ from test_ipam_source_contract import MAC
 from test_ipam_source_contract import network as network  # noqa: PLC0414
 
 
-def test_backbone_path_keeps_multi_mac_access_port(network):
+@pytest.mark.parametrize("unmapped_neighbor", [False, True])
+def test_backbone_path_keeps_multi_mac_access_port(network, unmapped_neighbor):
     sf, vid, rid, ids = network
     with sf() as db:
         db.get(m.Device, ids[2]).name = "HP-SW-BB-01"
@@ -32,6 +34,16 @@ def test_backbone_path_keeps_multi_mac_access_port(network):
                 last_seen_at=now(),
             )
         )
+        if unmapped_neighbor:
+            db.add(
+                m.Link(
+                    device_id=ids[1],
+                    interface_name="4c:ae:a3:06:c3:04",
+                    source="lldp",
+                    remote_name="Unmapped neighbor",
+                    last_seen_at=now(),
+                )
+            )
         db.commit()
         row, vlan = db.get(m.IPAddress, rid), db.get(m.VLAN, vid)
         for evidence in (None, point_evidence(db, row, vlan, MAC)):
