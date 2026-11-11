@@ -85,9 +85,7 @@ function Field({
 
 // A selected connection remains visibly manual; it never becomes protocol evidence.
 const manualConnection = (row: Row) =>
-  !row.connected_device && !row.connection_ambiguous
-    ? row.manual_connection
-    : null;
+  !row.connected_device ? row.manual_connection : null;
 
 export function useIPAMUpdates(vlanId?: string) {
   const [revision, setRevision] = useState(0);

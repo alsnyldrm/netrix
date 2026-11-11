@@ -65,7 +65,6 @@ def cell(row, key):
     if (
         not value
         and key in ("connected_device", "connected_port")
-        and not row.get("connection_ambiguous")
         and not row.get("connected_device")
     ):
         manual = row.get("manual_connection") or {}

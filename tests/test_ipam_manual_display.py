@@ -101,7 +101,8 @@ def test_selected_room_and_manual_connection_remain_explicit_metadata(network, a
     assert row["cabinet"] == "02"
 
 
-def test_manual_connection_is_searchable_without_becoming_automatic(network, admin_client):
+@pytest.mark.parametrize("ambiguous", [False, True])
+def test_manual_connection_is_searchable_without_becoming_automatic(network, admin_client, ambiguous):
     sf, vlan_id, row_id, devices = network
     with sf() as db:
         row = db.get(m.IPAddress, row_id)
@@ -115,11 +116,17 @@ def test_manual_connection_is_searchable_without_becoming_automatic(network, adm
         from test_ipam_source_contract import clear_source_facts
         clear_source_facts(db)
         db.query(m.Link).delete()
+        if ambiguous:
+            result = m.IPAMResult(
+                address_id=row.id, scope_address=row.address, scope_vrf=row.vrf_id, scope_vlan=row.vlan_id
+            )
+            result.issues = [{"source": "switch", "code": "ambiguous", "message": "Conflicting evidence"}]
+            db.add(result)
         db.commit()
     response = admin_client.get(f"/api/v1/ipam/vlans/{vlan_id}/addresses", params={"q": "Gateway MANUAL-A2"})
     assert response.status_code == 200
     row = next(r for r in response.json()["items"] if r["id"] == row_id)
     assert row["connected_device"] == "" and row["connected_port"] == ""
-    assert not row["connection_ambiguous"]
+    assert bool(row["connection_ambiguous"]) == ambiguous
     assert row["manual_connection"] == {"device_name": "Gateway", "port": "MANUAL-A2"}
     assert row["rack_location"] is None
