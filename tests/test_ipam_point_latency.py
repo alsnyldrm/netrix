@@ -5,7 +5,7 @@ import asyncio
 from netrix import models as m
 from netrix import worker
 from netrix.core import now
-from netrix.ipam import pipeline, sql_sources
+from netrix.ipam import adapters, pipeline, sql_sources
 from test_ipam_source_contract import network as network
 
 
@@ -15,6 +15,10 @@ async def test_sql_context_does_not_eagerly_load_entire_inventory(network, monke
     def forbidden(*a, **kw):
         raise AssertionError("Unrelated inventory must not load before source branch is known")
 
+    async def dns(*_):
+        return "dns.example"
+
+    monkeypatch.setattr(adapters, "reverse_dns", dns)
     monkeypatch.setattr(sql_sources, "Evidence", forbidden)
     with sf() as db:
         job = m.Job(kind="ipam_address_scan", target_id=rid, status="running")

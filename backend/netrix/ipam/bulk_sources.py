@@ -228,6 +228,8 @@ class BulkContext:
 
 
 class BulkSources:
+    inventory_fallback = True
+
     def __init__(self, point, context):
         self.point, self.context = point, context
         self.dns_source_key = point.vlan.dns_server_id or "system"
@@ -258,6 +260,8 @@ class BulkSources:
         macs = {r["mac_address"] for r in matches}
         if len(macs) > 1:
             raise NetworkError("Conflicting gateway identities")
+        if not macs and c.failed_devices:
+            raise NetworkError("Scheduled gateway source failed")
         return {"mac_address": next(iter(macs)) if macs else "", "gateway_evidence": matches}
 
     async def vmware(self, address, mac):

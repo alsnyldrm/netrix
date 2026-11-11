@@ -372,8 +372,10 @@ async def reverse_dns(address, server):
     try:
         answer = await resolver.resolve(dns.reversename.from_address(address), "PTR")
         return str(answer[0]).rstrip(".")[:190]
-    except dns.exception.DNSException:
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return ""
+    except dns.exception.DNSException as exc:
+        raise NetworkError("PTR lookup failed") from exc
 
 
 def windows_dhcp_point(config, secret, address, mac_address):

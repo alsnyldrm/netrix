@@ -78,6 +78,7 @@ def point_evidence(db, row, vlan, mac):
                             m.CDPNeighbor.device_id,
                             m.CDPNeighbor.port_id,
                         )
+                        if mac
                     ),
                 )
             )

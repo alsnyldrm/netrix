@@ -8,8 +8,8 @@ from sqlalchemy import select
 from .. import models as m
 from ..core import now, session_factory
 from ..runtime_limits import sql_quick, sql_read, sql_write
-from ..services import in_scope, publish
-from . import pipeline
+from ..services import in_scope, lock_vrf, publish
+from . import absence, pipeline
 from .bulk_sources import BulkContext
 from .service import observe, scan_boundary, targets
 
@@ -54,6 +54,22 @@ async def scan(job_id, collector):
             db.commit()
 
     await sql_quick(begin)
+    await sql_quick(scan_phase, job_id, "addresses")
+
+    # Probe before capturing ARP. Otherwise hosts that reply to these pings can
+    # be absent from the one gateway snapshot used by every address decision.
+    async def ping(address):
+        result = await ping_result(address)
+        return address, result, now()
+
+    ready_batches = []
+    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
+        context.check()
+        async with aclosing(
+            completed_batches(ping(address) for address in addresses[start : start + SCAN_BATCH_SIZE])
+        ) as batches:
+            async for ready in batches:
+                ready_batches.append(ready)
     await sql_quick(scan_phase, job_id, "gateway")
     # Finish each source stage before advancing its dependent branch.
     await context.network("gateway")
@@ -71,121 +87,152 @@ async def scan(job_id, collector):
             if any(index in indexes for _, index in bindings)
         )
     await sql_quick(scan_phase, job_id, "addresses")
-    checked, reached, problems, resolved, ping_failed = 0, 0, 0, 0, 0
-    for start in range(0, len(addresses), SCAN_BATCH_SIZE):
+    checked = reached = problems = resolved = ping_failed = removed = 0
+    for ready in ready_batches:
         context.check()
 
-        async def ping(address):
-            up = await ping_result(address)
-            return address, up, None
-
-        async with aclosing(
-            completed_batches(ping(a) for a in addresses[start : start + SCAN_BATCH_SIZE])
-        ) as batches:
-            async for ready in batches:
-
-                def store(ready):
-                    nonlocal checked, reached, ping_failed
-                    ids = []
-                    checked_count = reached_count = failed_count = 0
-                    with session_factory()() as db:
-                        job = db.get(m.Job, job_id)
-                        vlan = db.get(m.VLAN, job.target_id)
-                        if job.cancel_requested or not vlan:
-                            raise Cancelled()
-                        scope = scan_boundary(db, vlan)
-                        for address, up, gateway in ready:
-                            if not in_scope(address, scope):
-                                continue
-                            if up is None:
-                                failed_count += 1
-                                checked_count += 1
-                                row = db.scalar(
-                                    select(m.IPAddress).where(
-                                        m.IPAddress.vrf_id == vlan.vrf_id,
-                                        m.IPAddress.vlan_id == vlan.id,
-                                        m.IPAddress.address == address,
-                                    )
-                                )
-                                if row:
-                                    ids.append((row.id, gateway))
-                                continue
-                            row = observe(
-                                db,
-                                vlan,
-                                address,
-                                "icmp",
-                                vlan.id,
-                                {"reachability": "reachable" if up else "no_reply"},
-                                create=up
-                                or address in owned
-                                or bool(isinstance(gateway, dict) and gateway.get("mac_address")),
+        def store(ready):
+            nonlocal checked, reached, ping_failed
+            ids = []
+            checked_count = reached_count = failed_count = 0
+            with session_factory()() as db:
+                job = db.get(m.Job, job_id)
+                vlan = db.get(m.VLAN, job.target_id)
+                if job.cancel_requested or not vlan:
+                    raise Cancelled()
+                scope = scan_boundary(db, vlan)
+                lock_vrf(db, vlan.vrf_id)
+                for address, up, checked_at in ready:
+                    if not in_scope(address, scope):
+                        continue
+                    if up is None:
+                        failed_count += 1
+                        checked_count += 1
+                        row = db.scalar(
+                            select(m.IPAddress).where(
+                                m.IPAddress.vrf_id == vlan.vrf_id,
+                                m.IPAddress.vlan_id == vlan.id,
+                                m.IPAddress.address == address,
                             )
-                            checked_count += 1
-                            reached_count += int(up)
-                            if row:
-                                ids.append((row.id, gateway))
-                        db.commit()
-                        checked += checked_count
-                        reached += reached_count
-                        ping_failed += failed_count
-                        return ids, vlan
+                        )
+                        if row:
+                            ids.append((row.id, up))
+                        continue
+                    row = db.scalar(
+                        select(m.IPAddress).where(
+                            m.IPAddress.vrf_id == vlan.vrf_id, m.IPAddress.address == address
+                        )
+                    )
+                    latest = (
+                        db.scalar(
+                            select(m.IPObservation.observed_at).where(
+                                m.IPObservation.address_id == row.id,
+                                m.IPObservation.source == "icmp",
+                                m.IPObservation.source_key == vlan.id,
+                            )
+                        )
+                        if row
+                        else None
+                    )
+                    if not latest or latest <= checked_at:
+                        row = observe(
+                            db,
+                            vlan,
+                            address,
+                            "icmp",
+                            vlan.id,
+                            {"reachability": "reachable" if up else "no_reply"},
+                            create=up or address in owned,
+                        )
+                    checked_count += 1
+                    reached_count += int(up)
+                    if row:
+                        ids.append((row.id, up))
+                db.commit()
+                checked += checked_count
+                reached += reached_count
+                ping_failed += failed_count
+                return ids, vlan
 
-                ids, vlan = await sql_write(store, ready)
-                publish(ipam_vlan=vlan.id)
+        ids, vlan = await sql_write(store, ready)
+        publish(ipam_vlan=vlan.id)
 
-                async def process(id, gateway):
-                    context.check()
-                    with session_factory()() as db:
-                        row = db.get(m.IPAddress, id)
-                        if not row or row.vlan_id != vlan.id:
-                            return None
-                        sources = context.for_row(row)
-                    result = await pipeline.resolve(row.address, sources)
-                    context.check()
+        async def process(id, up):
+            context.check()
+            with session_factory()() as db:
+                row = db.get(m.IPAddress, id)
+                if not row or row.vlan_id != vlan.id:
+                    return None
+                sources = context.for_row(row)
+            result = await pipeline.resolve(row.address, sources)
+            context.check()
+            may_remove = (
+                up is False
+                and result.get("absence_candidate")
+                and absence.complete_sources(context, vlan, started)
+            )
 
-                    def save():
-                        with session_factory()() as db:
-                            current = db.get(m.IPAddress, id)
-                            if not current or [current.address, current.vrf_id, current.vlan_id] != [
-                                row.address,
-                                row.vrf_id,
-                                row.vlan_id,
-                            ]:
-                                return False
-                            pipeline.save_result(db, current, started, result)
-                            db.commit()
-                            return True
-
-                    if not await sql_write(save):
+            def save():
+                with session_factory()() as db:
+                    job = db.get(m.Job, job_id)
+                    current_vlan = db.get(m.VLAN, vlan.id)
+                    if (
+                        job.cancel_requested
+                        or not current_vlan
+                        or (
+                            current_vlan.vrf_id,
+                            current_vlan.cidr,
+                            current_vlan.vid,
+                            current_vlan.dns_server_id,
+                        )
+                        != (vlan.vrf_id, vlan.cidr, vlan.vid, vlan.dns_server_id)
+                    ):
+                        raise Cancelled()
+                    current = db.get(m.IPAddress, id)
+                    if not current or [current.address, current.vrf_id, current.vlan_id] != [
+                        row.address,
+                        row.vrf_id,
+                        row.vlan_id,
+                    ]:
                         return None
-                    publish(ipam_vlan=vlan.id)
-                    return result["status"]
-
-                # Four full resolutions bound per-IP work; scheduled bulk sources are memoized.
-                for offset in range(0, len(ids), 4):
-                    tasks = [asyncio.create_task(process(id, g)) for id, g in ids[offset : offset + 4]]
-                    try:
-                        statuses = await asyncio.gather(*tasks)
-                    finally:
-                        for task in tasks:
-                            if not task.done():
-                                task.cancel()
-                        await asyncio.gather(*tasks, return_exceptions=True)
-                    problems += statuses.count("problem")
-                    resolved += sum(s is not None for s in statuses)
-
-                def record():
-                    with session_factory()() as db:
-                        job = db.get(m.Job, job_id)
-                        if job.cancel_requested:
-                            raise Cancelled()
-                        job.progress = checked
-                        job.result = {**job.result, "resolved": resolved, "problems": problems}
+                    if may_remove and absence.delete_if_absent(db, current, vlan, started):
                         db.commit()
+                        return "removed"
+                    written = pipeline.save_result(db, current, started, result)
+                    db.commit()
+                    return result["status"] if written else None
 
-                await sql_quick(record)
-                publish(ipam_vlan=vlan.id)
+            status = await sql_write(save)
+            if status is None:
+                return None
+            publish(ipam_vlan=vlan.id)
+            return status
+
+        # Four full resolutions bound per-IP work; scheduled bulk sources are memoized.
+        for offset in range(0, len(ids), 4):
+            tasks = [asyncio.create_task(process(id, up)) for id, up in ids[offset : offset + 4]]
+            try:
+                statuses = await asyncio.gather(*tasks)
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+            problems += statuses.count("problem")
+            removed += statuses.count("removed")
+            resolved += sum(s is not None for s in statuses)
+
+        def record():
+            with session_factory()() as db:
+                job = db.get(m.Job, job_id)
+                if job.cancel_requested:
+                    raise Cancelled()
+                job.progress = checked
+                job.result = {**job.result, "resolved": resolved, "problems": problems, "removed": removed}
+                db.commit()
+
+        await sql_quick(record)
+        publish(ipam_vlan=vlan.id)
 
     def finish():
         from ..sources.cleanup import prune
@@ -217,7 +264,15 @@ async def scan(job_id, collector):
             return matching
 
     matching = await sql_write(finish)
-    await sql_quick(scan_phase, job_id, "complete", resolved=resolved, problems=problems, matching=matching)
+    await sql_quick(
+        scan_phase,
+        job_id,
+        "complete",
+        resolved=resolved,
+        problems=problems,
+        removed=removed,
+        matching=matching,
+    )
     return {
         "checked": checked,
         "reachable": reached,
@@ -227,6 +282,7 @@ async def scan(job_id, collector):
         "source_failed": int(bool(context.errors) or problems > 0 or ping_failed > 0),
         "resolved": resolved,
         "problems": problems,
+        "removed": removed,
         "matching": matching,
         "network": {
             "switch_mode": "inventory_sql",

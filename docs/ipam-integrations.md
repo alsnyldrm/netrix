@@ -459,3 +459,21 @@ ve envanter kaynak satırlarını güncellemez.
 Regresyonlar: `tests/test_ipam_dns_mac_fallback.py`, `tests/test_ipam_sql_manual.py`
 ve `tests/test_ipam_inventory_only.py`. Gerçek DNS/cihaz sorguları yerine sahte
 istemciler ve yerel SQL fixture'ları kullanılır.
+
+### Gateway boş döndüğünde envanter eşleştirmesi ve keşif kaydı temizliği
+
+Zamanlanmış iş gateway ARP/NDP görünümünü ICMP denemelerinden sonra alır. Gateway
+tekil MAC vermediğinde manuel ve zamanlanmış IP çözümü, envanterin SQL'deki
+doğrudan IP komşuluğuna ve aynı IP'ye ait DHCP MAC adayına bakar. DHCP MAC'i tek
+başına otomatik kimlik olmaz: aynı VLAN'daki güncel, tekil fiziksel uç portuyla
+doğrulanmalı ve çelişkili gateway kanıtı olmamalıdır. Bu yolun MAC kaynağı DHCP,
+port kaynağı envanter FDB'sidir. Uplink ve belirsiz portlar kabul edilmez. IPAM
+switch'e bağlanmaz. PTR yokluğu ve DNS erişim hatası farklı sonuçlardır.
+
+Yalnız zamanlanmış iş, ping yanıtı olmayan ve tüm gerekli kaynak okumaları başarıyla
+tamamlanmış eski otomatik IP kaydını silebilir. Gateway, DHCP, VMware, DNS ve
+envanter kanıtı bulunmamalı; bilinen MAC'in transit dahil hiçbir aktif envanter
+eşleşmesi olmamalıdır. Eksik veya eskimiş envanter, okuma hatası, belirsizlik, yeni
+eşleştirme, rezervasyon veya elle yönetilen IP kaydı silmeyi engeller. Silme SQL
+transaction'ında doğrulanır, denetim kaydı ve VLAN bildirimi üretilir. Manuel tarama
+taze gateway ve ping kanıtı üretmediği için otomatik silme yapmaz.

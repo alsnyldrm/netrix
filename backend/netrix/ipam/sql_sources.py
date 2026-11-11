@@ -66,6 +66,8 @@ class SQLContext:
 
 
 class SQLSources:
+    inventory_fallback = True
+
     def __init__(self, row, context):
         self.row, self.context = row, context
         self.refs = []
@@ -152,7 +154,9 @@ class SQLSources:
                 select(m.DHCPBinding).where(
                     m.DHCPBinding.present.is_(True),
                     m.DHCPBinding.source_key.in_(self.context.integrations),
-                    or_(m.DHCPBinding.address == address, m.DHCPBinding.mac_address == mac),
+                    or_(m.DHCPBinding.address == address, m.DHCPBinding.mac_address == mac)
+                    if mac
+                    else m.DHCPBinding.address == address,
                 )
             ):
                 data = {
