@@ -58,6 +58,16 @@ with sync_playwright() as p:
 
     header_checks = 0
     for design in DESIGNS:
+        response = context.request.put(
+            BASE + "/api/v1/access/preferences",
+            data={"design": design},
+            headers={"X-Netrix-Request": "1"},
+        )
+        assert response.ok, response.text()
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        expect(page.locator("html")).to_have_attribute("data-design", design)
+        expect(page.get_by_text("SW-01", exact=True)).to_be_visible()
         for mode in ("dark", "light"):
             for width, height in SIZES:
                 page.set_viewport_size({"width": width, "height": height})
@@ -74,15 +84,15 @@ with sync_playwright() as p:
                     page.wait_for_function("() => { scrollTo(0, 600); return scrollY > 100; }")
                     settle()
                     state = page.evaluate("""() => {
-                      const region = document.querySelector('.topbar-region');
+                      const panorama = document.documentElement.dataset.design === 'panorama' && innerWidth >= 1280;
+                      const region = document.querySelector(panorama ? '.navigation-shell' : '.topbar-region');
                       const r = region.getBoundingClientRect();
-                      const header = document.querySelector('.topbar').getBoundingClientRect();
+                      const header = document.querySelector(panorama ? '.sidebar-head' : '.topbar').getBoundingClientRect();
                       const bg = getComputedStyle(region).backgroundColor;
                       const points = [[r.left+2,r.top+2],[r.right-2,r.top+2],
                         [r.left+2,r.bottom-2],[r.right-2,r.bottom-2],
                         [header.left+header.width/2,header.top+2]];
                       return {top:r.top,bottom:r.bottom,headerTop:header.top,scroll:scrollY,bg,
-                        sidebarBottom:document.querySelector('.sidebar').getBoundingClientRect().bottom,
                         covered:points.every(([x,y]) => region.contains(document.elementFromPoint(x,y))),
                         overflow:document.body.scrollWidth>innerWidth};
                     }""")
@@ -90,12 +100,7 @@ with sync_playwright() as p:
                     assert state["scroll"] > 100, (key, state)
                     assert state["covered"] and not state["overflow"], (key, state)
                     assert state["bg"].startswith("rgb("), (key, state)
-                    assert state["top"] == (
-                        state["sidebarBottom"] if design == "panorama" and width >= 1280 else 0
-                    ), (
-                        key,
-                        state,
-                    )
+                    assert state["top"] == 0, (key, state)
                     header_checks += 1
                 if width in (1440, 375):
                     page.screenshot(path=str(OUT / f"header-{design}-{mode}-{width}.png"))

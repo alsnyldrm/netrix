@@ -178,35 +178,88 @@
     --panorama-masthead-h: 64px;
     --panorama-nav-h: 48px;
     --panorama-header-h: calc(
-      var(--panorama-masthead-h) + var(--panorama-nav-h) + 1px
+      var(--panorama-masthead-h) + var(--panorama-nav-h) + 2px
     );
+    --panorama-columns: minmax(0, 1fr) clamp(300px, 26vw, 420px) minmax(0, 1fr);
     display: block;
   }
+  :root[data-design="panorama"] .navigation-shell {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: 12px 16px 0;
+    background: var(--bg);
+  }
   :root[data-design="panorama"] .sidebar {
+    position: relative;
+    top: auto;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 352px;
+    grid-template-columns: var(--panorama-columns);
     grid-template-rows: var(--panorama-masthead-h) var(--panorama-nav-h);
     height: var(--panorama-header-h);
     width: 100%;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
     overflow: visible;
   }
   :root[data-design="panorama"] .sidebar-head {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: grid;
+    grid-template-columns: var(--panorama-columns);
+    gap: 0;
     height: auto;
-    padding: 0 24px;
+    padding: 0 20px;
     border: 0;
+  }
+  :root[data-design="panorama"] .sidebar-brand {
+    width: fit-content;
+    max-width: 100%;
+  }
+  :root[data-design="panorama"] .sidebar-head .command-trigger {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+    margin: 0;
+  }
+  :root[data-design="panorama"] .command-trigger span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  :root[data-design="panorama"] .command-trigger :is(svg, kbd) {
+    flex: none;
   }
   :root[data-design="panorama"] .sidebar-user {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
-    grid-template-columns: 34px minmax(0, 1fr) auto;
-    padding: 0 24px 0 16px;
-    gap: 12px;
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 20px 0 12px;
+    gap: 10px;
     border: 0;
   }
+  :root[data-design="panorama"] .panorama-utilities {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-right: 6px;
+    flex: none;
+  }
+  :root[data-design="panorama"] .sidebar-user-text {
+    flex: 0 1 160px;
+    max-width: 160px;
+  }
+  :root[data-design="panorama"] .sidebar-user-text small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   :root[data-design="panorama"] .sidebar-user-actions {
+    flex: none;
     grid-column: auto;
     grid-template-columns: repeat(2, 40px);
   }
@@ -223,9 +276,9 @@
     display: flex;
     align-items: stretch;
     justify-content: space-between;
-    padding: 3px 24px;
+    padding: 3px 20px;
     overflow: visible;
-    border-top: 1px solid var(--border);
+    border: 0;
   }
   :root[data-design="panorama"] .nav-group {
     position: relative;
@@ -267,15 +320,17 @@
   :root[data-design="panorama"] .nav-item.selected::before {
     display: none;
   }
-  :root[data-design="panorama"] .topbar-region {
-    top: var(--panorama-header-h);
-  }
-  :root[data-design="panorama"] .topbar {
-    height: 52px;
-    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-  }
   :root[data-design="panorama"] .sidebar-collapse {
     display: none;
+  }
+}
+@media (min-width: 1280px) and (max-width: 1439px) {
+  :root[data-design="panorama"] .panorama-utilities .connection-label {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+    gap: 0;
+    font-size: 0;
   }
 }
 @media (max-width: 1023px) {

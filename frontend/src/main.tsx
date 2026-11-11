@@ -2516,6 +2516,9 @@ function App() {
     () => readPref("netrix-sidebar") === "collapsed",
   );
   const [drawer, setDrawer] = useState(false);
+  const [widePanoramaViewport, setWidePanoramaViewport] = useState(
+    () => window.matchMedia("(min-width: 1280px)").matches,
+  );
   const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
   const page =
     PAGES.find(
@@ -2545,6 +2548,7 @@ function App() {
     };
     const wideNavigation = window.matchMedia("(min-width: 1280px)");
     const changeViewport = () => {
+      setWidePanoramaViewport(wideNavigation.matches);
       if (wideNavigation.matches && currentPreferences().design === "panorama")
         setClosedGroups([...GROUPS]);
     };
@@ -3040,6 +3044,57 @@ function App() {
         standaloneDraftId={batchRoute?.[1] ? batchRoute[2] : undefined}
       />
     );
+  const panoramaHeader =
+    currentPreferences().design === "panorama" && widePanoramaViewport;
+  const commandTrigger = (
+    <button
+      className="command-trigger"
+      aria-label="Komut paletini aç (Ctrl K)"
+      onClick={() => {
+        setCommandQuery("");
+        setCommand(true);
+      }}
+    >
+      <MagnifyingGlass size={17} />
+      <span>Menü, ayar veya cihaz ara</span>
+      <kbd>Ctrl K</kbd>
+    </button>
+  );
+  const workspaceUtilities = (
+    <>
+      <div
+        className="connection-label"
+        role="group"
+        aria-label={
+          connected
+            ? "Canlı bildirim bağlantısı: Bağlı"
+            : "Canlı bildirim bağlantısı: Yeniden bağlanıyor"
+        }
+        title={
+          connected
+            ? "Canlı bildirim bağlantısı: Bağlı"
+            : "Canlı bildirim bağlantısı: Yeniden bağlanıyor"
+        }
+      >
+        <span className={"connection-dot " + (connected ? "online" : "")} />
+        {connected ? "Bağlı" : "Yeniden bağlanıyor"}
+      </div>
+      <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      <button
+        className="icon-button"
+        aria-label={refreshing ? "Veriler yenileniyor" : "Verileri yenile"}
+        title="Açık sayfanın verilerini yenile"
+        disabled={refreshing}
+        aria-busy={refreshing}
+        onClick={refreshPage}
+      >
+        <ArrowsClockwise
+          size={19}
+          className={refreshing ? "refresh-spinning" : undefined}
+        />
+      </button>
+    </>
+  );
   return (
     <div
       className={
@@ -3060,216 +3115,202 @@ function App() {
           <ConfigComparison sameDevice initialDevice={configCompare} />
         </Dialog>
       )}
-      <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
-        <div className="sidebar-head">
-          <button
-            className="sidebar-brand"
-            onClick={() => navigate("overview")}
-            aria-label="NETRIX ana sayfa"
-          >
-            <Brand small={collapsed} />
-          </button>
-          <button
-            className="icon-button sidebar-close"
-            aria-label="Menüyü kapat"
-            onClick={() => setDrawer(false)}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <nav className="sidebar-nav" aria-label="Sayfalar">
-          {GROUPS.map((g, index) => (
-            <div
-              className={"nav-group" + (page.group === g ? " active" : "")}
-              key={g}
-            >
-              <button
-                type="button"
-                className="nav-group-title"
-                aria-expanded={!closedGroups.includes(g)}
-                aria-controls={`nav-group-${index}`}
-                onClick={() =>
-                  setClosedGroups((groups) =>
-                    currentPreferences().design === "panorama" &&
-                    window.innerWidth >= 1280
-                      ? groups.includes(g)
-                        ? GROUPS.filter((item) => item !== g)
-                        : [...GROUPS]
-                      : groups.includes(g)
-                        ? groups.filter((item) => item !== g)
-                        : [...groups, g],
-                  )
-                }
-              >
-                <span>{g}</span>
-                {closedGroups.includes(g) ? (
-                  <CaretDown size={15} aria-hidden="true" />
-                ) : (
-                  <CaretUp size={15} aria-hidden="true" />
-                )}
-              </button>
-              <div
-                id={`nav-group-${index}`}
-                className="nav-group-items"
-                hidden={closedGroups.includes(g)}
-              >
-                {PAGES.filter(
-                  (p) =>
-                    p.group === g &&
-                    (!["users", "audit"].includes(p.key) || isAdmin),
-                ).map((p) => (
-                  <button
-                    key={p.key}
-                    className={
-                      "nav-item" + (current === p.key ? " selected" : "")
-                    }
-                    aria-current={current === p.key ? "page" : undefined}
-                    title={collapsed ? p.title : undefined}
-                    onClick={() => navigate(p.key)}
-                  >
-                    <p.icon
-                      size={19}
-                      weight={current === p.key ? "fill" : "regular"}
-                    />
-                    <span>{p.title}</span>
-                    {p.key === "backup-changes" &&
-                      !!dashboard.counts?.config_changes && (
-                        <b
-                          className="nav-count"
-                          aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
-                        >
-                          {dashboard.counts.config_changes}
-                        </b>
-                      )}
-                    {p.key === "alerts" &&
-                      !!dashboard.counts?.firing_alerts && (
-                        <b className="nav-count">
-                          {dashboard.counts.firing_alerts}
-                        </b>
-                      )}
-                    {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
-                      <b className="nav-count neutral">
-                        {dashboard.counts.running_jobs}
-                      </b>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-user">
-          <UserPortrait
-            name={user.display_name}
-            url={accountAvatar.data?.url}
-          />
-          <span className="sidebar-user-text">
-            <b>{user.display_name}</b>
-            <small>{tag(user.role)}</small>
-          </span>
-          <div className="sidebar-user-actions">
+      <div
+        className="navigation-shell"
+        role={panoramaHeader ? "banner" : undefined}
+      >
+        <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
+          <div className="sidebar-head">
             <button
-              className="sidebar-user-action sidebar-profile"
-              onClick={() => {
-                setProfileOpen(true);
-                setDrawer(false);
-              }}
-              aria-label="Profil"
-              title="Profil"
+              className="sidebar-brand"
+              onClick={() => navigate("overview")}
+              aria-label="NETRIX ana sayfa"
             >
-              <GearSix size={18} aria-hidden="true" />
-              <span>Profil</span>
+              <Brand small={collapsed} />
             </button>
+            {panoramaHeader && commandTrigger}
             <button
-              className="sidebar-user-action"
-              onClick={logout}
-              aria-label="Güvenli çıkış"
-              title="Güvenli çıkış"
+              className="icon-button sidebar-close"
+              aria-label="Menüyü kapat"
+              onClick={() => setDrawer(false)}
             >
-              <SignOut size={18} aria-hidden="true" />
-              <span>Çıkış</span>
+              <X size={18} />
             </button>
           </div>
-        </div>
-      </aside>
+          <nav
+            className="sidebar-nav"
+            aria-label="Sayfalar"
+            tabIndex={
+              currentPreferences().design === "panorama" && !panoramaHeader
+                ? 0
+                : undefined
+            }
+          >
+            {GROUPS.map((g, index) => (
+              <div
+                className={"nav-group" + (page.group === g ? " active" : "")}
+                key={g}
+              >
+                <button
+                  type="button"
+                  className="nav-group-title"
+                  aria-expanded={!closedGroups.includes(g)}
+                  aria-controls={`nav-group-${index}`}
+                  onClick={() =>
+                    setClosedGroups((groups) =>
+                      currentPreferences().design === "panorama" &&
+                      window.innerWidth >= 1280
+                        ? groups.includes(g)
+                          ? GROUPS.filter((item) => item !== g)
+                          : [...GROUPS]
+                        : groups.includes(g)
+                          ? groups.filter((item) => item !== g)
+                          : [...groups, g],
+                    )
+                  }
+                >
+                  <span>{g}</span>
+                  {closedGroups.includes(g) ? (
+                    <CaretDown size={15} aria-hidden="true" />
+                  ) : (
+                    <CaretUp size={15} aria-hidden="true" />
+                  )}
+                </button>
+                <div
+                  id={`nav-group-${index}`}
+                  className="nav-group-items"
+                  hidden={closedGroups.includes(g)}
+                >
+                  {PAGES.filter(
+                    (p) =>
+                      p.group === g &&
+                      (!["users", "audit"].includes(p.key) || isAdmin),
+                  ).map((p) => (
+                    <button
+                      key={p.key}
+                      className={
+                        "nav-item" + (current === p.key ? " selected" : "")
+                      }
+                      aria-current={current === p.key ? "page" : undefined}
+                      title={collapsed ? p.title : undefined}
+                      onClick={() => navigate(p.key)}
+                    >
+                      <p.icon
+                        size={19}
+                        weight={current === p.key ? "fill" : "regular"}
+                      />
+                      <span>{p.title}</span>
+                      {p.key === "backup-changes" &&
+                        !!dashboard.counts?.config_changes && (
+                          <b
+                            className="nav-count"
+                            aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
+                          >
+                            {dashboard.counts.config_changes}
+                          </b>
+                        )}
+                      {p.key === "alerts" &&
+                        !!dashboard.counts?.firing_alerts && (
+                          <b className="nav-count">
+                            {dashboard.counts.firing_alerts}
+                          </b>
+                        )}
+                      {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
+                        <b className="nav-count neutral">
+                          {dashboard.counts.running_jobs}
+                        </b>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </nav>
+          <div className="sidebar-user">
+            {panoramaHeader && (
+              <div className="panorama-utilities">{workspaceUtilities}</div>
+            )}
+            <UserPortrait
+              name={user.display_name}
+              url={accountAvatar.data?.url}
+            />
+            <span className="sidebar-user-text" title={user.display_name}>
+              <b>{user.display_name}</b>
+              <small>{tag(user.role)}</small>
+            </span>
+            <div className="sidebar-user-actions">
+              <button
+                className="sidebar-user-action sidebar-profile"
+                onClick={() => {
+                  setProfileOpen(true);
+                  setDrawer(false);
+                }}
+                aria-label="Profil"
+                title="Profil"
+              >
+                <GearSix size={18} aria-hidden="true" />
+                <span>Profil</span>
+              </button>
+              <button
+                className="sidebar-user-action"
+                onClick={logout}
+                aria-label="Güvenli çıkış"
+                title="Güvenli çıkış"
+              >
+                <SignOut size={18} aria-hidden="true" />
+                <span>Çıkış</span>
+              </button>
+            </div>
+          </div>
+        </aside>
+      </div>
       <div
         className="sidebar-scrim"
         aria-hidden="true"
         onClick={() => setDrawer(false)}
       />
       <div className="main-shell">
-        <div className="topbar-region">
-          <header className="topbar">
-            <button
-              className="icon-button sidebar-collapse"
-              aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-              title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-              aria-expanded={!collapsed}
-              aria-controls="main-sidebar"
-              onClick={() => {
-                writePref(
-                  "netrix-sidebar",
-                  collapsed ? "expanded" : "collapsed",
-                );
-                setCollapsed(!collapsed);
-              }}
-            >
-              <SidebarSimple size={20} aria-hidden="true" />
-            </button>
-            <button
-              className="icon-button menu-button"
-              aria-label="Menüyü aç"
-              aria-expanded={drawer}
-              onClick={() => setDrawer(true)}
-            >
-              <List size={20} />
-            </button>
-            <div className="breadcrumbs">
-              <span>{page.group}</span>
-              <CaretRight size={12} />
-              <b>{page.title}</b>
-            </div>
-            <div className="topbar-actions">
+        {!panoramaHeader && (
+          <div className="topbar-region">
+            <header className="topbar">
               <button
-                className="command-trigger"
-                aria-label="Komut paletini aç (Ctrl K)"
+                className="icon-button sidebar-collapse"
+                aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+                title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+                aria-expanded={!collapsed}
+                aria-controls="main-sidebar"
                 onClick={() => {
-                  setCommandQuery("");
-                  setCommand(true);
+                  writePref(
+                    "netrix-sidebar",
+                    collapsed ? "expanded" : "collapsed",
+                  );
+                  setCollapsed(!collapsed);
                 }}
               >
-                <MagnifyingGlass size={17} />
-                <span>Menü, ayar veya cihaz ara</span>
-                <kbd>Ctrl K</kbd>
+                <SidebarSimple size={20} aria-hidden="true" />
               </button>
-              <div
-                className="connection-label"
-                title="Canlı bildirim bağlantısı"
-              >
-                <span
-                  className={"connection-dot " + (connected ? "online" : "")}
-                />
-                {connected ? "Bağlı" : "Yeniden bağlanıyor"}
-              </div>
-              <ThemeToggle theme={theme} onToggle={toggleTheme} />
               <button
-                className="icon-button"
-                aria-label={
-                  refreshing ? "Veriler yenileniyor" : "Verileri yenile"
-                }
-                title="Açık sayfanın verilerini yenile"
-                disabled={refreshing}
-                aria-busy={refreshing}
-                onClick={refreshPage}
+                className="icon-button menu-button"
+                aria-label="Menüyü aç"
+                aria-expanded={drawer}
+                onClick={() => setDrawer(true)}
               >
-                <ArrowsClockwise
-                  size={19}
-                  className={refreshing ? "refresh-spinning" : undefined}
-                />
+                <List size={20} />
               </button>
-            </div>
-          </header>
-        </div>
+              {currentPreferences().design !== "panorama" && (
+                <div className="breadcrumbs">
+                  <span>{page.group}</span>
+                  <CaretRight size={12} />
+                  <b>{page.title}</b>
+                </div>
+              )}
+              <div className="topbar-actions">
+                {commandTrigger}
+                {workspaceUtilities}
+              </div>
+            </header>
+          </div>
+        )}
         <main id="main" tabIndex={-1}>
           <div className="page-view" key={current}>
             {page.key !== "overview" && (

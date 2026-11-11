@@ -560,6 +560,9 @@ textarea {
 .app-shell.collapsed {
   --sidebar-w: 72px;
 }
+.navigation-shell {
+  display: contents;
+}
 .sidebar {
   position: sticky;
   top: 0;
