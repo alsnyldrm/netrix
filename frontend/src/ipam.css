@@ -10,6 +10,9 @@
   align-items: center;
   gap: 20px;
 }
+.ipam-block-header.ipam-vlan-header {
+  padding-block: 12px;
+}
 .ipam-block-overview {
   display: flex;
   align-items: center;
@@ -71,13 +74,9 @@
 .ipam-block-usage.is-warning .ipam-block-percentage {
   color: var(--warning);
 }
-.ipam-scan-controls {
-  display: grid;
-  gap: 8px;
-  flex-shrink: 0;
-}
 .ipam-scan-actions {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
@@ -86,8 +85,8 @@
 .ipam-scan-actions button {
   min-height: 40px;
   height: 40px;
-  min-width: 80px;
-  padding: 0 12px;
+  padding: 0 10px;
+  gap: 6px;
 }
 .ipam-scan-result {
   display: grid;
@@ -110,16 +109,6 @@
 }
 .ipam-scan-summary .ipam-sub {
   margin-top: 0;
-}
-.ipam-schedule-note {
-  display: grid;
-  gap: 4px;
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--text-2);
-}
-.ipam-schedule-note small {
-  color: var(--text-2);
 }
 .ipam-column-tools {
   display: flex;
@@ -338,20 +327,13 @@
   }
 }
 @media (max-width: 640px) {
-  .ipam-scan-controls {
-    grid-column: 1 / -1;
-    min-width: 0;
-  }
   .ipam-scan-actions {
+    grid-column: 1 / -1;
     justify-content: flex-start;
   }
   .ipam-scan-actions button {
     min-height: 44px;
     height: 44px;
-  }
-  .ipam-schedule-note {
-    font-size: 11px;
-    max-width: 170px;
   }
   .ipam-column-tools button {
     min-width: 0;

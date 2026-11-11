@@ -1000,7 +1000,7 @@ export function IPAMWorkspace({
     <div className="ipam-workspace">
       <ErrorNote error={error} />
       {prefix && (
-        <section className="panel ipam-block-header">
+        <section className="panel ipam-block-header ipam-vlan-header">
           <div className="ipam-block-overview">
             <div className="ipam-actions ipam-block-title">
               <button
@@ -1028,50 +1028,40 @@ export function IPAMWorkspace({
               </span>
             </div>
           </div>
-          <div className="ipam-scan-controls">
-            <div className="ipam-scan-actions">
-              {canWrite && (
-                <>
-                  <button
-                    className="secondary"
-                    disabled={busy || jobActive}
-                    title="Kayıtlı IP adreslerine yalnız ping gönder"
-                    onClick={() => startScan("ping")}
-                  >
-                    <Waveform size={17} aria-hidden="true" />
-                    Ping
-                  </button>
-                  <button
-                    className="primary"
-                    disabled={busy || jobActive}
-                    title="VLAN’ı tara ve kaynak bilgilerini güncelle"
-                    onClick={() => startScan("discover")}
-                  >
-                    <Broadcast size={17} aria-hidden="true" />
-                    Tara
-                  </button>
-                </>
-              )}
-              <button
-                className="secondary"
-                aria-haspopup="dialog"
-                onClick={() => {
-                  setCancelError("");
-                  setResultVLAN(prefix.id);
-                }}
-              >
-                <ClipboardText size={17} aria-hidden="true" />
-                Sonuç
-              </button>
-            </div>
-            <div className="ipam-schedule-note">
-              <span>Tam tarama: zamanlama</span>
-              <small>
-                {prefix.ping_enabled
-                  ? `Ping: ${prefix.ping_interval || 30} sn`
-                  : "Periyodik ping kapalı"}
-              </small>
-            </div>
+          <div className="ipam-scan-actions">
+            {canWrite && (
+              <>
+                <button
+                  className="secondary"
+                  disabled={busy || jobActive}
+                  title="Kayıtlı IP adreslerine yalnız ping gönder"
+                  onClick={() => startScan("ping")}
+                >
+                  <Waveform size={17} aria-hidden="true" />
+                  Ping
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy || jobActive}
+                  title="VLAN’ı tara ve kaynak bilgilerini güncelle"
+                  onClick={() => startScan("discover")}
+                >
+                  <Broadcast size={17} aria-hidden="true" />
+                  Tara
+                </button>
+              </>
+            )}
+            <button
+              className="secondary"
+              aria-haspopup="dialog"
+              onClick={() => {
+                setCancelError("");
+                setResultVLAN(prefix.id);
+              }}
+            >
+              <ClipboardText size={17} aria-hidden="true" />
+              Sonuç
+            </button>
           </div>
         </section>
       )}
