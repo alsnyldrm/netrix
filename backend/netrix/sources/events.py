@@ -11,6 +11,7 @@ def normalize_sources(db, context, instances):
 
     db.info.pop("source_links_by_ip", None)
     db.info.pop("resolution_views", None)
+    db.info.pop("resolution_lookup", None)
     # Parent identities are explicit before inserts, including migration batches.
     pending = list(db.new) + list(db.dirty)
     for row in pending:
@@ -77,3 +78,4 @@ def clear_cache(db, transaction):
         db.info.pop("source_rows", None)
         db.info.pop("source_links_by_ip", None)
         db.info.pop("resolution_views", None)
+        db.info.pop("resolution_lookup", None)

@@ -102,27 +102,28 @@ async def scan(job_id, collector):
                     raise Cancelled()
                 scope = scan_boundary(db, vlan)
                 lock_vrf(db, vlan.vrf_id)
+                existing = {
+                    row.address: row
+                    for row in db.scalars(
+                        select(m.IPAddress).where(
+                            m.IPAddress.vrf_id == vlan.vrf_id,
+                            m.IPAddress.address.in_([address for address, _, _ in ready]),
+                        )
+                    )
+                }
                 for address, up, checked_at in ready:
                     if not in_scope(address, scope):
                         continue
+                    row = existing.get(address)
                     if up is None:
                         failed_count += 1
                         checked_count += 1
-                        row = db.scalar(
-                            select(m.IPAddress).where(
-                                m.IPAddress.vrf_id == vlan.vrf_id,
-                                m.IPAddress.vlan_id == vlan.id,
-                                m.IPAddress.address == address,
-                            )
-                        )
-                        if row:
+                        if row and row.vlan_id == vlan.id:
                             ids.append((row.id, up))
                         continue
-                    row = db.scalar(
-                        select(m.IPAddress).where(
-                            m.IPAddress.vrf_id == vlan.vrf_id, m.IPAddress.address == address
-                        )
-                    )
+                    if not up and not row and address not in owned:
+                        checked_count += 1
+                        continue
                     latest = (
                         db.scalar(
                             select(m.IPObservation.observed_at).where(
@@ -236,6 +237,8 @@ async def scan(job_id, collector):
 
     def finish():
         from ..sources.cleanup import prune
+        from ..sources.resolutions import prepare_read
+        from .service import observations
 
         with session_factory()() as db:
             prune(db, inventory=False)
@@ -247,6 +250,9 @@ async def scan(job_id, collector):
                     .where(m.IPAddress.vlan_id == vlan.id)
                 )
             )
+            if results:
+                addresses = list(db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == vlan.id)))
+                prepare_read(db, results, observations(db, addresses))
             matching = {
                 field: sum(bool(r.values.get(field)) for r in results)
                 for field in (

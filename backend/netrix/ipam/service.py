@@ -7,7 +7,8 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import cast, select
+from sqlalchemy.dialects.postgresql import INET
 
 from .. import models as m
 from ..core import now
@@ -60,10 +61,16 @@ def ping_availability(observations, *, at=None):
     return {"reachable": "active", "no_reply": "passive"}.get(latest.data.get("reachability"), "unknown")
 
 
-def active_address_ids(db, vrf_ids):
+def address_subnet(db, query, cidr):
+    if cidr and db.get_bind().dialect.name == "postgresql":
+        return query.where(cast(m.IPAddress.address, INET).bool_op("<<=")(cast(cidr, INET)))
+    return query
+
+
+def active_address_ids(db, vrf_ids, *, address_id=None, cidr=None):
     # Batch lightweight ping facts; do not resolve device topology to count IPs.
     latest = {}
-    for observation in db.scalars(
+    query = (
         select(m.IPObservation)
         .join(m.IPAddress, m.IPAddress.id == m.IPObservation.address_id)
         .where(
@@ -72,7 +79,11 @@ def active_address_ids(db, vrf_ids):
             m.IPObservation.observed_at >= now() - timedelta(hours=24),
         )
         .order_by(m.IPObservation.observed_at.desc(), m.IPObservation.id.desc())
-    ):
+    )
+    query = address_subnet(db, query, cidr)
+    if address_id is not None:
+        query = query.where(m.IPObservation.address_id == address_id).limit(1)
+    for observation in db.scalars(query):
         latest.setdefault(observation.address_id, observation.data)
     return {
         id
@@ -86,12 +97,12 @@ def vlan_summaries(db, prefixes):
         return []
     assignments = {}
     vrf_ids = {p.vrf_id for p in prefixes}
-    active = active_address_ids(db, vrf_ids)
-    for id, vrf_id, address, status in db.execute(
-        select(m.IPAddress.id, m.IPAddress.vrf_id, m.IPAddress.address, m.IPAddress.status).where(
-            m.IPAddress.vrf_id.in_(vrf_ids)
-        )
-    ):
+    cidr = prefixes[0].cidr if len(prefixes) == 1 else None
+    active = active_address_ids(db, vrf_ids, cidr=cidr)
+    query = select(m.IPAddress.id, m.IPAddress.vrf_id, m.IPAddress.address, m.IPAddress.status).where(
+        m.IPAddress.vrf_id.in_(vrf_ids)
+    )
+    for id, vrf_id, address, status in db.execute(address_subnet(db, query, cidr)):
         assignments.setdefault(vrf_id, []).append((id, ipaddress.ip_address(address), status))
     result = []
     for prefix in prefixes:
@@ -403,8 +414,6 @@ def enrich(db, rows, *, details=True, include_options=False):
     if not rows:
         return []
     grouped = observations(db, rows)
-    db.info["source_links_by_ip"] = grouped
-    db.info["resolution_views"] = {}
     locations = address_locations(db, rows)
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
     site_ids = {id for row in rows for id in (row.site_id, row.sub_site_id) if id}
@@ -422,6 +431,9 @@ def enrich(db, rows, *, details=True, include_options=False):
         for row in rows
         if row.id in stored and stored[row.id].address_scope == [row.address, row.vrf_id, row.vlan_id]
     }
+    from ..sources.resolutions import prepare_read
+
+    prepare_read(db, stored.values(), grouped)
     network_evidence = (
         Evidence(db, {r.vrf_id for r in rows if r.id not in stored}) if len(stored) < len(rows) else None
     )
@@ -677,11 +689,14 @@ def vlan_metadata(db, prefix):
 def vlan_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_only=False, details=True):
     network = ipaddress.ip_network(prefix.cidr)
     if allocated or active_only:
-        active = active_address_ids(db, {prefix.vrf_id}) if active_only else None
+        active = active_address_ids(db, {prefix.vrf_id}, cidr=prefix.cidr) if active_only else None
+        query = address_subnet(
+            db, select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id), prefix.cidr
+        )
         rows = sorted(
             (
                 r
-                for r in db.scalars(select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id))
+                for r in db.scalars(query)
                 if ipaddress.ip_address(r.address) in network and (active is None or r.id in active)
             ),
             key=lambda r: int(ipaddress.ip_address(r.address)),

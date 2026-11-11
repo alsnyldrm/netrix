@@ -33,11 +33,13 @@ const date = (v: string) =>
     minute: "2-digit",
   });
 const frequencies: Record<string, string> = {
+  hourly: "Saatlik",
   daily: "Günlük",
   weekly: "Haftalık",
   monthly: "Aylık",
 };
 const units: Record<string, string> = {
+  hourly: "saat",
   daily: "gün",
   weekly: "hafta",
   monthly: "ay",
@@ -206,6 +208,7 @@ function GroupForm({
               {
                 (
                   {
+                    hourly: "saatte",
                     daily: "günde",
                     weekly: "haftada",
                     monthly: "ayda",
@@ -249,7 +252,9 @@ function GroupForm({
             ? "Başlangıç tarihinin günü kullanılır. O gün bulunmayan aylarda ayın son günü çalışır."
             : values.frequency === "weekly"
               ? "Başlangıç tarihinin haftanın günü ve saati kullanılır."
-              : "Başlangıç saati her çalışma gününde korunur."}{" "}
+              : values.frequency === "hourly"
+                ? "İlk çalışma başlangıç saatinde olur. Sonraki çalışmalar seçilen saat aralığıyla tekrarlanır."
+                : "Başlangıç saati her çalışma gününde korunur."}{" "}
           Zamanlama alanlarını değiştirmek çalışma sayacını sıfırlar.
         </p>
         <fieldset className="scan-vlans">
@@ -369,6 +374,7 @@ function RunHistory({
       queued: "Kuyrukta",
       running: "Çalışıyor",
       succeeded: "Tamamlandı",
+      partial: "Kısmi sonuç",
       failed: "Başarısız",
       cancelled: "İptal edildi",
       removed: "Kayıt kaldırılmış",
@@ -381,9 +387,7 @@ function RunHistory({
           <p role="status">Tarama geçmişi yükleniyor…</p>
         )}
         {query.data?.items.length === 0 && (
-          <p className="scan-empty">
-            Bu grup için henüz tarama başlamadı.
-          </p>
+          <p className="scan-empty">Bu grup için henüz tarama başlamadı.</p>
         )}
         {query.data?.items.map((run: Row) => (
           <section key={run.id}>
@@ -396,7 +400,11 @@ function RunHistory({
             </p>
             {run.jobs.map((j: Row) => (
               <div key={j.vlan_id} className="scan-job">
-                <span>{j.vlan_label || "VLAN taraması"}</span>
+                <span>
+                  {j.vlan_label || "VLAN taraması"}
+                  {j.total > 0 && ` · ${j.checked}/${j.total} IP`}
+                  {j.problems > 0 && ` · ${j.problems} sorunlu eşleşme`}
+                </span>
                 <a href="#jobs" title={j.job_id}>
                   {status(j.status)}
                 </a>

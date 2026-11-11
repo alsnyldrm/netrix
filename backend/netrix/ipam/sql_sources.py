@@ -10,7 +10,7 @@ from sqlalchemy import or_, select
 
 from .. import models as m
 from ..core import now, session_factory
-from ..runtime_limits import sql_quick, sql_read, sql_write
+from ..runtime_limits import sql_read, sql_write
 from ..services import in_scope, publish
 from ..sources import records
 from . import adapters, pipeline, service, teaming
@@ -25,6 +25,7 @@ class SQLContext:
     def __init__(self, db, vlan, job_id, *, point=False):
         self.vlan, self.job_id = vlan, job_id
         self.point = point
+        self.dns_server = db.get(m.DNSServer, vlan.dns_server_id) if vlan.dns_server_id else None
         self._evidence = None
         self.physical_lock = threading.Lock()
         # Identity reads need only the small device catalogue, not every FDB/port.
@@ -171,15 +172,8 @@ class SQLSources:
         return rows
 
     async def dns(self, address):
-        self.context.check()
-        with session_factory()() as db:
-            server = (
-                db.get(m.DNSServer, self.context.vlan.dns_server_id)
-                if self.context.vlan.dns_server_id
-                else None
-            )
-        hostname = await adapters.reverse_dns(address, server)
-        self.context.check()
+        async with asyncio.timeout(1):
+            hostname = await adapters.reverse_dns(address, self.context.dns_server)
         self.dns_observation = dict(
             source="dns",
             source_key=self.context.vlan.dns_server_id or "system",
@@ -450,7 +444,6 @@ async def scan_vlan(job_id):
             resolved, problems = done, issues
 
     async def process(id):
-        await sql_quick(context.check)
         with session_factory()() as db:
             row = db.get(m.IPAddress, id)
             if (

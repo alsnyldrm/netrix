@@ -14,8 +14,7 @@ with sync_playwright() as p:
         "request",
         lambda r: (
             collectors.append(r.url)
-            if r.method == "POST"
-            and r.url.endswith(("/discover", "/ping", "/sync"))
+            if r.method == "POST" and r.url.endswith(("/discover", "/ping", "/sync"))
             else None
         ),
     )
@@ -42,7 +41,7 @@ with sync_playwright() as p:
         page.set_viewport_size({"width": width, "height": height})
         page.reload()
         page.wait_for_load_state("networkidle")
-        page.get_by_role("button", name="192.0.2.0/24", exact=True).click()
+        expect(page.get_by_role("heading", name="VLAN-20 / SERVER", exact=True)).to_be_visible()
         expect(page.locator(".ipam-job")).to_have_count(0)
         scan = page.get_by_role("button", name="Tara", exact=True).bounding_box()
         result_button = open_result.bounding_box()

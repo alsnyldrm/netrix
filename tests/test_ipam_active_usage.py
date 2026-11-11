@@ -73,6 +73,12 @@ def test_active_usage_filter_and_status_share_latest_ping(env):
             filters=json.dumps([{"field": "hostname", "op": "not_contains", "value": "5"}]),
         )
         assert result["total"] == "1" and result["items"][0]["address"] == "10.1.0.1"
+        active_exact = table.addresses(db, prefix, active_only=True, q="10.1.0.5", include_summary=False)
+        assert [r["address"] for r in active_exact["items"]] == ["10.1.0.5"]
+        assert active_exact["total"] == "1" and "vlan" not in active_exact
+        assert table.addresses(db, prefix, active_only=True, q="10.1.0.2")["total"] == "0"
+        assert table.addresses(db, prefix, q="10.1.0.7")["items"][0]["status"] == "network"
+        assert table.addresses(db, prefix, q="10.1.1.7")["total"] == "0"
         all_rows = {r["address"]: r for r in service.enrich(db, rows)}
         assert all_rows["10.1.0.2"]["availability"] == "passive"
         assert all_rows["10.1.0.3"]["availability"] == "unknown"

@@ -12,7 +12,7 @@ class ScanGroupInput(Input):
     description: str = Field(default="", max_length=400)
     vlan_ids: list[str] = Field(min_length=1, max_length=4096)
     enabled: bool = True
-    frequency: Literal["daily", "weekly", "monthly"]
+    frequency: Literal["hourly", "daily", "weekly", "monthly"]
     repeat_every: int = Field(default=1, ge=1, le=365)
     start_at: AwareDatetime
     timezone: Literal["Europe/Istanbul"] = "Europe/Istanbul"

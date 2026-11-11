@@ -509,3 +509,16 @@ SSH hatası başarılı SNMP toplamasını düşürmez; hata metadata'sı yazıl
 VLAN kanıtını güncel yapmaz. Bozuk veya eksik CLI çıktısından VLAN çıkarılmaz.
 Regresyonlar `test_cx_mac_vlans.py` ve `test_ipam_inventory_only.py`.
 CLI biçimi: [HPE AOS-CX Layer-2 Bridging Guide](https://www.arubanetworks.com/techdocs/AOS-CX/10.13/PDF/l2_bridging_4100i-6000-6100-6200.pdf).
+
+## VLAN adres araması, yenileme ve saatlik zamanlama
+
+VLAN içinde geçerli tek bir IPv4/IPv6 adresi girildiğinde arama, VRF ve tam adres
+indeksiyle eşleşen kaydı okur. Aktif IP seçeneği ve gelişmiş filtreler uygulanır.
+Diğer metin sorguları alanlar arası aramayı sürdürür. VLAN kimliği URL'de tutulur;
+tarayıcı yenilemesi aynı VLAN'ı yeniden açar. Bu okumalar tarama kuyruğu oluşturmaz.
+
+Saatlik tarama grupları başlangıç anından itibaren girilen saat aralığıyla çalışır.
+Kaçırılan zaman dilimleri, mevcut günlük/haftalık/aylık gruplarda olduğu gibi bir
+defa telafi edilir. Kısmi sonuç geçmişinde kontrol edilen ve sorunlu IP sayıları
+gösterilir. VLAN içindeki manuel tarama envanter için SQL'den okur; hedef PTR
+sorgusuna bir saniye bütçe uygulanır.

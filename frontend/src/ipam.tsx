@@ -95,13 +95,19 @@ export function useIPAMUpdates(vlanId?: string) {
     const update = () => {
       if (!document.hidden) setRevision((value) => value + 1);
     };
+    let pending: ReturnType<typeof setTimeout> | undefined;
     const received = (event: Event) => {
+      const target = (event as CustomEvent<string>).detail;
       if (
-        !vlanId ||
-        (event as CustomEvent<string>).detail === vlanId ||
-        (event as CustomEvent<string>).detail === "*"
+        document.hidden ||
+        pending ||
+        (vlanId && target !== vlanId && target !== "*")
       )
+        return;
+      pending = setTimeout(() => {
+        pending = undefined;
         update();
+      }, 400);
     };
     window.addEventListener("netrix:ipam-update", received);
     document.addEventListener("visibilitychange", update);
@@ -663,13 +669,23 @@ export function IPAMWorkspace({
   onEdit: (resource: string, row: Row) => void;
   onSaved: () => void;
 }) {
-  const [prefix, setVLAN] = useState<Row | null>(null);
+  const [prefix, setVLAN] = useState<Row | null>(initialVLAN || null);
+  const [restoredVLAN, setRestoredVLAN] = useState(() => {
+    const id = location.hash.match(/^#vlans\/([a-zA-Z0-9-]+)$/)?.[1];
+    return id || null;
+  });
+  const vlanId = prefix?.id || restoredVLAN;
+  const rememberVLAN = (id?: string) => {
+    history.replaceState(history.state, "", id ? `#vlans/${id}` : "#vlans");
+  };
   useEffect(() => {
     onVLANChange(prefix);
   }, [prefix, onVLANChange]);
   useEffect(() => {
     if (initialVLAN) {
       setVLAN(initialVLAN);
+      setRestoredVLAN(null);
+      rememberVLAN(initialVLAN.id);
       setOffset("0");
       setQuery("");
       setActiveOnly(true);
@@ -761,20 +777,21 @@ export function IPAMWorkspace({
     return () => window.removeEventListener("netrix:ipam-saved", revealSaved);
   }, []);
   const canWrite = user.role !== "viewer";
-  const isBlocks = page === "vlans" && !prefix;
+  const isBlocks = page === "vlans" && !vlanId;
   const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
-  const path = prefix
-    ? `/ipam/vlans/${prefix.id}/addresses?active_only=${activeOnly}&${params}`
+  const exactIP = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(query.trim());
+  const path = vlanId
+    ? `/ipam/vlans/${vlanId}/addresses?active_only=${activeOnly}&include_summary=${!exactIP}&${params}`
     : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
-  const ipamRevision = useIPAMUpdates(prefix?.id);
+  const ipamRevision = useIPAMUpdates(vlanId || undefined);
   const listing = useLiveQuery(
     path,
     refresh + ipamRevision + scanRevision,
     undefined,
-    query ? 200 : 0,
+    query && !exactIP ? 200 : 0,
   );
   const latestScan = useLiveQuery<Row | null>(
-    prefix ? `/ipam/vlans/${prefix.id}/scan` : null,
+    vlanId ? `/ipam/vlans/${vlanId}/scan` : null,
     refresh + ipamRevision,
   );
   const rows: Row[] = listing.data?.items || [];
@@ -835,6 +852,8 @@ export function IPAMWorkspace({
   }, [job]);
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
+    setRestoredVLAN(null);
+    rememberVLAN(row?.id);
     setResultVLAN(null);
     setActiveOnly(true);
     setJob(null);

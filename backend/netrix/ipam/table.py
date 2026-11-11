@@ -99,11 +99,12 @@ def rules_from(raw):
 
 def matches(row, q, rules):
     # Every word can occur in any visible or hidden data column.
-    haystack = " ".join(cell(row, key) for key in COLUMNS)
-    if row.get("manual_location"):
-        haystack += " " + " ".join(normalized(v) for v in row["manual_location"].values())
-    if not all(word in haystack for word in normalized(q).split()):
-        return False
+    if q:
+        haystack = " ".join(cell(row, key) for key in COLUMNS)
+        if row.get("manual_location"):
+            haystack += " " + " ".join(normalized(v) for v in row["manual_location"].values())
+        if not all(word in haystack for word in normalized(q).split()):
+            return False
     result = None
     for r in rules:
         left, right = cell(row, r["field"]), normalized(r["value"])
@@ -133,11 +134,51 @@ def matches(row, q, rules):
     return result is not False
 
 
+def exact_address(q):
+    try:
+        return ipaddress.ip_address(q.strip())
+    except ValueError:
+        return None
+
+
+def exact_items(db, prefix, ip, allocated, active_only):
+    network = ipaddress.ip_network(prefix.cidr)
+    if ip not in network:
+        return []
+    if not allocated and not active_only and network.num_addresses <= 65536:
+        return service.vlan_addresses(db, prefix, int(ip) - int(network.network_address), 1, details=False)[
+            "items"
+        ]
+    row = db.scalar(
+        select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id, m.IPAddress.address == str(ip))
+    )
+    if not row:
+        return []
+    if active_only and row.id not in service.active_address_ids(db, {prefix.vrf_id}, address_id=row.id):
+        return []
+    return service.enrich(db, [row], details=False)
+
+
 def addresses(
-    db, prefix=None, *, offset=0, limit=100, allocated=False, active_only=False, q="", filters="[]"
+    db,
+    prefix=None,
+    *,
+    offset=0,
+    limit=100,
+    allocated=False,
+    active_only=False,
+    q="",
+    filters="[]",
+    include_summary=True,
 ):
     rules = rules_from(filters)
-    if prefix and not q and not rules:
+    ip = exact_address(q) if prefix and q else None
+    if ip is not None:
+        items = [
+            row for row in exact_items(db, prefix, ip, allocated, active_only) if matches(row, "", rules)
+        ]
+        result = {"items": items[offset : offset + limit], "total": str(len(items)), "offset": str(offset)}
+    elif prefix and not q and not rules:
         result = service.vlan_addresses(
             db, prefix, offset, limit, allocated, active_only=active_only, details=False
         )
@@ -145,7 +186,11 @@ def addresses(
         stmt = select(m.IPAddress)
         if prefix:
             network = ipaddress.ip_network(prefix.cidr)
-            stmt = stmt.where(m.IPAddress.vrf_id == prefix.vrf_id)
+            stmt = service.address_subnet(db, stmt.where(m.IPAddress.vrf_id == prefix.vrf_id), prefix.cidr)
+        if prefix and active_only:
+            stmt = stmt.where(
+                m.IPAddress.id.in_(service.active_address_ids(db, {prefix.vrf_id}, cidr=prefix.cidr))
+            )
         rows = db.scalars(stmt).all()
         if prefix:
             rows = [r for r in rows if ipaddress.ip_address(r.address) in network]
@@ -192,7 +237,7 @@ def addresses(
             "registered_search": registered_only,
         }
     result["columns"] = [{"key": k, "label": v} for k, v in COLUMNS.items()]
-    if prefix:
+    if prefix and include_summary:
         result["vlan"] = service.vlan_summary(db, prefix)
     return result
 

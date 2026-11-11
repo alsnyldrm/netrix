@@ -2486,12 +2486,13 @@ function App() {
   const accountAvatar = useAccountAvatar(user?.id);
   const [boot, setBoot] = useState(true);
   const [current, setCurrent] = useState(
-    () => location.hash.slice(1) || "overview",
+    () => location.hash.slice(1).split("/")[0] || "overview",
   );
   const [group, setGroup] = useState(
     () =>
-      PAGES.find((p) => p.key === (location.hash.slice(1) || "overview"))
-        ?.group || "Genel bakış",
+      PAGES.find(
+        (p) => p.key === (location.hash.slice(1).split("/")[0] || "overview"),
+      )?.group || "Genel bakış",
   );
   const [offset, setOffset] = useState(0);
   const [query, setQuery] = useState("");
@@ -2667,7 +2668,9 @@ function App() {
   }, []);
   useEffect(() => {
     const handler = () => {
-      const p = PAGES.find((p) => p.key === location.hash.slice(1));
+      const p = PAGES.find(
+        (p) => p.key === location.hash.slice(1).split("/")[0],
+      );
       if (p) {
         setCurrent(p.key);
         setGroup(p.group);
@@ -2716,14 +2719,18 @@ function App() {
   page.columns?.forEach(([key]) => {
     if (relations[key]) addReferences(relations[key]);
   });
-  for (const field of [...(page.fields || []), ...(form?.page.fields || [])]) {
+  for (const field of [
+    ...(page.key === "vlans" ? [] : page.fields || []),
+    ...(form?.page.fields || []),
+  ]) {
     if (field.ref) addReferences(field.ref);
     if (field.suggestions) addReferences(field.suggestions);
   }
   if (["overview", "topology", "neighbors"].includes(page.key))
     addReferences("devices", "links");
   if (page.key === "overview") addReferences("credentials", "scopes", "events");
-  if (page.key === "vlans")
+  if (page.key === "vlans") addReferences("sites");
+  if (page.key === "vlans" && form)
     addReferences(
       "institutions",
       "sites",
@@ -2749,7 +2756,9 @@ function App() {
   if (!isAdmin) referenceNames.delete("users");
   const referencesKey = [...referenceNames].sort().join(",");
   const referenceQuery = useLiveQuery<Record<string, Row[]>>(
-    user && !standaloneView ? `references:${user.id}:${referencesKey}` : null,
+    user && !standaloneView && referencesKey
+      ? `references:${user.id}:${referencesKey}`
+      : null,
     referenceRefresh +
       (["overview", "topology", "neighbors"].includes(page.key) ? refresh : 0),
     async () =>
@@ -2862,7 +2871,7 @@ function App() {
     window.addEventListener("focus", syncUser);
     const interval = setInterval(() => {
       if (!document.hidden) {
-        if (!standaloneView) reload();
+        if (!standaloneView) setRefresh((n) => n + 1);
         syncUser();
       }
     }, 30000);

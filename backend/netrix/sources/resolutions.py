@@ -9,6 +9,47 @@ from . import records
 from .records import source_write
 
 
+def prepare_read(db, results, links_by_ip):
+    """Prefetch lightweight foreign-key projections for this read batch."""
+    db.info["source_links_by_ip"] = links_by_ip
+    db.info["resolution_views"] = {}
+    connections = [c for result in results for c in result.connection_rows]
+    state_ids = {c.mac_port.snapshot_id for c in connections if c.mac_port}
+    states = (
+        dict(
+            db.execute(
+                select(m.IPAMNetworkState.id, m.IPAMNetworkState.device_id).where(
+                    m.IPAMNetworkState.id.in_(state_ids)
+                )
+            ).all()
+        )
+        if state_ids
+        else {}
+    )
+    device_ids = {c.neighbor.device_id for c in connections if c.neighbor} | set(states.values())
+    device_ids.update(
+        link.gateway.device_id
+        for result in results
+        for link in links_by_ip.get(result.address_id, ())
+        if link.gateway and link.gateway.device_id
+    )
+    names = (
+        dict(db.execute(select(m.Device.id, m.Device.name).where(m.Device.id.in_(device_ids))).all())
+        if device_ids
+        else {}
+    )
+    db.info["resolution_lookup"] = states, names
+
+
+def device_name(db, device_id):
+    if not db or not device_id:
+        return ""
+    lookup = db.info.get("resolution_lookup")
+    if lookup is not None and device_id in lookup[1]:
+        return lookup[1][device_id]
+    return db.scalar(select(m.Device.name).where(m.Device.id == device_id)) or ""
+
+
 def connection_data(row):
     db = object_session(row)
     if row.vmware_nic:
@@ -27,10 +68,9 @@ def connection_data(row):
         )
     if row.neighbor:
         link = row.neighbor
-        device = db.get(m.Device, link.device_id) if db else None
         return dict(
             device_id=link.device_id,
-            device_name=device.name if device else "",
+            device_name=device_name(db, link.device_id),
             port=link.interface_name,
             remote_port=link.remote_port,
             aggregate=link.aggregate or "",
@@ -41,11 +81,18 @@ def connection_data(row):
         )
     if row.mac_port:
         e = row.mac_port
-        state = db.get(m.IPAMNetworkState, e.snapshot_id) if db else None
-        device = db.get(m.Device, state.device_id) if db and state and state.device_id else None
+        lookup = db.info.get("resolution_lookup") if db else None
+        if lookup is not None and e.snapshot_id in lookup[0]:
+            device_id = lookup[0][e.snapshot_id]
+        else:
+            device_id = (
+                db.scalar(select(m.IPAMNetworkState.device_id).where(m.IPAMNetworkState.id == e.snapshot_id))
+                if db
+                else None
+            )
         return dict(
-            device_id=state.device_id if state else "",
-            device_name=device.name if device else "",
+            device_id=device_id or "",
+            device_name=device_name(db, device_id),
             port=e.port,
             aggregate="",
             source=row.source,
@@ -112,11 +159,10 @@ def read(row):
         )
         if link.gateway:
             g = link.gateway
-            device = db.get(m.Device, g.device_id) if db and g.device_id else None
             values["gateway_evidence"].append(
                 dict(
                     device_id=g.device_id or g.source_key,
-                    device_name=device.name if device else g.source_name,
+                    device_name=device_name(db, g.device_id) or g.source_name,
                     mac_address=g.mac_address,
                     source="gateway",
                     observed_at=g.observed_at.isoformat(),

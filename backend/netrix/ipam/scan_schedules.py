@@ -17,6 +17,8 @@ TIMING = ("frequency", "repeat_every", "start_at", "timezone", "run_limit")
 
 
 def occurrence(group, index):
+    if group.frequency == "hourly":
+        return group.start_at.astimezone(UTC) + timedelta(hours=group.repeat_every * index)
     start = group.start_at.astimezone(ZoneInfo(group.timezone))
     if group.frequency == "monthly":
         month = start.year * 12 + start.month - 1 + group.repeat_every * index
@@ -29,6 +31,9 @@ def occurrence(group, index):
 
 
 def next_after(group, at):
+    if group.frequency == "hourly":
+        interval = timedelta(hours=group.repeat_every)
+        return occurrence(group, max(0, (at - group.start_at) // interval + 1))
     start, local = (
         group.start_at.astimezone(ZoneInfo(group.timezone)),
         at.astimezone(ZoneInfo(group.timezone)),
@@ -153,8 +158,15 @@ def history(db, id):
             {
                 **serialize(r),
                 "jobs": [
-                    {**j, "status": jobs[j["job_id"]].status if j["job_id"] in jobs else "removed"}
+                    {
+                        **j,
+                        "status": job.status if job else "removed",
+                        "checked": job.progress if job else None,
+                        "total": job.total if job else None,
+                        "problems": (job.result or {}).get("problems", 0) if job else 0,
+                    }
                     for j in r.jobs
+                    for job in [jobs.get(j["job_id"])]
                 ],
             }
             for r in rows

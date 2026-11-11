@@ -31,9 +31,9 @@ def tick(*, include_ping=True):
     from .ipam.scan_schedules import dispatch_due
     from .job_archives import archive_jobs, midnight
 
+    dispatch_due()
     if include_ping:
         dispatch_pings()
-    dispatch_due()
     with session_factory()() as db:
         archive_jobs(db, cutoff=midnight(now()))
         db.commit()
@@ -79,6 +79,9 @@ if __name__ == "__main__":
         heartbeat("scheduler")
         try:
             dispatch_pings()
+        except Exception as exc:
+            log.warning("scheduler_ping_failed error_class=%s", type(exc).__name__)
+        try:
             if time.monotonic() >= next_maintenance:
                 tick(include_ping=False)
                 next_maintenance = time.monotonic() + 15

@@ -282,7 +282,7 @@ class IPAMScanGroup(Entity, Base):
     generation: Mapped[int] = mapped_column(Integer, default=1)
     last_run_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
     __table_args__ = (
-        CheckConstraint("frequency in ('daily','weekly','monthly')", name="ck_ipam_scan_frequency"),
+        CheckConstraint("frequency in ('hourly','daily','weekly','monthly')", name="ck_ipam_scan_frequency"),
         CheckConstraint("repeat_every >= 1 AND repeat_every <= 365", name="ck_ipam_scan_every"),
         CheckConstraint(
             "run_count >= 0 AND (run_limit IS NULL OR run_limit >= 1)", name="ck_ipam_scan_count"

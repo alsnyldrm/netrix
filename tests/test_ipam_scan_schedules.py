@@ -41,6 +41,7 @@ def create(setup, **changes):
 @pytest.mark.parametrize(
     "frequency,repeat_every,start,at,expected",
     [
+        ("hourly", 2, "2026-11-03T06:30:00+00:00", "2026-11-03T08:30:00+00:00", "2026-11-03T10:30:00+00:00"),
         ("daily", 2, "2026-11-03T06:00:00+00:00", "2026-11-05T06:00:00+00:00", "2026-11-07T06:00:00+00:00"),
         ("weekly", 2, "2026-11-03T06:00:00+00:00", "2026-11-04T06:00:00+00:00", "2026-11-17T06:00:00+00:00"),
         ("monthly", 1, "2028-01-31T06:00:00+00:00", "2028-02-01T06:00:00+00:00", "2028-02-29T06:00:00+00:00"),
@@ -58,9 +59,10 @@ def test_calendar(frequency, repeat_every, start, at, expected):
     assert service.next_after(group, datetime.fromisoformat(at)).isoformat() == expected
 
 
-def test_dispatch_is_atomic_reuses_active_jobs_and_stops_after_limit(setup):
+@pytest.mark.parametrize("frequency,interval", [("daily", timedelta(days=1)), ("hourly", timedelta(hours=1))])
+def test_dispatch_is_atomic_reuses_active_jobs_and_stops_after_limit(setup, frequency, interval):
     c, sf, payload = setup
-    group = create(setup)
+    group = create(setup, frequency=frequency)
     at = datetime.fromisoformat(group["start_at"])
     service.dispatch_due(at - timedelta(seconds=1))
     assert c.get(f"/api/v1/ipam/scan-groups/{group['id']}/runs").json()["items"] == []
@@ -71,7 +73,7 @@ def test_dispatch_is_atomic_reuses_active_jobs_and_stops_after_limit(setup):
         assert len(jobs) == 2 and {j.target_id for j in jobs} == set(payload["vlan_ids"])
         assert db.get(m.IPAMScanGroup, group["id"]).run_count == 1
     # A second due slot while scans run reuses their durable active keys.
-    service.dispatch_due(at + timedelta(days=1))
+    service.dispatch_due(at + interval)
     service.dispatch_due(at + timedelta(days=30))
     with sf() as db:
         row = db.get(m.IPAMScanGroup, group["id"])
@@ -111,7 +113,7 @@ def test_membership_conflicts_invalid_targets_and_delete_keep_vlans_and_jobs(set
     for data in (
         {"vlan_ids": []},
         {"vlan_ids": ["missing"]},
-        {"frequency": "hourly"},
+        {"frequency": "minutely"},
         {"repeat_every": 0},
         {"run_limit": 0},
         {"start_at": "2026-11-03T12:00"},
