@@ -3,7 +3,7 @@ import json
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from redis.asyncio import Redis
 from sqlalchemy import delete, select
 
@@ -210,7 +210,13 @@ def session_info(id: str, user=Depends(ssh_user)):
 @router.delete("/sessions/{id}", status_code=204)
 def close_session(id: str, user=Depends(ssh_user)):
     client = e.redis_client()
-    e.read(client, "session", id, user)
+    try:
+        e.read(client, "session", id, user)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        # Missing or inaccessible sessions have no open window to cancel for this user.
+        return
     client.set(e.key("cancel", id), "1", ex=e.TTL)
 
 

@@ -393,6 +393,14 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, env, mon
     assert admin_client.get("/api/v1/access/sessions/" + id).status_code == 200
     assert e.read(memory, "session", id)["auth_hash"] not in sessions[0].text
     assert "SSH fixture" not in memory.data[e.key("session", id)]
+    expired = sessions[1].json()["id"]
+    memory.delete(e.key("session", expired))
+    assert admin_client.get("/api/v1/access/sessions/" + expired).status_code == 404
+    assert admin_client.delete("/api/v1/access/sessions/" + expired).status_code == 204
+    assert memory.get(e.key("cancel", expired)) is None
+    owned = sessions[2].json()["id"]
+    assert admin_client.delete("/api/v1/access/sessions/" + owned).status_code == 204
+    assert memory.get(e.key("cancel", owned)) == "1"
     with env() as db:
         db.get(m.User, user_id).ssh_access = True
         db.commit()
@@ -401,7 +409,8 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, env, mon
         "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
     )
     assert admin_client.get("/api/v1/access/sessions/" + id).status_code == 404
-    assert admin_client.delete("/api/v1/access/sessions/" + id).status_code == 404
+    assert admin_client.delete("/api/v1/access/sessions/" + id).status_code == 204
+    assert memory.get(e.key("cancel", id)) is None
     assert admin_client.post("/api/v1/access/sessions", json={"device_id": device_id}).status_code == 409
     memory.data.pop(e.PREFIX + "heartbeat")
     with pytest.raises(Exception) as exc:
