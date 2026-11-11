@@ -100,9 +100,11 @@ def test_preferences_single_row_validation_and_saved_commands(admin_client, env)
         "cyan",
         "orange",
         "indigo",
+        "dark",
     ):
         result = admin_client.put("/api/v1/access/preferences", json={"palette": palette, "timezone": "UTC"})
         assert result.status_code == 200
+        assert admin_client.get("/api/v1/access/preferences").json()["palette"] == palette
     assert (
         admin_client.put("/api/v1/access/preferences", json={"timezone": "invented/zone"}).status_code == 422
     )

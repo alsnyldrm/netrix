@@ -6,6 +6,7 @@ import {
 } from "./permissions";
 import { UserRoleEditor } from "./identity-roles";
 import { Profile } from "./user-workspace";
+import { darkPaletteId } from "./appearance";
 import { UserPortrait, useAccountAvatar } from "./profile-avatar";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
@@ -881,24 +882,42 @@ const writePref = (key: string, value: string) => {
     /* Tercih kaydedilemezse oturum içinde geçerli kalır. */
   }
 };
-function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() =>
+function useTheme() {
+  const [preferredTheme, setPreferredTheme] = useState<Theme>(() =>
     document.documentElement.dataset.theme === "dark" ? "dark" : "light",
   );
+  const [darkPalette, setDarkPalette] = useState(
+    () => currentPreferences().palette === darkPaletteId,
+  );
+  const theme: Theme = darkPalette ? "dark" : preferredTheme;
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const update = () =>
+      setDarkPalette(currentPreferences().palette === darkPaletteId);
+    window.addEventListener("netrix:preferences", update);
+    return () => window.removeEventListener("netrix:preferences", update);
+  }, []);
+  useEffect(() => {
+    const root = document.documentElement;
+    root.dataset.theme = theme;
     document
       .querySelector('meta[name="theme-color"]')
-      ?.setAttribute("content", theme === "dark" ? "#0b1220" : "#f8fafc");
-  }, [theme]);
+      ?.setAttribute(
+        "content",
+        darkPalette
+          ? getComputedStyle(root).getPropertyValue("--bg").trim()
+          : theme === "dark"
+            ? "#0b1220"
+            : "#f8fafc",
+      );
+  }, [darkPalette, theme]);
   const toggle = useCallback(() => {
-    setTheme((t) => {
+    setPreferredTheme((t) => {
       const next = t === "dark" ? "light" : "dark";
       writePref("netrix-theme", next);
       return next;
     });
   }, []);
-  return [theme, toggle];
+  return { theme, toggleTheme: toggle, darkPalette };
 }
 function ThemeToggle({
   theme,
@@ -2515,7 +2534,7 @@ function App() {
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
   const [testDevice, setTestDevice] = useState<Row | null>(null);
-  const [theme, toggleTheme] = useTheme();
+  const { theme, toggleTheme, darkPalette } = useTheme();
   const [collapsed, setCollapsed] = useState(
     () => readPref("netrix-sidebar") === "collapsed",
   );
@@ -3083,7 +3102,7 @@ function App() {
         <span className={"connection-dot " + (connected ? "online" : "")} />
         {connected ? "Bağlı" : "Yeniden bağlanıyor"}
       </div>
-      <ThemeToggle theme={theme} onToggle={toggleTheme} />
+      {!darkPalette && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
       <button
         className="icon-button"
         aria-label={refreshing ? "Veriler yenileniyor" : "Verileri yenile"}
@@ -4125,10 +4144,14 @@ function App() {
               navigate("settings");
               setSettingsSection(section);
             }}
-            onTheme={() => {
-              setCommand(false);
-              toggleTheme();
-            }}
+            onTheme={
+              darkPalette
+                ? undefined
+                : () => {
+                    setCommand(false);
+                    toggleTheme();
+                  }
+            }
             onRefresh={() => {
               setCommand(false);
               void refreshPage();

@@ -163,7 +163,7 @@ export function Profile({
               <h3>Uygulama teması</h3>
               <p className="muted">
                 Gezinme düzenini, yazı tipini ve ekran yoğunluğunu birlikte
-                değiştirin. Her tema 10 palet ve açık/koyu modla çalışır.
+                değiştirin. Renk paletinizi ayrıca seçebilirsiniz.
               </p>
               <div className="theme-options">
                 {applicationThemes.map((t) => (
@@ -201,7 +201,7 @@ export function Profile({
               <p className="muted">
                 Seçtiğiniz palet arka planı, menüleri, panelleri, tabloları ve
                 butonları birlikte renklendirir. Durum ve hata renkleri anlamını
-                korur.
+                korur. Karanlık paleti her zaman koyu görünümde çalışır.
               </p>
               <div className="palette-grid">
                 {colorPalettes.map((p) => (
@@ -216,13 +216,14 @@ export function Profile({
                     onClick={() => void save({ ...values, palette: p.id })}
                   >
                     <span className="palette-tones" aria-hidden="true">
-                      {[95, 86, 70, 50, 24].map((light) => (
-                        <i
-                          key={light}
-                          style={{
-                            background: `hsl(${p.hue} ${p.saturation}% ${light}%)`,
-                          }}
-                        />
+                      {("tones" in p
+                        ? p.tones
+                        : [95, 86, 70, 50, 24].map(
+                            (light) =>
+                              `hsl(${p.hue} ${p.saturation}% ${light}%)`,
+                          )
+                      ).map((color) => (
+                        <i key={color} style={{ background: color }} />
                       ))}
                     </span>
                     <b>{p.name}</b>

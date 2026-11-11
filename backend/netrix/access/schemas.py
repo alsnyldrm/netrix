@@ -39,7 +39,7 @@ class Preferences(Input):
         "lexend",
     ] = "theme"
     palette: Literal[
-        "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo"
+        "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo", "dark"
     ] = "cobalt"
     design: Literal["atlas", "orbit", "terminal", "panorama", "focus"] = "atlas"
     timezone: str = "Europe/Istanbul"

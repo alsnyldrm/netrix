@@ -90,11 +90,12 @@
 }
 .palette-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-top: 24px;
 }
 .palette-option {
+  grid-column: span 2;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -104,6 +105,9 @@
   border-radius: 10px;
   background: var(--surface);
   text-align: left;
+}
+.palette-option:last-child:nth-child(odd) {
+  grid-column: 2 / span 2;
 }
 .palette-option.selected {
   border-color: var(--accent);

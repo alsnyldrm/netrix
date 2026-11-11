@@ -219,7 +219,7 @@ with sync_playwright() as p:
         profile = open_profile()
     page.set_viewport_size({"width": 1440, "height": 1000})
     profile.get_by_role("button", name="Renk paleti", exact=True).click()
-    expect(profile.locator(".palette-option")).to_have_count(10)
+    expect(profile.locator(".palette-option")).to_have_count(len(PALETTES) + 1)
     for name, palette in zip(
         [
             "Teknik kobalt",
@@ -243,11 +243,16 @@ with sync_playwright() as p:
         for mode in ("light", "dark"):
             page.evaluate("m=>document.documentElement.dataset.theme=m", mode)
             capture(f"palette-picker-{width}-{mode}")
+    page.evaluate("() => document.documentElement.dataset.theme = 'light'")
+    profile.get_by_role("button", name="Karanlık", exact=True).click()
+    expect(page.locator("html")).to_have_attribute("data-palette", "dark")
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     profile.get_by_role("button", name="Pencereyi kapat", exact=True).click()
     page.reload()
     page.wait_for_load_state("networkidle")
     expect(page.locator("html")).to_have_attribute("data-design", "focus")
-    expect(page.locator("html")).to_have_attribute("data-palette", "indigo")
+    expect(page.locator("html")).to_have_attribute("data-palette", "dark")
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     violations = {k: v for k, v in reports.items() if v}
     (ARTIFACTS / "report.json").write_text(
         json.dumps({"checks": checks, "violations": violations, "errors": errors}, indent=2)

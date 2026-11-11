@@ -30,6 +30,7 @@ export const applicationThemes = [
     feature: "Odaklı okuma düzeni",
   },
 ] as const;
+export const darkPaletteId = "dark";
 export const colorPalettes = [
   { id: "cobalt", name: "Teknik kobalt", hue: 222, saturation: 84 },
   { id: "teal", name: "Atlantik", hue: 174, saturation: 76 },
@@ -41,4 +42,9 @@ export const colorPalettes = [
   { id: "cyan", name: "Buzul", hue: 193, saturation: 88 },
   { id: "orange", name: "Bakır", hue: 25, saturation: 88 },
   { id: "indigo", name: "Gece irisi", hue: 244, saturation: 70 },
+  {
+    id: darkPaletteId,
+    name: "Karanlık",
+    tones: ["#ededed", "#bdbdbd", "#747474", "#212121", "#101010"],
+  },
 ] as const;

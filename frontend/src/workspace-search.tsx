@@ -66,7 +66,7 @@ export function WorkspaceSearch({
   onVLAN: (row: Row) => void;
   onSettings: (section: string) => void;
   onPassword: () => void;
-  onTheme: () => void;
+  onTheme?: () => void;
   onRefresh: () => void;
 }) {
   const results = useRef<HTMLDivElement>(null);
@@ -138,7 +138,10 @@ export function WorkspaceSearch({
       icon: ArrowsClockwise,
       run: onRefresh,
     },
-  ].filter((action) => matches(action.title + " " + action.hint));
+  ].filter(
+    (action): action is typeof action & { run: () => void } =>
+      !!action.run && matches(action.title + " " + action.hint),
+  );
   const deviceRows = devices.data?.items || [],
     vlanRows = vlans.data?.items || [];
   const loading = devices.loading || vlans.loading;
