@@ -223,8 +223,8 @@
   position: fixed;
   z-index: 45;
   bottom: 12px;
-  left: calc(var(--sidebar-w) + 20px);
-  right: 20px;
+  left: 16px;
+  right: 16px;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -264,11 +264,27 @@
   white-space: nowrap;
   font-size: 0.8rem;
 }
-.app-shell:has(.ssh-dock) .workspace {
+.app-shell:has(.ssh-dock) #main {
   padding-bottom: 90px;
 }
-.collapsed .ssh-dock {
-  left: 100px;
+@media (min-width: 1024px) {
+  .app-shell .ssh-dock {
+    left: calc(var(--sidebar-w) + 24px);
+    right: 24px;
+  }
+  :root[data-design="focus"] .app-shell .ssh-dock {
+    --dock-gutter: max(
+      24px,
+      calc((100vw - var(--sidebar-w) - 1200px) / 2 + 24px)
+    );
+    left: var(--dock-gutter);
+    right: calc(var(--sidebar-w) + var(--dock-gutter));
+  }
+}
+@media (min-width: 1280px) {
+  :root[data-design="panorama"] .app-shell .ssh-dock {
+    left: 24px;
+  }
 }
 .ssh-batch {
   padding: 20px 24px;
@@ -358,13 +374,6 @@
 .standalone-terminal h1 {
   font-size: 1.25rem;
   margin-bottom: 16px;
-}
-@media (max-width: 1023px) {
-  .ssh-dock,
-  .collapsed .ssh-dock {
-    left: 12px;
-    right: 12px;
-  }
 }
 @media (max-width: 650px) {
   .ssh-dialog {
