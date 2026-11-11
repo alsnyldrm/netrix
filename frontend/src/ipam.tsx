@@ -1004,7 +1004,7 @@ export function IPAMWorkspace({
                 title="VLAN alanlarına dön"
                 onClick={() => chooseVLAN(null)}
               >
-                <ArrowLeft size={17} aria-hidden="true" />
+                <ArrowLeft size={26} weight="bold" aria-hidden="true" />
               </button>
               <div className="ipam-block-heading">
                 <h2>{prefix.vlan || `VLAN-${prefix.vid} / ${prefix.name}`}</h2>
