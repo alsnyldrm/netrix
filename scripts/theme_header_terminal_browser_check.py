@@ -51,6 +51,7 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
+    expect(page.get_by_text("SW-01", exact=True)).to_be_visible()
 
     def settle():
         page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
@@ -69,7 +70,8 @@ with sync_playwright() as p:
                             "palette": palette,
                         },
                     )
-                    page.evaluate("scrollTo(0, 600)")
+                    settle()
+                    page.wait_for_function("() => { scrollTo(0, 600); return scrollY > 100; }")
                     settle()
                     state = page.evaluate("""() => {
                       const region = document.querySelector('.topbar-region');
@@ -80,6 +82,7 @@ with sync_playwright() as p:
                         [r.left+2,r.bottom-2],[r.right-2,r.bottom-2],
                         [header.left+header.width/2,header.top+2]];
                       return {top:r.top,bottom:r.bottom,headerTop:header.top,scroll:scrollY,bg,
+                        sidebarBottom:document.querySelector('.sidebar').getBoundingClientRect().bottom,
                         covered:points.every(([x,y]) => region.contains(document.elementFromPoint(x,y))),
                         overflow:document.body.scrollWidth>innerWidth};
                     }""")
@@ -87,7 +90,9 @@ with sync_playwright() as p:
                     assert state["scroll"] > 100, (key, state)
                     assert state["covered"] and not state["overflow"], (key, state)
                     assert state["bg"].startswith("rgb("), (key, state)
-                    assert state["top"] == (146 if design == "panorama" and width >= 1280 else 0), (
+                    assert state["top"] == (
+                        state["sidebarBottom"] if design == "panorama" and width >= 1280 else 0
+                    ), (
                         key,
                         state,
                     )
