@@ -136,9 +136,12 @@ def project(evidence):
                     continue
                 population[interface["name"]].add(mac)
                 # Shared filtering databases cannot establish a unique VLAN.
-                if len(fids[fid]) != 1:
+                if len(fids[fid]) == 1:
+                    vid = next(iter(fids[fid]))
+                elif not fids[fid] and (vid := evidence.get("_explicit_fdb_vlans", {}).get(index)):
+                    pass
+                else:
                     continue
-                vid = next(iter(fids[fid]))
                 fdb[(vid, mac)].add(interface["name"])
                 if canonical_times is not None:
                     fdb_times[(vid, mac, interface["name"])] = canonical_times.get(index)
@@ -299,6 +302,10 @@ class Evidence:
             ssh = (
                 profiles.get(device.config_credential_id)
                 if device.adapter in {"aruba_5400", "aruba_2900"}
+                or (
+                    device.adapter == "aruba_6100"
+                    and (projected["evidence"].get("read_context") or [None] * 10)[8]
+                )
                 else None
             )
             if ssh and ssh.protocol != "ssh":

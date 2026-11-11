@@ -118,6 +118,11 @@ def write(db, state, data, at):
         for key, value in tables.items()
         if not key.startswith("_")
     }
+    if device and device.adapter == "aruba_6100":
+        if "cx_mac_vlans" in data:
+            outcomes["cx_mac_vlan"] = dict(status="complete", row_count=len(data["cx_mac_vlans"]))
+        elif data.get("cx_mac_vlan_error"):
+            outcomes["cx_mac_vlan"] = dict(status="error", error_code=data["cx_mac_vlan_error"])
     for key in unsupported:
         outcomes.setdefault(key, dict(status="error", row_count=0))
     # Unqueried tables are untouched. Late completions cannot replace newer data.
@@ -306,12 +311,32 @@ def write(db, state, data, at):
                     vrf_id=device.vrf_id if device else "",
                     if_index=index,
                 )
-                e.vlan_vid = next(iter(by_fid[fid])) if len(by_fid.get(fid, ())) == 1 else 0
+                previous_vlan = e.vlan_vid
+                retained_vlan = (
+                    device
+                    and device.adapter == "aruba_6100"
+                    and "cx_mac_vlans" not in data
+                    and not by_fid.get(fid)
+                    and e.vlan_vid
+                    and e.observed_at
+                    and e.observed_at == previous_success.get("cx_mac_vlan")
+                )
+                e.vlan_vid = (
+                    next(iter(by_fid[fid]))
+                    if len(by_fid.get(fid, ())) == 1
+                    else data.get("cx_mac_vlans", {}).get((mac, name), 0)
+                    if not by_fid.get(fid) and device and device.adapter == "aruba_6100"
+                    else 0
+                )
+                if retained_vlan:
+                    e.vlan_vid = previous_vlan
                 e.bridge_port, e.if_index = bridge, index
                 e.status = str(tables.get("vlan_fdb_status", {}).get(key, ""))[:10]
                 # Unchanged rows are stamped together below: one UPDATE per MAC is
                 # thousands of cluster round trips for every switch read.
-                if e.id in prior_ids and e.present:
+                if retained_vlan:
+                    pass  # Preserve the last VLAN-proof time; SNMP is not a new VLAN proof.
+                elif e.id in prior_ids and e.present:
                     seen.append(e)
                 else:
                     e.observed_at = at
@@ -545,17 +570,29 @@ def read(state):
     device = db.get(m.Device, state.device_id) if db and state.device_id else None
     mapped = {(v.vlan_vid, v.fdb_id) for v in state.vlan_fdbs}
     fdb_row_times = {}
+    explicit_vlans = {}
+    cx_at = (
+        next(
+            (r.successful_at for r in state.unsupported if r.name == "cx_mac_vlan"),
+            None,
+        )
+        if device and device.adapter == "aruba_6100" and state.read_ssh_profile
+        else None
+    )
     fdb_conflicts = set()
     for vrf_id, vlan_vid, fdb_id, present, mac, bridge_port, if_index, status, observed_at in mac_rows(
         db, state
     ):
         if device and vrf_id != device.vrf_id:
             continue
-        if vlan_vid and (vlan_vid, fdb_id) not in mapped:
+        explicit = vlan_vid and (vlan_vid, fdb_id) not in mapped and cx_at and observed_at == cx_at
+        if vlan_vid and (vlan_vid, fdb_id) not in mapped and not explicit:
             continue
         if present is False:
             continue
         key = str(fdb_id) + "." + ".".join(str(int(v, 16)) for v in mac.split(":"))
+        if explicit:
+            explicit_vlans[key] = vlan_vid
         projected_port = str(bridge_port or if_index)
         if key in tables["vlan_fdb_port"] and tables["vlan_fdb_port"][key] != projected_port:
             fdb_conflicts.add(key)
@@ -645,6 +682,7 @@ def read(state):
     value = dict(
         _bindings=gateway_rows,
         _canonical_fdb_times=fdb_row_times,
+        _explicit_fdb_vlans=explicit_vlans,
         gateway_at=state.gateway_at.isoformat() if state.gateway_at else None,
         fdb_at=state.fdb_at.isoformat() if state.fdb_at else None,
         failed=state.healthy is False,

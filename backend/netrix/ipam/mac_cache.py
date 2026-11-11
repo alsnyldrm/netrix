@@ -32,9 +32,10 @@ def context(device, profile):
 
 def accepted_contexts(db, device, profile):
     """Accept inventory snapshots collected with optional SSH metadata."""
-    from .network import detail_profile, read_context
+    from .network import detail_profile, inventory_mac_profile, read_context
 
-    return (context(device, profile), read_context(device, profile, detail_profile(db, device)))
+    ssh = detail_profile(db, device) or inventory_mac_profile(db, device)
+    return (context(device, profile), read_context(device, profile, ssh))
 
 
 def save_snapshot(db, device, profile, job_id, evidence, *, error=""):

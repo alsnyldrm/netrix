@@ -477,3 +477,26 @@ eşleşmesi olmamalıdır. Eksik veya eskimiş envanter, okuma hatası, belirsiz
 eşleştirme, rezervasyon veya elle yönetilen IP kaydı silmeyi engeller. Silme SQL
 transaction'ında doğrulanır, denetim kaydı ve VLAN bildirimi üretilir. Manuel tarama
 taze gateway ve ping kanıtı üretmediği için otomatik silme yapmaz.
+
+### AOS-CX envanterinde eksik VLAN–FID — 11 Kasım 2026
+
+Envanter keşfinde mevcut `aruba_6100` cihazı Q-BRIDGE MAC satırları döndürdüğü
+halde VLAN–FID tablosu boşsa, cihazın atanmış SSH profiliyle salt okunur
+`show mac-address-table` alınır. Komut yalnız envanter worker'ında, yetkili
+keşif kapsamındaki aktif cihazda çalışır; IPAM bu istemciyi çağırmaz.
+
+Çıktı başlığı, bildirilen kayıt sayısı ve tüm satırlar doğrulanır. CLI'deki
+MAC/fiziksel port, SNMP'deki aynı MAC/port satırıyla birebir eşleşmeli ve
+tek VLAN bildirmelidir. İki kaynaktan üretilen doğrulanmış VLAN aynı
+`envanter.mac_port_records` satırına yazılır; FID'nin VLAN olduğu varsayılmaz,
+global VLAN–FID eşlemesi uydurulmaz ve ikinci kaynak kopyası tutulmaz.
+`discovery_reads` içindeki `cx_mac_vlan` toplamanın tamlık/zaman bilgisidir.
+IPAM bu satırı okurken SSH profil sürümünü, satırın kanıt zamanını,
+uplink/çoklu MAC/komşuluk ve belirsizlik kontrollerini korur. Mevcut SNMP
+VLAN–FID eşlemesi varsa bu alternatif onun yerine geçmez.
+
+SSH hatası başarılı SNMP toplamasını düşürmez; hata metadata'sı yazılır.
+Önceki doğrulanmış satır varsa kanıt tarihi korunur; yeni SNMP okuması eski
+VLAN kanıtını güncel yapmaz. Bozuk veya eksik CLI çıktısından VLAN çıkarılmaz.
+Regresyonlar `test_cx_mac_vlans.py` ve `test_ipam_inventory_only.py`.
+CLI biçimi: [HPE AOS-CX Layer-2 Bridging Guide](https://www.arubanetworks.com/techdocs/AOS-CX/10.13/PDF/l2_bridging_4100i-6000-6100-6200.pdf).

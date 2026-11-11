@@ -24,6 +24,13 @@ def detail_profile(db, device):
     return profile if profile and profile.protocol == "ssh" else None
 
 
+def inventory_mac_profile(db, device):
+    if device.adapter != "aruba_6100" or not device.config_credential_id:
+        return None
+    profile = db.get(m.Credential, device.config_credential_id)
+    return profile if profile and profile.protocol == "ssh" else None
+
+
 def read_context(device, profile, ssh):
     return [
         device.management_ip,

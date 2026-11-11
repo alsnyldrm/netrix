@@ -5,6 +5,7 @@ import signal
 import time
 from datetime import timedelta
 
+import asyncssh
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 
@@ -16,6 +17,7 @@ from .configuration.validation import BackupError, validate_cli_output
 from .core import now, redis_client, session_factory
 from .discovery.connection_tests import failure as connection_failure
 from .discovery.connection_tests import probe as probe_connection
+from .discovery.cx_mac import fetch_mac_vlans
 from .discovery.identification import normalize, snmp_identity
 from .discovery.interactive_tests import CAPACITY, POLL_SECONDS, interactive_condition
 from .discovery.links import sync_links
@@ -356,6 +358,36 @@ async def discover(job_id, collector):
                 await sql_quick(advance)
                 return False
 
+            from .ipam.network import inventory_mac_profile, read_context
+
+            cx_context = None
+            tables = collected.get("tables") or {}
+            if tables.get("vlan_fdb_port") and not tables.get("vlan_fdb_id"):
+                with session_factory()() as db:
+                    current_scope = get(db, m.Scope, scope.id)
+                    job = get(db, m.Job, job_id)
+                    if job.cancel_requested or not in_scope(address, current_scope):
+                        raise Cancelled()
+                    current = db.get(m.Device, existing_device.id) if existing_device else None
+                    ssh = inventory_mac_profile(db, current) if current else None
+                    if (
+                        ssh
+                        and not current.archived
+                        and current.lifecycle_status == "active"
+                        and current.management_ip == address
+                        and current.vrf_id == current_scope.vrf_id
+                        and current.snmp_port == port
+                        and current.snmp_credential_id == profile_id
+                    ):
+                        cx_context = read_context(current, profile, ssh)
+                        ssh_secret = secret_data(ssh)
+                if cx_context:
+                    try:
+                        async with device_slot():
+                            collected["cx_mac_vlans"] = await fetch_mac_vlans(current, ssh_secret)
+                    except (TimeoutError, OSError, BackupError, NetworkError, asyncssh.Error) as exc:
+                        collected["cx_mac_vlan_error"] = type(exc).__name__
+
             def persist():
                 with session_factory()() as db:
                     job = get(db, m.Job, job_id)
@@ -400,6 +432,14 @@ async def discover(job_id, collector):
                         or device.snmp_credential_id in current_scope.credential_ids
                     ):
                         device.snmp_credential_id = profile_id
+                    if cx_context:
+                        current_ssh = inventory_mac_profile(db, device)
+                        if cx_context == read_context(device, profile, current_ssh):
+                            if "cx_mac_vlans" in collected:
+                                collected["read_context"] = cx_context
+                        else:
+                            collected.pop("cx_mac_vlans", None)
+                            collected.pop("cx_mac_vlan_error", None)
                     persist_collection(db, device, collected, job, secret["protocol"])
                     db.commit()
                     publish()
