@@ -1,6 +1,7 @@
 """Read-only service for IPAM to consume inventory MAC-port and neighbor facts."""
 
 from .connections import Evidence
+from .fdb_path import backbone
 
 
 def attachment(db, row, vlan, mac, *, evidence=None):
@@ -16,7 +17,7 @@ def attachment(db, row, vlan, mac, *, evidence=None):
 
 
 def point_evidence(db, row, vlan, mac):
-    """Use indexed positive candidates; multi-MAC ports cannot prove an FDB edge.
+    """Load indexed MAC observations and protocol peers from inventory SQL.
 
     Keep every matching protocol peer and every eligible edge, including ambiguous
     alternatives. Full port populations and uplink checks still run for those states.
@@ -26,6 +27,17 @@ def point_evidence(db, row, vlan, mac):
 
     from .. import models as m
 
+    has_backbone = any(
+        backbone(d)
+        for d in db.scalars(
+            select(m.Device).where(
+                m.Device.vrf_id == row.vrf_id,
+                m.Device.archived.is_(False),
+                m.Device.discovery_scope_id.is_not(None),
+                m.Device.lifecycle_status.in_(("active", "maintenance")),
+            )
+        )
+    )
     target, other = aliased(m.SwitchMacEntry), aliased(m.SwitchMacEntry)
     states = set(
         db.scalars(
@@ -34,7 +46,8 @@ def point_evidence(db, row, vlan, mac):
                 target.vlan_vid.in_((vlan.vid, 0)),
                 target.mac_address == mac,
                 target.present.is_(True),
-                ~exists(
+                has_backbone
+                or ~exists(
                     select(other.id).where(
                         other.snapshot_id == target.snapshot_id,
                         other.port == target.port,

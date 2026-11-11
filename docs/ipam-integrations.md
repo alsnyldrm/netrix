@@ -406,11 +406,20 @@ izinlerinin yerine geçer. Switch kaynaklarının tek yazarı Envanter'dir.
   yolu, SQL verisi bulunan/bulunmayan uç, gateway işaretli switch, doğrudan port
   alternatifi ve kaynak satırlarının/zamanlarının değişmediği kontrol edilir.
 
+### Backbone üzerinden fiziksel port eşleştirmesi
+
+- Gateway'in IP–MAC eşleşmesiyle hedef VLAN ve MAC belirlenir. Envanterde
+  backbone varsa, VLAN/MAC kaydının işaret ettiği porttan LLDP/CDP ile komşu
+  switch'e geçilir. Birden fazla atlama varsa her geçişte aynı VLAN/MAC aranır.
+- Uplink yalnız yol kanıtıdır. Uç switch'te aynı VLAN/MAC için geçerli bir
+  port kaydı varsa, portta başka MAC'ler de bulunabilir. Çelişen uç portlar
+  tekil bir bağlantı olarak gösterilmez.
+
 ### Tek IP için SQL işlem süresi — 7 Kasım 2026
 
 - Tek IP işi, kimlik ve DNS/VMware dalı belirlenmeden bütün envanter FDB'sini
   yüklemez. SQL cihaz kataloğu ayrıdır; fiziksel kanıt gerektiğinde ilgili MAC'in
-  tek-MAC port adayları ve IP/MAC ile eşleşen tüm LLDP/CDP cihazları seçilir.
+  VLAN/MAC kayıtları ve IP/MAC ile eşleşen tüm LLDP/CDP cihazları seçilir.
 - Çok-MAC portlar tek başına uç kanıtı olamaz. Seçilen cihazların tam port nüfusu,
   komşulukları, VLAN–FID, kaynak bağlamı, güncellik ve uplink kontrolleri korunur;
   iki port/iki switch adayları birlikte değerlendirilir. Yeni ağ sorgusu yapılmaz.
