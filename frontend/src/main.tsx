@@ -1058,11 +1058,13 @@ export function Dialog({
   children,
   onClose,
   wide = false,
+  className,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
+  className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -1076,7 +1078,9 @@ export function Dialog({
   return (
     <dialog
       aria-label={title}
-      className={"dialog " + (wide ? "wide" : "")}
+      className={["dialog", wide && "wide", className]
+        .filter(Boolean)
+        .join(" ")}
       ref={dialog}
       onCancel={(event) => {
         event.preventDefault();

@@ -1,4 +1,10 @@
-import React, { useDeferredValue, useEffect, useRef, useState } from "react";
+import React, {
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Check,
   ArrowRight,
@@ -47,6 +53,10 @@ export function Profile({
   onPasswordChanged: () => void;
 }) {
   const [tab, setTab] = useState("account");
+  const content = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    content.current?.scrollTo(0, 0);
+  }, [tab]);
   const sshAllowed = canSSH(user);
   useEffect(() => {
     if (!sshAllowed && ["ssh", "device-groups"].includes(tab))
@@ -86,7 +96,7 @@ export function Profile({
     ["device-groups", "Cihaz grupları", ShieldCheck],
   ] as const;
   return (
-    <Dialog title="Profil" onClose={onClose} wide>
+    <Dialog title="Profil" onClose={onClose} wide className="profile-dialog">
       <div className="profile-layout">
         <nav className="profile-menu" aria-label="Profil bölümleri">
           {tabs
@@ -113,7 +123,7 @@ export function Profile({
               </React.Fragment>
             ))}
         </nav>
-        <section className="profile-content">
+        <section className="profile-content" ref={content}>
           {tab === "ssh" && sshAllowed && <SSHSettings />}
           {tab === "device-groups" && sshAllowed && (
             <AccessGroups user={user} />
