@@ -299,7 +299,7 @@
   }
   :root[data-design="panorama"] .nav-group-items {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% + 12px);
     left: 0;
     min-width: 240px;
     margin: 0;
