@@ -5,6 +5,7 @@ import {
   Info,
   ArrowLeft,
   Broadcast,
+  ClipboardText,
   Columns,
   Funnel,
   Trash,
@@ -681,6 +682,8 @@ export function IPAMWorkspace({
   const [busy, setBusy] = useState(false);
   const [detail, setDetail] = useState<Row | null>(null);
   const [job, setJob] = useState<Row | null>(null);
+  const [resultVLAN, setResultVLAN] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState("");
   const [scanRevision, setScanRevision] = useState(0);
   const [rules, setRules] = useState<any[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -832,15 +835,16 @@ export function IPAMWorkspace({
   }, [job]);
   const chooseVLAN = (row: Row | null) => {
     setVLAN(row);
+    setResultVLAN(null);
     setActiveOnly(true);
     setJob(null);
     setOffset("0");
     setQuery("");
     setRules([]);
   };
+  const currentJob = job?.target_id === prefix?.id ? job : null;
   const jobActive =
-    job?.target_id === prefix?.id &&
-    ["queued", "running"].includes(job?.status);
+    !!currentJob && ["queued", "running"].includes(currentJob.status);
   const startScan = async (action: "discover" | "ping") => {
     if (!prefix || busy || jobActive) return;
     setBusy(true);
@@ -863,17 +867,18 @@ export function IPAMWorkspace({
       matching: "Cihaz ve port kanıtları eşleştiriliyor",
       complete: "Kaynak okumaları ve eşleştirme tamamlandı",
     } as Row
-  )[job?.result?.scan_phase];
+  )[currentJob?.result?.scan_phase];
   const scanOrigin =
     (
       {
         schedule: "Zamanlanmış tarama",
         group_manual: "Manuel grup taraması",
-        manual: job?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
+        manual:
+          currentJob?.kind === "ipam_ping" ? "Manuel ping" : "Manuel tarama",
         vlan_create: "Yeni VLAN’ın ilk taraması",
         ping_timer: "Periyodik ping",
       } as Row
-    )[job?.result?.ipam_origin] || "Tarama kaynağı bilinmiyor";
+    )[currentJob?.result?.ipam_origin] || "Tarama kaynağı bilinmiyor";
   const selectionDone = () => {
     setSelected([]);
     setBulkOpen(false);
@@ -1024,32 +1029,41 @@ export function IPAMWorkspace({
             </div>
           </div>
           <div className="ipam-scan-controls">
-            {canWrite && (
-              <div
-                className="ipam-scan-actions"
-                aria-label="VLAN tarama işlemleri"
-                aria-busy={busy}
+            <div className="ipam-scan-actions">
+              {canWrite && (
+                <>
+                  <button
+                    className="secondary"
+                    disabled={busy || jobActive}
+                    title="Kayıtlı IP adreslerine yalnız ping gönder"
+                    onClick={() => startScan("ping")}
+                  >
+                    <Waveform size={17} aria-hidden="true" />
+                    Ping
+                  </button>
+                  <button
+                    className="primary"
+                    disabled={busy || jobActive}
+                    title="VLAN’ı tara ve kaynak bilgilerini güncelle"
+                    onClick={() => startScan("discover")}
+                  >
+                    <Broadcast size={17} aria-hidden="true" />
+                    Tara
+                  </button>
+                </>
+              )}
+              <button
+                className="secondary"
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setCancelError("");
+                  setResultVLAN(prefix.id);
+                }}
               >
-                <button
-                  className="secondary"
-                  disabled={busy || jobActive}
-                  title="Kayıtlı IP adreslerine yalnız ping gönder"
-                  onClick={() => startScan("ping")}
-                >
-                  <Waveform size={17} aria-hidden="true" />
-                  Ping
-                </button>
-                <button
-                  className="primary"
-                  disabled={busy || jobActive}
-                  title="VLAN’ı tara ve kaynak bilgilerini güncelle"
-                  onClick={() => startScan("discover")}
-                >
-                  <Broadcast size={17} aria-hidden="true" />
-                  Tara
-                </button>
-              </div>
-            )}
+                <ClipboardText size={17} aria-hidden="true" />
+                Sonuç
+              </button>
+            </div>
             <div className="ipam-schedule-note">
               <span>Tam tarama: zamanlama</span>
               <small>
@@ -1061,44 +1075,73 @@ export function IPAMWorkspace({
           </div>
         </section>
       )}
-      {prefix && job && job.target_id === prefix.id && (
-        <div className="panel ipam-job" role="status">
-          <Badge value={job.status} />
-          <span>
-            {job.progress}/{job.total} adres ·{" "}
-            {job.error ||
-              phaseName ||
-              (job.status === "succeeded"
-                ? "İşlem tamamlandı."
-                : "Görev merkezinden de izleyebilirsiniz.")}
-            <small className="ipam-sub ipam-job-origin">
-              {scanOrigin} · Kuyruğa alınma:{" "}
-              <time dateTime={job.created_at}>{date(job.created_at)}</time>
-            </small>
-            {job.result?.matching && (
-              <small className="ipam-sub">
-                {job.result.matching.hostname} hostname ·{" "}
-                {job.result.matching.mac_address} MAC ·{" "}
-                {job.result.matching.connected_port} cihaz/port ·{" "}
-                {job.result.matching.operating_system} VMware işletim sistemi
-              </small>
+      {prefix && resultVLAN === prefix.id && (
+        <Dialog title="Tarama sonucu" onClose={() => setResultVLAN(null)}>
+          <div className="ipam-scan-result">
+            <p className="mono">{prefix.cidr}</p>
+            <ErrorNote error={cancelError || latestScan.error} />
+            {currentJob ? (
+              <div className="ipam-scan-summary" role="status">
+                <div className="ipam-scan-status">
+                  <Badge value={currentJob.status} />
+                  <strong>
+                    {currentJob.progress}/{currentJob.total} adres
+                  </strong>
+                </div>
+                <p>
+                  {currentJob.error ||
+                    phaseName ||
+                    (currentJob.status === "succeeded"
+                      ? "İşlem tamamlandı."
+                      : "Görev merkezinden de izleyebilirsiniz.")}
+                </p>
+                <small className="ipam-sub">
+                  {scanOrigin} · Kuyruğa alınma:{" "}
+                  <time dateTime={currentJob.created_at}>
+                    {date(currentJob.created_at)}
+                  </time>
+                </small>
+                {currentJob.result?.matching && (
+                  <small className="ipam-sub">
+                    {currentJob.result.matching.hostname} hostname ·{" "}
+                    {currentJob.result.matching.mac_address} MAC ·{" "}
+                    {currentJob.result.matching.connected_port} cihaz/port ·{" "}
+                    {currentJob.result.matching.operating_system} VMware işletim
+                    sistemi
+                  </small>
+                )}
+              </div>
+            ) : (
+              !latestScan.error && (
+                <p role="status">
+                  {latestScan.loading
+                    ? "Tarama sonucu yükleniyor…"
+                    : "Bu VLAN için henüz tarama sonucu yok."}
+                </p>
+              )
             )}
-          </span>
-          {canWrite && ["queued", "running"].includes(job.status) && (
-            <button
-              className="secondary"
-              onClick={async () => {
-                try {
-                  setJob(await api("/jobs/" + job.id + "/cancel", "POST"));
-                } catch (e: any) {
-                  setError(e.message);
-                }
-              }}
-            >
-              İptal et
-            </button>
-          )}
-        </div>
+            {canWrite && currentJob && jobActive && (
+              <div className="dialog-footer">
+                <button
+                  className="secondary"
+                  disabled={currentJob.cancel_requested}
+                  onClick={async () => {
+                    setCancelError("");
+                    try {
+                      setJob(
+                        await api("/jobs/" + currentJob.id + "/cancel", "POST"),
+                      );
+                    } catch (e: any) {
+                      setCancelError(e.message);
+                    }
+                  }}
+                >
+                  {currentJob.cancel_requested ? "İptal istendi" : "İptal et"}
+                </button>
+              </div>
+            )}
+          </div>
+        </Dialog>
       )}
       <section className="panel table-panel">
         <div className="toolbar">
