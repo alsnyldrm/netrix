@@ -147,17 +147,13 @@ function Terminal({
         const fit = new FitAddon();
         terminal.loadAddon(fit);
         terminal.open(host.current);
-        // Leave Ctrl+V to the browser's native paste event instead of sending ^V over SSH.
-        terminal.attachCustomKeyEventHandler(
-          (event) =>
-            !(
-              event.ctrlKey &&
-              !event.altKey &&
-              !event.metaKey &&
-              !event.shiftKey &&
-              event.key.toLowerCase() === "v"
-            ),
-        );
+        // Let the browser dispatch copy/paste so xterm's clipboard handlers can run.
+        terminal.attachCustomKeyEventHandler((event) => {
+          if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey)
+            return true;
+          const key = event.key.toLowerCase();
+          return key !== "v" && (key !== "c" || !terminal!.hasSelection());
+        });
         // Terminal text is never inserted as HTML; clipboard and URL addons are deliberately absent.
         const fitVisible = () => {
           cancelAnimationFrame(frame);

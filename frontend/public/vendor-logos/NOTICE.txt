@@ -1,0 +1,24 @@
+NETRIX device vendor marks
+Marks identify device manufacturers and remain the property of their respective owners.
+
+Most monochrome vector paths are from Simple Icons 16.37.0 (CC0-1.0;
+see simple-icons-license.txt), with brand colors added locally.
+https://github.com/simple-icons/simple-icons/tree/16.37.0
+
+Wikimedia Commons vectors:
+arista.svg   https://commons.wikimedia.org/wiki/File:Arista-Logo.svg
+aruba.svg    https://commons.wikimedia.org/wiki/File:Hpe-aruba-networking-logo.svg
+hpe.svg      https://commons.wikimedia.org/wiki/File:Hewlett_Packard_Enterprise_logo_2025.svg
+sophos.svg   https://commons.wikimedia.org/wiki/File:Sophos_logo2.svg
+zte.svg      https://commons.wikimedia.org/wiki/File:ZTE-logo.svg
+zyxel.svg    https://commons.wikimedia.org/wiki/File:Zyxel_Logo.svg
+
+Manufacturer website artwork:
+checkpoint.svg https://www.checkpoint.com/wp-content/themes/checkpoint-theme-v2/images/checkpoint-logo.svg
+dlink.svg      https://www.dlink.com/en/-/media/logos/dlink/logoblue.svg
+extreme.svg    https://www.extremenetworks.com/ (site header)
+meraki.svg     https://www.cisco.com/content/dam/cisco-cdc/site/images/testing/mh-testing/logos/cisco-meraki-logo-light-digital.svg (dark monochrome variant derived for light tile)
+watchguard.svg https://www.watchguard.com/sites/default/files/images/branding/watchguard-logo_3_1.svg
+cambium.svg    https://www.cambiumnetworks.com/brand-assets/
+h3c.png        https://www.h3c.com/cn/About_H3C/ (site header)
+alcatelenterprise.png https://www.al-enterprise.com/ale-logo.png

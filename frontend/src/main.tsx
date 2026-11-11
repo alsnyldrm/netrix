@@ -107,6 +107,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
 import "./appearance.css";
 import "./application-themes.css";
+import { deviceVendorLogo, deviceVendorNames } from "./device-vendors";
 import {
   InventoryTable,
   InterfaceWorkspace,
@@ -1347,6 +1348,18 @@ function ResourceForm(props: React.ComponentProps<typeof GenericResourceForm>) {
     <GenericResourceForm {...props} />
   );
 }
+function DeviceVendorMark({ vendor }: { vendor?: string | null }) {
+  const logo = deviceVendorLogo(vendor);
+  return (
+    <span
+      className={`device-icon large${logo ? " device-vendor-logo" : ""}`}
+      aria-hidden="true"
+    >
+      {logo ? <img src={logo} alt="" /> : <Stack size={32} />}
+    </span>
+  );
+}
+
 function ResourceField({
   field,
   full,
@@ -1579,6 +1592,13 @@ function GenericResourceForm({
                 : "Kaydettiğinizde üretici, cihaz türü ve model, atanan SNMP veya SSH/API profiliyle yetkili kapsam içinde sorgulanır. Cihazdan okunabilen alanlar güncellenir; okunamayan alanlarda girdiğiniz bilgiler korunur."}
             </p>
           </div>
+        )}
+        {page.key === "devices" && (
+          <datalist id="netrix-device-vendors">
+            {deviceVendorNames.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
         )}
         <div className="form-grid">
           {fields.map((field) => (
@@ -1826,9 +1846,11 @@ function GenericResourceForm({
                       }
                       maxLength={field.key === "mac_address" ? 40 : undefined}
                       list={
-                        field.suggestions
-                          ? `suggestions-${field.key}`
-                          : undefined
+                        page.key === "devices" && field.key === "vendor"
+                          ? "netrix-device-vendors"
+                          : field.suggestions
+                            ? `suggestions-${field.key}`
+                            : undefined
                       }
                       type={field.type || "text"}
                       min={field.min}
@@ -4069,9 +4091,7 @@ function App() {
         <Dialog title={detail.name} onClose={() => setDetail(null)} wide>
           <div className="device-detail">
             <div className="device-summary">
-              <span className="device-icon large">
-                <Stack size={32} />
-              </span>
+              <DeviceVendorMark vendor={detail.vendor} />
               <div>
                 <h3>{detail.management_ip}</h3>
                 <p>
