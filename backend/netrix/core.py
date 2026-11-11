@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from functools import lru_cache
+from ipaddress import ip_address
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import DateTime, ForeignKeyConstraint, String, Table, create_engine, event
@@ -85,6 +86,14 @@ def sqlite_translated_foreign_keys(constraint, compiler, **kwargs):
     return DDLCompiler.visit_foreign_key_constraint(compiler, constraint, **kwargs)
 
 
+def _sqlite_ip_sort_key(value):
+    try:
+        address = ip_address(value)
+    except ValueError:
+        return None
+    return bytes([address.version]) + address.packed
+
+
 @lru_cache
 def engine():
     url = settings().database_url
@@ -114,6 +123,7 @@ def engine():
         @event.listens_for(obj, "connect")
         def fk_on(connection, _):
             connection.execute("PRAGMA foreign_keys=ON")
+            connection.create_function("netrix_ip_sort_key", 1, _sqlite_ip_sort_key, deterministic=True)
 
     return obj
 

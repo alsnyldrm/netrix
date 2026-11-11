@@ -603,3 +603,29 @@ def test_vip_is_a_persistent_marker_independent_of_gateway(admin_client, records
 
     assert admin_client.put(path, json={**payload, "is_vip": False}).json()["is_vip"] is False
     assert admin_client.get(path).json()["is_vip"] is False
+
+
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_management_address_sorts_numerically_before_pagination(admin_client, inventory, env, direction):
+    expected = ["10.1.0.1", "10.1.0.2", "10.1.0.10", "10.1.0.100", "2001:db8::2", "2001:db8::10"]
+    with env() as db:
+        db.add_all(
+            m.Device(
+                name=f"Test device {index}",
+                management_ip=address,
+                vrf_id=inventory["vrf"]["id"],
+                discovery_scope_id=inventory["scope"]["id"],
+            )
+            for index, address in enumerate(reversed(expected))
+        )
+        db.commit()
+    addresses = []
+    for offset in range(0, len(expected), 2):
+        response = admin_client.get(
+            "/api/v1/inventory/devices",
+            params={"sort_by": "management_ip", "sort_direction": direction, "limit": 2, "offset": offset},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == len(expected)
+        addresses.extend(row["management_ip"] for row in response.json()["items"])
+    assert addresses == (expected if direction == "asc" else expected[::-1])

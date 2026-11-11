@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
 from sqlalchemy import Integer, String, and_, case, cast, func, inspect, or_, select
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import aliased, defer
 
 from .. import models as m
@@ -443,6 +444,15 @@ def query(
             column = case(LINK_SOURCES, value=column, else_=column)
         elif resource == "interfaces" and sort_by == "capacity":
             column = m.Interface.speed_bps
+        elif sort_by == "management_ip":
+            dialect = db.get_bind().dialect.name
+            if dialect == "postgresql":
+                column = cast(func.split_part(column, "%", 1), INET)
+            elif dialect == "sqlite":
+                column = func.netrix_ip_sort_key(column)
+            elif dialect in ("mysql", "mariadb"):
+                packed = func.inet6_aton(func.substring_index(column, "%", 1))
+                column = func.concat(func.char(func.length(packed)), packed)
         if isinstance(column.type, String):
             column = func.lower(column)
         # Missing values stay last in either direction; ID makes pagination stable.
