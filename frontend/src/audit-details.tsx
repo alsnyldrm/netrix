@@ -52,6 +52,7 @@ const fields: Record<string, string> = {
   ssh_trust_host_key: "SSH anahtarına güven",
   identity_path: "Cihaz bilgisi yolu",
   is_gateway: "Gateway",
+  is_vip: "VIP",
   credential_id: "Erişim profili",
   is_managed: "Yönetilen port",
   is_deleted: "Silinme durumu",

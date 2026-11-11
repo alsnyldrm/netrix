@@ -31,6 +31,7 @@ LABELS = {
     "config_port": "SSH / HTTPS portu",
     "ssh_trust_host_key": "Anahtara güven",
     "is_gateway": "Gateway Cihazı",
+    "is_vip": "VIP Cihazı",
     "config_path": "Konfigürasyon yolu",
     "identity_path": "Cihaz bilgisi yolu",
     "backup_interval": "Yedekleme aralığı",
@@ -319,8 +320,8 @@ def query(
             clauses.append(contains(m.DeviceType.name, value))
         if key in ("lifecycle_status", "reachability", "oper_status"):
             clauses.append(contains(case(TRANSLATIONS, value=col, else_=col), value))
-        if key in ("ssh_trust_host_key", "is_managed", "auto_add_excluded", "is_gateway"):
-            enabled = "Gateway Etkin Evet" if key == "is_gateway" else "Etkin Evet"
+        if key in ("ssh_trust_host_key", "is_managed", "auto_add_excluded", "is_gateway", "is_vip"):
+            enabled = {"is_gateway": "Gateway Etkin Evet", "is_vip": "VIP Etkin Evet"}.get(key, "Etkin Evet")
             clauses.append(contains(case((col.is_(True), enabled), else_="Kapalı Hayır"), value))
         if resource == "links" and key == "source":
             clauses.append(contains(case(LINK_SOURCES, value=col, else_=col), value))
@@ -359,6 +360,7 @@ def query(
                 value = next((k for k, v in TRANSLATIONS.items() if v.casefold() == value.casefold()), value)
             if f.field in (
                 "is_gateway",
+                "is_vip",
                 "ssh_trust_host_key",
                 "changed",
                 "is_managed",

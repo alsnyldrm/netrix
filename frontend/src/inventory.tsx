@@ -119,7 +119,7 @@ export async function allRows(path: string) {
 }
 function value(key: string, v: any) {
   if (v == null || v === "") return "—";
-  if (key === "is_gateway")
+  if (key === "is_gateway" || key === "is_vip")
     return (
       <Badge value={v ? "Evet" : "Hayır"} tone={v ? "success" : "danger"} />
     );
@@ -1019,7 +1019,9 @@ export function InventoryTable({
                       ? "base-config-row"
                       : resource === "devices" && row.is_gateway
                         ? "gateway-device-row"
-                        : undefined
+                        : resource === "devices" && row.is_vip
+                          ? "vip-device-row"
+                          : undefined
                   }
                 >
                   {sshActions && (
@@ -1080,10 +1082,19 @@ export function InventoryTable({
                               {row.name}
                             </button>
                           ) : (
-                            <span>{row.name}</span>
+                            <span className="device-name-label">
+                              {row.name}
+                            </span>
                           )}
-                          {row.is_gateway && (
-                            <Badge value="Gateway" tone="success" />
+                          {(row.is_gateway || row.is_vip) && (
+                            <span className="inventory-device-badges">
+                              {row.is_gateway && (
+                                <Badge value="Gateway" tone="success" />
+                              )}
+                              {row.is_vip && (
+                                <Badge value="VIP" tone="success" />
+                              )}
+                            </span>
                           )}
                         </span>
                       ) : c.key === "name" && onDevice ? (

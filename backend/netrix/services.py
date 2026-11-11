@@ -303,6 +303,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             raise HTTPException(404, "Kayıt bulunamadı")
     else:
         row = get(db, model, row_id) if row_id else model()
+    if name == "devices" and row_id and "is_vip" not in value.model_fields_set:
+        data["is_vip"] = row.is_vip
     identify_changed = name == "devices" and (
         not row_id
         or any(

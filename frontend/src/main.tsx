@@ -243,6 +243,10 @@ export const PAGES: Page[] = [
         type: "checkbox",
         default: false,
       }),
+      f("is_vip", "VIP olarak işaretle", {
+        type: "checkbox",
+        default: false,
+      }),
       f("config_path", "REST konfigürasyon yolu", { default: "/api/config" }),
       f("identity_path", "REST cihaz bilgisi yolu", {
         default: "/api/system",

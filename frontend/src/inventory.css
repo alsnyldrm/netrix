@@ -71,11 +71,18 @@
 .device-inventory-table .inventory-device-name > .text-button {
   padding-inline: 0;
 }
-.gateway-device-row > td:first-child {
+:is(.gateway-device-row, .vip-device-row) > td:first-child {
   box-shadow: inset 3px 0 var(--success);
 }
-.gateway-device-row .inventory-device-name > .text-button {
+:is(.gateway-device-row, .vip-device-row)
+  .inventory-device-name
+  > :is(.text-button, .device-name-label) {
   color: var(--success);
+}
+.inventory-device-badges {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .selection-cell {
   width: 48px;

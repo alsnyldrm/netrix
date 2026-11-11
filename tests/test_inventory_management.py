@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 from netrix import models as m
+from netrix import schemas as s
 from netrix.core import now
 from netrix.identity.security import encrypt
 from netrix.worker import execute
@@ -576,3 +577,29 @@ def test_sort_group_direction_and_numeric_capacity(admin_client, records, env):
     )
     assert response.status_code == 200
     assert [r["device_name"] for r in response.json()["items"]] == ["Device 1", "Device 0"]
+
+
+def test_vip_is_a_persistent_marker_independent_of_gateway(admin_client, records):
+    device_id = records["devices"][0]
+    path = f"/api/v1/devices/{device_id}"
+    device = admin_client.get(path).json()
+    assert device["is_vip"] is False
+    assert device["is_gateway"] is False
+
+    payload = {key: device[key] for key in s.DeviceInput.model_fields if key in device and key != "is_vip"}
+    saved = admin_client.put(path, json={**payload, "is_vip": True})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["is_vip"] is True
+    assert saved.json()["is_gateway"] is False
+
+    # Older callers that omit the new field cannot clear a saved marker.
+    assert admin_client.put(path, json=payload).json()["is_vip"] is True
+    response = admin_client.get(
+        "/api/v1/inventory/devices",
+        params={"filters": json.dumps([{"field": "is_vip", "op": "eq", "value": "Evet"}])},
+    )
+    assert response.status_code == 200, response.text
+    assert [row["id"] for row in response.json()["items"]] == [device_id]
+
+    assert admin_client.put(path, json={**payload, "is_vip": False}).json()["is_vip"] is False
+    assert admin_client.get(path).json()["is_vip"] is False

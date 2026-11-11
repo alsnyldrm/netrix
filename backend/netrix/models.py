@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
     select,
     text,
@@ -384,6 +385,7 @@ class Device(Entity, Base):
     config_port: Mapped[int] = mapped_column(Integer, default=22)
     ssh_trust_host_key: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_gateway: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    is_vip: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     config_path: Mapped[str] = mapped_column(String(200), default="/api/config")
     identity_path: Mapped[str] = mapped_column(
         String(200), default="/api/system", server_default="/api/system"
