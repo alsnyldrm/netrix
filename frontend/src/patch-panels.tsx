@@ -601,6 +601,10 @@ export function PatchPorts({
               >
                 <strong>{port.number}</strong>
                 <span>{port.device_name || "Boş"}</span>
+                <small>
+                  {port.port_name ? `${port.port_name} · ` : ""}
+                  {cableLabel(port) || "Kablo seçilmedi"}
+                </small>
                 {port.external && (
                   <small>
                     Dış:{" "}
@@ -611,10 +615,6 @@ export function PatchPorts({
                       : ""}
                   </small>
                 )}
-                <small>
-                  {port.port_name || "—"} ·{" "}
-                  {cableLabel(port) || "Kablo seçilmedi"}
-                </small>
               </button>
             ))}
         </div>
@@ -650,6 +650,22 @@ export function PatchPorts({
             <h3 className="patch-wide" ref={editor} tabIndex={-1}>
               Port {selected.number} bağlantısı
             </h3>
+            {(selected.device_name || selected.external?.device_name) && (
+              <dl className="patch-port-details patch-wide">
+                {selected.device_name && (
+                  <div>
+                    <dt>İç bağlantı cihazı</dt>
+                    <dd>{selected.device_name}</dd>
+                  </div>
+                )}
+                {selected.external?.device_name && (
+                  <div>
+                    <dt>Dış bağlantı cihazı</dt>
+                    <dd>{selected.external.device_name}</dd>
+                  </div>
+                )}
+              </dl>
+            )}
             <Field label="Port numarası" wide={panel.kind === "fiber"}>
               <input
                 required

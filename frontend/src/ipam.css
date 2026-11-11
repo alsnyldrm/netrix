@@ -412,12 +412,33 @@
   margin: 12px 0;
   line-height: 1.6;
 }
+.ipam-result-steps {
+  min-width: 0;
+}
 .ipam-result-steps summary {
   cursor: pointer;
   padding: 12px 0;
 }
 .ipam-result-steps td {
   vertical-align: top;
+}
+.ipam-step-data {
+  font-weight: 600;
+}
+.ipam-step-data.received {
+  color: var(--success);
+}
+.ipam-step-data.missing {
+  color: var(--danger);
+}
+@media (max-width: 640px) {
+  .ipam-result-steps table {
+    font-size: 12.5px;
+  }
+  .ipam-result-steps th,
+  .ipam-result-steps td {
+    padding-inline: 5px;
+  }
 }
 
 .ipam-section.ipam-result-panel {

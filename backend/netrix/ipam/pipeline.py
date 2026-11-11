@@ -62,7 +62,16 @@ async def resolve(address, sources, progress=None):
             await progress(name)
         try:
             data = await operation()
-            steps.append({"source": name, "status": "ok", "at": now().isoformat()})
+            if name == "gateway":
+                received = bool((data or {}).get("mac_address"))
+            elif name == "backbone":
+                evidence = data or {}
+                received = bool(evidence.get("connections")) and not evidence.get("connection_ambiguous")
+            else:
+                received = bool(data)
+            steps.append(
+                {"source": name, "status": "with_data" if received else "missing", "at": now().isoformat()}
+            )
             return data
         except Exception as exc:
             from ..worker import Cancelled

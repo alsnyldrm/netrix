@@ -107,8 +107,11 @@
 }
 .patch-port {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: repeat(4, 1lh);
   align-content: start;
-  gap: 6px;
+  gap: 3px;
+  line-height: 1.25;
   min-width: 0;
   min-height: 95px;
   border: 1px solid var(--border);
@@ -117,7 +120,12 @@
   color: var(--text);
   background: var(--surface);
   text-align: left;
-  overflow-wrap: anywhere;
+}
+.patch-port > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .patch-port small {
   color: var(--text-2);
@@ -131,6 +139,19 @@
 }
 .patch-port:hover {
   background: var(--accent-soft);
+}
+.patch-port-details {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.patch-port-details dt {
+  color: var(--text-2);
+  font-size: 0.875em;
+}
+.patch-port-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .patch-device-section {
   display: grid;

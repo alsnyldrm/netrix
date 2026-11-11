@@ -291,6 +291,7 @@ export function AddressDetail({
                       <tr>
                         <th>Kaynak</th>
                         <th>Sonuç</th>
+                        <th>Veri</th>
                         <th>Zaman</th>
                       </tr>
                     </thead>
@@ -322,6 +323,22 @@ export function AddressDetail({
                                   : step.status === "error"
                                     ? "Okunamadı"
                                     : "Tamamlandı"}
+                          </td>
+                          <td>
+                            {step.status === "with_data" ? (
+                              <span className="ipam-step-data received">
+                                Veri alındı
+                              </span>
+                            ) : step.status === "missing" ||
+                              step.status === "error" ? (
+                              <span className="ipam-step-data missing">
+                                Veri alınamadı
+                              </span>
+                            ) : step.status === "ok" ? (
+                              "Bilinmiyor"
+                            ) : (
+                              "—"
+                            )}
                           </td>
                           <td>{step.at ? date(step.at) : "—"}</td>
                         </tr>

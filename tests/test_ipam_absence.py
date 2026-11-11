@@ -97,10 +97,19 @@ async def test_scheduled_gateway_gap_checks_inventory_before_deciding(
             assert item["connected_device"] == "Access"
             assert item["connected_port"] == "Gi1/0/1"
             assert item["field_sources"]["mac_address"] == "windows_dhcp"
+            steps = {s["source"]: s["status"] for s in item["scan_result"]["steps"]}
+            assert steps == {
+                "gateway": "missing",
+                "vmware": "missing",
+                "dhcp": "with_data",
+                "backbone": "with_data",
+                "dns": "missing",
+            }
         if scenario == "dns_failure":
             item = service.enrich(db, [row])[0]
             assert any(i["source"] == "dns" for i in item["scan_result"]["issues"])
             assert not any(i["code"] == "missing_hostname" for i in item["scan_result"]["issues"])
+            assert any(s["source"] == "dns" and s["status"] == "error" for s in item["scan_result"]["steps"])
 
 
 @pytest.mark.parametrize("error_name, expected", [("NXDOMAIN", ""), ("LifetimeTimeout", None)])

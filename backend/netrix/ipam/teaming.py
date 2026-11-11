@@ -124,13 +124,13 @@ def result(hostname, connections, *, error=None, observation=None, stored=False)
         [
             dict(
                 source="dns",
-                status="error" if error else "ok",
+                status="error" if error else "with_data" if hostname else "missing",
                 at=now().isoformat(),
                 mode="stored" if stored else "query",
             ),
             dict(
                 source="neighbors",
-                status="ok" if connections else "missing",
+                status="with_data" if connections else "missing",
                 at=now().isoformat(),
                 mode="stored",
             ),
