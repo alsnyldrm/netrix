@@ -278,11 +278,9 @@ class Evidence:
             )
             for s in self.state_rows
         ]
-        from .network import read_context
+        from .network import inventory_context_matches
 
-        profile_ids = {
-            id for d in self.devices.values() for id in (d.snmp_credential_id, d.config_credential_id) if id
-        }
+        profile_ids = {d.config_credential_id for d in self.devices.values() if d.config_credential_id}
         profiles = (
             {
                 p.id: p
@@ -299,7 +297,6 @@ class Evidence:
             if row.address != self.devices[row.device_id].management_ip:
                 continue
             device = self.devices[row.device_id]
-            profile = profiles.get(device.snmp_credential_id)
             ssh = (
                 profiles.get(device.config_credential_id)
                 if device.adapter in {"aruba_5400", "aruba_2900"}
@@ -311,7 +308,7 @@ class Evidence:
             )
             if ssh and ssh.protocol != "ssh":
                 ssh = None
-            if not profile or projected["evidence"].get("read_context") != read_context(device, profile, ssh):
+            if not inventory_context_matches(projected["evidence"].get("read_context"), device, ssh):
                 self.snapshots.pop(row.device_id, None)
                 continue
             previous = self.snapshots.get(row.device_id)

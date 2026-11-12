@@ -97,7 +97,6 @@ def test_snapshot_diffs_port_moves_and_successful_empty_removes_old_bindings(net
         "expired",
         "failed",
         "incomplete",
-        "profile_changed",
         "management_changed",
         "archived",
         "wrong_vlan",
@@ -123,8 +122,6 @@ def test_invalid_secondary_proof_is_never_displayed(network, fault):
                 {},
                 error="NetworkError" if fault == "failed" else "",
             )
-        elif fault == "profile_changed":
-            db.get(m.Credential, device.snmp_credential_id).updated_at = now() + timedelta(seconds=1)
         elif fault == "management_changed":
             device.management_ip = "198.51.100.99"
         elif fault == "archived":
@@ -248,8 +245,6 @@ def test_multiple_cached_candidates_stay_ambiguous_until_typed_nic_identity_prov
 
 
 def test_group_scan_context_with_ssh_profile_stays_usable(network):
-    from types import SimpleNamespace
-
     from netrix.ipam.network import read_context
 
     sf, _, _, ids = network
@@ -262,8 +257,10 @@ def test_group_scan_context_with_ssh_profile_stays_usable(network):
         device.adapter, device.config_credential_id = "aruba_5400", ssh.id
         db.flush()
         group_scan = read_context(device, profile, ssh)
-        accepted = mac_cache.accepted_contexts(db, device, profile)
-        assert group_scan in accepted and mac_cache.context(device, profile) in accepted
-        changed = SimpleNamespace(**{"id": profile.id, "updated_at": now() + timedelta(days=1)})
-        assert read_context(device, changed, ssh) not in accepted
+        assert mac_cache.accepted_context(db, device, group_scan)
+        assert mac_cache.accepted_context(db, device, mac_cache.context(device, profile))
+        group_scan[3:5] = ["another-snmp-profile", (now() - timedelta(days=1)).isoformat()]
+        assert mac_cache.accepted_context(db, device, group_scan)
+        group_scan[8] = "another-ssh-profile"
+        assert not mac_cache.accepted_context(db, device, group_scan)
         db.rollback()

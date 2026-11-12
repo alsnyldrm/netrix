@@ -36,14 +36,22 @@ def read_context(device, profile, ssh):
         device.management_ip,
         device.snmp_port,
         device.vrf_id,
-        profile.id,
-        profile.updated_at.isoformat(),
+        profile.id if profile else None,
+        profile.updated_at.isoformat() if profile else None,
         device.adapter,
         device.config_port,
         device.ssh_trust_host_key,
         ssh.id if ssh else None,
         ssh.updated_at.isoformat() if ssh else None,
     ]
+
+
+def inventory_context_matches(recorded, device, ssh):
+    """SNMP authentication metadata does not determine the identity of stored facts."""
+    if not recorded or len(recorded) != 10:
+        return False
+    expected = read_context(device, None, ssh)
+    return recorded[:3] == expected[:3] and recorded[5:] == expected[5:]
 
 
 async def refresh(job_id, collector, *, detail_reader=None, address_id=None):

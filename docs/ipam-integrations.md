@@ -522,3 +522,8 @@ Kaçırılan zaman dilimleri, mevcut günlük/haftalık/aylık gruplarda olduğu
 defa telafi edilir. Kısmi sonuç geçmişinde kontrol edilen ve sorunlu IP sayıları
 gösterilir. VLAN içindeki manuel tarama envanter için SQL'den okur; hedef PTR
 sorgusuna bir saniye bütçe uygulanır.
+
+IPAM, envanter SQL kanıtını değerlendirirken toplamada kullanılan SNMP profilinin
+kimliğini ve güncelleme zamanını cihazın atanmış profiliyle karşılaştırmaz. Kanıt
+cihaz, yönetim adresi, VRF ve port bağlamında doğrulanır. SSH ile üretilen kanıtlar
+için SSH bağlamı, ayrıca kaynak güncelliği, VLAN/FID ve uplink kontrolleri uygulanır.

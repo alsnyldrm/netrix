@@ -5,7 +5,7 @@ from contextlib import nullcontext
 from datetime import timedelta
 
 from sqlalchemy import select, tuple_
-from sqlalchemy.orm import lazyload, load_only
+from sqlalchemy.orm import lazyload
 
 from .. import models as m
 from ..core import now
@@ -30,12 +30,14 @@ def context(device, profile):
     return read_context(device, profile, None)
 
 
-def accepted_contexts(db, device, profile):
-    """Accept inventory snapshots collected with optional SSH metadata."""
-    from .network import detail_profile, inventory_mac_profile, read_context
+def accepted_context(db, device, recorded):
+    """Accept either SNMP-only or currently valid optional SSH metadata."""
+    from .network import detail_profile, inventory_context_matches, inventory_mac_profile
 
+    if inventory_context_matches(recorded, device, None):
+        return True
     ssh = detail_profile(db, device) or inventory_mac_profile(db, device)
-    return (context(device, profile), read_context(device, profile, ssh))
+    return ssh is not None and inventory_context_matches(recorded, device, ssh)
 
 
 def save_snapshot(db, device, profile, job_id, evidence, *, error=""):
@@ -143,41 +145,15 @@ def fallback(db, rows, items, prefixes, primary, *, scoped=None):
         if ids
         else []
     )
-    profiles = (
-        {
-            p.id: p
-            for p in db.scalars(
-                select(m.Credential)
-                .options(load_only(m.Credential.id, m.Credential.updated_at, m.Credential.protocol))
-                .where(
-                    m.Credential.id.in_(
-                        {
-                            profile_id
-                            for s in states
-                            if s.device_id in primary.devices
-                            for profile_id in (
-                                primary.devices[s.device_id].snmp_credential_id,
-                                primary.devices[s.device_id].config_credential_id,
-                            )
-                            if profile_id
-                        }
-                    )
-                )
-            )
-        }
-        if states
-        else {}
-    )
     valid = []
     for state in states:
         device = primary.devices.get(state.device_id)
-        profile = profiles.get(device.snmp_credential_id) if device else None
         if (
             device
-            and profile
+            and state.address == device.management_ip
             and device.lifecycle_status == "active"
             and is_switch(device)
-            and state.read_context in accepted_contexts(db, device, profile)
+            and accepted_context(db, device, state.read_context)
         ):
             valid.append(state)
     if not valid:

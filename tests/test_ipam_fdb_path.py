@@ -11,7 +11,14 @@ from test_ipam_source_contract import network as network  # noqa: PLC0414
 def test_backbone_path_keeps_multi_mac_access_port(network, unmapped_neighbor):
     sf, vid, rid, ids = network
     with sf() as db:
-        db.get(m.Device, ids[2]).name = "HP-SW-BB-01"
+        root = db.get(m.Device, ids[2])
+        root.name = "HP-SW-BB-01"
+        alternate_profile = m.Credential(
+            name="Another SNMP profile", protocol="snmpv2c", encrypted_secret="x"
+        )
+        db.add(alternate_profile)
+        db.flush()
+        root.snmp_credential_id = alternate_profile.id
         access = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[1]))
         access.mac_entries.append(
             m.SwitchMacEntry(
