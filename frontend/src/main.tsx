@@ -2654,7 +2654,9 @@ function App() {
   };
   const displayedPage = useRef(current);
   const pageTransition = useRef<ViewTransition | null>(null);
-  const [routeDirection, setRouteDirection] = useState("forward");
+  const [fallbackDirection, setFallbackDirection] = useState<
+    "forward" | "backward" | null
+  >(null);
   const changePage = useCallback((key: string, update: () => void) => {
     const previous = displayedPage.current;
     const direction =
@@ -2662,29 +2664,28 @@ function App() {
       PAGES.findIndex((item) => item.key === previous)
         ? "backward"
         : "forward";
-    const commit = () => {
+    const commit = (fallback: typeof fallbackDirection) => {
       displayedPage.current = key;
-      setRouteDirection(direction);
+      setFallbackDirection(fallback);
       update();
     };
     const root = document.documentElement;
     pageTransition.current?.skipTransition();
     pageTransition.current = null;
-    if (
-      previous === key ||
-      !document.startViewTransition ||
-      root.dataset.reduceMotion === "true" ||
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
-      document.visibilityState !== "visible"
-    ) {
+    const animate =
+      previous !== key &&
+      root.dataset.reduceMotion !== "true" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      document.visibilityState === "visible";
+    if (!animate || !document.startViewTransition) {
       delete root.dataset.routeMotion;
-      commit();
+      commit(animate ? direction : null);
       return;
     }
 
     root.dataset.routeMotion = direction;
     const transition = document.startViewTransition(() => {
-      if (pageTransition.current === transition) flushSync(commit);
+      if (pageTransition.current === transition) flushSync(() => commit(null));
     });
     pageTransition.current = transition;
     const finish = () => {
@@ -3437,7 +3438,7 @@ function App() {
             className="page-view"
             key={current}
             data-page={page.key}
-            data-direction={routeDirection}
+            data-fallback-motion={fallbackDirection ?? undefined}
           >
             {page.key !== "overview" && (
               <div className="page-heading">

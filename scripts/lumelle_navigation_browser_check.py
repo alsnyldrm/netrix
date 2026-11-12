@@ -26,6 +26,13 @@ with sync_playwright() as playwright:
     sidebar = page.get_by_role("navigation", name="Sayfalar", exact=True)
     expect(view).to_have_attribute("data-page", "overview")
     page.evaluate("document.fonts.ready")
+    page.evaluate("""() => {
+        window.pageEntrances = [];
+        document.addEventListener('animationstart', event => {
+            if (event.target.matches?.('.page-view') && !event.pseudoElement)
+                window.pageEntrances.push(event.target.dataset.page);
+        });
+    }""")
 
     inventory = sidebar.get_by_role("button", name="Envanter", exact=True)
     submenu = page.locator("#" + inventory.get_attribute("aria-controls"))
@@ -44,15 +51,24 @@ with sync_playwright() as playwright:
         """() => document.getAnimations().some(a => a.animationName === 'lumelle-page-exit')
             && document.getAnimations().some(a => a.animationName === 'lumelle-page-enter')"""
     )
+    assert page.evaluate("""() => {
+        const exit = document.getAnimations().find(a => a.animationName === 'lumelle-page-exit');
+        const enter = document.getAnimations().find(a => a.animationName === 'lumelle-page-enter');
+        return exit.effect.getTiming().duration === 280
+            && enter.effect.getTiming().duration === 600
+            && enter.effect.getTiming().delay === 280;
+    }""")
     page.wait_for_function(
         """() => document.querySelector('.nav-active-marker').getAnimations()
             .some(a => a.transitionProperty === 'transform')"""
     )
     page.wait_for_function("() => !document.documentElement.dataset.routeMotion")
+    expect(view).to_have_css("animation-name", "none")
     page.go_back()
     expect(root).to_have_attribute("data-route-motion", "backward")
     expect(view).to_have_attribute("data-page", "overview")
     page.wait_for_function("() => !document.documentElement.dataset.routeMotion")
+    expect(view).to_have_css("animation-name", "none")
     expect(submenu).to_have_attribute("data-open", "false")
     expect(submenu).to_have_css("visibility", "hidden")
     page.get_by_role("button", name="Menüyü daralt", exact=True).click()
@@ -88,5 +104,7 @@ with sync_playwright() as playwright:
     dock.get_by_role("button", name="Başlangıç", exact=True).click()
     expect(view).to_have_attribute("data-page", "overview")
     expect(view).to_have_css("animation-name", "lumelle-page-enter")
+    page.wait_for_function("() => window.pageEntrances.length > 0")
+    assert page.evaluate("window.pageEntrances") == ["overview"]
     assert not errors, errors
-    print("PASS: menu, outgoing/incoming route, history, mobile marker, profile, reduced motion and fallback")
+    print("PASS: one page transition, paced exit and entrance, history, mobile, profile and motion fallback")

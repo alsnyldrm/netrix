@@ -886,13 +886,6 @@ main:focus {
   display: grid;
   gap: 20px;
   min-width: 0;
-  animation: page-in 240ms var(--ease) both;
-}
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
 }
 @keyframes rise {
   from {

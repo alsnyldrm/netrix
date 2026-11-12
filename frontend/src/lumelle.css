@@ -874,25 +874,25 @@
 /* The app chrome stays fixed while the old and new page content trade places. */
 :root {
   --page-offset: 26px;
+  --route-exit-duration: 280ms;
+  --route-enter-duration: 600ms;
+  --route-enter-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
   --menu-motion: 320ms;
   --menu-ease: cubic-bezier(0.2, 0.65, 0.2, 1);
 }
 
 [data-route-motion="backward"],
-.page-view[data-direction="backward"] {
+.page-view[data-fallback-motion="backward"] {
   --page-offset: -26px;
 }
 
-[data-design="lumelle"] .page-view {
-  animation: lumelle-page-enter 520ms cubic-bezier(0.19, 1, 0.22, 1) both;
+[data-design="lumelle"] .page-view[data-fallback-motion] {
+  animation: lumelle-page-enter var(--route-enter-duration)
+    var(--route-enter-ease) both;
 }
 
 [data-route-motion] #main {
   view-transition-name: workspace-content;
-}
-
-[data-route-motion] .page-view {
-  animation: none;
 }
 
 ::view-transition {
@@ -913,11 +913,13 @@
 }
 
 ::view-transition-old(workspace-content) {
-  animation: lumelle-page-exit 220ms ease-in both;
+  animation: lumelle-page-exit var(--route-exit-duration)
+    cubic-bezier(0.55, 0.06, 0.68, 0.19) both;
 }
 
 ::view-transition-new(workspace-content) {
-  animation: lumelle-page-enter 520ms cubic-bezier(0.19, 1, 0.22, 1) 180ms both;
+  animation: lumelle-page-enter var(--route-enter-duration)
+    var(--route-enter-ease) var(--route-exit-duration) both;
 }
 
 @keyframes lumelle-page-enter {
