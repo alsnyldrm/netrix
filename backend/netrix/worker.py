@@ -295,7 +295,6 @@ async def discover(job_id, collector):
         scope = get(db, m.Scope, job.target_id)
         if not scope.enabled:
             raise Cancelled()
-        profile_ids = scope.credential_ids
         targets = scope_targets(scope)
         job.total = len(targets)
         job.progress = db.scalar(
@@ -331,13 +330,15 @@ async def discover(job_id, collector):
                     )
                 )
                 port = existing_device.snmp_port if existing_device else 161
+                kind = existing_device.kind if existing_device else None
+                profile_ids = current_scope.credential_ids_for(kind)
             for profile_id in profile_ids:
                 with session_factory()() as db:
                     job = get(db, m.Job, job_id)
                     current_scope = get(db, m.Scope, job.target_id)
                     if job.cancel_requested or not in_scope(address, current_scope):
                         raise Cancelled()
-                    if profile_id not in current_scope.credential_ids:
+                    if profile_id not in current_scope.credential_ids_for(kind):
                         continue
                     profile = get(db, m.Credential, profile_id)
                     profile_version = profile.updated_at
@@ -406,6 +407,8 @@ async def discover(job_id, collector):
                         .where(m.Device.vrf_id == current_scope.vrf_id, m.Device.management_ip == address)
                         .with_for_update()
                     )
+                    if profile_id not in current_scope.credential_ids_for(device.kind if device else None):
+                        raise Cancelled()
                     if not device:
                         device = m.Device(
                             name=(collected.get("hostname") or address)[:120],

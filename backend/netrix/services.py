@@ -100,6 +100,7 @@ def serialize(obj):
         result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind
     if isinstance(obj, m.Scope):
         result["credential_ids"] = obj.credential_ids
+        result["device_type_profiles"] = obj.device_type_profiles
     return result
 
 
@@ -323,6 +324,21 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         if not hierarchy.intersection(value.model_fields_set) and data["location"] == row.location:
             # Older clients may update another field without knowing the hierarchy.
             data.update({key: getattr(row, key) for key in hierarchy})
+    type_profiles = None
+    if name == "scopes":
+        type_profiles = data.pop("device_type_profiles")
+        if type_profiles is None:
+            type_profiles = {
+                kind: profile
+                for kind, profile in (row.device_type_profiles if row_id else {}).items()
+                if profile in data["credential_ids"]
+            }
+        if set(type_profiles.values()) - set(data["credential_ids"]):
+            raise HTTPException(422, "Cihaz türü için kapsamda seçili bir SNMP profili kullanın")
+        if type_profiles and set(type_profiles) != set(
+            db.scalars(select(m.DeviceType.code).where(m.DeviceType.code.in_(type_profiles)))
+        ):
+            raise HTTPException(422, "Cihaz türü bulunamadı")
     validate_relations(db, name, data, row_id)
     if name == "devices" and (
         not row_id or row.management_ip != data["management_ip"] or row.vrf_id != data["vrf_id"]
@@ -393,6 +409,13 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         )
         db.flush()
         db.expire(row, ["profiles"])
+        db.execute(delete(m.ScopeTypeProfile).where(m.ScopeTypeProfile.scope_id == row.id))
+        db.add_all(
+            m.ScopeTypeProfile(scope_id=row.id, device_kind=kind, credential_id=profile)
+            for kind, profile in type_profiles.items()
+        )
+        db.flush()
+        db.expire(row, ["type_profiles"])
     if name == "devices":
         db.expire(row, ["device_type"])
     from .identity.audit_read import RESOURCE_LABELS
@@ -463,7 +486,7 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     hidden = HIDDEN | ({"evidence"} if model is m.Integration else set())
     options = [defer(getattr(model, key)) for key in hidden if hasattr(model, key)]
     if model is m.Scope:
-        options.append(selectinload(m.Scope.profiles))
+        options.extend((selectinload(m.Scope.profiles), selectinload(m.Scope.type_profiles)))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "jobs":
@@ -517,6 +540,20 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         from .job_details import summaries
 
         items = [dict(item, **summary) for item, summary in zip(items, summaries(db, rows))]
+    if name == "device-types" and rows:
+        counts = dict(
+            db.execute(
+                select(m.Device.kind, func.count())
+                .where(
+                    m.Device.kind.in_([row.code for row in rows]),
+                    m.Device.archived.is_(False),
+                    m.Device.discovery_scope_id.is_not(None),
+                )
+                .group_by(m.Device.kind)
+            ).all()
+        )
+        for item in items:
+            item["device_count"] = counts.get(item["code"], 0)
     if name == "vlans":
         from .ipam.service import vlan_summaries
 

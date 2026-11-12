@@ -249,3 +249,48 @@ async def test_existing_device_uses_working_profile_without_overwriting_external
         "192.0.2.1": alternate,
         "192.0.2.2": external,
     }
+
+
+async def test_known_device_type_uses_only_its_profile(admin_client, inventory, env):
+    primary = inventory["credential"]["id"]
+    alternate = second_profile(admin_client)
+    scope = inventory["scope"]
+    with env() as db:
+        db.add(
+            m.Device(
+                name="Known fixture",
+                management_ip="192.0.2.1",
+                vrf_id=scope["vrf_id"],
+                discovery_scope_id=scope["id"],
+                kind="switch",
+            )
+        )
+        db.commit()
+    params = {"credential_ids": [primary, alternate], "device_type_profiles": {"switch": alternate}}
+    response = update(admin_client, inventory, **params)
+    assert response.status_code == 200, response.text
+    assert response.json()["device_type_profiles"] == {"switch": alternate}
+    assert (
+        update(
+            admin_client, inventory, **{**params, "device_type_profiles": {"invalid": alternate}}
+        ).status_code
+        == 422
+    )
+    assert update(admin_client, inventory, **{**params, "credential_ids": [primary]}).status_code == 422
+    types = {
+        row["code"]: row["device_count"] for row in admin_client.get("/api/v1/device-types").json()["items"]
+    }
+    assert types["switch"] == 1 and types["router"] == 0
+
+    class Collector(FixtureCollector):
+        attempts = defaultdict(list)
+
+        async def collect(self, host, port, secret):
+            self.attempts[host].append(secret["protocol"])
+            if host == "192.0.2.1":
+                raise NetworkError("Mapped profile failed")
+            return await super().collect(host, port, secret)
+
+    collector = Collector()
+    await run(admin_client, inventory, collector)
+    assert dict(collector.attempts) == {"192.0.2.1": ["snmpv2c"], "192.0.2.2": ["snmpv3"]}

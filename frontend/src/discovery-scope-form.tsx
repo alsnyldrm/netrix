@@ -27,6 +27,10 @@ export function DiscoveryScopeForm({
     site_id: row?.site_id || "",
     credential_ids: (row?.credential_ids ||
       (row?.credential_id ? [row.credential_id] : [])) as string[],
+    device_type_profiles: (row?.device_type_profiles || {}) as Record<
+      string,
+      string
+    >,
     exclusions: (row?.exclusions || []).join("\n"),
     seeds: (row?.seeds || []).join("\n"),
     enabled: row?.enabled ?? true,
@@ -48,8 +52,19 @@ export function DiscoveryScopeForm({
     "discovery",
   );
   const set = (key: string, value: unknown) => {
-    if (key === "credential_ids") setError("");
     setValues((current) => ({ ...current, [key]: value }));
+  };
+  const selectProfiles = (ids: string[]) => {
+    setError("");
+    setValues((current) => ({
+      ...current,
+      credential_ids: ids,
+      device_type_profiles: Object.fromEntries(
+        Object.entries(current.device_type_profiles).filter(([, id]) =>
+          ids.includes(id),
+        ),
+      ),
+    }));
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -239,8 +254,7 @@ export function DiscoveryScopeForm({
                     checked={index >= 0}
                     disabled={index < 0 && values.credential_ids.length >= 16}
                     onChange={(e) =>
-                      set(
-                        "credential_ids",
+                      selectProfiles(
                         e.target.checked
                           ? [...values.credential_ids, profile.id]
                           : values.credential_ids.filter(
@@ -277,6 +291,51 @@ export function DiscoveryScopeForm({
             {values.credential_ids.length} profil seçildi · En fazla 16
           </small>
         </fieldset>
+        <details
+          className="discovery-profiles discovery-type-profiles"
+          open={
+            Object.keys(values.device_type_profiles).length > 0 || undefined
+          }
+        >
+          <summary>Cihaz türüne göre SNMP profili</summary>
+          <p>
+            Eşleştirilen türlerde yalnız seçilen profil denenir. Türü bilinmeyen
+            veya eşleştirilmemiş cihazlarda yukarıdaki sıra kullanılır.
+          </p>
+          <div className="discovery-profile-list">
+            {(refs["device-types"] || []).map((type) => (
+              <label
+                key={type.code}
+                className="form-field discovery-type-profile"
+              >
+                <span className="field-title">{type.name}</span>
+                <select
+                  value={values.device_type_profiles[type.code] || ""}
+                  onChange={(event) => {
+                    const id = event.target.value;
+                    setValues((current) => {
+                      const mappings = { ...current.device_type_profiles };
+                      if (id) mappings[type.code] = id;
+                      else delete mappings[type.code];
+                      return { ...current, device_type_profiles: mappings };
+                    });
+                  }}
+                >
+                  <option value="">Kapsam sırasını kullan</option>
+                  {profiles
+                    .filter((profile) =>
+                      values.credential_ids.includes(profile.id),
+                    )
+                    .map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </details>
         <div className="form-grid">
           <label className="form-field">
             <span className="field-title">Hariç tutulan ağlar</span>

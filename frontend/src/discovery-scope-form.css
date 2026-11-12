@@ -74,3 +74,16 @@
 .discovery-scope-form .dialog-footer button {
   min-height: 44px;
 }
+
+.discovery-type-profiles summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.discovery-type-profile {
+  min-width: 0;
+  margin: 0;
+}
+.discovery-type-profile select {
+  min-width: 0;
+  width: 100%;
+}

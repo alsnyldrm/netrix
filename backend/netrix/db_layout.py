@@ -8,6 +8,7 @@ SCHEMA_TABLES = {
         "interfaces",
         "discovery_scopes",
         "discovery_scope_credentials",
+        "discovery_scope_type_profiles",
         "discovery_reads",
         "network_source_states",
         "device_source_identities",

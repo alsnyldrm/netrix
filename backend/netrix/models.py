@@ -668,6 +668,18 @@ class Scope(Entity, Base):
         cascade="all, delete-orphan", passive_deletes=True, order_by="ScopeCredential.position"
     )
 
+    type_profiles: Mapped[list["ScopeTypeProfile"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+
+    @property
+    def device_type_profiles(self):
+        return {entry.device_kind: entry.credential_id for entry in self.type_profiles}
+
+    def credential_ids_for(self, kind):
+        profile = self.device_type_profiles.get(kind)
+        return [profile] if profile else self.credential_ids
+
     @property
     def credential_ids(self):
         return [profile.credential_id for profile in self.profiles] or [self.credential_id]
@@ -699,6 +711,17 @@ class ScopeCredential(Base):
     )
     position: Mapped[int] = mapped_column(Integer)
     __table_args__ = (UniqueConstraint("scope_id", "position"),)
+
+
+class ScopeTypeProfile(Base):
+    __tablename__ = "discovery_scope_type_profiles"
+    scope_id: Mapped[str] = mapped_column(
+        ForeignKey("envanter.discovery_scopes.id", ondelete="CASCADE"), primary_key=True
+    )
+    device_kind: Mapped[str] = mapped_column(
+        ForeignKey("envanter.device_types.code", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    credential_id: Mapped[str] = mapped_column(ForeignKey("yonetim.credentials.id"), index=True)
 
 
 class JobArchive(Entity, Base):
