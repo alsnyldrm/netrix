@@ -7,6 +7,7 @@ import {
 import { UserRoleEditor } from "./identity-roles";
 import { Profile } from "./user-workspace";
 import { darkPaletteId } from "./appearance";
+import type { ThemePreference } from "./preferences";
 import { UserPortrait, useAccountAvatar } from "./profile-avatar";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
@@ -107,7 +108,7 @@ import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
 import "./appearance.css";
-import "./application-themes.css";
+import "./lumelle.css";
 import { deviceVendorLogo, deviceVendorNames } from "./device-vendors";
 import {
   InventoryTable,
@@ -884,18 +885,31 @@ const writePref = (key: string, value: string) => {
   }
 };
 function useTheme() {
-  const [preferredTheme, setPreferredTheme] = useState<Theme>(() =>
-    document.documentElement.dataset.theme === "dark" ? "dark" : "light",
+  const [preference, setPreference] = useState<ThemePreference>(() => {
+    const saved = readPref("netrix-theme");
+    return saved === "light" || saved === "system" ? saved : "dark";
+  });
+  const [systemDark, setSystemDark] = useState(
+    () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
-  const [darkPalette, setDarkPalette] = useState(
-    () => currentPreferences().palette === darkPaletteId,
-  );
-  const theme: Theme = darkPalette ? "dark" : preferredTheme;
+  const [palette, setPalette] = useState(() => currentPreferences().palette);
+  const darkPalette = palette === darkPaletteId;
+  const theme: Theme =
+    darkPalette ||
+    preference === "dark" ||
+    (preference === "system" && systemDark)
+      ? "dark"
+      : "light";
   useEffect(() => {
-    const update = () =>
-      setDarkPalette(currentPreferences().palette === darkPaletteId);
-    window.addEventListener("netrix:preferences", update);
-    return () => window.removeEventListener("netrix:preferences", update);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateSystem = () => setSystemDark(media.matches);
+    const updatePalette = () => setPalette(currentPreferences().palette);
+    media.addEventListener("change", updateSystem);
+    window.addEventListener("netrix:preferences", updatePalette);
+    return () => {
+      media.removeEventListener("change", updateSystem);
+      window.removeEventListener("netrix:preferences", updatePalette);
+    };
   }, []);
   useEffect(() => {
     const root = document.documentElement;
@@ -904,21 +918,20 @@ function useTheme() {
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute(
         "content",
-        darkPalette
-          ? getComputedStyle(root).getPropertyValue("--bg").trim()
-          : theme === "dark"
-            ? "#0b1220"
-            : "#f8fafc",
+        getComputedStyle(root).getPropertyValue("--bg").trim(),
       );
-  }, [darkPalette, theme]);
-  const toggle = useCallback(() => {
-    setPreferredTheme((t) => {
-      const next = t === "dark" ? "light" : "dark";
-      writePref("netrix-theme", next);
-      return next;
-    });
-  }, []);
-  return { theme, toggleTheme: toggle, darkPalette };
+  }, [palette, theme]);
+  const chooseTheme = (mode: ThemePreference) => {
+    setPreference(mode);
+    writePref("netrix-theme", mode);
+  };
+  return {
+    theme,
+    preference,
+    darkPalette,
+    chooseTheme,
+    toggleTheme: () => chooseTheme(theme === "dark" ? "light" : "dark"),
+  };
 }
 function ThemeToggle({
   theme,
@@ -1167,15 +1180,12 @@ function Auth({
   return (
     <div className="auth-shell">
       <main className="auth-main">
-        <header className="auth-top">
-          <Brand />
-          <ThemeToggle theme={theme} onToggle={onTheme} />
-        </header>
         <div className="auth-card">
-          <span className="eyebrow">
-            {setup ? "İlk kurulum" : "Güvenli giriş"}
-          </span>
-          <h1>{setup ? "İlk bağlantıyı kuralım." : "Tekrar hoş geldiniz."}</h1>
+          <header className="auth-top">
+            <Brand small />
+            <ThemeToggle theme={theme} onToggle={onTheme} />
+          </header>
+          <h1>{setup ? "NETRIX kurulumu" : "NETRIX’e giriş yapın"}</h1>
           <p className="auth-lead">
             {setup
               ? "Yönetici hesabınızı oluşturun ve çalışma alanınızı başlatın."
@@ -1263,48 +1273,7 @@ function Auth({
             <LockKey size={16} /> Şifreli bağlantı · Merkezi yetkilendirme
           </div>
         </div>
-        <footer className="auth-version">
-          NETRIX v1.0 · Network Intelligence, Discovery &amp; Management
-        </footer>
       </main>
-      <aside className="auth-visual" aria-hidden="true">
-        <svg className="auth-graph" viewBox="0 0 480 360">
-          <g className="auth-links">
-            <path d="M240 70L110 170M240 70L370 170M110 170L80 290M110 170L190 290M370 170L300 290M370 170L420 290M240 70V180M240 180L190 290M240 180L300 290" />
-          </g>
-          <g className="auth-nodes">
-            <rect x="218" y="48" width="44" height="44" rx="10" />
-            <rect x="90" y="150" width="40" height="40" rx="10" />
-            <rect x="350" y="150" width="40" height="40" rx="10" />
-            <circle cx="240" cy="180" r="10" />
-            {[80, 190, 300, 420].map((x) => (
-              <circle key={x} cx={x} cy="290" r="8" />
-            ))}
-          </g>
-        </svg>
-        <div className="auth-modules">
-          {[
-            [
-              TreeStructure,
-              "IPAM & keşif",
-              "Subnet, VLAN ve LLDP/CDP komşulukları",
-            ],
-            [
-              TerminalWindow,
-              "Konfigürasyon",
-              "Şifreli sürüm arşivi ve satır farkları",
-            ],
-          ].map(([Icon, title, desc]: any) => (
-            <div key={title}>
-              <Icon size={20} />
-              <span>
-                <b>{title}</b>
-                <small>{desc}</small>
-              </span>
-            </div>
-          ))}
-        </div>
-      </aside>
     </div>
   );
 }
@@ -2017,56 +1986,6 @@ function Overview({
           <span>{formatDate(new Date(), true)}</span>
         </div>
       </div>
-      <div className="metrics">
-        {[
-          {
-            label: "Envanterdeki cihaz",
-            value: c.devices || 0,
-            note: (c.reachable || 0) + " cihazdan başarılı gözlem",
-            icon: HardDrives,
-            key: "devices",
-          },
-          {
-            label: "IP adres alanı",
-            value: c.vlans || 0,
-            note: (c.addresses || 0) + " adres kayıt altında",
-            icon: TreeStructure,
-            key: "vlans",
-          },
-          {
-            label: "Konfigürasyon sürümü",
-            value: c.snapshots || 0,
-            note: "Şifreli sürüm arşivi",
-            icon: ShieldCheck,
-            key: "configuration",
-          },
-          {
-            label: "Aktif alarm",
-            value: c.firing_alerts || 0,
-            note: "Konfigürasyon değişikliği uyarıları",
-            icon: Bell,
-            key: "alerts",
-          },
-        ].map((m, i) => (
-          <button
-            className={"metric metric-" + i}
-            key={m.key}
-            onClick={() => navigate(m.key)}
-          >
-            <div>
-              <span className="metric-icon">
-                <m.icon size={20} />
-              </span>
-              <span>{m.label}</span>
-            </div>
-            <strong>{m.value.toLocaleString("tr-TR")}</strong>
-            <footer>
-              {m.note}
-              <ArrowUpRight size={16} />
-            </footer>
-          </button>
-        ))}
-      </div>
       <div className="dashboard-main">
         <section className="panel map-panel">
           <header className="panel-header">
@@ -2141,6 +2060,56 @@ function Overview({
             içinde.
           </div>
         </section>
+      </div>
+      <div className="metrics">
+        {[
+          {
+            label: "Envanterdeki cihaz",
+            value: c.devices || 0,
+            note: (c.reachable || 0) + " cihazdan başarılı gözlem",
+            icon: HardDrives,
+            key: "devices",
+          },
+          {
+            label: "IP adres alanı",
+            value: c.vlans || 0,
+            note: (c.addresses || 0) + " adres kayıt altında",
+            icon: TreeStructure,
+            key: "vlans",
+          },
+          {
+            label: "Konfigürasyon sürümü",
+            value: c.snapshots || 0,
+            note: "Şifreli sürüm arşivi",
+            icon: ShieldCheck,
+            key: "configuration",
+          },
+          {
+            label: "Aktif alarm",
+            value: c.firing_alerts || 0,
+            note: "Konfigürasyon değişikliği uyarıları",
+            icon: Bell,
+            key: "alerts",
+          },
+        ].map((m, i) => (
+          <button
+            className={"metric metric-" + i}
+            key={m.key}
+            onClick={() => navigate(m.key)}
+          >
+            <div>
+              <span className="metric-icon">
+                <m.icon size={20} />
+              </span>
+              <span>{m.label}</span>
+            </div>
+            <strong>{m.value.toLocaleString("tr-TR")}</strong>
+            <footer>
+              {m.note}
+              <ArrowUpRight size={16} />
+            </footer>
+          </button>
+        ))}
       </div>
       <div className="dashboard-bottom">
         <section className="panel">
@@ -2536,15 +2505,24 @@ function App() {
   const [jobTarget, setJobTarget] = useState("");
   const [jobBusy, setJobBusy] = useState(false);
   const [testDevice, setTestDevice] = useState<Row | null>(null);
-  const { theme, toggleTheme, darkPalette } = useTheme();
-  const [collapsed, setCollapsed] = useState(
-    () => readPref("netrix-sidebar") === "collapsed",
+  const { theme, preference, toggleTheme, chooseTheme, darkPalette } =
+    useTheme();
+  const [sidebarOverride, setSidebarOverride] = useState(() => {
+    const saved = readPref("netrix-sidebar");
+    return saved === null ? null : saved === "collapsed";
+  });
+  const [railViewport, setRailViewport] = useState(
+    () => window.matchMedia("(761px <= width < 1280px)").matches,
   );
+  const collapsed = sidebarOverride ?? railViewport;
   const [drawer, setDrawer] = useState(false);
-  const [widePanoramaViewport, setWidePanoramaViewport] = useState(
-    () => window.matchMedia("(min-width: 1280px)").matches,
-  );
-  const [closedGroups, setClosedGroups] = useState<string[]>(() => [...GROUPS]);
+  const drawerTrigger = useRef<HTMLButtonElement>(null);
+  const drawerClose = useRef<HTMLButtonElement>(null);
+  const openDrawer = (event: React.MouseEvent<HTMLButtonElement>) => {
+    drawerTrigger.current = event.currentTarget;
+    setDrawer(true);
+  };
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const page =
     PAGES.find(
       (p) =>
@@ -2552,42 +2530,36 @@ function App() {
         (!["users", "audit"].includes(p.key) || hasAdminAccess(user)),
     ) || PAGES[0];
   useEffect(() => {
-    const changeDesign = (event: Event) => {
-      if ((event as CustomEvent).detail.design === "panorama") {
-        setCollapsed(false);
-        setClosedGroups([...GROUPS]);
-      }
-    };
-    const closeTopMenu = (event: KeyboardEvent | PointerEvent) => {
-      if (
-        currentPreferences().design !== "panorama" ||
-        window.innerWidth < 1280
-      )
-        return;
-      if (
-        (event instanceof KeyboardEvent && event.key === "Escape") ||
-        (event instanceof PointerEvent &&
-          !(event.target as Element).closest(".sidebar-nav"))
-      )
-        setClosedGroups([...GROUPS]);
-    };
-    const wideNavigation = window.matchMedia("(min-width: 1280px)");
-    const changeViewport = () => {
-      setWidePanoramaViewport(wideNavigation.matches);
-      if (wideNavigation.matches && currentPreferences().design === "panorama")
-        setClosedGroups([...GROUPS]);
-    };
-    wideNavigation.addEventListener("change", changeViewport);
-    window.addEventListener("netrix:preferences", changeDesign);
-    window.addEventListener("keydown", closeTopMenu);
-    window.addEventListener("pointerdown", closeTopMenu);
-    return () => {
-      wideNavigation.removeEventListener("change", changeViewport);
-      window.removeEventListener("netrix:preferences", changeDesign);
-      window.removeEventListener("keydown", closeTopMenu);
-      window.removeEventListener("pointerdown", closeTopMenu);
-    };
+    const rail = window.matchMedia("(761px <= width < 1280px)");
+    const update = () => setRailViewport(rail.matches);
+    rail.addEventListener("change", update);
+    return () => rail.removeEventListener("change", update);
   }, []);
+  useEffect(() => {
+    if (!drawer) return;
+    const focusTimer = window.setTimeout(() => {
+      drawerClose.current?.focus({ preventScroll: true });
+    }, 250);
+    const closeMenu = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawer(false);
+    };
+    const desktop = window.matchMedia("(min-width: 761px)");
+    const closeOnDesktop = () => {
+      if (desktop.matches) setDrawer(false);
+    };
+    desktop.addEventListener("change", closeOnDesktop);
+    window.addEventListener("keydown", closeMenu);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", closeMenu);
+      desktop.removeEventListener("change", closeOnDesktop);
+      if (!desktop.matches)
+        window.requestAnimationFrame(() => {
+          if (!document.querySelector("dialog[open]"))
+            drawerTrigger.current?.focus({ preventScroll: true });
+        });
+    };
+  }, [drawer]);
 
   useEffect(() => {
     const expired = () => {
@@ -2653,11 +2625,7 @@ function App() {
     location.hash = key;
     setCurrent(key);
     setGroup(p.group);
-    setClosedGroups((groups) =>
-      currentPreferences().design === "panorama" && window.innerWidth >= 1280
-        ? [...GROUPS]
-        : groups.filter((g) => g !== p.group),
-    );
+    setOpenGroup(p.group);
     setOffset(0);
     setQuery("");
     setError("");
@@ -2675,12 +2643,7 @@ function App() {
       if (p) {
         setCurrent(p.key);
         setGroup(p.group);
-        setClosedGroups((groups) =>
-          currentPreferences().design === "panorama" &&
-          window.innerWidth >= 1280
-            ? [...GROUPS]
-            : groups.filter((g) => g !== p.group),
-        );
+        setOpenGroup(p.group);
         setOffset(0);
         setQuery("");
       }
@@ -3077,8 +3040,6 @@ function App() {
         standaloneDraftId={batchRoute?.[1] ? batchRoute[2] : undefined}
       />
     );
-  const panoramaHeader =
-    currentPreferences().design === "panorama" && widePanoramaViewport;
   const commandTrigger = (
     <button
       className="command-trigger"
@@ -3114,7 +3075,7 @@ function App() {
       </div>
       {!darkPalette && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
       <button
-        className="icon-button"
+        className="icon-button topbar-refresh"
         aria-label={refreshing ? "Veriler yenileniyor" : "Verileri yenile"}
         title="Açık sayfanın verilerini yenile"
         disabled={refreshing}
@@ -3136,7 +3097,7 @@ function App() {
         (drawer ? " drawer-open" : "")
       }
     >
-      <a className="skip-link" href="#main">
+      <a className="skip-link" href="#main" inert={drawer}>
         İçeriğe atla
       </a>
       {configCompare && canWrite && (
@@ -3148,10 +3109,7 @@ function App() {
           <ConfigComparison sameDevice initialDevice={configCompare} />
         </Dialog>
       )}
-      <div
-        className="navigation-shell"
-        role={panoramaHeader ? "banner" : undefined}
-      >
+      <div className="navigation-shell">
         <aside id="main-sidebar" className="sidebar" aria-label="Ana menü">
           <div className="sidebar-head">
             <button
@@ -3161,108 +3119,127 @@ function App() {
             >
               <Brand small={collapsed} />
             </button>
-            {panoramaHeader && commandTrigger}
+            <button
+              className="icon-button sidebar-collapse"
+              aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              aria-expanded={!collapsed}
+              aria-controls="main-sidebar"
+              onClick={() => {
+                writePref(
+                  "netrix-sidebar",
+                  collapsed ? "expanded" : "collapsed",
+                );
+                setSidebarOverride(!collapsed);
+              }}
+            >
+              <SidebarSimple size={18} aria-hidden="true" />
+            </button>
             <button
               className="icon-button sidebar-close"
               aria-label="Menüyü kapat"
+              ref={drawerClose}
               onClick={() => setDrawer(false)}
             >
               <X size={18} />
             </button>
           </div>
-          <nav
-            className="sidebar-nav"
-            aria-label="Sayfalar"
-            tabIndex={
-              currentPreferences().design === "panorama" && !panoramaHeader
-                ? 0
-                : undefined
-            }
-          >
-            {GROUPS.map((g, index) => (
-              <div
-                className={"nav-group" + (page.group === g ? " active" : "")}
-                key={g}
-              >
-                <button
-                  type="button"
-                  className="nav-group-title"
-                  aria-expanded={!closedGroups.includes(g)}
-                  aria-controls={`nav-group-${index}`}
-                  onClick={() =>
-                    setClosedGroups((groups) =>
-                      currentPreferences().design === "panorama" &&
-                      window.innerWidth >= 1280
-                        ? groups.includes(g)
-                          ? GROUPS.filter((item) => item !== g)
-                          : [...GROUPS]
-                        : groups.includes(g)
-                          ? groups.filter((item) => item !== g)
-                          : [...groups, g],
-                    )
-                  }
-                >
-                  <span>{g}</span>
-                  {closedGroups.includes(g) ? (
-                    <CaretDown size={15} aria-hidden="true" />
-                  ) : (
-                    <CaretUp size={15} aria-hidden="true" />
-                  )}
-                </button>
-                <div
-                  id={`nav-group-${index}`}
-                  className="nav-group-items"
-                  hidden={closedGroups.includes(g)}
-                >
-                  {PAGES.filter(
-                    (p) =>
-                      p.group === g &&
-                      (!["users", "audit"].includes(p.key) || isAdmin),
-                  ).map((p) => (
+          <nav className="sidebar-nav" aria-label="Sayfalar">
+            {GROUPS.map((g, index) => {
+              const items = PAGES.filter(
+                (item) =>
+                  item.group === g &&
+                  (!["users", "audit"].includes(item.key) || isAdmin),
+              );
+              const Icon = items[0].icon;
+              if (items.length === 1) {
+                return (
+                  <div className="nav-group" key={g}>
                     <button
-                      key={p.key}
                       className={
-                        "nav-item" + (current === p.key ? " selected" : "")
+                        "nav-group-title" +
+                        (current === items[0].key ? " selected" : "")
                       }
-                      aria-current={current === p.key ? "page" : undefined}
-                      title={collapsed ? p.title : undefined}
-                      onClick={() => navigate(p.key)}
+                      aria-current={
+                        current === items[0].key ? "page" : undefined
+                      }
+                      onClick={() => navigate(items[0].key)}
                     >
-                      <p.icon
-                        size={19}
-                        weight={current === p.key ? "fill" : "regular"}
-                      />
-                      <span>{p.title}</span>
-                      {p.key === "backup-changes" &&
-                        !!dashboard.counts?.config_changes && (
-                          <b
-                            className="nav-count"
-                            aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
-                          >
-                            {dashboard.counts.config_changes}
-                          </b>
-                        )}
-                      {p.key === "alerts" &&
-                        !!dashboard.counts?.firing_alerts && (
-                          <b className="nav-count">
-                            {dashboard.counts.firing_alerts}
-                          </b>
-                        )}
-                      {p.key === "jobs" && !!dashboard.counts?.running_jobs && (
-                        <b className="nav-count neutral">
-                          {dashboard.counts.running_jobs}
-                        </b>
-                      )}
+                      <Icon size={17} aria-hidden="true" />
+                      <span>{g}</span>
                     </button>
-                  ))}
+                  </div>
+                );
+              }
+              return (
+                <div
+                  className={"nav-group" + (page.group === g ? " active" : "")}
+                  key={g}
+                >
+                  <button
+                    type="button"
+                    className="nav-group-title"
+                    aria-expanded={openGroup === g}
+                    aria-controls={`nav-group-${index}`}
+                    onClick={() => setOpenGroup(openGroup === g ? null : g)}
+                  >
+                    <Icon size={17} aria-hidden="true" />
+                    <span>{g}</span>
+                    {openGroup !== g ? (
+                      <CaretDown size={15} aria-hidden="true" />
+                    ) : (
+                      <CaretUp size={15} aria-hidden="true" />
+                    )}
+                  </button>
+                  <div
+                    id={`nav-group-${index}`}
+                    className="nav-group-items"
+                    hidden={openGroup !== g}
+                  >
+                    {items.map((p) => (
+                      <button
+                        key={p.key}
+                        className={
+                          "nav-item" + (current === p.key ? " selected" : "")
+                        }
+                        aria-current={current === p.key ? "page" : undefined}
+                        title={collapsed ? p.title : undefined}
+                        onClick={() => navigate(p.key)}
+                      >
+                        <p.icon
+                          size={19}
+                          weight={current === p.key ? "fill" : "regular"}
+                        />
+                        <span>{p.title}</span>
+                        {p.key === "backup-changes" &&
+                          !!dashboard.counts?.config_changes && (
+                            <b
+                              className="nav-count"
+                              aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
+                            >
+                              {dashboard.counts.config_changes}
+                            </b>
+                          )}
+                        {p.key === "alerts" &&
+                          !!dashboard.counts?.firing_alerts && (
+                            <b className="nav-count">
+                              {dashboard.counts.firing_alerts}
+                            </b>
+                          )}
+                        {p.key === "jobs" &&
+                          !!dashboard.counts?.running_jobs && (
+                            <b className="nav-count neutral">
+                              {dashboard.counts.running_jobs}
+                            </b>
+                          )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </nav>
           <div className="sidebar-user">
-            {panoramaHeader && (
-              <div className="panorama-utilities">{workspaceUtilities}</div>
-            )}
             <UserPortrait
               name={user.display_name}
               url={accountAvatar.data?.url}
@@ -3302,50 +3279,65 @@ function App() {
         aria-hidden="true"
         onClick={() => setDrawer(false)}
       />
-      <div className="main-shell">
-        {!panoramaHeader && (
-          <div className="topbar-region">
-            <header className="topbar">
+      <div className="main-shell" inert={drawer}>
+        <div className="topbar-region">
+          <header className="topbar">
+            <button
+              className="icon-button menu-button"
+              aria-label="Menüyü aç"
+              aria-expanded={drawer}
+              aria-controls="main-sidebar"
+              onClick={openDrawer}
+            >
+              <List size={19} aria-hidden="true" />
+            </button>
+            <div className="topbar-brand" aria-hidden="true">
+              <Brand small />
+            </div>
+            <div className="breadcrumbs">
+              <span>{page.group}</span>
+              <CaretRight size={12} aria-hidden="true" />
+              <b>{page.title}</b>
+            </div>
+            <div className="topbar-actions">
+              {commandTrigger}
+              {workspaceUtilities}
               <button
-                className="icon-button sidebar-collapse"
-                aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-                title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
-                aria-expanded={!collapsed}
-                aria-controls="main-sidebar"
-                onClick={() => {
-                  writePref(
-                    "netrix-sidebar",
-                    collapsed ? "expanded" : "collapsed",
-                  );
-                  setCollapsed(!collapsed);
-                }}
+                className="icon-button topbar-alerts"
+                aria-label="Alarmlar"
+                onClick={() => navigate("alerts")}
               >
-                <SidebarSimple size={20} aria-hidden="true" />
+                <Bell size={19} aria-hidden="true" />
+                {!!dashboard.counts?.firing_alerts && (
+                  <span className="nav-count">
+                    {dashboard.counts.firing_alerts}
+                  </span>
+                )}
               </button>
-              <button
-                className="icon-button menu-button"
-                aria-label="Menüyü aç"
-                aria-expanded={drawer}
-                onClick={() => setDrawer(true)}
-              >
-                <List size={20} />
-              </button>
-              {currentPreferences().design !== "panorama" && (
-                <div className="breadcrumbs">
-                  <span>{page.group}</span>
-                  <CaretRight size={12} />
-                  <b>{page.title}</b>
-                </div>
+              {canWrite && (
+                <button
+                  className="primary topbar-create"
+                  aria-label="Yeni cihaz ekle"
+                  onClick={() => add("devices")}
+                >
+                  <Plus size={18} aria-hidden="true" /> <span>Yeni</span>
+                </button>
               )}
-              <div className="topbar-actions">
-                {commandTrigger}
-                {workspaceUtilities}
-              </div>
-            </header>
-          </div>
-        )}
+              <button
+                className="topbar-profile"
+                aria-label="Hesap ayarlarını aç"
+                onClick={() => setProfileOpen(true)}
+              >
+                <UserPortrait
+                  name={user.display_name}
+                  url={accountAvatar.data?.url}
+                />
+              </button>
+            </div>
+          </header>
+        </div>
         <main id="main" tabIndex={-1}>
-          <div className="page-view" key={current}>
+          <div className="page-view" key={current} data-page={page.key}>
             {page.key !== "overview" && (
               <div className="page-heading">
                 <div>
@@ -4030,6 +4022,31 @@ function App() {
           </div>
         </main>
       </div>
+      <nav className="mobile-dock" aria-label="Hızlı gezinme" inert={drawer}>
+        {[
+          { key: "overview", label: "Başlangıç", Icon: SquaresFour },
+          { key: "devices", label: "Cihazlar", Icon: HardDrives },
+          { key: "vlans", label: "VLAN", Icon: TreeStructure },
+          { key: "jobs", label: "Görevler", Icon: Play },
+        ].map(({ key, label, Icon }) => (
+          <button
+            key={key}
+            aria-current={current === key ? "page" : undefined}
+            onClick={() => navigate(key)}
+          >
+            <Icon size={18} aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        ))}
+        <button
+          aria-expanded={drawer}
+          aria-controls="main-sidebar"
+          onClick={openDrawer}
+        >
+          <List size={18} aria-hidden="true" />
+          <span>Diğer</span>
+        </button>
+      </nav>
       {sshAllowed && <SSHWorkspace key={user.id} />}
       {roleUser && canAssignRoles && (
         <UserRoleEditor
@@ -4044,6 +4061,8 @@ function App() {
         <Profile
           avatar={accountAvatar}
           user={user}
+          themePreference={preference}
+          onThemeChange={darkPalette ? undefined : chooseTheme}
           onPasswordChanged={() => {
             setProfileOpen(false);
             setUser(null);

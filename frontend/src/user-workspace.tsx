@@ -21,6 +21,9 @@ import {
   MagnifyingGlass,
   ShieldCheck,
   TextAa,
+  Sun,
+  Moon,
+  Monitor,
 } from "@phosphor-icons/react";
 import { Filters } from "./inventory";
 import { api, useLiveQuery } from "./data";
@@ -30,9 +33,9 @@ import {
   currentPreferences,
   defaultPreferences,
 } from "./preferences";
-import type { Preferences } from "./preferences";
+import type { Preferences, ThemePreference } from "./preferences";
 import "./user-workspace.css";
-import { applicationThemes, colorPalettes } from "./appearance";
+import { colorPalettes } from "./appearance";
 import { canSSH } from "./permissions";
 import { applicationFonts } from "./application-fonts";
 import type { ApplicationFont } from "./application-fonts";
@@ -42,12 +45,16 @@ type Row = Record<string, any>;
 export function Profile({
   avatar,
   user,
+  themePreference,
+  onThemeChange,
   onClose,
   onChanged,
   onPasswordChanged,
 }: {
   avatar: AccountAvatar;
   user: Row;
+  themePreference: ThemePreference;
+  onThemeChange?: (mode: ThemePreference) => void;
   onClose: () => void;
   onChanged: () => void;
   onPasswordChanged: () => void;
@@ -160,36 +167,41 @@ export function Profile({
           )}
           {tab === "design" && (
             <>
-              <h3>Uygulama teması</h3>
+              <h3>Görünüm</h3>
               <p className="muted">
-                Gezinme düzenini, yazı tipini ve ekran yoğunluğunu birlikte
-                değiştirin. Renk paletinizi ayrıca seçebilirsiniz.
+                {onThemeChange
+                  ? "Bu tarayıcıda kullanacağınız görünümü seçin."
+                  : "Karanlık paleti koyu görünümü kullanır. Açık görünüm için renk paletini değiştirin."}
               </p>
-              <div className="theme-options">
-                {applicationThemes.map((t) => (
+              <div className="lumelle-mode-options">
+                {(
+                  [
+                    ["light", "Açık", Sun],
+                    ["dark", "Koyu", Moon],
+                    ["system", "Sistemle eşleş", Monitor],
+                  ] as const
+                ).map(([mode, label, Icon]) => (
                   <button
-                    key={t.id}
-                    className="theme-option"
-                    disabled={busy}
-                    aria-pressed={values.design === t.id}
-                    onClick={() => void save({ ...values, design: t.id })}
+                    key={mode}
+                    type="button"
+                    className="lumelle-mode-card"
+                    disabled={!onThemeChange}
+                    aria-pressed={
+                      (onThemeChange ? themePreference : "dark") === mode
+                    }
+                    onClick={() => onThemeChange?.(mode)}
                   >
                     <span
-                      className={`theme-preview theme-preview-${t.id}`}
+                      className={`lumelle-mode-preview preview-${mode}`}
                       aria-hidden="true"
                     >
                       <i />
-                      <span />
-                      <span />
+                      <i />
+                      <i />
                     </span>
                     <span>
-                      <b>{t.name}</b>
-                      {values.design === t.id && (
-                        <Check size={18} aria-hidden="true" />
-                      )}
+                      <Icon size={16} aria-hidden="true" /> {label}
                     </span>
-                    <em>{t.feature}</em>
-                    <small>{t.description}</small>
                   </button>
                 ))}
               </div>
@@ -208,28 +220,25 @@ export function Profile({
                   <button
                     disabled={busy}
                     key={p.id}
-                    className={
-                      "palette-option" +
-                      (values.palette === p.id ? " selected" : "")
-                    }
+                    className="palette-option"
                     aria-pressed={values.palette === p.id}
                     onClick={() => void save({ ...values, palette: p.id })}
                   >
-                    <span className="palette-tones" aria-hidden="true">
-                      {("tones" in p
-                        ? p.tones
-                        : [95, 86, 70, 50, 24].map(
-                            (light) =>
-                              `hsl(${p.hue} ${p.saturation}% ${light}%)`,
-                          )
-                      ).map((color) => (
-                        <i key={color} style={{ background: color }} />
-                      ))}
+                    <span
+                      className="palette-swatch"
+                      aria-hidden="true"
+                      style={{
+                        background:
+                          "tones" in p
+                            ? p.tones[3]
+                            : `hsl(${p.hue} ${p.saturation}% 59%)`,
+                      }}
+                    >
+                      {values.palette === p.id && (
+                        <Check size={18} weight="bold" />
+                      )}
                     </span>
                     <b>{p.name}</b>
-                    {values.palette === p.id && (
-                      <Check size={18} aria-hidden="true" />
-                    )}
                   </button>
                 ))}
               </div>

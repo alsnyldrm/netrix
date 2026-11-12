@@ -1,4 +1,4 @@
-"""Isolated real HTTP workspace: 5 layouts x 10 palettes, account controls and SSH group routing."""
+"""Isolated real HTTP workspace: Lumelle and 10 palettes, account controls and SSH group routing."""
 
 import json
 from pathlib import Path
@@ -8,7 +8,7 @@ from playwright.sync_api import expect, sync_playwright
 BASE = "http://127.0.0.1:8241"
 ARTIFACTS = Path("artifacts/appearance-ssh")
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
-THEMES = ["atlas", "orbit", "terminal", "panorama", "focus"]
+THEMES = ["lumelle"]
 PALETTES = ["cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo"]
 reports, errors, checks = {}, [], 0
 with sync_playwright() as p:
@@ -39,9 +39,7 @@ with sync_playwright() as p:
         return response.json() if response.status != 204 else None
 
     def open_profile():
-        if page.viewport_size["width"] < 1024:
-            page.get_by_role("button", name="Menüyü aç", exact=True).click()
-        page.get_by_role("button", name="Profil", exact=True).click()
+        page.get_by_role("button", name="Hesap ayarlarını aç", exact=True).click()
         return page.get_by_role("dialog", name="Profil", exact=True)
 
     def settle():
@@ -141,23 +139,10 @@ with sync_playwright() as p:
     for design in THEMES:
         page.set_viewport_size({"width": 1440, "height": 1000})
         profile.get_by_role("button", name="Tema", exact=True).click()
-        profile.locator(".theme-option").filter(
-            has_text={
-                "atlas": "Atlas",
-                "orbit": "Orbit",
-                "terminal": "Terminal",
-                "panorama": "Panorama",
-                "focus": "Focus",
-            }[design]
-        ).click()
-        expect(page.locator("html")).to_have_attribute("data-design", design)
-        expect(profile.get_by_role("status")).to_contain_text("Tercihleriniz kaydedildi")
-        assert request("/access/preferences")["design"] == design
-        capture(f"theme-picker-{design}")
-        heights = profile.locator(".theme-option").evaluate_all(
-            "es=>es.map(e=>e.getBoundingClientRect().height)"
-        )
-        assert max(heights) - min(heights) < 1, (design, heights)
+        profile.get_by_role("button", name="Koyu", exact=True).click()
+        expect(page.locator("html")).to_have_attribute("data-design", "lumelle")
+        expect(page.locator("html")).to_have_attribute("data-theme", "dark")
+        capture("theme-picker")
         profile.get_by_role("button", name="Pencereyi kapat", exact=True).click()
         signatures = []
         for width in (1440, 375):
@@ -186,7 +171,7 @@ with sync_playwright() as p:
                     )
                     surfaces.append((state["bg"], state["surface"], state["primary"]))
                     checks += 1
-                assert len(set(surfaces)) == 10, (design, width, mode, surfaces)
+                assert len(set(surfaces)) == len(PALETTES), (design, width, mode, surfaces)
                 page.evaluate("()=>document.documentElement.dataset.palette='amber'")
                 capture(f"shell-{design}-{width}-{mode}")
                 profile = open_profile()
@@ -207,22 +192,13 @@ with sync_playwright() as p:
                 terminal.get_by_role("button", name="Simge durumuna küçült", exact=True).click()
                 page.get_by_role("button", name="SW-01 SSH oturumunu aç", exact=True).click()
                 terminal.get_by_role("button", name="SSH bağlantısını kapat", exact=True).click()
-        if design == "panorama":
-            page.set_viewport_size({"width": 1440, "height": 1000})
-            page.get_by_role("button", name="Envanter", exact=True).click()
-            expect(page.get_by_role("button", name="Cihaz envanteri", exact=True)).to_be_visible()
-            capture("panorama-dropdown")
-            page.keyboard.press("Escape")
-            expect(page.get_by_role("button", name="Envanter", exact=True)).to_have_attribute(
-                "aria-expanded", "false"
-            )
         profile = open_profile()
     page.set_viewport_size({"width": 1440, "height": 1000})
     profile.get_by_role("button", name="Renk paleti", exact=True).click()
     expect(profile.locator(".palette-option")).to_have_count(len(PALETTES) + 1)
     for name, palette in zip(
         [
-            "Teknik kobalt",
+            "Lumelle",
             "Atlantik",
             "Ametist",
             "Sarı kehribar",
@@ -250,7 +226,7 @@ with sync_playwright() as p:
     profile.get_by_role("button", name="Pencereyi kapat", exact=True).click()
     page.reload()
     page.wait_for_load_state("networkidle")
-    expect(page.locator("html")).to_have_attribute("data-design", "focus")
+    expect(page.locator("html")).to_have_attribute("data-design", "lumelle")
     expect(page.locator("html")).to_have_attribute("data-palette", "dark")
     expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     violations = {k: v for k, v in reports.items() if v}

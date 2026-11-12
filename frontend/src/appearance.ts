@@ -1,38 +1,6 @@
-export const applicationThemes = [
-  {
-    id: "atlas",
-    name: "Atlas",
-    description: "Sabit sol menü, düzenli paneller ve dengeli veri yoğunluğu.",
-    feature: "Kurumsal çalışma alanı",
-  },
-  {
-    id: "orbit",
-    name: "Orbit",
-    description: "Yüzen menü, geniş boşluklar ve yuvarlak, katmanlı kartlar.",
-    feature: "Ferah kart düzeni",
-  },
-  {
-    id: "terminal",
-    name: "Terminal",
-    description: "Eş aralıklı yazı, keskin çizgiler ve sıkı teknik tablolar.",
-    feature: "Yoğun operasyon ekranı",
-  },
-  {
-    id: "panorama",
-    name: "Panorama",
-    description: "Geniş ekranda üst gezinme ve tam genişlikte çalışma alanı.",
-    feature: "Üst menülü düzen",
-  },
-  {
-    id: "focus",
-    name: "Focus",
-    description: "Sağ menü, ortalanmış içerik ve belirgin başlık hiyerarşisi.",
-    feature: "Odaklı okuma düzeni",
-  },
-] as const;
 export const darkPaletteId = "dark";
 export const colorPalettes = [
-  { id: "cobalt", name: "Teknik kobalt", hue: 222, saturation: 84 },
+  { id: "cobalt", name: "Lumelle", hue: 343, saturation: 100 },
   { id: "teal", name: "Atlantik", hue: 174, saturation: 76 },
   { id: "violet", name: "Ametist", hue: 270, saturation: 72 },
   { id: "amber", name: "Sarı kehribar", hue: 45, saturation: 94 },

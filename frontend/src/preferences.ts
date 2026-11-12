@@ -1,6 +1,8 @@
 import { applyApplicationFont } from "./application-fonts";
 import type { ApplicationFont } from "./application-fonts";
 
+export type ThemePreference = "light" | "dark" | "system";
+
 export type TerminalAppearance = {
   font: "ubuntu" | "plex" | "system";
   font_size: number;
@@ -45,7 +47,7 @@ export function applyPreferences(value: Preferences) {
   const root = document.documentElement;
   applyApplicationFont(value.ui_font);
   root.dataset.palette = value.palette;
-  root.dataset.design = value.design;
+  root.dataset.design = "lumelle";
   root.dataset.compact = String(value.features.includes("compact_tables"));
   root.dataset.reduceMotion = String(value.features.includes("reduced_motion"));
   window.dispatchEvent(

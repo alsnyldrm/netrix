@@ -1,4 +1,4 @@
-"""Read-only module flows in five persisted designs, with responsive navigation regressions."""
+"""Read-only module flows in the Lumelle layout, with responsive navigation regressions."""
 
 import json
 from pathlib import Path
@@ -23,10 +23,10 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
-    for design in ["atlas", "orbit", "terminal", "panorama", "focus"]:
+    for palette in ("cobalt", "amber"):
         response = context.request.put(
             BASE + "/api/v1/access/preferences",
-            data={"design": design, "palette": "amber"},
+            data={"palette": palette},
             headers={"X-Netrix-Request": "1"},
         )
         assert response.ok, response.text()
@@ -35,7 +35,7 @@ with sync_playwright() as p:
         for route in ["vlans", "configuration", "topology", "firmware-images", "users"]:
             page.goto(BASE + "/#" + route)
             page.wait_for_load_state("networkidle")
-            expect(page.locator("html")).to_have_attribute("data-design", design)
+            expect(page.locator("html")).to_have_attribute("data-design", "lumelle")
             for width in [1440, 375]:
                 page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
                 page.evaluate("()=>document.documentElement.dataset.theme='dark'")
@@ -45,35 +45,26 @@ with sync_playwright() as p:
                 # ResizeObserver in the topology canvas updates after the viewport event.
                 page.wait_for_function("() => document.body.scrollWidth <= innerWidth", timeout=5000)
                 page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
-                key = f"{route}-{design}-{width}"
+                key = f"{route}-{palette}-{width}"
                 reports[key] = page.evaluate(
                     "async()=>(await axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','wcag22aa']}})).violations.map(v=>({id:v.id,nodes:v.nodes.map(n=>n.target)}))"
                 )
                 page.screenshot(path=str(out / (key + ".png")))
-        if design == "panorama":
-            page.get_by_role("button", name="Menüyü aç", exact=True).click()
-            for group in ["Envanter", "Bağlantı"]:
-                button = page.get_by_role("button", name=group, exact=True)
-                if button.get_attribute("aria-expanded") == "false":
-                    button.click()
-            page.get_by_role("button", name="Menüyü kapat", exact=True).click()
-            page.set_viewport_size({"width": 1440, "height": 1000})
-            expect(page.locator(".sidebar-nav .nav-group-items:not([hidden])")).to_have_count(0)
-            page.get_by_role("button", name="Envanter", exact=True).click()
-            page.get_by_role("button", name="Cihaz envanteri", exact=True).click()
-            expect(page).to_have_url(BASE + "/#devices")
-            expect(page.locator(".sidebar-nav .nav-group-items:not([hidden])")).to_have_count(0)
-        else:
-            page.set_viewport_size({"width": 1440, "height": 1000})
-            page.get_by_role("button", name="Menüyü daralt", exact=True).click()
-            buttons = page.locator(".sidebar-user-actions button").evaluate_all(
-                "es=>es.map(e=>{const r=e.getBoundingClientRect(),p=e.closest('.sidebar').getBoundingClientRect();return {left:r.left,right:r.right,asideLeft:p.left,asideRight:p.right};})"
-            )
-            assert all(b["left"] >= b["asideLeft"] and b["right"] <= b["asideRight"] for b in buttons), (
-                design,
-                buttons,
-            )
-            page.get_by_role("button", name="Menüyü genişlet", exact=True).click()
+        page.get_by_role("button", name="Menüyü aç", exact=True).click()
+        sidebar = page.get_by_role("complementary", name="Ana menü")
+        envanter = sidebar.get_by_role("button", name="Envanter", exact=True)
+        if envanter.get_attribute("aria-expanded") == "false":
+            envanter.click()
+        sidebar.get_by_role("button", name="Cihaz envanteri", exact=True).click()
+        expect(page).to_have_url(BASE + "/#devices")
+        expect(sidebar).to_be_hidden()
+        page.set_viewport_size({"width": 1440, "height": 1000})
+        page.get_by_role("button", name="Menüyü daralt", exact=True).click()
+        buttons = page.locator(".sidebar-user-actions button").evaluate_all(
+            "es=>es.map(e=>{const r=e.getBoundingClientRect(),p=e.closest('.sidebar').getBoundingClientRect();return {left:r.left,right:r.right,asideLeft:p.left,asideRight:p.right};})"
+        )
+        assert all(b["left"] >= b["asideLeft"] and b["right"] <= b["asideRight"] for b in buttons), buttons
+        page.get_by_role("button", name="Menüyü genişlet", exact=True).click()
     browser.close()
 violations = {k: v for k, v in reports.items() if v}
 (out / "report.json").write_text(

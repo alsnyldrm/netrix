@@ -91,7 +91,7 @@ with sync_playwright() as p:
         }
         for width in (1440, 375):
             page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 812})
-            for design in ("atlas", "orbit", "terminal", "panorama", "focus"):
+            for design in ("lumelle",):
                 page.evaluate("v=>document.documentElement.dataset.design=v", design)
                 for mode in ("light", "dark"):
                     page.evaluate("m=>document.documentElement.dataset.theme=m", mode)
@@ -108,15 +108,15 @@ with sync_playwright() as p:
     picker = profile.get_by_role("combobox", name="Yazı tipi", exact=True)
     expect(picker).to_have_value("inter")
     profile.get_by_role("button", name="Tema", exact=True).click()
-    profile.locator(".theme-option").filter(has_text="Focus").click()
-    expect(profile.get_by_role("status")).to_contain_text("Tercihleriniz kaydedildi")
+    profile.get_by_role("button", name="Koyu", exact=True).click()
+    expect(page.locator("html")).to_have_attribute("data-theme", "dark")
     expect(page.locator("html")).to_have_attribute("data-ui-font", "inter")
     profile.get_by_role("button", name="Renk paleti", exact=True).click()
     profile.locator(".palette-option").filter(has_text="Ametist").click()
     expect(profile.get_by_role("status")).to_contain_text("Tercihleriniz kaydedildi")
     expect(page.locator("html")).to_have_attribute("data-ui-font", "inter")
     profile.get_by_role("button", name="Yazı tipi", exact=True).click()
-    for design in ("atlas", "orbit", "terminal", "panorama", "focus"):
+    for design in ("lumelle",):
         for mode in ("light", "dark"):
             page.evaluate(
                 "v=>Object.assign(document.documentElement.dataset,v)", {"design": design, "theme": mode}
