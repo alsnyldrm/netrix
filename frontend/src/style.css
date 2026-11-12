@@ -562,13 +562,10 @@ textarea {
   background: var(--surface-2);
   color: var(--accent-soft-text);
 }
-.nav-group-items {
+.nav-group-links {
   margin: 4px 0 0 19px;
   padding-left: 11px;
   border-left: 1px solid var(--border-strong);
-}
-.nav-group-items[hidden] {
-  display: none;
 }
 .nav-item {
   position: relative;
@@ -722,10 +719,7 @@ textarea {
     margin: 10px 12px;
     background: var(--border);
   }
-  .collapsed .nav-group-items[hidden] {
-    display: block;
-  }
-  .collapsed .nav-group-items {
+  .collapsed .nav-group-links {
     margin: 0;
     padding-left: 0;
     border-left: 0;

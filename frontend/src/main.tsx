@@ -37,11 +37,13 @@ import type { TopologyDevice, TopologyLink } from "./topology-layout";
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   useDeferredValue,
 } from "react";
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import {
   SquaresFour,
   Stack,
@@ -98,7 +100,6 @@ import {
   List,
   SidebarSimple,
   CaretDown,
-  CaretUp,
 } from "@phosphor-icons/react";
 import type { Icon as IconType } from "@phosphor-icons/react";
 import "@fontsource/ibm-plex-sans/400.css";
@@ -868,6 +869,12 @@ const GROUPS = [
   "Konfigürasyon",
   "Operasyon",
   "Yönetim",
+];
+const DOCK_PAGES = [
+  { key: "overview", label: "Başlangıç", Icon: SquaresFour },
+  { key: "devices", label: "Cihazlar", Icon: HardDrives },
+  { key: "vlans", label: "VLAN", Icon: TreeStructure },
+  { key: "jobs", label: "Görevler", Icon: Play },
 ];
 type Theme = "light" | "dark";
 const readPref = (key: string) => {
@@ -2522,6 +2529,7 @@ function App() {
     drawerTrigger.current = event.currentTarget;
     setDrawer(true);
   };
+  const sidebarNavigation = useRef<HTMLElement>(null);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const page =
     PAGES.find(
@@ -2529,6 +2537,31 @@ function App() {
         p.key === current &&
         (!["users", "audit"].includes(p.key) || hasAdminAccess(user)),
     ) || PAGES[0];
+  useLayoutEffect(() => {
+    const nav = sidebarNavigation.current;
+    const active = nav?.querySelector<HTMLElement>(
+      ".nav-group.active > .nav-group-title, .nav-group-title.selected",
+    );
+    if (!nav || !active) return;
+    const placeMarker = () => {
+      const top =
+        active.getBoundingClientRect().top -
+        nav.getBoundingClientRect().top +
+        nav.scrollTop;
+      nav.style.setProperty("--selected-nav-top", `${top}px`);
+      nav.style.setProperty(
+        "--selected-nav-height",
+        `${active.offsetHeight}px`,
+      );
+    };
+    placeMarker();
+    const resize = new ResizeObserver(placeMarker);
+    resize.observe(nav);
+    nav
+      .querySelectorAll(".nav-group")
+      .forEach((group) => resize.observe(group));
+    return () => resize.disconnect();
+  }, [page.group, user?.id, collapsed]);
   useEffect(() => {
     const rail = window.matchMedia("(761px <= width < 1280px)");
     const update = () => setRailViewport(rail.matches);
@@ -2619,38 +2652,88 @@ function App() {
       setRefreshing(false);
     }
   };
-  const navigate = useCallback((key: string) => {
-    const p = PAGES.find((p) => p.key === key);
-    if (!p) return;
-    location.hash = key;
-    setCurrent(key);
-    setGroup(p.group);
-    setOpenGroup(p.group);
-    setOffset(0);
-    setQuery("");
-    setError("");
-    setCommand(false);
-    setCommandQuery("");
-    setShortcutVLAN(null);
-    setSettingsSection("");
-    setDrawer(false);
+  const displayedPage = useRef(current);
+  const pageTransition = useRef<ViewTransition | null>(null);
+  const [routeDirection, setRouteDirection] = useState("forward");
+  const changePage = useCallback((key: string, update: () => void) => {
+    const previous = displayedPage.current;
+    const direction =
+      PAGES.findIndex((item) => item.key === key) <
+      PAGES.findIndex((item) => item.key === previous)
+        ? "backward"
+        : "forward";
+    const commit = () => {
+      displayedPage.current = key;
+      setRouteDirection(direction);
+      update();
+    };
+    const root = document.documentElement;
+    pageTransition.current?.skipTransition();
+    pageTransition.current = null;
+    if (
+      previous === key ||
+      !document.startViewTransition ||
+      root.dataset.reduceMotion === "true" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      document.visibilityState !== "visible"
+    ) {
+      delete root.dataset.routeMotion;
+      commit();
+      return;
+    }
+
+    root.dataset.routeMotion = direction;
+    const transition = document.startViewTransition(() => {
+      if (pageTransition.current === transition) flushSync(commit);
+    });
+    pageTransition.current = transition;
+    const finish = () => {
+      if (pageTransition.current !== transition) return;
+      pageTransition.current = null;
+      delete root.dataset.routeMotion;
+    };
+    void transition.finished.then(finish, finish);
   }, []);
+  const navigate = useCallback(
+    (key: string, destination?: { vlan?: Row; section?: string }) => {
+      const p = PAGES.find((p) => p.key === key);
+      if (!p) return;
+      changePage(key, () => {
+        location.hash = key;
+        setCurrent(key);
+        setGroup(p.group);
+        setOpenGroup(p.group);
+        setOffset(0);
+        setQuery("");
+        setError("");
+        setCommand(false);
+        setCommandQuery("");
+        setShortcutVLAN(destination?.vlan ?? null);
+        setSettingsSection(destination?.section ?? "");
+        setDrawer(false);
+      });
+    },
+    [changePage],
+  );
   useEffect(() => {
     const handler = () => {
       const p = PAGES.find(
         (p) => p.key === location.hash.slice(1).split("/")[0],
       );
-      if (p) {
+      if (!p || p.key === displayedPage.current) return;
+      changePage(p.key, () => {
         setCurrent(p.key);
         setGroup(p.group);
         setOpenGroup(p.group);
         setOffset(0);
         setQuery("");
-      }
+        setShortcutVLAN(null);
+        setSettingsSection("");
+      });
     };
     window.addEventListener("hashchange", handler);
     return () => window.removeEventListener("hashchange", handler);
-  }, []);
+  }, [changePage]);
   useEffect(() => {
     api("/auth/me")
       .then(setUser)
@@ -3144,7 +3227,12 @@ function App() {
               <X size={18} />
             </button>
           </div>
-          <nav className="sidebar-nav" aria-label="Sayfalar">
+          <nav
+            className="sidebar-nav"
+            aria-label="Sayfalar"
+            ref={sidebarNavigation}
+          >
+            <span className="nav-active-marker" aria-hidden="true" />
             {GROUPS.map((g, index) => {
               const items = PAGES.filter(
                 (item) =>
@@ -3185,55 +3273,63 @@ function App() {
                   >
                     <Icon size={17} aria-hidden="true" />
                     <span>{g}</span>
-                    {openGroup !== g ? (
-                      <CaretDown size={15} aria-hidden="true" />
-                    ) : (
-                      <CaretUp size={15} aria-hidden="true" />
-                    )}
+                    <CaretDown
+                      className="nav-group-chevron"
+                      size={15}
+                      aria-hidden="true"
+                    />
                   </button>
                   <div
                     id={`nav-group-${index}`}
                     className="nav-group-items"
-                    hidden={openGroup !== g}
+                    data-open={openGroup === g}
+                    inert={openGroup !== g}
                   >
-                    {items.map((p) => (
-                      <button
-                        key={p.key}
-                        className={
-                          "nav-item" + (current === p.key ? " selected" : "")
-                        }
-                        aria-current={current === p.key ? "page" : undefined}
-                        title={collapsed ? p.title : undefined}
-                        onClick={() => navigate(p.key)}
-                      >
-                        <p.icon
-                          size={19}
-                          weight={current === p.key ? "fill" : "regular"}
-                        />
-                        <span>{p.title}</span>
-                        {p.key === "backup-changes" &&
-                          !!dashboard.counts?.config_changes && (
-                            <b
-                              className="nav-count"
-                              aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
-                            >
-                              {dashboard.counts.config_changes}
-                            </b>
-                          )}
-                        {p.key === "alerts" &&
-                          !!dashboard.counts?.firing_alerts && (
-                            <b className="nav-count">
-                              {dashboard.counts.firing_alerts}
-                            </b>
-                          )}
-                        {p.key === "jobs" &&
-                          !!dashboard.counts?.running_jobs && (
-                            <b className="nav-count neutral">
-                              {dashboard.counts.running_jobs}
-                            </b>
-                          )}
-                      </button>
-                    ))}
+                    <div className="nav-group-clip">
+                      <div className="nav-group-links">
+                        {items.map((p) => (
+                          <button
+                            key={p.key}
+                            className={
+                              "nav-item" +
+                              (current === p.key ? " selected" : "")
+                            }
+                            aria-current={
+                              current === p.key ? "page" : undefined
+                            }
+                            title={collapsed ? p.title : undefined}
+                            onClick={() => navigate(p.key)}
+                          >
+                            <p.icon
+                              size={19}
+                              weight={current === p.key ? "fill" : "regular"}
+                            />
+                            <span>{p.title}</span>
+                            {p.key === "backup-changes" &&
+                              !!dashboard.counts?.config_changes && (
+                                <b
+                                  className="nav-count"
+                                  aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
+                                >
+                                  {dashboard.counts.config_changes}
+                                </b>
+                              )}
+                            {p.key === "alerts" &&
+                              !!dashboard.counts?.firing_alerts && (
+                                <b className="nav-count">
+                                  {dashboard.counts.firing_alerts}
+                                </b>
+                              )}
+                            {p.key === "jobs" &&
+                              !!dashboard.counts?.running_jobs && (
+                                <b className="nav-count neutral">
+                                  {dashboard.counts.running_jobs}
+                                </b>
+                              )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
@@ -3337,7 +3433,12 @@ function App() {
           </header>
         </div>
         <main id="main" tabIndex={-1}>
-          <div className="page-view" key={current} data-page={page.key}>
+          <div
+            className="page-view"
+            key={current}
+            data-page={page.key}
+            data-direction={routeDirection}
+          >
             {page.key !== "overview" && (
               <div className="page-heading">
                 <div>
@@ -4022,13 +4123,14 @@ function App() {
           </div>
         </main>
       </div>
-      <nav className="mobile-dock" aria-label="Hızlı gezinme" inert={drawer}>
-        {[
-          { key: "overview", label: "Başlangıç", Icon: SquaresFour },
-          { key: "devices", label: "Cihazlar", Icon: HardDrives },
-          { key: "vlans", label: "VLAN", Icon: TreeStructure },
-          { key: "jobs", label: "Görevler", Icon: Play },
-        ].map(({ key, label, Icon }) => (
+      <nav
+        className="mobile-dock"
+        aria-label="Hızlı gezinme"
+        inert={drawer}
+        data-dock-index={DOCK_PAGES.findIndex(({ key }) => key === current)}
+      >
+        <span className="dock-active-marker" aria-hidden="true" />
+        {DOCK_PAGES.map(({ key, label, Icon }) => (
           <button
             key={key}
             aria-current={current === key ? "page" : undefined}
@@ -4161,18 +4263,12 @@ function App() {
               setCommand(false);
               inspectDevice(row);
             }}
-            onVLAN={(row) => {
-              navigate("vlans");
-              setShortcutVLAN(row);
-            }}
+            onVLAN={(row) => navigate("vlans", { vlan: row })}
             onPassword={() => {
               setCommand(false);
               setProfileOpen(true);
             }}
-            onSettings={(section) => {
-              navigate("settings");
-              setSettingsSection(section);
-            }}
+            onSettings={(section) => navigate("settings", { section })}
             onTheme={
               darkPalette
                 ? undefined

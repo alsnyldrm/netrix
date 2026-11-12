@@ -61,8 +61,27 @@ export function Profile({
 }) {
   const [tab, setTab] = useState("account");
   const content = useRef<HTMLElement>(null);
+  const previousTab = useRef(tab);
   useLayoutEffect(() => {
-    content.current?.scrollTo(0, 0);
+    const panel = content.current;
+    panel?.scrollTo(0, 0);
+    if (
+      previousTab.current === tab ||
+      document.documentElement.dataset.reduceMotion === "true" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      previousTab.current = tab;
+      return;
+    }
+    previousTab.current = tab;
+    const transition = panel?.animate(
+      [
+        { opacity: 0, transform: "translateX(16px)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 360, easing: "cubic-bezier(0.19, 1, 0.22, 1)" },
+    );
+    return () => transition?.cancel();
   }, [tab]);
   const sshAllowed = canSSH(user);
   useEffect(() => {
