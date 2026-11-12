@@ -53,16 +53,15 @@ with sync_playwright() as p:
         page.get_by_role("button", name="Menüyü aç", exact=True).click()
         sidebar = page.get_by_role("complementary", name="Ana menü")
         envanter = sidebar.get_by_role("button", name="Envanter", exact=True)
-        if envanter.get_attribute("aria-expanded") == "false":
-            envanter.click()
-        sidebar.get_by_role("button", name="Cihaz envanteri", exact=True).click()
+        envanter.click()
         expect(page).to_have_url(BASE + "/#devices")
         expect(sidebar).to_be_hidden()
         page.set_viewport_size({"width": 1440, "height": 1000})
         page.get_by_role("button", name="Menüyü daralt", exact=True).click()
-        buttons = page.locator(".sidebar-user-actions button").evaluate_all(
+        buttons = page.locator(".lumelle-sidebar-health").evaluate_all(
             "es=>es.map(e=>{const r=e.getBoundingClientRect(),p=e.closest('.sidebar').getBoundingClientRect();return {left:r.left,right:r.right,asideLeft:p.left,asideRight:p.right};})"
         )
+        assert buttons
         assert all(b["left"] >= b["asideLeft"] and b["right"] <= b["asideRight"] for b in buttons), buttons
         page.get_by_role("button", name="Menüyü genişlet", exact=True).click()
     browser.close()

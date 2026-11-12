@@ -44,7 +44,6 @@ with sync_playwright() as playwright:
             .some(a => a.transitionProperty === 'grid-template-rows' && a.playState === 'running')"""
     )
     expect(submenu).not_to_have_attribute("inert", "")
-    sidebar.get_by_role("button", name="Cihaz envanteri", exact=True).click()
     expect(root).to_have_attribute("data-route-motion", "forward")
     expect(view).to_have_attribute("data-page", "devices")
     page.wait_for_function(
@@ -87,7 +86,8 @@ with sync_playwright() as playwright:
             .some(a => a.transitionProperty === 'transform')"""
     )
     page.wait_for_function("() => !document.documentElement.dataset.routeMotion")
-    page.get_by_role("button", name="Hesap ayarlarını aç", exact=True).click()
+    page.get_by_role("button", name="Hesap menüsü", exact=True).click()
+    page.get_by_role("button", name="Profil", exact=True).click()
     profile = page.get_by_role("dialog", name="Profil", exact=True)
     profile.get_by_role("button", name="Renk paleti", exact=True).click()
     assert profile.locator(".profile-content").evaluate("el => el.getAnimations().length") == 1

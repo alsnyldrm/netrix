@@ -39,7 +39,8 @@ with sync_playwright() as p:
         return response.json() if response.status != 204 else None
 
     def open_profile():
-        page.get_by_role("button", name="Hesap ayarlarını aç", exact=True).click()
+        page.get_by_role("button", name="Hesap menüsü", exact=True).click()
+        page.get_by_role("button", name="Profil", exact=True).click()
         return page.get_by_role("dialog", name="Profil", exact=True)
 
     def settle():

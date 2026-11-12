@@ -107,8 +107,7 @@ with sync_playwright() as p:
             assert ctx.request.get(BASE + "/api/v1/access/ssh-profiles").status == 403
         for width, height in ((1440, 1000), (375, 812)):
             page.set_viewport_size({"width": width, "height": height})
-            if width < 1024:
-                page.get_by_role("button", name="Menüyü aç", exact=True).click()
+            page.get_by_role("button", name="Hesap menüsü", exact=True).click()
             page.get_by_role("button", name="Profil", exact=True).click()
             profile = page.get_by_role("dialog", name="Profil", exact=True)
             expect(profile.get_by_role("button", name="SSH Bağlantısı", exact=True)).to_have_count(

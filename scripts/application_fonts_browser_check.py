@@ -38,8 +38,7 @@ with sync_playwright() as p:
     page.wait_for_load_state("networkidle")
 
     def open_fonts():
-        if page.viewport_size["width"] < 1024:
-            page.get_by_role("button", name="Menüyü aç", exact=True).click()
+        page.get_by_role("button", name="Hesap menüsü", exact=True).click()
         page.get_by_role("button", name="Profil", exact=True).click()
         dialog = page.get_by_role("dialog", name="Profil", exact=True)
         dialog.get_by_role("button", name="Yazı tipi", exact=True).click()

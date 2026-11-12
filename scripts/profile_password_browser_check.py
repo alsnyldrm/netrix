@@ -60,6 +60,7 @@ with sync_playwright() as p:
     expect(page.get_by_label("Mevcut parola", exact=True)).to_have_count(0)
     expect(page.get_by_role("button", name="Parolayı güncelle", exact=True)).to_have_count(0)
     check("system")
+    page.get_by_role("button", name="Hesap menüsü", exact=True).click()
     page.get_by_role("button", name="Profil", exact=True).click()
     expect(page.get_by_role("button", name="Hesabım", exact=True)).to_have_attribute("aria-current", "page")
     check("account")
@@ -95,7 +96,8 @@ with sync_playwright() as p:
     expect(page.get_by_role("button", name="Çalışma alanına gir", exact=True)).to_be_visible()
     assert second.request.get("/api/v1/auth/me").status == 401
     login(NEW)
-    expect(page.get_by_role("button", name="Profil", exact=True)).to_be_visible()
+    expect(page.get_by_role("button", name="Hesap menüsü", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Hesap menüsü", exact=True).click()
     page.get_by_role("button", name="Profil", exact=True).click()
     expect(current).to_have_value("")
     current.fill(NEW)

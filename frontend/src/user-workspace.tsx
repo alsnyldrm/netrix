@@ -54,7 +54,7 @@ export function Profile({
   avatar: AccountAvatar;
   user: Row;
   themePreference: ThemePreference;
-  onThemeChange?: (mode: ThemePreference) => void;
+  onThemeChange?: (mode: ThemePreference, origin?: HTMLElement) => void;
   onClose: () => void;
   onChanged: () => void;
   onPasswordChanged: () => void;
@@ -208,7 +208,9 @@ export function Profile({
                     aria-pressed={
                       (onThemeChange ? themePreference : "dark") === mode
                     }
-                    onClick={() => onThemeChange?.(mode)}
+                    onClick={(event) =>
+                      onThemeChange?.(mode, event.currentTarget)
+                    }
                   >
                     <span
                       className={`lumelle-mode-preview preview-${mode}`}

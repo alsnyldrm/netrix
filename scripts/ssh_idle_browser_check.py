@@ -30,6 +30,7 @@ with sync_playwright() as p:
     page.get_by_label("Parola", exact=True).fill("browser-fixture-password")
     page.get_by_role("button", name="Çalışma alanına gir", exact=True).click()
     page.wait_for_load_state("networkidle")
+    page.get_by_role("button", name="Hesap menüsü", exact=True).click()
     page.get_by_role("button", name="Profil", exact=True).click()
     profile = page.get_by_role("dialog", name="Profil", exact=True)
     profile.get_by_role("button", name="SSH Bağlantısı", exact=True).click()

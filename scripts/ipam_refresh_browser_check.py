@@ -54,11 +54,8 @@ with sync_playwright() as p:
         expect(status.locator("time")).to_have_attribute("datetime", job["created_at"])
         page.keyboard.press("Escape")
         expect(open_result).to_be_focused()
-        if width <= 760:
-            page.get_by_role("button", name="Komut paletini aç (Ctrl K)", exact=True).click()
-            page.get_by_role("button", name="Açık sayfayı yenile Güncel verileri yeniden oku", exact=True).click()
-        else:
-            page.get_by_title("Açık sayfanın verilerini yenile", exact=True).click()
+        page.get_by_role("button", name="Komut paletini aç (Ctrl K)", exact=True).click()
+        page.get_by_role("button", name="Açık sayfayı yenile Güncel verileri yeniden oku", exact=True).click()
         page.wait_for_timeout(2300)
         latest = page.request.get(BASE + f"/api/v1/ipam/vlans/{result['vlan_id']}/scan").json()
         assert (latest["id"], latest["created_at"], latest["status"], latest["progress"]) == (

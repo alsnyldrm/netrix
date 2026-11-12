@@ -8,7 +8,12 @@ import { UserRoleEditor } from "./identity-roles";
 import { Profile } from "./user-workspace";
 import { darkPaletteId } from "./appearance";
 import type { ThemePreference } from "./preferences";
-import { UserPortrait, useAccountAvatar } from "./profile-avatar";
+import { useAccountAvatar } from "./profile-avatar";
+import {
+  createShortcuts,
+  LumelleMenus,
+  LumelleSectionTabs,
+} from "./lumelle-menus";
 import { SSHWorkspace } from "./ssh-workspace";
 import {
   applyPreferences,
@@ -60,7 +65,6 @@ import {
   Check,
   WarningCircle,
   X,
-  SignOut,
   ArrowsClockwise,
   Play,
   Stop,
@@ -99,7 +103,6 @@ import {
   Moon,
   List,
   SidebarSimple,
-  CaretDown,
 } from "@phosphor-icons/react";
 import type { Icon as IconType } from "@phosphor-icons/react";
 import "@fontsource/ibm-plex-sans/400.css";
@@ -870,6 +873,11 @@ const GROUPS = [
   "Operasyon",
   "Yönetim",
 ];
+const NAV_SECTIONS: Record<string, string> = {
+  "Genel bakış": "Ağ",
+  Firmware: "İşlemler",
+  Yönetim: "Sistem",
+};
 const DOCK_PAGES = [
   { key: "overview", label: "Başlangıç", Icon: SquaresFour },
   { key: "devices", label: "Cihazlar", Icon: HardDrives },
@@ -918,7 +926,8 @@ function useTheme() {
       window.removeEventListener("netrix:preferences", updatePalette);
     };
   }, []);
-  useEffect(() => {
+  const themeTransition = useRef<ViewTransition | null>(null);
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = theme;
     document
@@ -928,16 +937,57 @@ function useTheme() {
         getComputedStyle(root).getPropertyValue("--bg").trim(),
       );
   }, [palette, theme]);
-  const chooseTheme = (mode: ThemePreference) => {
-    setPreference(mode);
-    writePref("netrix-theme", mode);
+  const chooseTheme = (mode: ThemePreference, origin?: HTMLElement) => {
+    const update = () => {
+      setPreference(mode);
+      writePref("netrix-theme", mode);
+    };
+    const root = document.documentElement;
+    const nextTheme =
+      mode === "system" ? (systemDark ? "dark" : "light") : mode;
+    if (
+      !origin ||
+      nextTheme === theme ||
+      darkPalette ||
+      root.dataset.routeMotion ||
+      root.dataset.reduceMotion === "true" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !document.startViewTransition
+    ) {
+      update();
+      return;
+    }
+    const bounds = origin.getBoundingClientRect();
+    const x = bounds.left + bounds.width / 2;
+    const y = bounds.top + bounds.height / 2;
+    const radius = Math.hypot(
+      Math.max(x, innerWidth - x),
+      Math.max(y, innerHeight - y),
+    );
+    themeTransition.current?.skipTransition();
+    root.dataset.themeMotion = "true";
+    root.style.setProperty("--theme-origin", `${x}px ${y}px`);
+    root.style.setProperty("--theme-radius", `${radius}px`);
+    const transition = document.startViewTransition(() => {
+      if (themeTransition.current === transition) flushSync(update);
+    });
+    themeTransition.current = transition;
+    const finish = () => {
+      if (themeTransition.current !== transition) return;
+      themeTransition.current = null;
+      delete root.dataset.themeMotion;
+      root.style.removeProperty("--theme-origin");
+      root.style.removeProperty("--theme-radius");
+    };
+    void transition.finished.then(finish, finish);
   };
   return {
     theme,
     preference,
     darkPalette,
     chooseTheme,
-    toggleTheme: () => chooseTheme(theme === "dark" ? "light" : "dark"),
+    toggleTheme: (origin?: HTMLElement) =>
+      chooseTheme(theme === "dark" ? "light" : "dark", origin),
   };
 }
 function ThemeToggle({
@@ -945,12 +995,12 @@ function ThemeToggle({
   onToggle,
 }: {
   theme: Theme;
-  onToggle: () => void;
+  onToggle: (origin?: HTMLElement) => void;
 }) {
   return (
     <button
       className="icon-button theme-toggle"
-      onClick={onToggle}
+      onClick={(event) => onToggle(event.currentTarget)}
       aria-label={theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
       title={theme === "dark" ? "Açık tema" : "Koyu tema"}
     >
@@ -1148,7 +1198,7 @@ function Auth({
 }: {
   onLogin: (u: Row) => void;
   theme: Theme;
-  onTheme: () => void;
+  onTheme: (origin?: HTMLElement) => void;
 }) {
   const [setup, setSetup] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -1984,13 +2034,21 @@ function Overview({
     <>
       <div className="overview-heading">
         <div>
-          <span className="eyebrow">Operasyon panoraması</span>
           <h1>Ağınızın bütün resmi</h1>
-          <p>Bağlantıları anlayın, değişimi yakalayın, güvenle yönetin.</p>
+          <p>
+            {formatDate(new Date(), true)} · {c.active_devices ?? 0} aktif
+            cihaz, {c.firing_alerts ?? 0} aktif alarm
+          </p>
         </div>
-        <div className="day-marker">
-          <Clock size={18} />
-          <span>{formatDate(new Date(), true)}</span>
+        <div className="page-actions">
+          <button className="secondary" onClick={() => navigate("jobs")}>
+            <ClockCounterClockwise size={16} aria-hidden="true" /> Görev merkezi
+          </button>
+          {canAdd("devices") && (
+            <button className="primary" onClick={() => onAdd("devices")}>
+              <Plus size={17} aria-hidden="true" /> Yeni cihaz
+            </button>
+          )}
         </div>
       </div>
       <div className="dashboard-main">
@@ -2025,48 +2083,105 @@ function Overview({
             <span className="muted">LLDP / CDP</span>
           </footer>
         </section>
-        <section className="panel setup-panel">
-          <span className="eyebrow">Başlangıç</span>
-          <h2>
-            {c.devices
-              ? "Operasyona devam edin."
-              : "Büyük resim, ilk bağlantıyla başlar."}
-          </h2>
-          <p>
-            {c.devices
-              ? "Ağınızı keşif ve yedekleme araçlarıyla yönetin."
-              : "Üç küçük adımla ağınızı görünür hale getirin."}
-          </p>
-          <div className="setup-steps">
-            {steps
-              .filter((step) => step.done || canAdd(step.key))
-              .map((step, i) => (
-                <button
-                  onClick={() =>
-                    step.done ? navigate(step.key) : onAdd(step.key)
-                  }
-                  key={i}
-                >
-                  <span className={"step-number " + (step.done ? "done" : "")}>
-                    {step.done ? (
-                      <Check size={15} />
-                    ) : (
-                      String(i + 1).padStart(2, "0")
-                    )}
-                  </span>
-                  <span>
-                    <b>{step.title}</b>
-                    <small>{step.desc}</small>
-                  </span>
-                  <ArrowUpRight size={15} />
-                </button>
-              ))}
-          </div>
-          <div className="setup-note">
-            <ShieldCheck size={16} /> Her keşif, sizin belirlediğiniz sınırlar
-            içinde.
-          </div>
-        </section>
+        {c.active_devices > 0 ? (
+          <section
+            className="panel lumelle-live-card"
+            aria-label="Ağın güncel durumu"
+          >
+            <header>
+              <div>
+                <h2>Şu anda</h2>
+                <p>Ağın güncel durumu</p>
+              </div>
+              <span className="lumelle-live-badge">
+                <i aria-hidden="true" /> Canlı
+              </span>
+            </header>
+            <div className="lumelle-live-count">
+              <strong>{c.reachable ?? 0}</strong>
+              <span>erişilebilir cihaz</span>
+            </div>
+            <div className="lumelle-live-rows">
+              <div>
+                <span>Erişilebilir</span>
+                <progress
+                  aria-label="Erişilebilir cihazlar"
+                  max={c.active_devices}
+                  value={c.reachable ?? 0}
+                />
+                <b>{c.reachable ?? 0}</b>
+              </div>
+              <div>
+                <span>Doğrulanmadı</span>
+                <progress
+                  aria-label="Erişilebilirliği doğrulanmamış cihazlar"
+                  max={c.active_devices}
+                  value={Math.max(0, c.active_devices - (c.reachable ?? 0))}
+                />
+                <b>{Math.max(0, c.active_devices - (c.reachable ?? 0))}</b>
+              </div>
+            </div>
+            <div className="lumelle-live-links">
+              <button onClick={() => navigate("jobs")}>
+                <Play size={16} aria-hidden="true" /> Çalışan görevler{" "}
+                <b>{c.running_jobs ?? 0}</b>
+              </button>
+              <button onClick={() => navigate("alerts")}>
+                <Bell size={16} aria-hidden="true" /> Aktif alarmlar{" "}
+                <b>{c.firing_alerts ?? 0}</b>
+              </button>
+              <button onClick={() => navigate("backup-changes")}>
+                <Archive size={16} aria-hidden="true" /> Konfigürasyon
+                değişiklikleri <b>{c.config_changes ?? 0}</b>
+              </button>
+            </div>
+          </section>
+        ) : (
+          <section className="panel setup-panel">
+            <span className="eyebrow">Başlangıç</span>
+            <h2>
+              {c.devices
+                ? "Operasyona devam edin."
+                : "Büyük resim, ilk bağlantıyla başlar."}
+            </h2>
+            <p>
+              {c.devices
+                ? "Ağınızı keşif ve yedekleme araçlarıyla yönetin."
+                : "Üç küçük adımla ağınızı görünür hale getirin."}
+            </p>
+            <div className="setup-steps">
+              {steps
+                .filter((step) => step.done || canAdd(step.key))
+                .map((step, i) => (
+                  <button
+                    onClick={() =>
+                      step.done ? navigate(step.key) : onAdd(step.key)
+                    }
+                    key={i}
+                  >
+                    <span
+                      className={"step-number " + (step.done ? "done" : "")}
+                    >
+                      {step.done ? (
+                        <Check size={15} />
+                      ) : (
+                        String(i + 1).padStart(2, "0")
+                      )}
+                    </span>
+                    <span>
+                      <b>{step.title}</b>
+                      <small>{step.desc}</small>
+                    </span>
+                    <ArrowUpRight size={15} />
+                  </button>
+                ))}
+            </div>
+            <div className="setup-note">
+              <ShieldCheck size={16} /> Her keşif, sizin belirlediğiniz sınırlar
+              içinde.
+            </div>
+          </section>
+        )}
       </div>
       <div className="metrics">
         {[
@@ -2497,7 +2612,7 @@ function App() {
   } | null>(null);
   const [command, setCommand] = useState(false);
   const [commandQuery, setCommandQuery] = useState("");
-  const [refreshing, setRefreshing] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const refreshingRef = useRef(false);
   const [settingsSection, setSettingsSection] = useState("");
   const [shortcutVLAN, setShortcutVLAN] = useState<Row | null>(null);
@@ -2530,7 +2645,9 @@ function App() {
     setDrawer(true);
   };
   const sidebarNavigation = useRef<HTMLElement>(null);
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(
+    () => PAGES.find((item) => item.key === current)?.group ?? null,
+  );
   const page =
     PAGES.find(
       (p) =>
@@ -2640,7 +2757,6 @@ function App() {
   const refreshPage = async () => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
-    setRefreshing(true);
     reload();
     try {
       await refreshVisibleQueries();
@@ -2649,10 +2765,10 @@ function App() {
       notify("Yenileme tamamlanamadı: " + e.message);
     } finally {
       refreshingRef.current = false;
-      setRefreshing(false);
     }
   };
   const displayedPage = useRef(current);
+  const [previousPage, setPreviousPage] = useState(current);
   const pageTransition = useRef<ViewTransition | null>(null);
   const [fallbackDirection, setFallbackDirection] = useState<
     "forward" | "backward" | null
@@ -2666,6 +2782,7 @@ function App() {
         : "forward";
     const commit = (fallback: typeof fallbackDirection) => {
       displayedPage.current = key;
+      setPreviousPage(previous);
       setFallbackDirection(fallback);
       update();
     };
@@ -2932,7 +3049,7 @@ function App() {
       socket?.close();
     };
   }, [user, reload]);
-  const add = (key: string) => {
+  const add = (key: string, fromWorkspaceMenu = false) => {
     const p = PAGES.find((p) => p.key === key);
     if (!p?.fields) return;
     if (!canWrite || ((key === "credentials" || key === "users") && !isAdmin)) {
@@ -2945,21 +3062,21 @@ function App() {
             (site) => site.id === cabinetRoomId && site.parent_id,
           )
         : undefined;
+    const vlan = key === "vlans" && !fromWorkspaceMenu ? ipamVLAN : null;
     setForm({
-      page: key === "vlans" && ipamVLAN ? ADDRESS_PAGE : p,
-      vlanContext: key === "vlans" && ipamVLAN ? ipamVLAN : undefined,
-      row:
-        key === "vlans" && ipamVLAN
-          ? {
-              vrf_id: ipamVLAN.vrf_id,
-              vlan_id: ipamVLAN.id,
-              institution_id: ipamVLAN.institution_id,
-              site_id: ipamVLAN.site_id,
-              status: "reserved",
-            }
-          : room
-            ? { site_id: room.parent_id, sub_site_id: room.id }
-            : undefined,
+      page: vlan ? ADDRESS_PAGE : p,
+      vlanContext: vlan ?? undefined,
+      row: vlan
+        ? {
+            vrf_id: vlan.vrf_id,
+            vlan_id: vlan.id,
+            institution_id: vlan.institution_id,
+            site_id: vlan.site_id,
+            status: "reserved",
+          }
+        : room
+          ? { site_id: room.parent_id, sub_site_id: room.id }
+          : undefined,
     });
   };
   const runJob = async (kind: string, target_id: string) => {
@@ -3124,6 +3241,16 @@ function App() {
         standaloneDraftId={batchRoute?.[1] ? batchRoute[2] : undefined}
       />
     );
+  const activeDevices = dashboard.counts?.active_devices ?? 0;
+  const reachable = dashboard.counts?.reachable ?? 0;
+  const reachablePercent = activeDevices
+    ? Math.round((100 * reachable) / activeDevices)
+    : 0;
+  const sectionPages = PAGES.filter(
+    (item) =>
+      item.group === page.group &&
+      (!["users", "audit"].includes(item.key) || isAdmin),
+  );
   const commandTrigger = (
     <button
       className="command-trigger"
@@ -3158,19 +3285,6 @@ function App() {
         {connected ? "Bağlı" : "Yeniden bağlanıyor"}
       </div>
       {!darkPalette && <ThemeToggle theme={theme} onToggle={toggleTheme} />}
-      <button
-        className="icon-button topbar-refresh"
-        aria-label={refreshing ? "Veriler yenileniyor" : "Verileri yenile"}
-        title="Açık sayfanın verilerini yenile"
-        disabled={refreshing}
-        aria-busy={refreshing}
-        onClick={refreshPage}
-      >
-        <ArrowsClockwise
-          size={19}
-          className={refreshing ? "refresh-spinning" : undefined}
-        />
-      </button>
     </>
   );
   return (
@@ -3228,6 +3342,27 @@ function App() {
               <X size={18} />
             </button>
           </div>
+          {canWrite && drawer && (
+            <div className="lumelle-drawer-shortcuts">
+              {createShortcuts.map(({ key, label, Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setDrawer(false);
+                    add(key, true);
+                  }}
+                >
+                  <Icon size={19} aria-hidden="true" />
+                  <span>
+                    Yeni{" "}
+                    {label === "VLAN"
+                      ? label
+                      : label.toLocaleLowerCase("tr-TR")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
           <nav
             className="sidebar-nav"
             aria-label="Sayfalar"
@@ -3241,9 +3376,14 @@ function App() {
                   (!["users", "audit"].includes(item.key) || isAdmin),
               );
               const Icon = items[0].icon;
+              const expanded = drawer || openGroup === g;
+              const section = NAV_SECTIONS[g];
               if (items.length === 1) {
                 return (
                   <div className="nav-group" key={g}>
+                    {section && (
+                      <span className="nav-section-label">{section}</span>
+                    )}
                     <button
                       className={
                         "nav-group-title" +
@@ -3265,26 +3405,24 @@ function App() {
                   className={"nav-group" + (page.group === g ? " active" : "")}
                   key={g}
                 >
+                  {section && (
+                    <span className="nav-section-label">{section}</span>
+                  )}
                   <button
                     type="button"
                     className="nav-group-title"
-                    aria-expanded={openGroup === g}
+                    aria-expanded={expanded}
                     aria-controls={`nav-group-${index}`}
-                    onClick={() => setOpenGroup(openGroup === g ? null : g)}
+                    onClick={() => navigate(items[0].key)}
                   >
                     <Icon size={17} aria-hidden="true" />
                     <span>{g}</span>
-                    <CaretDown
-                      className="nav-group-chevron"
-                      size={15}
-                      aria-hidden="true"
-                    />
                   </button>
                   <div
                     id={`nav-group-${index}`}
                     className="nav-group-items"
-                    data-open={openGroup === g}
-                    inert={openGroup !== g}
+                    data-open={expanded}
+                    inert={!expanded}
                   >
                     <div className="nav-group-clip">
                       <div className="nav-group-links">
@@ -3336,39 +3474,23 @@ function App() {
               );
             })}
           </nav>
-          <div className="sidebar-user">
-            <UserPortrait
-              name={user.display_name}
-              url={accountAvatar.data?.url}
-            />
-            <span className="sidebar-user-text" title={user.display_name}>
-              <b>{user.display_name}</b>
-              <small>{tag(user.role)}</small>
+          <button
+            className="lumelle-sidebar-health"
+            onClick={() => navigate("devices")}
+          >
+            <span
+              className="lumelle-health-ring"
+              style={
+                { "--reachable": `${reachablePercent}%` } as React.CSSProperties
+              }
+            >
+              <b>{reachablePercent}%</b>
             </span>
-            <div className="sidebar-user-actions">
-              <button
-                className="sidebar-user-action sidebar-profile"
-                onClick={() => {
-                  setProfileOpen(true);
-                  setDrawer(false);
-                }}
-                aria-label="Profil"
-                title="Profil"
-              >
-                <GearSix size={18} aria-hidden="true" />
-                <span>Profil</span>
-              </button>
-              <button
-                className="sidebar-user-action"
-                onClick={logout}
-                aria-label="Güvenli çıkış"
-                title="Güvenli çıkış"
-              >
-                <SignOut size={18} aria-hidden="true" />
-                <span>Çıkış</span>
-              </button>
-            </div>
-          </div>
+            <span>
+              <b>{reachable} cihaz erişilebilir</b>
+              <small>{activeDevices} aktif cihaz</small>
+            </span>
+          </button>
         </aside>
       </div>
       <div
@@ -3392,44 +3514,36 @@ function App() {
               <Brand small />
             </div>
             <div className="breadcrumbs">
-              <span>{page.group}</span>
+              <span>NETRIX</span>
               <CaretRight size={12} aria-hidden="true" />
+              {page.key !== "overview" && (
+                <>
+                  <span>{page.group}</span>
+                  <CaretRight size={12} aria-hidden="true" />
+                </>
+              )}
               <b>{page.title}</b>
             </div>
             <div className="topbar-actions">
               {commandTrigger}
               {workspaceUtilities}
-              <button
-                className="icon-button topbar-alerts"
-                aria-label="Alarmlar"
-                onClick={() => navigate("alerts")}
-              >
-                <Bell size={19} aria-hidden="true" />
-                {!!dashboard.counts?.firing_alerts && (
-                  <span className="nav-count">
-                    {dashboard.counts.firing_alerts}
-                  </span>
-                )}
-              </button>
-              {canWrite && (
-                <button
-                  className="primary topbar-create"
-                  aria-label="Yeni cihaz ekle"
-                  onClick={() => add("devices")}
-                >
-                  <Plus size={18} aria-hidden="true" /> <span>Yeni</span>
-                </button>
-              )}
-              <button
-                className="topbar-profile"
-                aria-label="Hesap ayarlarını aç"
-                onClick={() => setProfileOpen(true)}
-              >
-                <UserPortrait
-                  name={user.display_name}
-                  url={accountAvatar.data?.url}
-                />
-              </button>
+              <LumelleMenus
+                displayName={user.display_name}
+                role={tag(user.role)}
+                avatarUrl={accountAvatar.data?.url}
+                preference={preference}
+                chooseTheme={darkPalette ? undefined : chooseTheme}
+                connected={connected}
+                alertCount={dashboard.counts?.firing_alerts ?? 0}
+                refresh={refresh}
+                canWrite={canWrite}
+                canManageUsers={isAdmin}
+                onCreate={(key) => add(key, true)}
+                onNavigate={navigate}
+                onProfile={() => setProfileOpen(true)}
+                onShortcuts={() => setShortcutsOpen(true)}
+                onLogout={logout}
+              />
             </div>
           </header>
         </div>
@@ -3517,6 +3631,15 @@ function App() {
                   Yeniden dene
                 </button>
               </div>
+            )}
+            {sectionPages.length > 1 && (
+              <LumelleSectionTabs
+                label={page.group}
+                pages={sectionPages}
+                current={page.key}
+                previous={previousPage}
+                onNavigate={navigate}
+              />
             )}
             {page.key === "overview" ? (
               <Overview
@@ -4146,7 +4269,7 @@ function App() {
           aria-controls="main-sidebar"
           onClick={openDrawer}
         >
-          <List size={18} aria-hidden="true" />
+          <SquaresFour size={18} aria-hidden="true" />
           <span>Diğer</span>
         </button>
       </nav>
@@ -4159,6 +4282,33 @@ function App() {
             reload();
           }}
         />
+      )}
+      {shortcutsOpen && (
+        <Dialog
+          title="Klavye kısayolları"
+          onClose={() => setShortcutsOpen(false)}
+        >
+          <dl className="lumelle-shortcuts">
+            <div>
+              <dt>Aramayı aç</dt>
+              <dd>
+                <kbd>Ctrl</kbd> <kbd>K</kbd>
+              </dd>
+            </div>
+            <div>
+              <dt>Pencereyi kapat</dt>
+              <dd>
+                <kbd>Esc</kbd>
+              </dd>
+            </div>
+            <div>
+              <dt>Sonraki kontrole geç</dt>
+              <dd>
+                <kbd>Tab</kbd>
+              </dd>
+            </div>
+          </dl>
+        </Dialog>
       )}
       {profileOpen && (
         <Profile
@@ -4252,6 +4402,7 @@ function App() {
       {command && (
         <Dialog
           title="Çalışma alanında gezin"
+          className="lumelle-finder"
           onClose={() => setCommand(false)}
         >
           <WorkspaceSearch
@@ -4286,7 +4437,11 @@ function App() {
         </Dialog>
       )}
       {detail && (
-        <Dialog title={detail.name} onClose={() => setDetail(null)} wide>
+        <Dialog
+          title={detail.name}
+          onClose={() => setDetail(null)}
+          className="lumelle-detail-drawer"
+        >
           <div className="device-detail">
             <div className="device-summary">
               <DeviceVendorMark vendor={detail.vendor} />

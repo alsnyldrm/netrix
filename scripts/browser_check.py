@@ -230,6 +230,7 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Alarm akışı", exact=True).click()
     expect(page.get_by_role("heading", name="Alarm akışı", exact=True)).to_be_visible()
     page.get_by_role("button", name="Menüyü genişlet").click()
+    page.get_by_role("button", name="Hesap menüsü", exact=True).click()
     page.get_by_role("button", name="Güvenli çıkış").click()
     expect(page.get_by_role("heading", name="Tekrar hoş geldiniz.")).to_be_visible()
     assert not errors, errors
