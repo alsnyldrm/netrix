@@ -668,16 +668,16 @@ class Scope(Entity, Base):
         cascade="all, delete-orphan", passive_deletes=True, order_by="ScopeCredential.position"
     )
 
-    type_profiles: Mapped[list["ScopeTypeProfile"]] = relationship(
+    model_profiles: Mapped[list["ScopeModelProfile"]] = relationship(
         cascade="all, delete-orphan", passive_deletes=True
     )
 
     @property
-    def device_type_profiles(self):
-        return {entry.device_kind: entry.credential_id for entry in self.type_profiles}
+    def device_model_profiles(self):
+        return {entry.device_model: entry.credential_id for entry in self.model_profiles}
 
-    def credential_ids_for(self, kind):
-        profile = self.device_type_profiles.get(kind)
+    def credential_ids_for(self, model):
+        profile = self.device_model_profiles.get((model or "").strip().casefold())
         return [profile] if profile else self.credential_ids
 
     @property
@@ -713,14 +713,12 @@ class ScopeCredential(Base):
     __table_args__ = (UniqueConstraint("scope_id", "position"),)
 
 
-class ScopeTypeProfile(Base):
-    __tablename__ = "discovery_scope_type_profiles"
+class ScopeModelProfile(Base):
+    __tablename__ = "discovery_scope_model_profiles"
     scope_id: Mapped[str] = mapped_column(
         ForeignKey("envanter.discovery_scopes.id", ondelete="CASCADE"), primary_key=True
     )
-    device_kind: Mapped[str] = mapped_column(
-        ForeignKey("envanter.device_types.code", ondelete="CASCADE"), primary_key=True, index=True
-    )
+    device_model: Mapped[str] = mapped_column(String(190), primary_key=True)
     credential_id: Mapped[str] = mapped_column(ForeignKey("yonetim.credentials.id"), index=True)
 
 

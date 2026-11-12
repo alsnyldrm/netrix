@@ -670,6 +670,21 @@ def list_items(
     return svc.list_resource(db, resource, limit, offset, q, device_id)
 
 
+@app.get(P + "/scopes/device-models")
+def scope_device_models(user=Depends(current_user), db=Depends(db_session)):
+    models = {}
+    for label in db.scalars(
+        select(m.Device.model)
+        .where(m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None), m.Device.model != "")
+        .distinct()
+        .order_by(m.Device.model)
+    ):
+        label = label.strip()
+        if label:
+            models.setdefault(label.casefold(), label)
+    return [{"key": key, "label": label} for key, label in models.items()]
+
+
 @app.get(P + "/{resource}/{id}")
 def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_session)):
     if resource not in svc.RESOURCES:

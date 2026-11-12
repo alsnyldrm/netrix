@@ -206,7 +206,7 @@ class ScopeInput(Input):
     vrf_id: str
     credential_id: str | None = None
     credential_ids: list[str] | None = Field(default=None, max_length=16)
-    device_type_profiles: dict[str, str] | None = Field(default=None, max_length=256)
+    device_model_profiles: dict[str, str] | None = Field(default=None, max_length=256)
     site_id: str | None = None
     exclusions: list[str] = Field(default_factory=list, max_length=256)
     seeds: list[str] = Field(default_factory=list, max_length=1024)

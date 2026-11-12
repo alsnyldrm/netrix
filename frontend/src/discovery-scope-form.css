@@ -75,15 +75,33 @@
   min-height: 44px;
 }
 
-.discovery-type-profiles summary {
+.discovery-profile-card {
+  min-width: 0;
+}
+.discovery-model-picker {
+  padding: 4px 10px 6px;
+}
+.discovery-model-picker summary {
   cursor: pointer;
-  font-weight: 600;
+  min-height: 44px;
+  line-height: 44px;
+  overflow-wrap: anywhere;
 }
-.discovery-type-profile {
-  min-width: 0;
-  margin: 0;
+.discovery-model-options {
+  display: grid;
+  gap: 2px;
 }
-.discovery-type-profile select {
-  min-width: 0;
-  width: 100%;
+.discovery-model-option {
+  display: flex;
+  gap: 10px;
+  min-height: 44px;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.discovery-model-option input {
+  flex: none;
+}
+.discovery-model-option small {
+  display: block;
+  color: var(--text-2);
 }

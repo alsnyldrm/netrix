@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import { api, Dialog, resourceChoices } from "./main";
+import { useLiveQuery } from "./data";
 import "./discovery-scope-form.css";
 
 type Row = Record<string, any>;
@@ -27,7 +28,7 @@ export function DiscoveryScopeForm({
     site_id: row?.site_id || "",
     credential_ids: (row?.credential_ids ||
       (row?.credential_id ? [row.credential_id] : [])) as string[],
-    device_type_profiles: (row?.device_type_profiles || {}) as Record<
+    device_model_profiles: (row?.device_model_profiles || {}) as Record<
       string,
       string
     >,
@@ -45,6 +46,15 @@ export function DiscoveryScopeForm({
   const profiles = (refs.credentials || []).filter((profile) =>
     ["snmpv3", "snmpv2c"].includes(profile.protocol),
   );
+  const modelsQuery = useLiveQuery<{ key: string; label: string }[]>(
+    "/scopes/device-models",
+  );
+  const models = new Map(
+    (modelsQuery.data || []).map(({ key, label }) => [key, label]),
+  );
+  for (const key of Object.keys(values.device_model_profiles)) {
+    if (!models.has(key)) models.set(key, key);
+  }
   const sites = resourceChoices(
     { key: "site_id", label: "Lokasyon", ref: "sites" },
     refs,
@@ -59,8 +69,8 @@ export function DiscoveryScopeForm({
     setValues((current) => ({
       ...current,
       credential_ids: ids,
-      device_type_profiles: Object.fromEntries(
-        Object.entries(current.device_type_profiles).filter(([, id]) =>
+      device_model_profiles: Object.fromEntries(
+        Object.entries(current.device_model_profiles).filter(([, id]) =>
           ids.includes(id),
         ),
       ),
@@ -242,42 +252,114 @@ export function DiscoveryScopeForm({
           </legend>
           <p id="discovery-profile-hint">
             Birden fazla profil seçebilirsiniz. Profiller seçim sırasıyla
-            denenir; yanıt veren profil kullanılır.
+            denenir. Eşleştirilmiş cihaz modelinde yalnız o profil kullanılır.
           </p>
           <div className="discovery-profile-list">
             {profiles.map((profile) => {
               const index = values.credential_ids.indexOf(profile.id);
+              const modelCount = Object.values(
+                values.device_model_profiles,
+              ).filter((id) => id === profile.id).length;
               return (
-                <label key={profile.id} className="discovery-profile-option">
-                  <input
-                    type="checkbox"
-                    checked={index >= 0}
-                    disabled={index < 0 && values.credential_ids.length >= 16}
-                    onChange={(e) =>
-                      selectProfiles(
-                        e.target.checked
-                          ? [...values.credential_ids, profile.id]
-                          : values.credential_ids.filter(
-                              (id) => id !== profile.id,
-                            ),
-                      )
-                    }
-                  />
-                  <span>
-                    <b>{profile.name}</b>
-                    <small>
-                      {profile.protocol === "snmpv3" ? "SNMPv3" : "SNMPv2c"}
-                    </small>
-                  </span>
-                  {index >= 0 && (
-                    <span
-                      className="discovery-profile-order"
-                      aria-label={`${index + 1}. sırada`}
-                    >
-                      {index + 1}
+                <div key={profile.id} className="discovery-profile-card">
+                  <label className="discovery-profile-option">
+                    <input
+                      type="checkbox"
+                      checked={index >= 0}
+                      disabled={index < 0 && values.credential_ids.length >= 16}
+                      onChange={(e) =>
+                        selectProfiles(
+                          e.target.checked
+                            ? [...values.credential_ids, profile.id]
+                            : values.credential_ids.filter(
+                                (id) => id !== profile.id,
+                              ),
+                        )
+                      }
+                    />
+                    <span>
+                      <b>{profile.name}</b>
+                      <small>
+                        {profile.protocol === "snmpv3" ? "SNMPv3" : "SNMPv2c"}
+                      </small>
                     </span>
+                    {index >= 0 && (
+                      <span
+                        className="discovery-profile-order"
+                        aria-label={`${index + 1}. sırada`}
+                      >
+                        {index + 1}
+                      </span>
+                    )}
+                  </label>
+                  {index >= 0 && (
+                    <details
+                      className="discovery-model-picker"
+                      name="discovery-profile-models"
+                    >
+                      <summary aria-label={`${profile.name} cihaz modelleri`}>
+                        Cihaz modelleri
+                        {modelCount > 0 && ` · ${modelCount} seçili`}
+                      </summary>
+                      {modelsQuery.error ? (
+                        <p role="alert">{modelsQuery.error}</p>
+                      ) : modelsQuery.loading ? (
+                        <p role="status">Modeller yükleniyor…</p>
+                      ) : !models.size ? (
+                        <p>Envanterde kayıtlı cihaz modeli yok.</p>
+                      ) : (
+                        <div className="discovery-model-options">
+                          {[...models].map(([key, label]) => {
+                            const owner = Object.prototype.hasOwnProperty.call(
+                              values.device_model_profiles,
+                              key,
+                            )
+                              ? values.device_model_profiles[key]
+                              : undefined;
+                            const other = owner && owner !== profile.id;
+                            return (
+                              <label
+                                key={key}
+                                className="discovery-model-option"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={owner === profile.id}
+                                  disabled={!!other}
+                                  onChange={(event) => {
+                                    const checked = event.target.checked;
+                                    setValues((current) => {
+                                      const mappings = {
+                                        ...current.device_model_profiles,
+                                        [key]: profile.id,
+                                      };
+                                      if (!checked) delete mappings[key];
+                                      return {
+                                        ...current,
+                                        device_model_profiles: mappings,
+                                      };
+                                    });
+                                  }}
+                                />
+                                <span>
+                                  {label}
+                                  {other && (
+                                    <small>
+                                      {
+                                        profiles.find((p) => p.id === owner)
+                                          ?.name
+                                      }
+                                    </small>
+                                  )}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </details>
                   )}
-                </label>
+                </div>
               );
             })}
             {!profiles.length && (
@@ -291,51 +373,6 @@ export function DiscoveryScopeForm({
             {values.credential_ids.length} profil seçildi · En fazla 16
           </small>
         </fieldset>
-        <details
-          className="discovery-profiles discovery-type-profiles"
-          open={
-            Object.keys(values.device_type_profiles).length > 0 || undefined
-          }
-        >
-          <summary>Cihaz türüne göre SNMP profili</summary>
-          <p>
-            Eşleştirilen türlerde yalnız seçilen profil denenir. Türü bilinmeyen
-            veya eşleştirilmemiş cihazlarda yukarıdaki sıra kullanılır.
-          </p>
-          <div className="discovery-profile-list">
-            {(refs["device-types"] || []).map((type) => (
-              <label
-                key={type.code}
-                className="form-field discovery-type-profile"
-              >
-                <span className="field-title">{type.name}</span>
-                <select
-                  value={values.device_type_profiles[type.code] || ""}
-                  onChange={(event) => {
-                    const id = event.target.value;
-                    setValues((current) => {
-                      const mappings = { ...current.device_type_profiles };
-                      if (id) mappings[type.code] = id;
-                      else delete mappings[type.code];
-                      return { ...current, device_type_profiles: mappings };
-                    });
-                  }}
-                >
-                  <option value="">Kapsam sırasını kullan</option>
-                  {profiles
-                    .filter((profile) =>
-                      values.credential_ids.includes(profile.id),
-                    )
-                    .map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-            ))}
-          </div>
-        </details>
         <div className="form-grid">
           <label className="form-field">
             <span className="field-title">Hariç tutulan ağlar</span>

@@ -251,7 +251,7 @@ async def test_existing_device_uses_working_profile_without_overwriting_external
     }
 
 
-async def test_known_device_type_uses_only_its_profile(admin_client, inventory, env):
+async def test_known_device_model_uses_only_its_profile(admin_client, inventory, env):
     primary = inventory["credential"]["id"]
     alternate = second_profile(admin_client)
     scope = inventory["scope"]
@@ -263,20 +263,25 @@ async def test_known_device_type_uses_only_its_profile(admin_client, inventory, 
                 vrf_id=scope["vrf_id"],
                 discovery_scope_id=scope["id"],
                 kind="switch",
+                model=" Aruba 6100 ",
             )
         )
         db.commit()
-    params = {"credential_ids": [primary, alternate], "device_type_profiles": {"switch": alternate}}
+    params = {
+        "credential_ids": [primary, alternate],
+        "device_model_profiles": {"Aruba 6100": alternate, "Aruba 6200": alternate},
+    }
     response = update(admin_client, inventory, **params)
     assert response.status_code == 200, response.text
-    assert response.json()["device_type_profiles"] == {"switch": alternate}
+    assert response.json()["device_model_profiles"] == {"aruba 6100": alternate, "aruba 6200": alternate}
     assert (
-        update(
-            admin_client, inventory, **{**params, "device_type_profiles": {"invalid": alternate}}
-        ).status_code
+        update(admin_client, inventory, **{**params, "device_model_profiles": {" ": alternate}}).status_code
         == 422
     )
     assert update(admin_client, inventory, **{**params, "credential_ids": [primary]}).status_code == 422
+    assert {"key": "aruba 6100", "label": "Aruba 6100"} in admin_client.get(
+        "/api/v1/scopes/device-models"
+    ).json()
     types = {
         row["code"]: row["device_count"] for row in admin_client.get("/api/v1/device-types").json()["items"]
     }

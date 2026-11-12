@@ -100,7 +100,7 @@ def serialize(obj):
         result["kind_name"] = obj.device_type.name if obj.device_type else obj.kind
     if isinstance(obj, m.Scope):
         result["credential_ids"] = obj.credential_ids
-        result["device_type_profiles"] = obj.device_type_profiles
+        result["device_model_profiles"] = obj.device_model_profiles
     return result
 
 
@@ -324,21 +324,24 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         if not hierarchy.intersection(value.model_fields_set) and data["location"] == row.location:
             # Older clients may update another field without knowing the hierarchy.
             data.update({key: getattr(row, key) for key in hierarchy})
-    type_profiles = None
+    model_profiles = None
     if name == "scopes":
-        type_profiles = data.pop("device_type_profiles")
-        if type_profiles is None:
-            type_profiles = {
-                kind: profile
-                for kind, profile in (row.device_type_profiles if row_id else {}).items()
+        model_profiles = data.pop("device_model_profiles")
+        if model_profiles is None:
+            model_profiles = {
+                model: profile
+                for model, profile in (row.device_model_profiles if row_id else {}).items()
                 if profile in data["credential_ids"]
             }
-        if set(type_profiles.values()) - set(data["credential_ids"]):
-            raise HTTPException(422, "Cihaz türü için kapsamda seçili bir SNMP profili kullanın")
-        if type_profiles and set(type_profiles) != set(
-            db.scalars(select(m.DeviceType.code).where(m.DeviceType.code.in_(type_profiles)))
-        ):
-            raise HTTPException(422, "Cihaz türü bulunamadı")
+        normalized = {}
+        for model, profile in model_profiles.items():
+            key = model.strip().casefold()
+            if not key or len(key) > 190 or key in normalized:
+                raise HTTPException(422, "Cihaz modeli boş, çok uzun veya birden fazla profile atanmış")
+            normalized[key] = profile
+        model_profiles = normalized
+        if set(model_profiles.values()) - set(data["credential_ids"]):
+            raise HTTPException(422, "Cihaz modeli için kapsamda seçili bir SNMP profili kullanın")
     validate_relations(db, name, data, row_id)
     if name == "devices" and (
         not row_id or row.management_ip != data["management_ip"] or row.vrf_id != data["vrf_id"]
@@ -409,13 +412,13 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         )
         db.flush()
         db.expire(row, ["profiles"])
-        db.execute(delete(m.ScopeTypeProfile).where(m.ScopeTypeProfile.scope_id == row.id))
+        db.execute(delete(m.ScopeModelProfile).where(m.ScopeModelProfile.scope_id == row.id))
         db.add_all(
-            m.ScopeTypeProfile(scope_id=row.id, device_kind=kind, credential_id=profile)
-            for kind, profile in type_profiles.items()
+            m.ScopeModelProfile(scope_id=row.id, device_model=model, credential_id=profile)
+            for model, profile in model_profiles.items()
         )
         db.flush()
-        db.expire(row, ["type_profiles"])
+        db.expire(row, ["model_profiles"])
     if name == "devices":
         db.expire(row, ["device_type"])
     from .identity.audit_read import RESOURCE_LABELS
@@ -486,7 +489,7 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
     hidden = HIDDEN | ({"evidence"} if model is m.Integration else set())
     options = [defer(getattr(model, key)) for key in hidden if hasattr(model, key)]
     if model is m.Scope:
-        options.extend((selectinload(m.Scope.profiles), selectinload(m.Scope.type_profiles)))
+        options.extend((selectinload(m.Scope.profiles), selectinload(m.Scope.model_profiles)))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
     if name == "jobs":

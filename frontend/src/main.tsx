@@ -2750,7 +2750,6 @@ function App() {
       "device-types",
       "vlans",
     );
-  if (form?.page.resource === "scopes") addReferences("device-types");
   if (page.key === "discovery" || form?.page.resource === "scopes")
     addReferences("institutions", "sites", "vrfs", "credentials");
   if (jobModal || configCompare || detail)
