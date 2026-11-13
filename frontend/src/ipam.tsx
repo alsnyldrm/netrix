@@ -709,6 +709,8 @@ export function IPAMWorkspace({
   const [columnOpen, setColumnOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteVLANs, setDeleteVLANs] = useState<string[]>([]);
+  const [listScanPending, setListScanPending] = useState(false);
+  const [listScanNotice, setListScanNotice] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const legacyStorageKey = `netrix.ipam.columns.${user.id}`;
   const storageKey = `${legacyStorageKey}.v2`;
@@ -879,6 +881,30 @@ export function IPAMWorkspace({
       setBusy(false);
     }
   };
+  const selectedVLANs = isBlocks
+    ? rows.filter((row) => selected.includes(row.id) && row.cidr)
+    : [];
+  const scanVLANs = async (targets: Row[]) => {
+    setListScanPending(true);
+    setListScanNotice("");
+    setError("");
+    const failures: string[] = [];
+    try {
+      for (const row of targets) {
+        try {
+          await api(`/ipam/vlans/${row.id}/discover`, "POST");
+        } catch (error) {
+          failures.push(`${row.cidr} · ${(error as Error).message}`);
+        }
+      }
+      const accepted = targets.length - failures.length;
+      if (accepted)
+        setListScanNotice(`${accepted} VLAN taraması kuyrukta veya çalışıyor.`);
+      if (failures.length) setError(failures.join(" · "));
+    } finally {
+      setListScanPending(false);
+    }
+  };
   const phaseName = (
     {
       addresses: "IP ve DNS taranıyor",
@@ -1021,6 +1047,13 @@ export function IPAMWorkspace({
   return (
     <div className="ipam-workspace">
       <ErrorNote error={error} />
+      {isBlocks && (listScanPending || listScanNotice) && (
+        <p className="ipam-hint" role="status">
+          {listScanPending
+            ? "VLAN taramaları sıraya alınıyor…"
+            : listScanNotice}
+        </p>
+      )}
       {prefix && (
         <section className="panel ipam-block-header ipam-vlan-header">
           <div className="ipam-block-overview">
@@ -1235,6 +1268,17 @@ export function IPAMWorkspace({
             <strong>
               {selected.length} {isBlocks ? "ağ bloğu" : "IP"} seçildi
             </strong>
+            {isBlocks && canOperate(user) && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={listScanPending || !selectedVLANs.length}
+                onClick={() => void scanVLANs(selectedVLANs)}
+              >
+                <Broadcast size={17} aria-hidden="true" />
+                Seçilenleri tara
+              </button>
+            )}
             {!isBlocks && (
               <button className="secondary" onClick={() => setBulkOpen(true)}>
                 <PencilSimple size={17} />
@@ -1291,7 +1335,7 @@ export function IPAMWorkspace({
           >
             <thead>
               <tr>
-                {canWrite && (!isBlocks || hasAdminAccess(user)) && (
+                {(isBlocks ? canOperate(user) : canWrite) && (
                   <th className="ipam-select">
                     <input
                       type="checkbox"
@@ -1344,7 +1388,7 @@ export function IPAMWorkspace({
               {rows.map((r) =>
                 isBlocks ? (
                   <tr key={r.id}>
-                    {hasAdminAccess(user) && (
+                    {canOperate(user) && (
                       <td className="ipam-select">
                         <input
                           type="checkbox"
@@ -1384,7 +1428,19 @@ export function IPAMWorkspace({
                     </td>
                     <td>%{r.warning_threshold}</td>
                     <td>
-                      <div className="ipam-actions">
+                      <div className="ipam-actions ipam-vlan-row-actions">
+                        {canOperate(user) && r.cidr && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            aria-label={`${r.cidr} tara`}
+                            disabled={listScanPending}
+                            onClick={() => void scanVLANs([r])}
+                          >
+                            <Broadcast size={17} aria-hidden="true" />
+                            Tara
+                          </button>
+                        )}
                         {canWrite && (
                           <>
                             <button

@@ -144,6 +144,9 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.ipam-vlan-row-actions {
+  flex-wrap: nowrap;
+}
 .ipam-actions h2 {
   margin-right: auto;
 }
