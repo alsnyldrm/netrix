@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10141e">
+  <meta name="robots" content="noindex, nofollow">
+  <title>NETRIX · Kısa bir bakım molası</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Segoe UI", Arial, sans-serif; background: #10141e; color: #f2f5fc; }
+    * { box-sizing: border-box; }
+    body { min-width: 320px; min-height: 100vh; min-height: 100dvh; margin: 0; overflow-x: hidden; background: radial-gradient(ellipse 75% 100% at 78% 40%, #1d2b49 0%, #121a2b 52%, #10141e 100%); }
+    body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .24; background-image: radial-gradient(#8094b8 0.65px, transparent 0.8px); background-size: 28px 28px; mask-image: linear-gradient(90deg, transparent 5%, #000 100%); }
+    .shell { position: relative; display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; max-width: 1480px; margin: auto; padding: clamp(22px, 3.5vw, 54px) clamp(24px, 6vw, 100px) 28px; }
+    header, footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; color: #f2f5fc; font-size: 19px; font-weight: 800; letter-spacing: .13em; }
+    .brand svg { width: 31px; height: 31px; flex: none; }
+    .top-note, footer { color: #aab9d3; font-size: 13px; letter-spacing: .01em; }
+    main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(350px, 1.04fr); align-items: center; flex: 1; gap: clamp(12px, 5vw, 100px); padding: 48px 0 65px; }
+    .copy { position: relative; z-index: 1; max-width: 650px; }
+    .status { display: inline-flex; align-items: center; gap: 10px; color: #b9ccf5; font-size: 13px; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .status::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #8eadf5; box-shadow: 0 0 0 5px #8eadf526; animation: beacon 2.6s ease-in-out infinite; }
+    h1 { max-width: 11ch; margin: 26px 0 22px; font-size: clamp(48px, 5.8vw, 94px); font-weight: 750; letter-spacing: -.055em; line-height: 1.02; text-wrap: balance; }
+    h1 em { color: #9bb8f6; font-style: normal; }
+    .lede { max-width: 47ch; margin: 0; color: #cad5e7; font-size: clamp(17px, 1.35vw, 21px); line-height: 1.65; }
+    .lede strong { color: #fff; font-weight: 650; }
+    .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 17px 26px; margin-top: 39px; }
+    button { min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: 11px; border: 0; border-radius: 10px; padding: 0 21px; background: #a6c0fa; color: #111b30; font: inherit; font-size: 15px; font-weight: 750; cursor: pointer; transition: background .2s ease, transform .2s ease; }
+    button:hover { background: #d1dfff; transform: translateY(-2px); }
+    button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    button:disabled { opacity: .65; cursor: wait; transform: none; }
+    button svg { width: 18px; height: 18px; }
+    #check-status { color: #aab9d3; font-size: 14px; line-height: 1.5; }
+    .scene { position: relative; width: min(100%, 680px); aspect-ratio: 1; justify-self: center; }
+    .scene::before { content: ""; position: absolute; inset: 12%; border: 1px solid #7896d124; border-radius: 50%; box-shadow: 0 0 0 60px #7896d108, 0 0 0 120px #7896d105; }
+    .scene svg { position: relative; width: 100%; height: 100%; overflow: visible; }
+    .orbit { fill: none; stroke: #6d86b1; stroke-width: 1; opacity: .2; }
+    .line { fill: none; stroke: #708ec6; stroke-width: 2; opacity: .52; }
+    .line.active { stroke: #b4cbff; stroke-dasharray: 7 12; stroke-linecap: round; animation: flow 16s linear infinite; }
+    .node { fill: #202d49; stroke: #7999d5; stroke-width: 2; }
+    .node-center { fill: #1c2b4b; stroke: #a6c2ff; stroke-width: 2; }
+    .node-light { fill: #b8cdfb; }
+    .pulse { fill: none; stroke: #a6c2ff; stroke-width: 2; transform-origin: 340px 340px; animation: pulse 4s ease-out infinite; }
+    .pulse.two { animation-delay: 2s; }
+    .arc { fill: none; stroke: #a6c2ff; stroke-width: 5; stroke-linecap: round; opacity: .85; transform-origin: 340px 340px; animation: rotate 12s linear infinite; }
+    .arc.back { stroke: #617eb6; stroke-width: 3; opacity: .6; animation-direction: reverse; animation-duration: 19s; }
+    .scene-label { position: absolute; right: 0; bottom: 8%; color: #a9bae0; font-family: "Ubuntu Mono", Consolas, monospace; font-size: 12px; letter-spacing: .08em; }
+    .small-dot { width: 5px; height: 5px; display: inline-block; margin: 0 7px 2px; border-radius: 50%; background: #9bb8f6; }
+    @keyframes beacon { 50% { box-shadow: 0 0 0 10px #8eadf508; } }
+    @keyframes flow { to { stroke-dashoffset: -152; } }
+    @keyframes rotate { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0% { transform: scale(.62); opacity: .7; } 85%, 100% { transform: scale(1.9); opacity: 0; } }
+    @media (max-width: 850px) { main { grid-template-columns: 1fr; gap: 0; padding: 65px 0 35px; } .copy { max-width: 680px; } .scene { width: min(90%, 490px); margin-top: 10px; } h1 { max-width: 12ch; } }
+    @media (max-width: 520px) { .shell { padding: 23px 24px; } .top-note { font-size: 11px; text-align: right; } main { padding: 70px 0 25px; } h1 { font-size: clamp(46px, 12.5vw, 64px); margin: 23px 0 19px; } .lede { font-size: 17px; } .scene { width: min(100%, 350px); margin-top: 20px; } .scene-label { bottom: 1%; } footer { font-size: 11px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand" aria-label="NETRIX">
+        <svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#1D4ED8"/><path d="M19 45V19l26 26V19" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="19" cy="19" r="5" fill="#1D4ED8" stroke="#fff" stroke-width="3"/><circle cx="45" cy="45" r="5" fill="#1D4ED8" stroke="#fff" stroke-width="3"/><circle cx="45" cy="19" r="3.5" fill="#93C5FD"/><circle cx="19" cy="45" r="3.5" fill="#93C5FD"/></svg>
+        NETRIX
+      </div>
+      <span class="top-note">Ağ yönetim platformu</span>
+    </header>
+    <main>
+      <section class="copy" aria-labelledby="maintenance-title">
+        <div class="status">Sistem güncelleniyor</div>
+        <h1 id="maintenance-title">Kısa bir <em>bakım molası.</em></h1>
+        <p class="lede">Şu anda NETRIX üzerinde çalışma yapıyoruz. <strong>Canını sıkma, birazdan buradayız.</strong> Hazır olduğunda bu sayfa seni otomatik olarak kaldığın yere götürecek.</p>
+        <div class="actions">
+          <button id="retry" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6.2M20 4v7h-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Şimdi tekrar dene</button>
+          <span id="check-status" role="status" aria-live="polite">Bağlantı düzenli olarak kontrol ediliyor.</span>
+        </div>
+      </section>
+      <div class="scene" aria-hidden="true">
+        <svg viewBox="0 0 680 680" fill="none">
+          <circle class="orbit" cx="340" cy="340" r="270"/><circle class="orbit" cx="340" cy="340" r="205"/><circle class="orbit" cx="340" cy="340" r="125"/>
+          <path class="line" d="M340 340 160 200M340 340 520 180M340 340 556 405M340 340 388 565M340 340 115 445"/>
+          <path class="line active" d="M340 340 160 200M340 340 520 180M340 340 556 405M340 340 388 565M340 340 115 445"/>
+          <circle class="pulse" cx="340" cy="340" r="113"/><circle class="pulse two" cx="340" cy="340" r="113"/>
+          <path class="arc" d="M340 207a133 133 0 0 1 93 38"/><path class="arc back" d="M217 392a133 133 0 0 1-9-52"/>
+          <circle class="node" cx="160" cy="200" r="22"/><circle class="node-light" cx="160" cy="200" r="5"/>
+          <circle class="node" cx="520" cy="180" r="16"/><circle class="node-light" cx="520" cy="180" r="4"/>
+          <circle class="node" cx="556" cy="405" r="24"/><circle class="node-light" cx="556" cy="405" r="5"/>
+          <circle class="node" cx="388" cy="565" r="18"/><circle class="node-light" cx="388" cy="565" r="4"/>
+          <circle class="node" cx="115" cy="445" r="15"/><circle class="node-light" cx="115" cy="445" r="4"/>
+          <circle class="node-center" cx="340" cy="340" r="75"/>
+          <path d="M307 364v-49l33 32v-32l33 49v-49" stroke="#C5D8FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="340" cy="340" r="92" stroke="#A6C2FF" stroke-opacity=".18"/>
+        </svg>
+        <div class="scene-label">NETRIX<span class="small-dot"></span>YENİDEN BAĞLANIYOR</div>
+      </div>
+    </main>
+    <footer><span>© NETRIX</span><span>Birazdan yeniden görüşürüz.</span></footer>
+  </div>
+  <script>
+    (() => {
+      const button = document.getElementById('retry');
+      const status = document.getElementById('check-status');
+      let busy = false;
+      async function check() {
+        if (busy || document.hidden) return;
+        busy = true;
+        button.disabled = true;
+        status.textContent = 'Bağlantı kontrol ediliyor…';
+        try {
+          const response = await fetch(location.pathname + location.search, {
+            cache: 'no-store', redirect: 'follow', headers: { Accept: 'text/html' },
+            signal: AbortSignal.timeout(8000)
+          });
+          if (response.status < 500) {
+            status.textContent = 'Bağlantı geri geldi, sayfa açılıyor…';
+            location.reload();
+            return;
+          }
+          status.textContent = 'Çalışma sürüyor. Yeniden kontrol edeceğiz.';
+        } catch (_) {
+          status.textContent = 'Bağlantı bekleniyor. Yeniden kontrol edeceğiz.';
+        } finally {
+          busy = false;
+          button.disabled = false;
+        }
+      }
+      button.addEventListener('click', check);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+      setInterval(check, 15000);
+    })();
+  </script>
+</body>
+</html>
