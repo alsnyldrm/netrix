@@ -90,6 +90,50 @@ function measureWidths(table: HTMLTableElement | null): Widths {
   );
 }
 
+function clampWidth(width: number) {
+  return Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width)));
+}
+
+function fitWidth(table: HTMLTableElement, header: HTMLTableCellElement) {
+  const probe = table.cloneNode(false) as HTMLTableElement;
+  probe.removeAttribute("id");
+  probe.removeAttribute("data-column-layout");
+  probe.setAttribute("aria-hidden", "true");
+  probe.classList.add("column-table-measure");
+  probe.inert = true;
+
+  for (const section of [table.tHead, ...Array.from(table.tBodies)]) {
+    if (!section) continue;
+    const copy = section.cloneNode(false) as HTMLTableSectionElement;
+    copy.removeAttribute("id");
+    for (const row of Array.from(section.rows)) {
+      const cell = Array.from(row.cells).find(
+        (item) =>
+          item === header || item.dataset.columnId === header.dataset.columnId,
+      );
+      if (!cell || cell.colSpan !== 1) continue;
+      const content = cell.cloneNode(true) as HTMLTableCellElement;
+      content.rowSpan = 1;
+      content.removeAttribute("id");
+      content
+        .querySelectorAll("[id]")
+        .forEach((element) => element.removeAttribute("id"));
+      content
+        .querySelectorAll("[popover], .column-table-resize")
+        .forEach((element) => element.remove());
+      copy.insertRow().append(content);
+    }
+    probe.append(copy);
+  }
+
+  table.after(probe);
+  try {
+    return Math.ceil(probe.getBoundingClientRect().width);
+  } finally {
+    probe.remove();
+  }
+}
+
 type Props = ComponentProps<"table"> & { orderKey: string };
 
 export function ColumnTable(props: Props) {
@@ -102,15 +146,17 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
   const widthKey = "netrix-column-width:" + orderKey;
   const [widths, setWidths] = useState(() => readWidths(widthKey));
   const [baseWidths, setBaseWidths] = useState<Widths>({});
-  const [preview, setPreview] = useState<{ id: string; width: number } | null>(
-    null,
-  );
-  const resize = useRef<{
+  const [activeResize, setActiveResize] = useState<{
     id: string;
+    side: "left" | "right";
+  } | null>(null);
+  const guide = useRef<HTMLSpanElement>(null);
+  const resize = useRef<{
     pointer: number;
     x: number;
     width: number;
     direction: number;
+    scrollLeft: number;
   } | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
   const [target, setTarget] = useState<string | null>(null);
@@ -144,7 +190,7 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
   );
   const fixedLayout =
     supported &&
-    (custom || preview !== null) &&
+    custom &&
     columns.every((column) => Object.hasOwn(baseWidths, column.widthKey));
   useLayoutEffect(() => {
     if (supported && custom && !fixedLayout) {
@@ -203,31 +249,37 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
 
   const changeWidth = (id: string, width: number) => {
     if (!fixedLayout) setBaseWidths(measureWidths(table.current));
-    const next = Math.round(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, width)));
+    const next = clampWidth(width);
     saveWidth(id, next);
     const name = columns.find((column) => column.widthKey === id)?.name;
     setAnnouncement(`${name} sütunu ${next} piksel.`);
   };
 
+  const fitColumn = (header: HTMLTableCellElement) => {
+    if (!table.current || !header.dataset.columnWidthKey) return;
+    changeWidth(header.dataset.columnWidthKey, fitWidth(table.current, header));
+  };
+
   const resizeHandle = (id: string, name: string, side: "left" | "right") => {
-    const update = (event: PointerEvent<HTMLSpanElement>) => {
-      const active = resize.current;
-      if (!active || event.pointerId !== active.pointer) return;
-      const delta = (event.clientX - active.x) * active.direction;
-      const width = Math.round(
-        Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, active.width + delta)),
-      );
-      setPreview({ id, width });
-    };
-    const cancel = () => {
+    const activeEdge = activeResize?.id === id && activeResize.side === side;
+    const delta = (
+      event: PointerEvent<HTMLSpanElement>,
+      active: NonNullable<typeof resize.current>,
+    ) =>
+      event.clientX -
+      active.x +
+      (table.current?.parentElement?.scrollLeft ?? 0) -
+      active.scrollLeft;
+    const cancel = (event: PointerEvent<HTMLSpanElement>) => {
+      if (resize.current?.pointer !== event.pointerId) return;
       resize.current = null;
-      setPreview(null);
+      setActiveResize(null);
     };
     return (
       <span
         className={`column-table-resize column-table-resize-${side}`}
         aria-hidden="true"
-        title={`${name} · Genişliği ayarla`}
+        title={`${name} · Sürükleyerek genişliği ayarlayın, çift tıklayarak içeriğe sığdırın`}
         onPointerDown={(event) => {
           if (event.button !== 0 || !event.isPrimary || resize.current) return;
           const width = event.currentTarget
@@ -235,28 +287,43 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
             .getBoundingClientRect().width;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          if (!fixedLayout) setBaseWidths(measureWidths(table.current));
           resize.current = {
-            id,
             pointer: event.pointerId,
             x: event.clientX,
             direction: side === "left" ? -1 : 1,
             width,
+            scrollLeft: table.current?.parentElement?.scrollLeft ?? 0,
           };
+          setActiveResize({ id, side });
         }}
-        onPointerMove={update}
+        onPointerMove={(event) => {
+          const active = resize.current;
+          if (!active || event.pointerId !== active.pointer || !guide.current)
+            return;
+          const width = clampWidth(
+            active.width + delta(event, active) * active.direction,
+          );
+          guide.current.style.transform = `translateX(${(width - active.width) * active.direction}px)`;
+        }}
         onPointerUp={(event) => {
           const active = resize.current;
           if (!active || active.pointer !== event.pointerId) return;
-          if (Math.abs(event.clientX - active.x) >= 1) {
-            const delta = (event.clientX - active.x) * active.direction;
-            changeWidth(id, active.width + delta);
-          }
-          cancel();
+          const movement = delta(event, active);
+          if (Math.abs(movement) >= 3)
+            changeWidth(id, active.width + movement * active.direction);
+          cancel(event);
         }}
         onPointerCancel={cancel}
         onLostPointerCapture={cancel}
-      />
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          fitColumn(event.currentTarget.closest("th")!);
+        }}
+      >
+        {activeEdge && (
+          <span className="column-table-resize-guide" ref={guide} />
+        )}
+      </span>
     );
   };
 
@@ -304,7 +371,7 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
         key={header.key}
         data-column-id={id}
         data-column-width-key={widthKey}
-        data-column-resizing={preview?.id === widthKey || undefined}
+        data-column-resizing={activeResize?.id === widthKey || undefined}
         aria-label={name}
         data-column-target={target === id && dragged !== id ? "" : undefined}
         onDragOver={(event) => {
@@ -373,6 +440,12 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
             </button>
             <button
               type="button"
+              onClick={(event) => fitColumn(event.currentTarget.closest("th")!)}
+            >
+              İçeriğe sığdır
+            </button>
+            <button
+              type="button"
               disabled={!Object.hasOwn(widths, widthKey)}
               onClick={resizeFromMenu()}
             >
@@ -415,11 +488,7 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
     ? indices.map((index) => {
         const column = columns[index];
         const key = column.widthKey;
-        return preview?.id === key
-          ? preview.width
-          : Object.hasOwn(widths, key)
-            ? widths[key]
-            : baseWidths[key];
+        return Object.hasOwn(widths, key) ? widths[key] : baseWidths[key];
       })
     : null;
 

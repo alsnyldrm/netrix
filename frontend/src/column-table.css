@@ -112,8 +112,7 @@ th:hover > .column-table-resize::after {
   opacity: 0.65;
 }
 
-.column-table-resize:hover::after,
-th[data-column-resizing="true"] > .column-table-resize::after {
+.column-table-resize:hover::after {
   opacity: 1;
   background: var(--accent);
 }
@@ -128,4 +127,41 @@ table[data-column-layout="fixed"]
   :is(.column-table-heading, .column-sort, .ipam-connection-lines > span) {
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+.column-table-resize-guide {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 3px;
+  width: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+th[data-column-resizing="true"] > .column-table-resize::after {
+  opacity: 0;
+}
+
+table.column-table-measure {
+  position: fixed;
+  inset: 0 auto auto 0;
+  width: max-content !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  table-layout: auto;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+table.column-table-measure
+  :is(
+    th,
+    td,
+    .column-table-heading,
+    .column-sort,
+    .ipam-connection-lines > span
+  ) {
+  width: auto;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
