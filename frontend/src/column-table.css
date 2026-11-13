@@ -35,7 +35,9 @@ th[data-column-target] {
 .column-table-menu {
   position: fixed;
   inset: auto;
-  width: 140px;
+  width: 156px;
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
   margin: 0;
   padding: 4px;
   border: 1px solid var(--border);
@@ -69,4 +71,61 @@ th[data-column-target] {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.column-table-label {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.column-table-label > .column-sort {
+  width: 100%;
+}
+
+.column-table-resize {
+  position: absolute;
+  inset-block: 0;
+  width: 8px;
+  z-index: 1;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.column-table-resize-left {
+  left: 0;
+}
+
+.column-table-resize-right {
+  right: 0;
+}
+
+.column-table-resize::after {
+  content: "";
+  position: absolute;
+  inset: 25% 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  opacity: 0;
+}
+
+th:hover > .column-table-resize::after {
+  opacity: 0.65;
+}
+
+.column-table-resize:hover::after,
+th[data-column-resizing="true"] > .column-table-resize::after {
+  opacity: 1;
+  background: var(--accent);
+}
+
+table[data-column-layout="fixed"] {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+table[data-column-layout="fixed"] :is(th, td)[data-column-id],
+table[data-column-layout="fixed"]
+  :is(.column-table-heading, .column-sort, .ipam-connection-lines > span) {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
