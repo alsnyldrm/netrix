@@ -269,23 +269,30 @@ def dashboard(request: Request, user=Depends(current_user), db=Depends(db_sessio
     )
 
 
+@app.get(P + "/dashboard/widgets")
+def dashboard_widgets(user=Depends(current_user), db=Depends(db_session)):
+    from .overview import widget_data
+
+    return widget_data(db)
+
+
 def dashboard_data(db):
     from .configuration.baselines import pending_ids
 
     def count(model, *conditions):
         return select(func.count()).select_from(model).where(*conditions).scalar_subquery()
 
+    inventory = (m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None))
+    active = (*inventory, m.Device.lifecycle_status == "active")
     # Scalar aggregates travel in one round trip; counts never hydrate full rows.
     aggregates = {
-        "devices": count(m.Device, m.Device.archived.is_(False), m.Device.discovery_scope_id.is_not(None)),
+        "devices": count(m.Device, *inventory),
         "vlans": count(m.VLAN),
         "addresses": count(m.IPAddress),
         "snapshots": count(m.Snapshot),
         "sites": count(m.Site),
-        "reachable": count(
-            m.Device, m.Device.reachability == "reachable", m.Device.lifecycle_status == "active"
-        ),
-        "active_devices": count(m.Device, m.Device.lifecycle_status == "active"),
+        "reachable": count(m.Device, *active, m.Device.reachability == "reachable"),
+        "active_devices": count(m.Device, *active),
         "firing_alerts": count(m.Alert, m.Alert.state == "firing"),
         "running_jobs": count(m.Job, m.Job.kind != "ipam_ping", m.Job.status.in_(["queued", "running"])),
         "successful_discoveries": count(
@@ -296,7 +303,7 @@ def dashboard_data(db):
     counts = dict(
         db.execute(select(*(query.label(name) for name, query in aggregates.items()))).one()._mapping
     )
-    groups = db.execute(select(m.Device.kind, func.count()).group_by(m.Device.kind)).all()
+    groups = db.execute(select(m.Device.kind, func.count()).where(*inventory).group_by(m.Device.kind)).all()
     return {
         "counts": counts,
         "device_kinds": [{"kind": kind, "count": count} for kind, count in groups],

@@ -121,6 +121,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
 import "./appearance.css";
 import "./lumelle.css";
+import { Overview } from "./overview";
 import { deviceVendorLogo, deviceVendorNames } from "./device-vendors";
 import {
   InventoryTable,
@@ -188,8 +189,8 @@ const options = (
 export const PAGES: Page[] = [
   {
     key: "overview",
-    title: "Operasyon panoraması",
-    desc: "Ağınızdaki her bağlantı, tek bir bakışta.",
+    title: "Genel bakış",
+    desc: "NETRIX operasyon durumu",
     group: "Genel bakış",
     icon: SquaresFour,
   },
@@ -2076,296 +2077,6 @@ function GenericResourceForm({
     </Dialog>
   );
 }
-function Overview({
-  dashboard,
-  refs,
-  navigate,
-  onAdd,
-  onDevice,
-  canAdd,
-}: {
-  dashboard: Row;
-  refs: Record<string, Row[]>;
-  navigate: (key: string) => void;
-  onAdd: (key: string) => void;
-  onDevice: (row: Row) => void;
-  canAdd: (key: string) => boolean;
-}) {
-  const c = dashboard.counts || {};
-  const steps = [
-    {
-      title: "Erişim profilini ekleyin",
-      desc: "SNMPv3, SSH veya API",
-      key: "credentials",
-      done: !!refs.credentials?.length,
-    },
-    {
-      title: "Ağınızın sınırlarını belirleyin",
-      desc: "Yetkilendirilmiş keşif kapsamı",
-      key: "discovery",
-      done: !!refs.scopes?.length,
-    },
-    {
-      title: "İlk keşfinizi başlatın",
-      desc: "Cihazlar ve bağlantılar",
-      key: "discovery",
-      done: !!c.successful_discoveries,
-    },
-  ];
-  return (
-    <>
-      <div className="overview-heading">
-        <div>
-          <MotionTitle>Ağınızın bütün resmi</MotionTitle>
-          <p>
-            {formatDate(new Date(), true)} · {c.active_devices ?? 0} aktif
-            cihaz, {c.firing_alerts ?? 0} aktif alarm
-          </p>
-        </div>
-        <div className="page-actions">
-          <button className="secondary" onClick={() => navigate("jobs")}>
-            <ClockCounterClockwise size={16} aria-hidden="true" /> Görev merkezi
-          </button>
-          {canAdd("devices") && (
-            <button className="primary" onClick={() => onAdd("devices")}>
-              <Plus size={17} aria-hidden="true" /> Yeni cihaz
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="dashboard-main">
-        <section className="panel map-panel">
-          <header className="panel-header">
-            <div>
-              <span className="eyebrow">Keşif</span>
-              <h2>Bağlantı panoraması</h2>
-            </div>
-            <button
-              className="text-button"
-              onClick={() => navigate("topology")}
-            >
-              Haritayı aç <ArrowUpRight size={16} />
-            </button>
-          </header>
-          <Topology
-            devices={(refs.devices || []) as TopologyDevice[]}
-            links={(refs.links || []) as TopologyLink[]}
-            onDevice={onDevice}
-            compact
-          />
-          <footer className="map-footer">
-            <span>
-              <i className="legend-dot mint-bg" />
-              Cihazlar <b>{c.devices || 0}</b>
-            </span>
-            <span>
-              <i className="legend-line" />
-              Gözlemlenen komşuluk <b>{refs.links?.length || 0}</b>
-            </span>
-            <span className="muted">LLDP / CDP</span>
-          </footer>
-        </section>
-        {c.active_devices > 0 ? (
-          <section
-            className="panel lumelle-live-card"
-            aria-label="Ağın güncel durumu"
-          >
-            <header>
-              <div>
-                <h2>Şu anda</h2>
-                <p>Ağın güncel durumu</p>
-              </div>
-              <span className="lumelle-live-badge">
-                <i aria-hidden="true" /> Canlı
-              </span>
-            </header>
-            <div className="lumelle-live-count">
-              <strong>{c.reachable ?? 0}</strong>
-              <span>erişilebilir cihaz</span>
-            </div>
-            <div className="lumelle-live-rows">
-              <div>
-                <span>Erişilebilir</span>
-                <progress
-                  aria-label="Erişilebilir cihazlar"
-                  max={c.active_devices}
-                  value={c.reachable ?? 0}
-                />
-                <b>{c.reachable ?? 0}</b>
-              </div>
-              <div>
-                <span>Doğrulanmadı</span>
-                <progress
-                  aria-label="Erişilebilirliği doğrulanmamış cihazlar"
-                  max={c.active_devices}
-                  value={Math.max(0, c.active_devices - (c.reachable ?? 0))}
-                />
-                <b>{Math.max(0, c.active_devices - (c.reachable ?? 0))}</b>
-              </div>
-            </div>
-            <div className="lumelle-live-links">
-              <button onClick={() => navigate("jobs")}>
-                <Play size={16} aria-hidden="true" /> Çalışan görevler{" "}
-                <b>{c.running_jobs ?? 0}</b>
-              </button>
-              <button onClick={() => navigate("alerts")}>
-                <Bell size={16} aria-hidden="true" /> Aktif alarmlar{" "}
-                <b>{c.firing_alerts ?? 0}</b>
-              </button>
-              <button onClick={() => navigate("backup-changes")}>
-                <Archive size={16} aria-hidden="true" /> Konfigürasyon
-                değişiklikleri <b>{c.config_changes ?? 0}</b>
-              </button>
-            </div>
-          </section>
-        ) : (
-          <section className="panel setup-panel">
-            <span className="eyebrow">Başlangıç</span>
-            <h2>
-              {c.devices
-                ? "Operasyona devam edin."
-                : "Büyük resim, ilk bağlantıyla başlar."}
-            </h2>
-            <p>
-              {c.devices
-                ? "Ağınızı keşif ve yedekleme araçlarıyla yönetin."
-                : "Üç küçük adımla ağınızı görünür hale getirin."}
-            </p>
-            <div className="setup-steps">
-              {steps
-                .filter((step) => step.done || canAdd(step.key))
-                .map((step, i) => (
-                  <button
-                    onClick={() =>
-                      step.done ? navigate(step.key) : onAdd(step.key)
-                    }
-                    key={i}
-                  >
-                    <span
-                      className={"step-number " + (step.done ? "done" : "")}
-                    >
-                      {step.done ? (
-                        <Check size={15} />
-                      ) : (
-                        String(i + 1).padStart(2, "0")
-                      )}
-                    </span>
-                    <span>
-                      <b>{step.title}</b>
-                      <small>{step.desc}</small>
-                    </span>
-                    <ArrowUpRight size={15} />
-                  </button>
-                ))}
-            </div>
-            <div className="setup-note">
-              <ShieldCheck size={16} /> Her keşif, sizin belirlediğiniz sınırlar
-              içinde.
-            </div>
-          </section>
-        )}
-      </div>
-      <div className="metrics">
-        {[
-          {
-            label: "Envanterdeki cihaz",
-            value: c.devices || 0,
-            note: (c.reachable || 0) + " cihazdan başarılı gözlem",
-            icon: HardDrives,
-            key: "devices",
-          },
-          {
-            label: "IP adres alanı",
-            value: c.vlans || 0,
-            note: (c.addresses || 0) + " adres kayıt altında",
-            icon: TreeStructure,
-            key: "vlans",
-          },
-          {
-            label: "Konfigürasyon sürümü",
-            value: c.snapshots || 0,
-            note: "Şifreli sürüm arşivi",
-            icon: ShieldCheck,
-            key: "configuration",
-          },
-          {
-            label: "Aktif alarm",
-            value: c.firing_alerts || 0,
-            note: "Konfigürasyon değişikliği uyarıları",
-            icon: Bell,
-            key: "alerts",
-          },
-        ].map((m, i) => (
-          <button
-            className={"metric metric-" + i}
-            key={m.key}
-            onClick={() => navigate(m.key)}
-          >
-            <div>
-              <span className="metric-icon">
-                <m.icon size={20} />
-              </span>
-              <span>{m.label}</span>
-            </div>
-            <strong>{m.value.toLocaleString("tr-TR")}</strong>
-            <footer>
-              {m.note}
-              <ArrowUpRight size={16} />
-            </footer>
-          </button>
-        ))}
-      </div>
-      <div className="dashboard-bottom">
-        <section className="panel">
-          <header className="panel-header">
-            <div>
-              <span className="eyebrow">Takip</span>
-              <h2>Son hareketler</h2>
-            </div>
-            <button className="text-button" onClick={() => navigate("jobs")}>
-              Görev merkezi <ArrowUpRight size={16} />
-            </button>
-          </header>
-          {refs.events?.length ? (
-            <div className="activity-list">
-              {refs.events.slice(0, 4).map((event) => (
-                <div key={event.id}>
-                  <span className="activity-dot" />
-                  <div>
-                    <b>{event.message}</b>
-                    <small>
-                      {date(event.created_at)} · {event.kind}
-                    </small>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="quiet-state">
-              <ClockCounterClockwise size={22} />
-              <div>
-                <b>Temiz bir başlangıç.</b>
-                <p>Keşifler, değişiklikler ve ağ olayları burada yer alacak.</p>
-              </div>
-            </div>
-          )}
-        </section>
-        <section className="quick-card">
-          <span className="eyebrow">Sıradaki adım</span>
-          <h2>Her cihazı tanıyın.</h2>
-          <p>
-            Merkezi envanterinizi oluşturarak ağınıza bir kimlik kazandırın.
-          </p>
-          {canAdd("devices") && (
-            <button className="secondary" onClick={() => onAdd("devices")}>
-              <Plus size={17} /> Cihaz ekle
-            </button>
-          )}
-        </section>
-      </div>
-    </>
-  );
-}
 function ConnectionTestDialog({
   device,
   onClose,
@@ -2962,9 +2673,8 @@ function App() {
     if (field.ref) addReferences(field.ref);
     if (field.suggestions) addReferences(field.suggestions);
   }
-  if (["overview", "topology", "neighbors"].includes(page.key))
+  if (["topology", "neighbors"].includes(page.key))
     addReferences("devices", "links");
-  if (page.key === "overview") addReferences("credentials", "scopes", "events");
   if (page.key === "vlans") addReferences("sites");
   if (page.key === "vlans" && form)
     addReferences(
@@ -2996,7 +2706,7 @@ function App() {
       ? `references:${user.id}:${referencesKey}`
       : null,
     referenceRefresh +
-      (["overview", "topology", "neighbors"].includes(page.key) ? refresh : 0),
+      (["topology", "neighbors"].includes(page.key) ? refresh : 0),
     async () =>
       Object.fromEntries(
         await Promise.all(
@@ -3005,9 +2715,7 @@ function App() {
             .filter(Boolean)
             .map(async (name) => [
               name,
-              name === "events"
-                ? (await api("/events?limit=4")).items
-                : await allRows("/" + name),
+              await allRows("/" + name),
             ]),
         ),
       ),
@@ -3710,12 +3418,12 @@ function App() {
             )}
             {page.key === "overview" ? (
               <Overview
-                dashboard={dashboard}
-                refs={refs}
+                key={user.id}
+                dashboard={dashboardQuery.data}
+                refresh={refresh}
+                userId={user.id}
                 navigate={navigate}
-                onAdd={add}
-                onDevice={inspectDevice}
-                canAdd={(key) => canWrite && (key !== "credentials" || isAdmin)}
+                Dialog={Dialog}
               />
             ) : page.key.startsWith("firmware-") ? (
               <React.Suspense
