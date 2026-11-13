@@ -744,7 +744,7 @@ export function SSHSettings() {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   return (
-    <section className="panel access-settings">
+    <section className="access-settings profile-access-list">
       <div className="access-intro">
         <Key size={26} />
         <div>
@@ -1202,7 +1202,7 @@ export function AccessGroups({ user }: { user: Row }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   return (
-    <section className="access-settings profile-device-groups">
+    <section className="access-settings profile-access-list">
       <div className="access-intro">
         <ShieldCheck size={26} />
         <div>

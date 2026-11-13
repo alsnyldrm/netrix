@@ -694,39 +694,48 @@
   margin: 0;
 }
 
-.profile-device-groups .access-intro {
+.profile-access-list .access-intro {
   align-items: flex-start;
   gap: 12px;
 }
 
-.profile-device-groups .access-intro > svg {
+.profile-access-list .access-intro > svg {
   margin-top: 2px;
 }
 
-.profile-device-groups .access-group-search {
+.profile-access-list .access-group-search {
   max-width: none;
 }
 
-.profile-device-groups .access-group-cards article {
+.profile-access-list :is(.access-group-cards, .ssh-profile-cards) article {
   background: linear-gradient(135deg, var(--glass-reflection), transparent 78%);
 }
 
-.profile-device-groups .access-group-cards article > div:first-child {
+.profile-access-list .access-group-cards article > div:first-child {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.profile-device-groups .access-actions {
+.profile-access-list .access-actions {
   flex: none;
   gap: 4px;
 }
 
 @media (max-width: 650px) {
-  .profile-device-groups .access-intro > div {
+  .profile-access-list .access-intro > div {
     min-width: 0;
   }
 
-  .profile-device-groups .access-intro > button {
+  .profile-access-list .ssh-profile-cards article {
+    flex-direction: column;
+  }
+
+  .profile-access-list .ssh-profile-cards .access-actions {
+    align-self: flex-end;
+    gap: 8px;
+  }
+
+  .profile-access-list .access-intro > button {
     width: 100%;
   }
 }
