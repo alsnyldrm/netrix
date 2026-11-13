@@ -591,7 +591,7 @@ export function InventoryTable({
   const [rules, setRules] = useState<Rule[]>([]);
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<{ key: string; direction: "asc" | "desc" }>({
-    key: "",
+    key: resource === "devices" && purpose === "devices" ? "management_ip" : "",
     direction: "asc",
   });
   const [error, setError] = useState("");
