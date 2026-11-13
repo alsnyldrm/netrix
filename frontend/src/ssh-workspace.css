@@ -219,17 +219,29 @@
   flex: none;
   font-size: 0.85rem;
 }
-.ssh-session-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+.ssh-session-identity {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
-.ssh-session-error > button {
+.ssh-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.ssh-session-header .ssh-window-actions {
+  flex-wrap: wrap;
+}
+.ssh-session-header .ssh-window-actions .ssh-reconnect {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: auto;
   gap: 8px;
+}
+.ssh-terminal-screen .xterm .xterm-scrollable-element > .scrollbar {
+  visibility: hidden;
 }
 .ssh-dock {
   position: fixed;
@@ -797,5 +809,11 @@
   }
   .batch-saved-commands > p {
     padding: 8px 12px 0;
+  }
+}
+
+@media (max-width: 650px) {
+  .ssh-session-header .ssh-window-actions {
+    justify-content: flex-start;
   }
 }

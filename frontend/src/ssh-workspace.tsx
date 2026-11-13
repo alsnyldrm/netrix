@@ -675,18 +675,29 @@ function SessionWindow({
         else onClose();
       }}
     >
-      <header className="ssh-header">
+      <header className="ssh-header ssh-session-header">
         <div className="ssh-heading">
-          <TerminalWindow size={22} />
-          <div>
+          <TerminalWindow size={22} aria-hidden="true" />
+          <div className="ssh-session-identity">
             <h2>{session.device_name}</h2>
-            <span className="mono">{session.management_ip}</span>
+            <div className="ssh-session-meta">
+              <span className="mono">{session.management_ip}</span>
+              <span className={`ssh-state state-${status}`} role="status">
+                {states[status] || status}
+              </span>
+            </div>
           </div>
         </div>
-        <span className={`ssh-state state-${status}`} role="status">
-          {states[status] || status}
-        </span>
         <div className="ssh-window-actions">
+          <button
+            className="secondary ssh-reconnect"
+            type="button"
+            disabled={retrying}
+            onClick={() => void reconnect()}
+          >
+            <ArrowClockwise size={17} aria-hidden="true" />
+            {retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
+          </button>
           <button
             className="icon-button"
             aria-label="Terminal görünümü"
@@ -856,20 +867,9 @@ function SessionWindow({
         </form>
       )}
       {(error || disconnected) && (
-        <div className="ssh-error ssh-session-error">
-          <span role="alert">{error || "SSH bağlantısı kapandı."}</span>
-          {disconnected && (
-            <button
-              className="secondary"
-              type="button"
-              disabled={retrying}
-              onClick={() => void reconnect()}
-            >
-              <ArrowClockwise size={17} aria-hidden="true" />
-              {retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
-            </button>
-          )}
-        </div>
+        <p className="ssh-error" role="alert">
+          {error || "SSH bağlantısı kapandı."}
+        </p>
       )}
       <div
         className={`ssh-body${features.includes("saved_commands") ? " with-commands" : ""}${appearance.commands_collapsed ? " commands-collapsed" : ""}`}
