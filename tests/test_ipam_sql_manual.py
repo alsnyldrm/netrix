@@ -92,7 +92,10 @@ async def test_manual_jobs_query_dns_and_preserve_other_sources(admin_client, ne
         assert db.get(m.VLAN, vid).last_discovery_at is None
 
 
-async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(admin_client, network, blocked):
+@pytest.mark.parametrize("guest_address", ["192.0.2.10", ""])
+async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(
+    admin_client, network, blocked, guest_address
+):
     sf, vid, rid, ids = network
     with sf() as db:
         config = m.Integration(
@@ -111,7 +114,7 @@ async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(admin_
             dict(
                 vm_id="vm-1",
                 nic_key="4000",
-                address="192.0.2.10",
+                address=guest_address,
                 mac_address="00:11:22:33:44:55",
                 hostname="sql-vm",
                 operating_system="Linux",
@@ -135,6 +138,7 @@ async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(admin_
             result.values["connected_device"],
             result.values["connected_port"],
         ) == ("sql-vm", "FBU-DS", "89")
+        assert not any(step["source"] == "backbone" and step["status"] != "skipped_vm" for step in result.steps)
         assert source_snapshot(db) == before
 
 

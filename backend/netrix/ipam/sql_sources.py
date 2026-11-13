@@ -97,17 +97,29 @@ class SQLSources:
     async def vmware(self, address, mac):
         rows = []
         with session_factory()() as db:
-            for fact in db.scalars(
-                select(m.VMwareAddress)
-                .join(m.VMwareNIC)
-                .where(
-                    m.VMwareAddress.present.is_(True),
-                    m.VMwareAddress.address == address,
-                    m.VMwareNIC.source_key.in_(self.context.integrations),
+            enabled = m.VMwareNIC.source_key.in_(self.context.integrations)
+            facts = db.scalars(
+                select(m.VMwareAddress).join(m.VMwareNIC).where(
+                    m.VMwareAddress.present.is_(True), m.VMwareAddress.address == address, enabled
                 )
-            ):
+            ).all()
+            if not facts and mac:
+                nics = db.scalars(
+                    select(m.VMwareNIC).where(enabled, m.VMwareNIC.mac_address == mac).limit(2)
+                ).all()
+                if len(nics) > 1:
+                    raise ValueError("Conflicting VMware NICs for gateway MAC")
+                if nics and nics[0].vm_id:
+                    facts = db.scalars(
+                        select(m.VMwareAddress).where(
+                            m.VMwareAddress.nic_id == nics[0].id,
+                            m.VMwareAddress.present.is_(True),
+                            m.VMwareAddress.address == "",
+                        )
+                    ).all()
+            for fact in facts:
                 data = records.vmware_data(fact)
-                data["address"] = fact.address
+                data.update(address=fact.address, point_match=not fact.address)
                 rows.append(data)
                 self.ref("vcenter", fact, pipeline_key(data), fact.observed_at)
         return rows
