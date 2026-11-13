@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { hasAdminAccess, canSSH } from "./permissions";
 import { openSSH, sendBulkCommand } from "./ssh-workspace";
 import { useLiveQuery } from "./data";
@@ -903,7 +904,8 @@ export function InventoryTable({
         </p>
       )}
       <div className="table-scroll">
-        <table
+        <ColumnTable
+          orderKey={`inventory-${purpose}`}
           className={
             resource === "devices"
               ? "inventory-records-table device-inventory-table"
@@ -913,7 +915,11 @@ export function InventoryTable({
           <thead>
             <tr>
               {sshActions && (
-                <th className="ssh-launch-cell" aria-label="SSH bağlantısı">
+                <th
+                  data-column-fixed
+                  className="ssh-launch-cell"
+                  aria-label="SSH bağlantısı"
+                >
                   <TerminalWindow size={18} aria-hidden="true" />
                 </th>
               )}
@@ -956,6 +962,7 @@ export function InventoryTable({
               {visible.map((c) => (
                 <th
                   key={c.key}
+                  data-column-id={c.key}
                   className="sortable-heading"
                   aria-label={c.label}
                   aria-sort={
@@ -992,7 +999,7 @@ export function InventoryTable({
                   </button>
                 </th>
               ))}
-              {hasActions && <th>İşlemler</th>}
+              {hasActions && <th data-column-fixed>İşlemler</th>}
             </tr>
           </thead>
           <tbody>
@@ -1275,7 +1282,7 @@ export function InventoryTable({
               </React.Fragment>
             ))}
           </tbody>
-        </table>
+        </ColumnTable>
       </div>
       {!loading && !data.items.length && (
         <div className="empty-state">

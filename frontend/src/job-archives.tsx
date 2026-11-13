@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { useEffect, useState } from "react";
 import { Archive, Clock, DownloadSimple, Trash } from "@phosphor-icons/react";
 import { api, useLiveQuery } from "./data";
@@ -161,7 +162,7 @@ export function JobArchives({
             role="region"
             aria-label="Görev ZIP kayıtları"
           >
-            <table>
+            <ColumnTable orderKey="job-archives">
               <thead>
                 <tr>
                   {canWrite && (
@@ -185,7 +186,9 @@ export function JobArchives({
                   <th>Görev sayısı</th>
                   <th>Boyut</th>
                   <th>Kaynak</th>
-                  <th className="archive-actions">İşlemler</th>
+                  <th className="archive-actions" data-column-fixed>
+                    İşlemler
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -259,7 +262,7 @@ export function JobArchives({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ColumnTable>
           </div>
         ) : (
           <div className="empty">

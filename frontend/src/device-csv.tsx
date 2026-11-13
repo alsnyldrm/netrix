@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { useEffect, useId, useRef, useState } from "react";
 import {
   CaretDown,
@@ -258,7 +259,7 @@ export function DeviceTransferImport({
                 role="region"
                 aria-label={`${label} satır hataları`}
               >
-                <table>
+                <ColumnTable orderKey="device-transfer-errors">
                   <thead>
                     <tr>
                       <th>Satır</th>
@@ -275,7 +276,7 @@ export function DeviceTransferImport({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ColumnTable>
               </div>
             ) : (
               !done && (
@@ -285,7 +286,10 @@ export function DeviceTransferImport({
                   role="region"
                   aria-label={`${label} önizlemesi`}
                 >
-                  <table className="transfer-preview-table">
+                  <ColumnTable
+                    orderKey="device-transfer-preview"
+                    className="transfer-preview-table"
+                  >
                     <thead>
                       <tr>
                         <th>Satır</th>
@@ -316,7 +320,7 @@ export function DeviceTransferImport({
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ColumnTable>
                 </div>
               )
             )}
@@ -571,7 +575,7 @@ function ImportTestResults({
           role="region"
           aria-label="Cihaz bağlantı testi sonuçları"
         >
-          <table>
+          <ColumnTable orderKey="device-import-tests">
             <thead>
               <tr>
                 <th>Cihaz</th>
@@ -601,7 +605,7 @@ function ImportTestResults({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ColumnTable>
         </div>
         <p className="csv-help">
           Başarısız testler eklenen cihazları silmez. Pencereyi kapatsanız da

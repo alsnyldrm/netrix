@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { hasAdminAccess, canOperate } from "./permissions";
 import { useLiveQuery } from "./data";
 import React, { useEffect, useRef, useState } from "react";
@@ -291,7 +292,7 @@ export function AddressDetail({
                   aria-label="IP tarama adımları"
                   tabIndex={0}
                 >
-                  <table>
+                  <ColumnTable orderKey="ipam-scan-steps">
                     <thead>
                       <tr>
                         <th>Kaynak</th>
@@ -349,7 +350,7 @@ export function AddressDetail({
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </ColumnTable>
                 </div>
               </details>
             </section>
@@ -439,7 +440,7 @@ export function AddressDetail({
                 role="region"
                 aria-label="Fiziksel ağ kartları tablosu"
               >
-                <table>
+                <ColumnTable orderKey="ipam-physical-nics">
                   <thead>
                     <tr>
                       {[
@@ -488,7 +489,7 @@ export function AddressDetail({
                       );
                     })}
                   </tbody>
-                </table>
+                </ColumnTable>
               </div>
             </section>
           )}
@@ -509,7 +510,10 @@ export function AddressDetail({
                   role="region"
                   aria-label="Kabinet yerleşim tablosu"
                 >
-                  <table aria-label="Kabinet yerleşimi">
+                  <ColumnTable
+                    orderKey="ipam-cabinet-placement"
+                    aria-label="Kabinet yerleşimi"
+                  >
                     <thead>
                       <tr>
                         {[
@@ -540,7 +544,7 @@ export function AddressDetail({
                         ))}
                       </tr>
                     </tbody>
-                  </table>
+                  </ColumnTable>
                 </div>
               </>
             ) : (
@@ -567,7 +571,7 @@ export function AddressDetail({
                 role="region"
                 aria-label="Bağlantı kanıt tablosu"
               >
-                <table>
+                <ColumnTable orderKey="ipam-connection-evidence">
                   <thead>
                     <tr>
                       <th>Cihaz</th>
@@ -596,7 +600,7 @@ export function AddressDetail({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ColumnTable>
               </div>
             </section>
           )}
@@ -611,7 +615,7 @@ export function AddressDetail({
               role="region"
               aria-label="IPAM kayıt tablosu"
             >
-              <table>
+              <ColumnTable orderKey="ipam-observations">
                 <thead>
                   <tr>
                     <th>Kaynak</th>
@@ -639,7 +643,7 @@ export function AddressDetail({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ColumnTable>
             </div>
           </section>
         </>
@@ -1280,7 +1284,10 @@ export function IPAMWorkspace({
           role="region"
           aria-label="IPAM kayıt tablosu"
         >
-          <table className={!isBlocks ? "ipam-address-table" : undefined}>
+          <ColumnTable
+            orderKey={isBlocks ? "ipam-vlans" : "ipam-addresses"}
+            className={!isBlocks ? "ipam-address-table" : undefined}
+          >
             <thead>
               <tr>
                 {canWrite && (!isBlocks || hasAdminAccess(user)) && (
@@ -1316,12 +1323,20 @@ export function IPAMWorkspace({
                   </th>
                 )}
                 {(isBlocks
-                  ? ["Ağ bloğu", "VLAN", "Lokasyon", "Kullanım", "Uyarı eşiği"]
-                  : visible.map((c) => c.label)
-                ).map((label) => (
-                  <th key={label}>{label}</th>
+                  ? [
+                      "Ağ bloğu",
+                      "VLAN",
+                      "Lokasyon",
+                      "Kullanım",
+                      "Uyarı eşiği",
+                    ].map((label) => ({ key: label, label }))
+                  : visible
+                ).map(({ key, label }) => (
+                  <th key={key} data-column-id={key}>
+                    {label}
+                  </th>
                 ))}
-                <th>İşlemler</th>
+                <th data-column-fixed>İşlemler</th>
               </tr>
             </thead>
             <tbody>
@@ -1474,7 +1489,7 @@ export function IPAMWorkspace({
                 ),
               )}
             </tbody>
-          </table>
+          </ColumnTable>
         </div>
         {!rows.length && (
           <div className="empty-state">
@@ -1903,7 +1918,7 @@ export function Integrations({
           role="region"
           aria-label="IPAM kayıt tablosu"
         >
-          <table>
+          <ColumnTable orderKey="integrations">
             <thead>
               <tr>
                 {[
@@ -1913,7 +1928,9 @@ export function Integrations({
                   "Son başarılı eşitleme",
                   "İşlemler",
                 ].map((v) => (
-                  <th key={v}>{v}</th>
+                  <th key={v} data-column-fixed={v === "İşlemler"}>
+                    {v}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -1947,7 +1964,7 @@ export function Integrations({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ColumnTable>
         </div>
         {!rows.length && (
           <div className="empty-state">

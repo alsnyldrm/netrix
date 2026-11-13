@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { Dialog, date } from "./main";
 import "./audit.css";
 
@@ -192,7 +193,7 @@ export function AuditDetails({
             role="region"
             aria-label="Değişen alanlar"
           >
-            <table className="audit-changes">
+            <ColumnTable orderKey="audit-fields" className="audit-changes">
               <caption>Değişen alanların önceki ve sonraki değerleri</caption>
               <thead>
                 <tr>
@@ -210,7 +211,7 @@ export function AuditDetails({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ColumnTable>
           </div>
         ) : (
           <p className="muted">

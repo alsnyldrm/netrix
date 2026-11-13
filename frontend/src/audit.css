@@ -5,25 +5,20 @@
 .audit-panel td {
   vertical-align: top;
 }
-.audit-panel th:first-child,
-.audit-panel td:first-child {
+.audit-panel [data-column-id="created_at"] {
   width: 130px;
   font-variant-numeric: tabular-nums;
 }
-.audit-panel th:nth-child(2),
-.audit-panel td:nth-child(2) {
+.audit-panel [data-column-id="actor_name"] {
   width: 200px;
 }
-.audit-panel th:nth-child(3),
-.audit-panel td:nth-child(3) {
+.audit-panel [data-column-id="action_label"] {
   width: 150px;
 }
-.audit-panel th:nth-child(4),
-.audit-panel td:nth-child(4) {
+.audit-panel [data-column-id="resource_label"] {
   width: 125px;
 }
-.audit-panel th:nth-child(5),
-.audit-panel td:nth-child(5) {
+.audit-panel [data-column-id="target_label"] {
   width: 180px;
 }
 .audit-panel td {
@@ -105,5 +100,11 @@
   }
   .audit-panel td {
     font-size: 16px;
+  }
+}
+
+@media (max-width: 600px) {
+  .audit-changes .column-table-heading {
+    white-space: normal;
   }
 }

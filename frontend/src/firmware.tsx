@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { hasAdminAccess } from "./permissions";
 import React, { useDeferredValue, useEffect, useId, useState } from "react";
 import {
@@ -110,13 +111,15 @@ function Cell({
   children,
   detail,
   mono = false,
+  "data-column-id": columnId,
 }: {
   children: React.ReactNode;
   detail?: React.ReactNode;
   mono?: boolean;
+  "data-column-id"?: string;
 }) {
   return (
-    <td>
+    <td data-column-id={columnId}>
       <div className="fw-cell-stack">
         <div className={"fw-cell-primary" + (mono ? " mono" : "")}>
           {children}
@@ -1255,7 +1258,10 @@ function PlanDetail({
               role="region"
               aria-label="Firmware tablosu"
             >
-              <table className="fw-table fw-targets-table">
+              <ColumnTable
+                orderKey="firmware-targets"
+                className="fw-table fw-targets-table"
+              >
                 <thead>
                   <tr>
                     <th>Cihaz</th>
@@ -1367,7 +1373,7 @@ function PlanDetail({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </ColumnTable>
             </div>
             <Pager
               offset={offset}
@@ -1783,7 +1789,8 @@ export default function FirmwareWorkspace({
                 role="region"
                 aria-label="Firmware tablosu"
               >
-                <table
+                <ColumnTable
+                  orderKey={`firmware-${tab}`}
                   className={
                     "fw-table fw-" +
                     (tab === "history" ? "plans" : tab) +
@@ -1850,7 +1857,12 @@ export default function FirmwareWorkspace({
                                 ...(admin ? ["İşlemler"] : []),
                               ]
                       ).map((label) => (
-                        <th key={label}>{label}</th>
+                        <th
+                          key={label}
+                          data-column-fixed={label === "İşlemler"}
+                        >
+                          {label}
+                        </th>
                       ))}
                     </tr>
                   </thead>
@@ -2093,7 +2105,7 @@ export default function FirmwareWorkspace({
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </ColumnTable>
               </div>
             )}
             {result.data && tab !== "groups" && (

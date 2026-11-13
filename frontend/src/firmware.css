@@ -150,9 +150,12 @@
   min-width: 860px;
   table-layout: fixed;
 }
-.fw-targets-table th:nth-child(1),
-.fw-targets-table th:nth-child(2),
-.fw-targets-table th:nth-child(3) {
+.fw-targets-table
+  th:is(
+    [data-column-id="Cihaz"],
+    [data-column-id="Durum / aşama"],
+    [data-column-id="İmaj / sürüm"]
+  ) {
   width: 21%;
 }
 .fw-result-actions {

@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { cloneElement, useEffect, useRef, useState } from "react";
 import { api, useLiveQuery } from "./data";
 import { Dialog } from "./main";
@@ -907,7 +908,7 @@ export function DevicePatchInfo({
           tabIndex={0}
           aria-label="Cihaz patch bağlantıları"
         >
-          <table>
+          <ColumnTable orderKey="device-patch-connections">
             <thead>
               <tr>
                 {[
@@ -966,7 +967,7 @@ export function DevicePatchInfo({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ColumnTable>
         </div>
       ) : (
         <p className="ipam-hint">

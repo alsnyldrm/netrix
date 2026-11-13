@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import { hasAdminAccess } from "./permissions";
 import { PatchPanels, PatchPorts, panelKind } from "./patch-panels";
 import React, { useEffect, useState } from "react";
@@ -210,7 +211,7 @@ export function Locations({ refs, user, onSaved }: Props) {
           aria-label="Lokasyon tablosu"
           tabIndex={0}
         >
-          <table>
+          <ColumnTable orderKey={parent ? "rooms" : "locations"}>
             <thead>
               <tr>
                 {parent && hasAdminAccess(user) && (
@@ -240,7 +241,7 @@ export function Locations({ refs, user, onSaved }: Props) {
                 <th>Benzersiz kod</th>
                 {!parent && <th>Kurum</th>}
                 <th>Açıklama</th>
-                <th>İşlemler</th>
+                <th data-column-fixed>İşlemler</th>
               </tr>
             </thead>
             <tbody>
@@ -314,7 +315,7 @@ export function Locations({ refs, user, onSaved }: Props) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </ColumnTable>
         </div>
         {!children.length && (
           <div className="empty-state">
@@ -746,7 +747,10 @@ export function Cabinets({
             }
             tabIndex={0}
           >
-            <table className={roomId ? undefined : "cabinet-floor-table"}>
+            <ColumnTable
+              orderKey={roomId ? "room-cabinets" : "cabinets"}
+              className={roomId ? undefined : "cabinet-floor-table"}
+            >
               <thead>
                 <tr>
                   {roomId && hasAdminAccess(user) && (
@@ -779,7 +783,9 @@ export function Cabinets({
                     ? ["Kabinet no", "Kapasite (U)", "Açıklama", "İşlemler"]
                     : columns.map((c) => c.label)
                   ).map((c) => (
-                    <th key={c}>{c}</th>
+                    <th key={c} data-column-fixed={c === "İşlemler"}>
+                      {c}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -839,7 +845,7 @@ export function Cabinets({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </ColumnTable>
           </div>
         ) : (
           <div className="cabinet-location-list">
@@ -953,11 +959,16 @@ function CabinetLocationTable({
       aria-label={`${name} kat ve odaları`}
       tabIndex={0}
     >
-      <table className="cabinet-floor-table">
+      <ColumnTable orderKey="cabinet-floors" className="cabinet-floor-table">
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key}>{column.label}</th>
+              <th
+                key={column.key}
+                data-column-fixed={column.key === "floor_number"}
+              >
+                {column.label}
+              </th>
             ))}
           </tr>
         </thead>
@@ -991,7 +1002,7 @@ function CabinetLocationTable({
             ))}
           </tbody>
         ))}
-      </table>
+      </ColumnTable>
     </div>
   );
 }

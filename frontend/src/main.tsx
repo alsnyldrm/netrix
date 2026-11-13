@@ -1,3 +1,4 @@
+import { ColumnTable } from "./column-table";
 import {
   isSuperAdmin,
   hasAdminAccess,
@@ -3950,13 +3951,17 @@ function App() {
                           : undefined
                       }
                     >
-                      <table>
+                      <ColumnTable orderKey={page.key}>
                         <thead>
                           <tr>
                             {page.columns?.map(([key, title]) => (
-                              <th key={key}>{title}</th>
+                              <th key={key} data-column-id={key}>
+                                {title}
+                              </th>
                             ))}
-                            <th className="actions-heading">İşlemler</th>
+                            <th className="actions-heading" data-column-fixed>
+                              İşlemler
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -4250,7 +4255,7 @@ function App() {
                             </tr>
                           ))}
                         </tbody>
-                      </table>
+                      </ColumnTable>
                     </div>
                   ) : (
                     <Empty
