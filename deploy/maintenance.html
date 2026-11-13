@@ -99,6 +99,12 @@
     (() => {
       const button = document.getElementById('retry');
       const status = document.getElementById('check-status');
+      if (location.pathname === '/bakim-onizleme') {
+        status.textContent = 'Bu bir önizlemedir; NETRIX şu anda çalışıyor.';
+        button.innerHTML = 'NETRIX’e git';
+        button.addEventListener('click', () => location.assign('/'));
+        return;
+      }
       let busy = false;
       async function check() {
         if (busy || document.hidden) return;
