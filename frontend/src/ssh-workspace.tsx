@@ -275,10 +275,7 @@ function Terminal({
               statusCallback.current("reconnecting");
               retry = setTimeout(connect, 1000 * attempts);
             } else
-              statusCallback.current(
-                "failed",
-                "Terminal bağlantısı kesildi. Pencereyi kapatıp yeniden bağlanın.",
-              );
+              statusCallback.current("failed", "Terminal bağlantısı kesildi.");
           };
         };
         connect();
@@ -570,17 +567,39 @@ function SessionWindow({
   onClose,
   onMinimize,
   onDetach,
+  onReconnect,
 }: {
   session: Session;
   standalone?: boolean;
   onClose: () => void;
   onMinimize: () => void;
   onDetach: () => void;
+  onReconnect: () => Promise<void>;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [full, setFull] = useState(!!standalone);
   const [status, setStatus] = useState("queued");
   const [error, setError] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const retryInProgress = useRef(false);
+  const disconnected = ["failed", "closed", "cancelled", "completed"].includes(
+    status,
+  );
+  const reconnect = async () => {
+    if (retryInProgress.current) return;
+    retryInProgress.current = true;
+    setRetrying(true);
+    try {
+      await onReconnect();
+    } catch (error) {
+      setError(
+        error instanceof Error ? error.message : "SSH bağlantısı açılamadı.",
+      );
+    } finally {
+      retryInProgress.current = false;
+      setRetrying(false);
+    }
+  };
   const [features, setFeatures] = useState(currentPreferences().features);
   const [appearance, setAppearance] = useState(currentPreferences().terminal);
   const [settings, setSettings] = useState(false);
@@ -651,6 +670,7 @@ function SessionWindow({
       aria-label={`${session.device_name} SSH bağlantısı`}
       onCancel={(event) => {
         event.preventDefault();
+        if (retryInProgress.current) return;
         if (features.includes("session_dock") && !standalone) onMinimize();
         else onClose();
       }}
@@ -687,7 +707,7 @@ function SessionWindow({
                 className="icon-button"
                 aria-label="Simge durumuna küçült"
                 title="Simge durumuna küçült"
-                disabled={!features.includes("session_dock")}
+                disabled={!features.includes("session_dock") || retrying}
                 onClick={onMinimize}
               >
                 <Minus size={19} />
@@ -696,6 +716,7 @@ function SessionWindow({
                 className="icon-button"
                 aria-label="Yeni sekmede aç"
                 title="Yeni sekmede aç"
+                disabled={retrying}
                 onClick={onDetach}
               >
                 <ArrowSquareOut size={19} />
@@ -714,6 +735,7 @@ function SessionWindow({
             className="icon-button"
             aria-label="SSH bağlantısını kapat"
             title="Bağlantıyı sonlandır"
+            disabled={retrying}
             onClick={onClose}
           >
             <X size={19} />
@@ -833,10 +855,21 @@ function SessionWindow({
           </div>
         </form>
       )}
-      {error && (
-        <p className="ssh-error" role="alert">
-          {error}
-        </p>
+      {(error || disconnected) && (
+        <div className="ssh-error ssh-session-error">
+          <span role="alert">{error || "SSH bağlantısı kapandı."}</span>
+          {disconnected && (
+            <button
+              className="secondary"
+              type="button"
+              disabled={retrying}
+              onClick={() => void reconnect()}
+            >
+              <ArrowClockwise size={17} aria-hidden="true" />
+              {retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
+            </button>
+          )}
+        </div>
       )}
       <div
         className={`ssh-body${features.includes("saved_commands") ? " with-commands" : ""}${appearance.commands_collapsed ? " commands-collapsed" : ""}`}
@@ -852,6 +885,7 @@ function SessionWindow({
           hidden={session.minimized}
           sendRef={send}
           onStatus={(state, message) => {
+            if (retryInProgress.current) return;
             setStatus(state);
             setError(message || "");
           }}
@@ -1554,6 +1588,19 @@ export function SSHWorkspace({
       setError(e.message);
     }
   };
+  const reconnect = async (session: Session) => {
+    await api("/access/sessions/" + session.id, "DELETE");
+    const saved = await api("/access/sessions", "POST", {
+      device_id: session.device_id,
+    });
+    if (standaloneId)
+      window.history.replaceState(null, "", `/terminal/${saved.id}`);
+    setSessions((values) =>
+      values.map((value) =>
+        value.id === session.id ? { ...value, ...saved } : value,
+      ),
+    );
+  };
   const minimize = (id: string) => {
     if (minimizedCount >= 15) {
       setError("En fazla 15 oturum küçültülebilir. Önce bir oturumu kapatın.");
@@ -1591,6 +1638,7 @@ export function SSHWorkspace({
           session={session}
           standalone={!!standaloneId}
           onClose={() => void close(session.id)}
+          onReconnect={() => reconnect(session)}
           onMinimize={() => minimize(session.id)}
           onDetach={() => detach(session.id)}
         />

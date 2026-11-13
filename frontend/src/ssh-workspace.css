@@ -219,6 +219,18 @@
   flex: none;
   font-size: 0.85rem;
 }
+.ssh-session-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.ssh-session-error > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .ssh-dock {
   position: fixed;
   z-index: 45;
