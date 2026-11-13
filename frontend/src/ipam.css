@@ -510,3 +510,19 @@
     grid-row: 1;
   }
 }
+
+.ipam-vlan-scan-status {
+  min-inline-size: 56px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ipam-vlan-scan-status > span {
+    animation: ipam-vlan-scan-pulse 1.6s ease-in-out infinite alternate;
+  }
+}
+@keyframes ipam-vlan-scan-pulse {
+  to {
+    opacity: 0.55;
+  }
+}

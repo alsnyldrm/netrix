@@ -711,6 +711,7 @@ export function IPAMWorkspace({
   const [bulkOpen, setBulkOpen] = useState(false);
   const [deleteVLANs, setDeleteVLANs] = useState<string[]>([]);
   const [listScanPending, setListScanPending] = useState(false);
+  const [listScanJobs, setListScanJobs] = useState<Record<string, string>>({});
   const [listScanNotice, setListScanNotice] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const legacyStorageKey = `netrix.ipam.columns.${user.id}`;
@@ -885,19 +886,69 @@ export function IPAMWorkspace({
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!Object.keys(listScanJobs).length) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      const completed = await Promise.all(
+        Object.entries(listScanJobs).map(async ([vlan, jobId]) => {
+          if (!jobId) return null;
+          try {
+            const result = await api("/jobs/" + jobId);
+            return ["queued", "running"].includes(result.status)
+              ? null
+              : [vlan, jobId];
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (!active) return;
+      if (completed.some(Boolean)) {
+        setListScanJobs((current) => {
+          const next = { ...current };
+          for (const entry of completed) {
+            if (entry && next[entry[0]] === entry[1]) delete next[entry[0]];
+          }
+          return next;
+        });
+        setScanRevision((value) => value + 1);
+      }
+      timer = setTimeout(poll, 2000);
+    };
+    timer = setTimeout(poll, 2000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [listScanJobs]);
   const selectedVLANs = isBlocks
-    ? rows.filter((row) => selected.includes(row.id) && row.cidr)
+    ? rows.filter(
+        (row) =>
+          selected.includes(row.id) && row.cidr && !(row.id in listScanJobs),
+      )
     : [];
   const scanVLANs = async (targets: Row[]) => {
     setListScanPending(true);
     setListScanNotice("");
     setError("");
+    setListScanJobs((current) => ({
+      ...current,
+      ...Object.fromEntries(targets.map((row) => [row.id, ""])),
+    }));
     const failures: string[] = [];
     try {
       for (const row of targets) {
         try {
-          await api(`/ipam/vlans/${row.id}/discover`, "POST");
+          const job = await api(`/ipam/vlans/${row.id}/discover`, "POST");
+          setListScanJobs((current) => ({ ...current, [row.id]: job.id }));
         } catch (error) {
+          setListScanJobs((current) => {
+            const next = { ...current };
+            delete next[row.id];
+            return next;
+          });
           failures.push(`${row.cidr} · ${(error as Error).message}`);
         }
       }
@@ -1458,12 +1509,17 @@ export function IPAMWorkspace({
                             type="button"
                             className="secondary"
                             aria-label={`${r.cidr} tara`}
-                            disabled={listScanPending}
+                            disabled={listScanPending || r.id in listScanJobs}
                             onClick={() => void scanVLANs([r])}
                           >
                             <Broadcast size={17} aria-hidden="true" />
                             Tara
                           </button>
+                        )}
+                        {canOperate(user) && r.cidr && (
+                          <span className="ipam-vlan-scan-status" role="status">
+                            {r.id in listScanJobs && <span>Taranıyor</span>}
+                          </span>
                         )}
                         {canWrite && (
                           <>
