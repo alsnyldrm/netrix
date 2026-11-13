@@ -21,6 +21,7 @@ class BackupError(ValueError):
         "aruba_privilege": "Aruba hesabı Manager/Enable (#) yetkisinde oturum açmalı. Cihazdaki SSH hesabının okuma yetkisini kontrol edin.",
         "aruba_command": "Aruba komutu reddedildi veya çıktı sayfalandı. Adaptör seçimini ve hesabın komut yetkilerini kontrol edin; yedek kaydedilmedi.",
         "aruba_incomplete": "Aruba yanıtı eksik veya geçerli bir konfigürasyon değil; yedek kaydedilmedi.",
+        "aruba_mac_table_incomplete": "Aruba MAC tablosu yanıtı eksik veya geçersiz.",
         "ssh_required": "Yedekleme ve karşılaştırma yalnızca SSH ile yapılır. Cihaza SSH profili ve uyumlu adaptör atayın.",
         "scp_failed": "FortiGate SCP yedeği alınamadı. SSH erişimini, admin-scp ayarını ve hesabın SCP yedekleme yetkisini kontrol edin.",
         "too_large": "Konfigürasyon 4 MB sınırını aşıyor; yedek kaydedilmedi.",

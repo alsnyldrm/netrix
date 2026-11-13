@@ -123,6 +123,14 @@ def write(db, state, data, at):
             outcomes["cx_mac_vlan"] = dict(status="complete", row_count=len(data["cx_mac_vlans"]))
         elif data.get("cx_mac_vlan_error"):
             outcomes["cx_mac_vlan"] = dict(status="error", error_code=data["cx_mac_vlan_error"])
+    aos_rows = data.get("aos_mac_rows") if not data.get("failed") else None
+    previous_aos = known.get("aos_mac_table")
+    if previous_aos and previous_aos.attempted_at and previous_aos.attempted_at > at:
+        aos_rows = None
+    if aos_rows is not None:
+        outcomes["aos_mac_table"] = dict(status="complete", row_count=len(aos_rows))
+    elif data.get("aos_mac_error"):
+        outcomes["aos_mac_table"] = dict(status="error", error_code=data["aos_mac_error"])
     for key in unsupported:
         outcomes.setdefault(key, dict(status="error", row_count=0))
     # Unqueried tables are untouched. Late completions cannot replace newer data.
@@ -275,14 +283,41 @@ def write(db, state, data, at):
     by_fid = {}
     for v in state.vlan_fdbs:
         by_fid.setdefault(v.fdb_id, set()).add(v.vlan_vid)
-    if fresh_fdb and "vlan_fdb_port" in tables and complete("bridge_ifindex"):
+    if fresh_fdb and (aos_rows is not None or ("vlan_fdb_port" in tables and complete("bridge_ifindex"))):
         # Partial tables may contribute proven positive rows, never prove absence.
         prior = {(e.fdb_id, e.mac_address, e.port): e for e in state.mac_entries}
         prior_ids = {e.id for e in prior.values() if inspect(e).persistent}
         seen = []
         found = {}
         unresolved = False
-        for key, bridge in tables["vlan_fdb_port"].items():
+        raw_ports = tables.get("vlan_fdb_port", {})
+        raw_status = tables.get("vlan_fdb_status", {})
+        if aos_rows is not None:
+            # Negative IDs distinguish CLI VLAN evidence from real SNMP FIDs.
+            names = {}
+            for bridge, index in bridges.items():
+                if (port := portmap.get(index)) and port.name:
+                    names.setdefault(port.name.casefold(), []).append(bridge)
+            raw_ports, raw_status, conflicts = {}, {}, set()
+            for vid, mac, name in aos_rows:
+                matches = names.get(name.casefold(), ())
+                if len(matches) != 1:
+                    unresolved = True
+                    continue
+                key = str(-vid) + "." + ".".join(str(int(octet, 16)) for octet in mac.split(":"))
+                if key in raw_ports and raw_ports[key] != matches[0]:
+                    unresolved = True
+                    conflicts.add(key)
+                raw_ports[key], raw_status[key] = matches[0], "3"
+            for key in conflicts:
+                del raw_ports[key]
+            fdb_complete = not unresolved
+            if unresolved:
+                diagnostic = known["aos_mac_table"]
+                diagnostic.status = "incomplete"
+                diagnostic.error_code = "unresolved_row_dependencies"
+                diagnostic.successful_at = previous_success.get("aos_mac_table")
+        for key, bridge in raw_ports.items():
             try:
                 fid, *octets = map(int, key.split("."))
                 if len(octets) != 6:
@@ -293,7 +328,7 @@ def write(db, state, data, at):
                 index = bridges.get(bridge, 0)
                 port = portmap.get(index)
                 name = port.name if port else ""
-                status = str(tables.get("vlan_fdb_status", {}).get(key, ""))
+                status = str(raw_status.get(key, ""))
                 if status in ("2", "4"):
                     continue
                 if not name or status not in ("1", "3", "5"):
@@ -322,7 +357,9 @@ def write(db, state, data, at):
                     and e.observed_at == previous_success.get("cx_mac_vlan")
                 )
                 e.vlan_vid = (
-                    next(iter(by_fid[fid]))
+                    -fid
+                    if fid < 0
+                    else next(iter(by_fid[fid]))
                     if len(by_fid.get(fid, ())) == 1
                     else data.get("cx_mac_vlans", {}).get((mac, name), 0)
                     if not by_fid.get(fid) and device and device.adapter == "aruba_6100"
@@ -331,7 +368,7 @@ def write(db, state, data, at):
                 if retained_vlan:
                     e.vlan_vid = previous_vlan
                 e.bridge_port, e.if_index = bridge, index
-                e.status = str(tables.get("vlan_fdb_status", {}).get(key, ""))[:10]
+                e.status = status[:10]
                 # Unchanged rows are stamped together below: one UPDATE per MAC is
                 # thousands of cluster round trips for every switch read.
                 if retained_vlan:
@@ -348,7 +385,7 @@ def write(db, state, data, at):
         if unresolved:
             fdb_complete = False
             diagnostic = known.get("vlan_fdb_port")
-            if diagnostic and diagnostic.status == "complete":
+            if aos_rows is None and diagnostic and diagnostic.status == "complete":
                 diagnostic.status = "incomplete"
                 diagnostic.error_code = "unresolved_row_dependencies"
                 diagnostic.successful_at = previous_success.get("vlan_fdb_port")
@@ -356,7 +393,11 @@ def write(db, state, data, at):
             state.fdb_at, state.fdb_complete = at, True
         for identity, entry in prior.items():
             if identity not in found:
-                if not fdb_complete or (entry.observed_at and entry.observed_at > at):
+                if (
+                    not fdb_complete
+                    or (entry.fdb_id < 0 and aos_rows is None)
+                    or (entry.observed_at and entry.observed_at > at)
+                ):
                     found[identity] = entry
                     continue
                 entry.present = False
@@ -593,7 +634,9 @@ def read(state):
     ):
         if device and vrf_id != device.vrf_id:
             continue
-        explicit = vlan_vid and (vlan_vid, fdb_id) not in mapped and cx_at and observed_at == cx_at
+        explicit = fdb_id == -vlan_vid and vlan_vid > 0 or (
+            vlan_vid and (vlan_vid, fdb_id) not in mapped and cx_at and observed_at == cx_at
+        )
         if vlan_vid and (vlan_vid, fdb_id) not in mapped and not explicit:
             continue
         if present is False:
