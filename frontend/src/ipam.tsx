@@ -1321,7 +1321,9 @@ export function IPAMWorkspace({
                 ).map((label) => (
                   <th key={label}>{label}</th>
                 ))}
-                <th>İşlemler</th>
+                <th className={!isBlocks ? "ipam-actions-column" : undefined}>
+                  İşlemler
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1436,7 +1438,7 @@ export function IPAMWorkspace({
                         {renderCell(r, c.key)}
                       </td>
                     ))}
-                    <td>
+                    <td className="ipam-actions-column">
                       <div className="ipam-actions ipam-row-actions">
                         {r.id && (
                           <button
@@ -1585,7 +1587,7 @@ function IPBulkEditor({
     (f) => !["address", "mac_address"].includes(f.key),
   );
   return (
-    <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close}>
+    <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close} drawer>
       <form
         className="ipam-form"
         onSubmit={async (e) => {
@@ -1959,6 +1961,7 @@ export function Integrations({
         <Dialog
           title={editing.id ? "Entegrasyonu düzenle" : "Entegrasyon ekle"}
           onClose={closeEditor}
+          drawer={!!editing.id}
         >
           <form
             className="ipam-form"

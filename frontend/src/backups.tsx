@@ -400,7 +400,8 @@ export function BackupWorkspace({
       )}
       {view && (
         <Dialog
-          wide={view.kind === "diff"}
+          wide
+          drawer={!["base", "approve", "delete"].includes(view.kind)}
           title={
             (
               {

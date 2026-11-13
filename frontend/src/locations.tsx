@@ -361,6 +361,7 @@ function LocationForm({
     <Dialog
       title={`${row.id ? "Düzenle" : "Yeni kayıt"} · ${institution ? "Kurum" : row.parent_id ? "Oda" : "Lokasyon"}`}
       onClose={close}
+      drawer={!!row.id}
     >
       <form
         className="ipam-form"
@@ -1070,7 +1071,7 @@ function Rack({
     ...(data?.patch_panels || []).map((p: Row) => ({ ...p, panel: true })),
   ];
   return (
-    <Dialog wide title={`${row.name} · ${row.units} U`} onClose={close}>
+    <Dialog wide drawer title={`${row.name} · ${row.units} U`} onClose={close}>
       <div className="rack-dialog">
         {error && (
           <div className="error" role="alert">

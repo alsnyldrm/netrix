@@ -374,7 +374,12 @@ function Operation({
   const result = useLiveQuery<Row>(`/firmware/history/${id}`, refresh),
     plan = result.data;
   return (
-    <Dialog title={plan?.name || "İşlem ayrıntısı"} wide onClose={onClose}>
+    <Dialog
+      title={plan?.name || "İşlem ayrıntısı"}
+      wide
+      drawer
+      onClose={onClose}
+    >
       <div className="fw-history-detail">
         <QueryState result={result} />
         {plan && (

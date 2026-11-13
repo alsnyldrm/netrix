@@ -253,14 +253,13 @@
 .ipam-address-table td {
   white-space: nowrap;
 }
-.ipam-address-table th:last-child,
-.ipam-address-table td:last-child {
+.ipam-address-table .ipam-actions-column {
   position: sticky;
   right: 0;
   background: var(--surface);
   box-shadow: -1px 0 var(--border);
 }
-.ipam-address-table th:last-child {
+.ipam-address-table th.ipam-actions-column {
   background: var(--surface-2);
 }
 

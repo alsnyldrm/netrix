@@ -523,6 +523,7 @@ function SSHConnectionForm({
   return (
     <Dialog
       title={profile.id ? "SSH bağlantısını düzenle" : "Yeni SSH bağlantısı"}
+      drawer={!!profile.id}
       wide
       onClose={onClose}
     >
@@ -955,6 +956,7 @@ function GroupForm({
   return (
     <Dialog
       title={group.id ? "Cihaz grubunu düzenle" : "Yeni cihaz grubu"}
+      drawer={!!group.id}
       onClose={onClose}
       wide
     >

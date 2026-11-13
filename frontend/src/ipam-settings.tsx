@@ -116,6 +116,7 @@ function GroupForm({
   return (
     <Dialog
       title={row ? "Tarama grubunu düzenle" : "Yeni tarama grubu"}
+      drawer={!!row}
       onClose={close}
       wide
     >
@@ -380,7 +381,12 @@ function RunHistory({
       removed: "Kayıt kaldırılmış",
     })[s] || s;
   return (
-    <Dialog title={`${group.name} · Tarama geçmişi`} onClose={close} wide>
+    <Dialog
+      title={`${group.name} · Tarama geçmişi`}
+      onClose={close}
+      wide
+      drawer
+    >
       <div className="scan-history">
         <ErrorNote error={query.error || ""} />
         {!query.data && !query.error && (

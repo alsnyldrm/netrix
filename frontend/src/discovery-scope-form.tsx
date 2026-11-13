@@ -114,6 +114,7 @@ export function DiscoveryScopeForm({
   return (
     <Dialog
       title={(row?.id ? "Kaydı düzenle" : "Yeni kayıt") + " · Ağ keşfi"}
+      drawer={!!row?.id}
       onClose={onClose}
     >
       <form

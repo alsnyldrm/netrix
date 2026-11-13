@@ -41,6 +41,7 @@ export function LinkLabelEditor({
   return (
     <Dialog
       title="Komşuluk kaydını düzenle"
+      drawer
       onClose={() => {
         if (!busy) onClose();
       }}

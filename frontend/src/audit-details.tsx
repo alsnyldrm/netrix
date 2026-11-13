@@ -167,7 +167,7 @@ export function AuditDetails({
 }) {
   const changes = Object.entries(row.details?.changes || {}) as [string, Row][];
   return (
-    <Dialog title="İşlem ayrıntıları" onClose={onClose} wide>
+    <Dialog title="İşlem ayrıntıları" onClose={onClose} wide drawer>
       <div className="audit-details">
         <dl className="audit-metadata">
           {[

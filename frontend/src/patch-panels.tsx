@@ -66,6 +66,110 @@ export function PatchPanels({
     setValues((v) => ({ ...v, [key]: value }));
     setNotice("");
   };
+  const cancelEdit = () => {
+    if (busy) return;
+    setValues(defaults);
+    setError("");
+  };
+  const form = (
+    <form
+      className="patch-form"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setBusy(true);
+        setError("");
+        setNotice("");
+        try {
+          const panel = await api(
+            base + (values.id ? `/${values.id}` : ""),
+            values.id ? "PUT" : "POST",
+            Object.fromEntries(
+              Object.keys(defaults).map((k) => [k, values[k]]),
+            ),
+          );
+          setValues(defaults);
+          setNotice("Patch panel kaydedildi.");
+          saved();
+          if (!values.id) open(panel);
+        } catch (e: any) {
+          setError(e.message);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Field label="Panel adı">
+        <input
+          required
+          maxLength={120}
+          value={values.name}
+          onChange={(e) => set("name", e.target.value)}
+        />
+      </Field>
+      <Field label="Panel türü">
+        <select
+          value={values.kind}
+          onChange={(e) => {
+            set("kind", e.target.value);
+            if (!values.id)
+              set("port_count", e.target.value === "fiber" ? 12 : 24);
+          }}
+        >
+          <option value="cat">CAT Patch Panel</option>
+          <option value="fiber">Fiber Patch Panel</option>
+        </select>
+      </Field>
+      <Field label="Panel başlangıç U">
+        <input
+          type="number"
+          required
+          min={1}
+          max={cabinet.units}
+          value={values.start_unit}
+          onChange={(e) => set("start_unit", Number(e.target.value))}
+        />
+      </Field>
+      <Field label="Panel yüksekliği (U)">
+        <input
+          type="number"
+          required
+          min={1}
+          max={cabinet.units}
+          value={values.units}
+          onChange={(e) => set("units", Number(e.target.value))}
+        />
+      </Field>
+      <Field label="Port sayısı">
+        <input
+          type="number"
+          required
+          min={1}
+          max={288}
+          value={values.port_count}
+          onChange={(e) => set("port_count", Number(e.target.value))}
+        />
+      </Field>
+      <div className="ipam-actions">
+        <button className="primary" disabled={busy}>
+          {busy
+            ? "Kaydediliyor…"
+            : values.id
+              ? "Paneli güncelle"
+              : "Patch panel ekle"}
+        </button>
+        {values.id && (
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={cancelEdit}
+          >
+            Vazgeç
+          </button>
+        )}
+      </div>
+    </form>
+  );
   return (
     <section className="patch-section" aria-labelledby="patch-title">
       <h3 id="patch-title">Patch paneller</h3>
@@ -73,7 +177,7 @@ export function PatchPanels({
         CAT ve fiber panelleri U konumuna yerleştirin. Port numaraları, cihaz
         bağlantıları ve kablo bilgileri elle kaydedilir.
       </p>
-      {error && (
+      {error && !values.id && (
         <div className="error" role="alert">
           {error}
         </div>
@@ -128,104 +232,21 @@ export function PatchPanels({
           <p className="ipam-hint">Henüz patch panel eklenmedi.</p>
         )}
       </div>
-      {writable && (
-        <form
-          className="patch-form"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setBusy(true);
-            setError("");
-            setNotice("");
-            try {
-              const panel = await api(
-                base + (values.id ? `/${values.id}` : ""),
-                values.id ? "PUT" : "POST",
-                Object.fromEntries(
-                  Object.keys(defaults).map((k) => [k, values[k]]),
-                ),
-              );
-              setValues(defaults);
-              setNotice("Patch panel kaydedildi.");
-              saved();
-              if (!values.id) open(panel);
-            } catch (e: any) {
-              setError(e.message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          <Field label="Panel adı">
-            <input
-              required
-              maxLength={120}
-              value={values.name}
-              onChange={(e) => set("name", e.target.value)}
-            />
-          </Field>
-          <Field label="Panel türü">
-            <select
-              value={values.kind}
-              onChange={(e) => {
-                set("kind", e.target.value);
-                if (!values.id)
-                  set("port_count", e.target.value === "fiber" ? 12 : 24);
-              }}
-            >
-              <option value="cat">CAT Patch Panel</option>
-              <option value="fiber">Fiber Patch Panel</option>
-            </select>
-          </Field>
-          <Field label="Panel başlangıç U">
-            <input
-              type="number"
-              required
-              min={1}
-              max={cabinet.units}
-              value={values.start_unit}
-              onChange={(e) => set("start_unit", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Panel yüksekliği (U)">
-            <input
-              type="number"
-              required
-              min={1}
-              max={cabinet.units}
-              value={values.units}
-              onChange={(e) => set("units", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Port sayısı">
-            <input
-              type="number"
-              required
-              min={1}
-              max={288}
-              value={values.port_count}
-              onChange={(e) => set("port_count", Number(e.target.value))}
-            />
-          </Field>
-          <div className="ipam-actions">
-            <button className="primary" disabled={busy}>
-              {busy
-                ? "Kaydediliyor…"
-                : values.id
-                  ? "Paneli güncelle"
-                  : "Patch panel ekle"}
-            </button>
-            {values.id && (
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => setValues(defaults)}
-              >
-                Vazgeç
-              </button>
-            )}
-          </div>
-        </form>
-      )}
+      {writable &&
+        (values.id ? (
+          <Dialog drawer title="Patch paneli düzenle" onClose={cancelEdit}>
+            <div className="patch-section">
+              {error && (
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              )}
+              {form}
+            </div>
+          </Dialog>
+        ) : (
+          form
+        ))}
       {removing && (
         <Dialog
           title="Patch paneli sil"
@@ -549,6 +570,7 @@ export function PatchPorts({
       title={`${panel.name} · ${panelKind(panel.kind)}`}
       onClose={close}
       wide
+      drawer
     >
       <div className="patch-section">
         <p className="ipam-hint">

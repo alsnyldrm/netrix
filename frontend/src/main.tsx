@@ -1180,19 +1180,33 @@ export function Dialog({
           animation.animationName === "lumelle-detail-out",
       );
     if (!exit) {
+      setClosing(false);
       onClose();
       return;
     }
     let active = true;
     const finish = () => {
-      if (active) onClose();
+      if (!active) return;
+      setClosing(false);
+      onClose();
     };
     void exit.finished.then(finish, finish);
     return () => {
       active = false;
     };
   }, [closing, onClose]);
-  const dismiss = () => (drawer ? setClosing(true) : onClose());
+  const dismiss = () => {
+    if (
+      drawer &&
+      document.documentElement.dataset.design === "lumelle" &&
+      document.documentElement.dataset.reduceMotion !== "true" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setClosing(true);
+    } else {
+      onClose();
+    }
+  };
   const isBackdrop = (event: React.MouseEvent<HTMLDialogElement>) => {
     if (event.target !== event.currentTarget) return false;
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -1208,7 +1222,8 @@ export function Dialog({
       aria-label={title}
       className={[
         "dialog",
-        drawer ? "lumelle-detail-drawer" : wide && "wide",
+        wide && "wide",
+        drawer && "lumelle-detail-drawer",
         className,
       ]
         .filter(Boolean)
@@ -1652,6 +1667,7 @@ function GenericResourceForm({
       title={(row?.id ? "Kaydı düzenle" : "Yeni kayıt") + " · " + page.title}
       onClose={onClose}
       wide={page.key === "devices"}
+      drawer={!!row?.id}
     >
       <form onSubmit={submit}>
         {vlanContext && (
@@ -4690,7 +4706,12 @@ function App() {
         <AuditDetails row={auditDetail} onClose={() => setAuditDetail(null)} />
       )}
       {config && canWrite && (
-        <Dialog title={config.title} onClose={() => setConfig(null)} wide>
+        <Dialog
+          title={config.title}
+          onClose={() => setConfig(null)}
+          wide
+          drawer
+        >
           <pre className="config-code">{config.content}</pre>
         </Dialog>
       )}

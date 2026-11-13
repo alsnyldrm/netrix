@@ -516,6 +516,7 @@ function GroupForm({
   return (
     <Dialog
       title={row ? "Firmware grubunu düzenle" : "Firmware grubu oluştur"}
+      drawer={!!row}
       wide
       onClose={onClose}
     >
@@ -643,6 +644,7 @@ function ImageForm({
   return (
     <Dialog
       title="Firmware dosyası yükle"
+      drawer={!!row}
       wide
       onClose={() => {
         if (!busy) onClose();
@@ -1219,7 +1221,7 @@ function PlanDetail({
     setConfirmation("");
   };
   return (
-    <Dialog title={p?.name || "Firmware planı"} wide onClose={onClose}>
+    <Dialog title={p?.name || "Firmware planı"} wide drawer onClose={onClose}>
       <div className="fw-form">
         {(result.error || actionError) && (
           <p className="error" role="alert">
@@ -2116,6 +2118,7 @@ export default function FirmwareWorkspace({
       {modal?.kind === "image-detail" && (
         <Dialog
           title={modal.row?.name || "Firmware ayrıntısı"}
+          drawer
           onClose={() => setModal(null)}
         >
           <div className="fw-form">

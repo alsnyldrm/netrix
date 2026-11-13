@@ -17,7 +17,7 @@ export function UserRoleEditor({
   const [error, setError] = useState("");
   const owner = user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
   return (
-    <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose}>
+    <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose} drawer>
       <form
         className="user-role-form"
         onSubmit={async (e) => {
