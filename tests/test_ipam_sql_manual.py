@@ -281,3 +281,69 @@ async def test_old_dns_is_queried_again_without_stale_value_age(admin_client, ne
         assert not result.values["connections"]
         assert not result.values["mac_address"]
         assert source_snapshot(db) == before
+
+
+@pytest.mark.parametrize(
+    ("ptr", "peer_mac", "expected", "source"),
+    [
+        ("", "00:11:22:33:44:55", "AVX178D19", "lldp"),
+        ("ptr.example", "00:11:22:33:44:55", "ptr.example", "dns"),
+        ("", "00:11:22:33:44:99", "", None),
+    ],
+)
+async def test_manual_hostname_uses_only_verified_inventory_neighbor(
+    admin_client, network, blocked, monkeypatch, ptr, peer_mac, expected, source
+):
+    sf, _, rid, ids = network
+
+    async def reverse_dns(*args):
+        return ptr
+
+    monkeypatch.setattr(adapters, "reverse_dns", reverse_dns)
+    with sf() as db:
+        db.get(m.Device, ids[0]).is_gateway = True
+        link = m.Link(
+            device_id=ids[1],
+            interface_name="Gi1/0/1",
+            remote_name="AVX178D19",
+            remote_port=peer_mac,
+            source="lldp",
+            last_seen_at=now(),
+            evidence={"lldp": dict(
+                system_name="AVX178D19", chassis_subtype=5, chassis_id="0x01c000020a",
+                port_subtype=3, port_id=peer_mac,
+            )},
+        )
+        db.add(link)
+        db.commit()
+        link_id = link.id
+
+    job = admin_client.post(f"/api/v1/ipam/addresses/{rid}/scan").json()
+    assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
+    await worker.execute(job["id"], NoNetwork())
+
+    with sf() as db:
+        result = service.enrich(db, [db.get(m.IPAddress, rid)])[0]
+        assert result["hostname"] == expected
+        assert result["field_sources"].get("hostname") == source
+        if source == "lldp":
+            assert result["connected_port"] == "Gi1/0/1"
+            assert result["scan_status"] == "success"
+            row = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid))
+            assert next(field for field in row.fields if field.field == "hostname").neighbor_id == link_id
+
+
+def test_neighbor_hostname_rejects_conflicting_protocol_names():
+    from netrix.ipam.connections import Evidence
+
+    mac = "00:11:22:33:44:55"
+    data = {
+        "lldp": {"system_name": "endpoint", "port_subtype": 3, "port_id": mac},
+        "cdp": {"system_name": "another-endpoint", "management_address": "192.0.2.10"},
+    }
+    record = {"order": (0,), "link": ("switch", "2", None, data, now(), "link")}
+    assert Evidence._neighbor_hostname([record], "192.0.2.10", {mac}) is None
+    data["lldp"]["system_name"] = ""
+    assert Evidence._neighbor_hostname([record], "192.0.2.10", {mac}) == (
+        "cdp", "another-endpoint", "link"
+    )

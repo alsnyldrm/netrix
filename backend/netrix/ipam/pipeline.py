@@ -221,6 +221,7 @@ async def resolve(address, sources, progress=None):
                 normalized_mac(r.get("mac_address")) == identity and r.get("address") != address
             )
 
+        physical = None
         if mac:
             physical = await stage("backbone", lambda: sources.physical(address, mac))
             inspected_inventory = physical is not None
@@ -270,6 +271,12 @@ async def resolve(address, sources, progress=None):
         else:
             values["hostname"] = hostname or (next(iter(names)) if names else "")
             values["field_sources"]["hostname"] = "dns" if hostname else "windows_dhcp" if names else ""
+            if not values["hostname"] and values["connections"] and physical:
+                if neighbor := physical.get("neighbor_hostname"):
+                    source, name, link_id = neighbor
+                    values["hostname"] = name
+                    values["field_sources"]["hostname"] = source
+                    values["_hostname_neighbor_id"] = link_id
     if not mac and not values["connections"] and gateway is not None:
         issue(
             "gateway",
@@ -399,7 +406,7 @@ def apply(item, result, *, details=True):
     from ..services import serialize
 
     ping = [o for o in item.get("observations", []) if o.get("source") == "icmp"]
-    item.update({k: v for k, v in result.values.items() if k != "observations"})
+    item.update({k: v for k, v in result.values.items() if k != "observations" and not k.startswith("_")})
     if details:
         item["observations"] = result.values.get("observations", []) + ping
     item["field_sources"] = dict(item.get("field_sources", {}))

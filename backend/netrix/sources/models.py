@@ -358,6 +358,10 @@ class ResolutionField(Base):
     gateway_id: Mapped[str | None] = mapped_column(
         ForeignKey("envanter.gateway_bindings.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    neighbor_id: Mapped[str | None] = mapped_column(
+        ForeignKey("baglanti.neighbor_links.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    neighbor: Mapped["Link | None"] = relationship("Link", lazy="selectin")
     source: Mapped[str] = mapped_column(String(40), default="")
     source_link: Mapped["IPObservation | None"] = relationship("IPObservation", lazy="joined")
     gateway: Mapped[GatewayBinding | None] = relationship(lazy="joined")

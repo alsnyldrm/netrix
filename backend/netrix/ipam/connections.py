@@ -436,6 +436,7 @@ class Evidence:
             if link.last_seen_at and link.last_seen_at >= cutoff:
                 blocked.add((link.device_id, link.interface_name))
         records, by_address, by_mac, by_uuid = [], defaultdict(list), defaultdict(list), defaultdict(list)
+        by_port = defaultdict(list)
         for order, link in links:
             record = self._link_record(order, link, snapshots)
             if not record:
@@ -445,6 +446,8 @@ class Evidence:
             if record["down"]:
                 continue
             index = len(records) - 1
+            if order[0] == 0:
+                by_port[link[:2]].append(record)
             for address in record["addresses"]:
                 by_address[address].append(index)
             for value in record["macs"]:
@@ -458,6 +461,7 @@ class Evidence:
             "by_address": by_address,
             "by_mac": by_mac,
             "by_uuid": by_uuid,
+            "by_port": by_port,
         }
         return self.static[key]
 
@@ -510,6 +514,19 @@ class Evidence:
             "mac_address": nic["mac_address"] if nic else peer["mac_address"] if peer else "",
             "confidence": 0.95,
         }
+
+    @staticmethod
+    def _neighbor_hostname(records, address, macs):
+        from .protocol_peers import hostname_evidence
+
+        names = defaultdict(list)
+        for record in records:
+            _, _, _, data, _, link_id = record["link"]
+            for source, hostname in hostname_evidence(data, address, macs):
+                names[hostname.casefold().rstrip(".")].append((source, hostname, link_id))
+        if len(names) != 1:
+            return None
+        return min(next(iter(names.values())), key=lambda item: (item[0] != "lldp", item[2]))
 
     def resolve(self, row, vlan, *, identity_mac=None, identity_source="gateway", host=None):
         from .protocol_peers import peer as protocol_peer
@@ -746,6 +763,15 @@ class Evidence:
             "gateway_mac_conflict": len(gateway_macs) > 1,
             "gateway_evidence": gateway,
             "connections": values,
+            "neighbor_hostname": self._neighbor_hostname(
+                (
+                    record
+                    for candidate in accepted
+                    for record in static["by_port"].get((candidate["device_id"], candidate["port"]), ())
+                ),
+                row.address,
+                macs,
+            ),
             "connection_groups": list(groups.values()),
             "connected_device": " / ".join(g["device_name"] for g in groups.values()),
             "connected_port": " / ".join(g["port_label"] for g in groups.values()),

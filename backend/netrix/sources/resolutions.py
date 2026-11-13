@@ -134,6 +134,11 @@ def read(row):
         value = ""
         if entry.gateway:
             value = entry.gateway.mac_address
+        elif entry.neighbor:
+            fact = entry.neighbor.lldp if entry.source == "lldp" else entry.neighbor.cdp
+            value = (fact.system_name or "").strip().rstrip(".") if fact else ""
+            if value:
+                values["_hostname_neighbor_id"] = entry.neighbor_id
         elif entry.source_link:
             data = entry.source_link.data
             value = data.get(entry.field, "")
@@ -334,6 +339,7 @@ def write(db, result, value):
         entry.source = source or ""
         entry.source_link = None
         entry.gateway = None
+        entry.neighbor = None
         if candidates:
             entry.source_link = max(candidates, key=lambda o: o.observed_at or now())
         elif source == "gateway":
@@ -350,7 +356,10 @@ def write(db, result, value):
                 )
             if matches:
                 entry.gateway = max(matches, key=lambda g: g.observed_at or now())
-        if entry.source_link or entry.gateway:
+        elif field == "hostname" and source in ("lldp", "cdp"):
+            if neighbor_id := value.get("_hostname_neighbor_id"):
+                entry.neighbor = db.get(m.Link, neighbor_id)
+        if entry.source_link or entry.gateway or entry.neighbor:
             fields.append(entry)
     result.fields = fields
     # IPAM can reference inventory facts, never create a replacement MAC-port row.

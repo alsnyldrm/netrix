@@ -530,3 +530,12 @@ Ağ keşfi, gateway ARP/NDP tablosundaki geçerli tekil gözlem satırlarını
 VLAN taramaları gateway kanıtını bu tablodan okur, kaynak satırına referans
 verir ve gateway tablosunu güncellemez. DHCP kaydı hostname sağlayabilir.
 Otomatik IP–MAC kimliği için gateway kanıtı gerekir.
+
+### IP hostname için envanter komşuluğu
+
+Fiziksel uçlarda DNS PTR, gateway IP–MAC ile uyuşan DHCP adı ve doğrulanmış
+LLDP/CDP sistem adı sırasıyla değerlendirilir. Komşu adı yalnız kabul edilen
+switch/portun güncel, aynı IP veya MAC'i doğrulayan envanter kaydından alınır.
+Uyuşmayan IP/MAC ve çelişkili komşu adları kullanılmaz. Sonuç hostname metnini
+kopyalamaz, kanonik komşu satırına referans verir. Manuel ve VMware öncelikleri
+korunur ve IPAM switch bağlantısı açmaz.
