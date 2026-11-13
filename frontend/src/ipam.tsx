@@ -1,5 +1,5 @@
 import { BulkEditField } from "./bulk-edit-field";
-import { ColumnTable } from "./column-table";
+import { ColumnTable, type ColumnSort } from "./column-table";
 import { hasAdminAccess, canOperate } from "./permissions";
 import { useLiveQuery } from "./data";
 import React, { useEffect, useRef, useState } from "react";
@@ -695,6 +695,7 @@ export function IPAMWorkspace({
     }
   }, [initialVLAN]);
   const [offset, setOffset] = useState("0");
+  const [addressSort, setAddressSort] = useState<ColumnSort | null>(null);
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(true);
   const [error, setError] = useState("");
@@ -785,8 +786,11 @@ export function IPAMWorkspace({
   const isBlocks = page === "vlans" && !vlanId;
   const params = `offset=${offset}&limit=100&q=${encodeURIComponent(query)}&filters=${encodeURIComponent(JSON.stringify(rules))}`;
   const exactIP = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(query.trim());
+  const sortParams = addressSort
+    ? `&sort=${encodeURIComponent(addressSort.key)}&direction=${addressSort.direction}`
+    : "";
   const path = vlanId
-    ? `/ipam/vlans/${vlanId}/addresses?active_only=${activeOnly}&include_summary=${!exactIP}&${params}`
+    ? `/ipam/vlans/${vlanId}/addresses?active_only=${activeOnly}&include_summary=${!exactIP}&${params}${sortParams}`
     : `/vlans?limit=100&offset=${offset}&q=${encodeURIComponent(query)}`;
   const ipamRevision = useIPAMUpdates(vlanId || undefined);
   const listing = useLiveQuery(
@@ -1253,8 +1257,19 @@ export function IPAMWorkspace({
         </div>
         {registeredSearch && (
           <p className="ipam-hint ipam-notice">
-            Büyük adres alanında arama ve filtreler kayıtlı IP’lerde uygulanır.
-            Tüm adreslere dönmek için aramayı ve filtreleri temizleyin.
+            Büyük adres alanında arama, filtreleme ve alan sıralaması kayıtlı
+            IP’lere uygulanır.
+            {addressSort && (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setAddressSort(null);
+                  setOffset("0");
+                }}
+              >
+                Sıralamayı sıfırla
+              </button>
+            )}
           </p>
         )}
         {!!selected.length && (
@@ -1331,6 +1346,15 @@ export function IPAMWorkspace({
         >
           <ColumnTable
             orderKey={isBlocks ? "ipam-vlans" : "ipam-addresses"}
+            sort={addressSort}
+            onSortChange={
+              isBlocks
+                ? undefined
+                : (next) => {
+                    setAddressSort(next);
+                    setOffset("0");
+                  }
+            }
             className={!isBlocks ? "ipam-address-table" : undefined}
           >
             <thead>

@@ -74,13 +74,15 @@ def addresses(
     q: str = Query("", max_length=200),
     include_summary: bool = True,
     filters: str = Query("[]", max_length=12000),
+    sort: str | None = None,
+    direction: Literal["asc", "desc"] = "asc",
     user=Depends(current_user),
     db=Depends(db_session),
 ):
     if not offset.isdigit() or len(offset) > 40:
         raise HTTPException(422, "Geçersiz adres başlangıcı")
     return read_cache.json_response(
-        ["vlan-addresses", id, offset, limit, allocated, active_only, q, filters, include_summary],
+        ["vlan-addresses", id, offset, limit, allocated, active_only, q, filters, include_summary, sort, direction],
         lambda: table.addresses(
             db,
             svc.get(db, m.VLAN, id),
@@ -91,6 +93,8 @@ def addresses(
             q=q,
             filters=filters,
             include_summary=include_summary,
+            sort=sort,
+            direction=direction,
         ),
         force="no-cache" in request.headers.get("cache-control", "").lower(),
     )

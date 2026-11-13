@@ -9,7 +9,14 @@ import {
 } from "react";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { ArrowLeft, ArrowRight, DotsSixVertical } from "@phosphor-icons/react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowsDownUp,
+  DotsSixVertical,
+} from "@phosphor-icons/react";
 import "./column-table.css";
 
 type TableChild = ReactElement<{
@@ -20,6 +27,9 @@ type TableChild = ReactElement<{
   "data-column-id"?: string;
   "data-column-width-key"?: string;
   "aria-label"?: string;
+  "aria-sort"?: ComponentProps<"th">["aria-sort"];
+  className?: string;
+  value?: unknown;
 }>;
 
 function elements(children: ReactNode): TableChild[] {
@@ -37,8 +47,13 @@ function elements(children: ReactNode): TableChild[] {
 function label(content: ReactNode): string {
   if (typeof content === "string" || typeof content === "number")
     return String(content);
-  if (isValidElement(content))
-    return label((content as TableChild).props.children);
+  if (isValidElement(content)) {
+    const { children, value } = (content as TableChild).props;
+    return children == null &&
+      (typeof value === "string" || typeof value === "number")
+      ? String(value)
+      : label(children);
+  }
   if (Array.isArray(content)) return content.map(label).join("");
   return "";
 }
@@ -130,13 +145,31 @@ function fitWidth(table: HTMLTableElement, header: HTMLTableCellElement) {
   }
 }
 
-type Props = ComponentProps<"table"> & { orderKey: string };
+export type ColumnSort = { key: string; direction: "asc" | "desc" };
+const sortCollator = new Intl.Collator("tr", {
+  numeric: true,
+  sensitivity: "base",
+});
+
+type Props = ComponentProps<"table"> & {
+  orderKey: string;
+  sort?: ColumnSort | null;
+  onSortChange?: (sort: ColumnSort) => void;
+};
 
 export function ColumnTable(props: Props) {
   return <OrderedTable key={props.orderKey} {...props} />;
 }
 
-function OrderedTable({ orderKey, children, ...props }: Props) {
+function OrderedTable({
+  orderKey,
+  children,
+  sort,
+  onSortChange,
+  ...props
+}: Props) {
+  const [localSort, setLocalSort] = useState<ColumnSort | null>(null);
+  const currentSort = onSortChange ? sort : localSort;
   const storageKey = "netrix-column-order:" + orderKey;
   const [saved, setSaved] = useState(() => readOrder(storageKey));
   const widthKey = "netrix-column-width:" + orderKey;
@@ -447,6 +480,17 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
           {header.props.children}
         </>,
       );
+    const nativeSort = elements(header.props.children).some((child) =>
+      child.props.className?.split(" ").includes("column-sort"),
+    );
+    const direction =
+      currentSort?.key === id ? currentSort.direction : undefined;
+    const SortIcon =
+      direction === "asc"
+        ? ArrowUp
+        : direction === "desc"
+          ? ArrowDown
+          : ArrowsDownUp;
     const resizeFromMenu =
       (step?: number) => (event: React.MouseEvent<HTMLButtonElement>) => {
         const header = event.currentTarget.closest("th")!;
@@ -488,6 +532,15 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
         data-column-width-key={widthKey}
         data-column-resizing={activeResize === widthKey || undefined}
         aria-label={name}
+        aria-sort={
+          nativeSort
+            ? header.props["aria-sort"]
+            : direction === "asc"
+              ? "ascending"
+              : direction === "desc"
+                ? "descending"
+                : undefined
+        }
         data-column-target={target === id && dragged !== id ? "" : undefined}
         onDragOver={(event) => {
           if (!dragged) return;
@@ -511,7 +564,24 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
         {resizeHandle(widthKey, name, "right")}
         <div className="column-table-heading">
           <span className="column-table-label" title={name}>
-            {header.props.children}
+            {nativeSort ? (
+              header.props.children
+            ) : (
+              <button
+                type="button"
+                className="column-sort column-table-sort"
+                aria-label={`${name}: ${direction === "asc" ? "azalan" : "artan"} sırala`}
+                onClick={() =>
+                  (onSortChange ?? setLocalSort)({
+                    key: id,
+                    direction: direction === "asc" ? "desc" : "asc",
+                  })
+                }
+              >
+                <span>{header.props.children}</span>
+                <SortIcon size={14} aria-hidden="true" />
+              </button>
+            )}
           </span>
           <button
             type="button"
@@ -575,11 +645,50 @@ function OrderedTable({ orderKey, children, ...props }: Props) {
   };
 
   const renderBody = (section: TableChild) => {
+    let rows = elements(section.props.children);
+    const sortIndex = columns.findIndex(
+      (column) => column.id === localSort?.key,
+    );
+    if (!onSortChange && localSort && sortIndex >= 0) {
+      const first = elements(rows[0]?.props.children)[0];
+      const groupHeader =
+        first?.props.rowSpan === rows.length && rows.length > 1 ? first : null;
+      const entries = rows.map((row, index) => ({
+        row,
+        cells: elements(row.props.children).slice(
+          groupHeader && index === 0 ? 1 : 0,
+        ),
+      }));
+      const offset = groupHeader ? 1 : 0;
+      if (
+        sortIndex >= offset &&
+        entries.every(
+          ({ cells }) =>
+            cells.length + offset === headers.length &&
+            cells.every((cell) => !cell.props.rowSpan && !cell.props.colSpan),
+        )
+      ) {
+        const value = (cells: TableChild[]) =>
+          label(cells[sortIndex - offset].props.children).trim();
+        const order = localSort.direction === "asc" ? 1 : -1;
+        entries.sort(
+          (a, b) =>
+            order * sortCollator.compare(value(a.cells), value(b.cells)),
+        );
+        rows = entries.map(({ row, cells }, index) =>
+          cloneElement(
+            row,
+            undefined,
+            groupHeader && index === 0 ? [groupHeader, ...cells] : cells,
+          ),
+        );
+      }
+    }
     let rowSpan = 0;
     return cloneElement(
       section,
       undefined,
-      elements(section.props.children).map((row) => {
+      rows.map((row) => {
         const cells = elements(row.props.children);
         const offset = rowSpan > 0 ? 1 : 0;
         rowSpan = offset ? rowSpan - 1 : (cells[0]?.props.rowSpan || 1) - 1;

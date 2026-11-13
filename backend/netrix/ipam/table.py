@@ -2,6 +2,7 @@
 
 import ipaddress
 import json
+import re
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -169,7 +170,11 @@ def addresses(
     q="",
     filters="[]",
     include_summary=True,
+    sort=None,
+    direction="asc",
 ):
+    if sort is not None and sort not in COLUMNS:
+        raise HTTPException(422, "Geçersiz sıralama sütunu")
     rules = rules_from(filters)
     ip = exact_address(q) if prefix and q else None
     if ip is not None:
@@ -177,9 +182,10 @@ def addresses(
             row for row in exact_items(db, prefix, ip, allocated, active_only) if matches(row, "", rules)
         ]
         result = {"items": items[offset : offset + limit], "total": str(len(items)), "offset": str(offset)}
-    elif prefix and not q and not rules:
+    elif prefix and not q and not rules and sort in (None, "address"):
         result = service.vlan_addresses(
-            db, prefix, offset, limit, allocated, active_only=active_only, details=False
+            db, prefix, offset, limit, allocated, active_only=active_only, details=False,
+            descending=sort == "address" and direction == "desc",
         )
     else:
         stmt = select(m.IPAddress)
@@ -229,6 +235,18 @@ def addresses(
                 int(ipaddress.ip_address(r["address"])),
             ),
         )
+        if sort and sort != "address":
+            def sort_key(row):
+                return tuple(
+                    int(part) if index % 2 else part
+                    for index, part in enumerate(re.split(r"([0-9]+)", cell(row, sort)))
+                )
+
+            populated = [row for row in selected if cell(row, sort)]
+            missing = [row for row in selected if not cell(row, sort)]
+            selected = sorted(populated, key=sort_key, reverse=direction == "desc") + missing
+        elif sort == "address" and direction == "desc":
+            selected.reverse()
         result = {
             "items": selected[offset : offset + limit],
             "total": str(len(selected)),

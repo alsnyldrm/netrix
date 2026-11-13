@@ -689,7 +689,7 @@ def vlan_metadata(db, prefix):
     }
 
 
-def vlan_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_only=False, details=True):
+def vlan_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_only=False, details=True, descending=False):
     network = ipaddress.ip_network(prefix.cidr)
     if allocated or active_only:
         active = active_address_ids(db, {prefix.vrf_id}, cidr=prefix.cidr) if active_only else None
@@ -703,6 +703,7 @@ def vlan_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_o
                 if ipaddress.ip_address(r.address) in network and (active is None or r.id in active)
             ),
             key=lambda r: int(ipaddress.ip_address(r.address)),
+            reverse=descending,
         )
         return {
             "items": enrich(db, rows[offset : offset + limit], details=details),
@@ -710,7 +711,9 @@ def vlan_addresses(db, prefix, offset=0, limit=100, allocated=False, *, active_o
             "offset": str(offset),
         }
     stop = min(offset + limit, network.num_addresses)
-    addresses = [str(network[i]) for i in range(offset, stop)]
+    addresses = [
+        str(network[network.num_addresses - 1 - i if descending else i]) for i in range(offset, stop)
+    ]
     rows = db.scalars(
         select(m.IPAddress).where(m.IPAddress.vrf_id == prefix.vrf_id, m.IPAddress.address.in_(addresses))
     ).all()
