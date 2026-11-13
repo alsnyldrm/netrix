@@ -693,3 +693,40 @@
 .profile-password h3 {
   margin: 0;
 }
+
+.profile-device-groups .access-intro {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.profile-device-groups .access-intro > svg {
+  margin-top: 2px;
+}
+
+.profile-device-groups .access-group-search {
+  max-width: none;
+}
+
+.profile-device-groups .access-group-cards article {
+  background: linear-gradient(135deg, var(--glass-reflection), transparent 78%);
+}
+
+.profile-device-groups .access-group-cards article > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.profile-device-groups .access-actions {
+  flex: none;
+  gap: 4px;
+}
+
+@media (max-width: 650px) {
+  .profile-device-groups .access-intro > div {
+    min-width: 0;
+  }
+
+  .profile-device-groups .access-intro > button {
+    width: 100%;
+  }
+}

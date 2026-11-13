@@ -248,12 +248,7 @@ export function Profile({
                     <span
                       className="palette-swatch"
                       aria-hidden="true"
-                      style={{
-                        background:
-                          "tones" in p
-                            ? p.tones[3]
-                            : `hsl(${p.hue} ${p.saturation}% 59%)`,
-                      }}
+                      data-palette={p.id}
                     >
                       {values.palette === p.id && (
                         <Check size={18} weight="bold" />
@@ -1207,7 +1202,7 @@ export function AccessGroups({ user }: { user: Row }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   return (
-    <section className="panel access-settings">
+    <section className="access-settings profile-device-groups">
       <div className="access-intro">
         <ShieldCheck size={26} />
         <div>

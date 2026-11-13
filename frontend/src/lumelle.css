@@ -108,13 +108,123 @@
   --scrim: rgb(13 8 10 / 65%);
 }
 
-:root[data-design="lumelle"][data-palette]:not([data-palette="cobalt"]) {
-  --wall-rose: color-mix(in srgb, var(--accent) 26%, var(--bg));
-  --wall-blue: color-mix(in srgb, var(--accent) 16%, var(--bg));
-  --wall-amber: color-mix(in srgb, var(--surface-3) 82%, var(--bg));
-  --wall-coral: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+[data-design="lumelle"][data-palette="cobalt"],
+[data-design="lumelle"] .palette-swatch[data-palette="cobalt"] {
+  --palette-hue: 343;
+  --palette-cool: 220;
+  --palette-warm: 42;
+}
+
+[data-design="lumelle"][data-palette="teal"],
+[data-design="lumelle"] .palette-swatch[data-palette="teal"] {
+  --palette-hue: 174;
+  --palette-cool: 209;
+  --palette-warm: 151;
+}
+
+[data-design="lumelle"][data-palette="violet"],
+[data-design="lumelle"] .palette-swatch[data-palette="violet"] {
+  --palette-hue: 270;
+  --palette-cool: 230;
+  --palette-warm: 317;
+}
+
+[data-design="lumelle"][data-palette="amber"],
+[data-design="lumelle"] .palette-swatch[data-palette="amber"] {
+  --palette-hue: 45;
+  --palette-cool: 24;
+  --palette-warm: 61;
+}
+
+[data-design="lumelle"][data-palette="forest"],
+[data-design="lumelle"] .palette-swatch[data-palette="forest"] {
+  --palette-hue: 143;
+  --palette-cool: 181;
+  --palette-warm: 83;
+}
+
+[data-design="lumelle"][data-palette="slate"],
+[data-design="lumelle"] .palette-swatch[data-palette="slate"] {
+  --palette-hue: 215;
+  --palette-cool: 254;
+  --palette-warm: 181;
+}
+
+[data-design="lumelle"][data-palette="rose"],
+[data-design="lumelle"] .palette-swatch[data-palette="rose"] {
+  --palette-hue: 342;
+  --palette-cool: 290;
+  --palette-warm: 16;
+}
+
+[data-design="lumelle"][data-palette="cyan"],
+[data-design="lumelle"] .palette-swatch[data-palette="cyan"] {
+  --palette-hue: 193;
+  --palette-cool: 223;
+  --palette-warm: 167;
+}
+
+[data-design="lumelle"][data-palette="orange"],
+[data-design="lumelle"] .palette-swatch[data-palette="orange"] {
+  --palette-hue: 25;
+  --palette-cool: 357;
+  --palette-warm: 49;
+}
+
+[data-design="lumelle"][data-palette="indigo"],
+[data-design="lumelle"] .palette-swatch[data-palette="indigo"] {
+  --palette-hue: 244;
+  --palette-cool: 278;
+  --palette-warm: 201;
+}
+
+:root[data-design="lumelle"][data-palette]:not(
+    [data-palette="cobalt"],
+    [data-palette="dark"]
+  ) {
+  --wall-lightness: 67%;
+  --wall-saturation: var(--palette-wall-saturation, 64%);
+  --wall-strength: 52%;
+  --wall-main: hsl(
+    var(--palette-hue) var(--wall-saturation) var(--wall-lightness)
+  );
+  --wall-secondary: hsl(
+    var(--palette-cool) var(--wall-saturation) var(--wall-lightness)
+  );
+  --wall-third: hsl(
+    var(--palette-warm) var(--wall-saturation) var(--wall-lightness)
+  );
+  --wall-rose: color-mix(
+    in srgb,
+    var(--wall-main) var(--wall-strength),
+    var(--bg)
+  );
+  --wall-blue: color-mix(
+    in srgb,
+    var(--wall-secondary) var(--wall-strength),
+    var(--bg)
+  );
+  --wall-amber: color-mix(in srgb, var(--wall-third) 40%, var(--bg));
+  --wall-coral: color-mix(
+    in srgb,
+    var(--wall-third) var(--wall-strength),
+    var(--surface-2)
+  );
   --glass-base: color-mix(in srgb, var(--surface) 42%, transparent);
   --glass-solid: color-mix(in srgb, var(--surface) 93%, transparent);
+}
+
+:root[data-design="lumelle"][data-theme="dark"][data-palette]:not(
+    [data-palette="cobalt"],
+    [data-palette="dark"]
+  ) {
+  --wall-lightness: 39%;
+  --wall-saturation: var(--palette-wall-saturation, 62%);
+  --wall-strength: 62%;
+}
+
+:root[data-design="lumelle"][data-palette="slate"] {
+  --palette-wall-saturation: 20%;
 }
 
 :root[data-design="lumelle"][data-palette="dark"] {
@@ -617,13 +727,31 @@
   text-align: center;
 }
 
+[data-design="lumelle"] .palette-option:last-child:nth-child(odd) {
+  grid-column: auto;
+}
+
 [data-design="lumelle"] .palette-option .palette-swatch {
   display: grid;
   place-items: center;
-  width: 35px;
-  height: 35px;
+  width: 42px;
+  height: 42px;
+  background: linear-gradient(
+    140deg,
+    hsl(var(--palette-warm) 75% 62%),
+    hsl(var(--palette-hue) 68% 49%) 45%,
+    hsl(var(--palette-cool) 62% 35%)
+  );
   border-radius: 50%;
   border: 1px solid var(--glass-line);
+}
+
+[data-design="lumelle"] .palette-swatch[data-palette="dark"] {
+  background: linear-gradient(140deg, #626262, #333 48%, #111);
+}
+
+[data-design="lumelle"] .palette-swatch[data-palette="slate"] {
+  background: linear-gradient(140deg, #a5b4bf, #63758a 48%, #38394d);
 }
 
 [data-design="lumelle"] .palette-option[aria-pressed="true"] .palette-swatch {
