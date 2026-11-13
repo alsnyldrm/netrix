@@ -77,6 +77,7 @@ def available(db, vlan, *, offset=0, limit=100, q=""):
 def inspection(db, vlan, *, offset=0, limit=256, address=""):
     network, first, stop = bounds(vlan)
     cursor = max(first, offset)
+    target = None
     if address:
         try:
             target = ipaddress.ip_address(address.strip())
@@ -99,6 +100,7 @@ def inspection(db, vlan, *, offset=0, limit=256, address=""):
     used = sum(i["state"] == "occupied" for i in items)
     return {
         "items": items,
+        "target_address": str(target) if target is not None else None,
         "capacity": str(stop - first),
         "offset": str(cursor),
         "next_offset": str(cursor + limit) if cursor + limit < stop else None,

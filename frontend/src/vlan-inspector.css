@@ -160,3 +160,15 @@
     height: 44px;
   }
 }
+
+.vlan-inspector-target {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.vlan-address-tile[data-search-target="true"] {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}

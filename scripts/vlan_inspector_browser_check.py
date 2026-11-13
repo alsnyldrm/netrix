@@ -79,6 +79,15 @@ with sync_playwright() as p:
             )
             assert not violations, violations
             page.screenshot(path=f"/tmp/netrix-inspector-scope-{width}-{theme}.png")
+    for width, height in ((1440, 1000), (375, 812)):
+        page.set_viewport_size({"width": width, "height": height})
+        search = dialog.get_by_role("textbox", name="IP adresine git", exact=True)
+        search.fill("192.0.2.11")
+        search.press("Enter")
+        tile = dialog.get_by_role("button", name="192.0.2.11 · Dolu · IP ayrıntıları", exact=True)
+        expect(tile).to_have_attribute("data-search-target", "true")
+        expect(tile).to_be_focused()
+        expect(dialog.get_by_text("192.0.2.11 bulundu", exact=True)).to_be_visible()
     page.set_viewport_size({"width": 1440, "height": 1000})
     dialog.get_by_role("button", name="192.0.2.11 · Dolu · IP ayrıntıları", exact=True).click()
     detail = page.get_by_role("dialog")

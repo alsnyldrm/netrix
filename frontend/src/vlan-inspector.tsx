@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CaretLeft, CaretRight, MagnifyingGlass } from "@phosphor-icons/react";
 import { Dialog } from "./main";
 import { useLiveQuery } from "./data";
@@ -21,16 +21,24 @@ export function VLANInspector({
   const id = vlan.id;
   const [offset, setOffset] = useState("0");
   const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState({ address: "" });
+  const targetTile = useRef<HTMLButtonElement>(null);
   const [detail, setDetail] = useState<Row | null>(null);
   const revision = useIPAMUpdates(id);
   const grid = useLiveQuery<Row>(
     vlan.cidr && !detail
-      ? `/ipam/vlans/${id}/inspection?offset=${offset}&address=${encodeURIComponent(search)}`
+      ? `/ipam/vlans/${id}/inspection?offset=${offset}&address=${encodeURIComponent(search.address)}`
       : null,
     revision,
   );
   const data = grid.data;
+  const target = data?.target_address;
+  useEffect(() => {
+    if (!search.address || !target || detail) return;
+    const tile = targetTile.current;
+    tile?.focus({ preventScroll: true });
+    tile?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [search, target, detail]);
   if (detail)
     return (
       <AddressDetail row={detail} user={user} close={() => setDetail(null)} />
@@ -47,7 +55,7 @@ export function VLANInspector({
             className="vlan-inspector-search"
             onSubmit={(e) => {
               e.preventDefault();
-              setSearch(query);
+              setSearch({ address: query.trim() });
               setOffset("0");
             }}
           >
@@ -87,6 +95,11 @@ export function VLANInspector({
           </div>
         )}
         {grid.loading && <p role="status">IP adresleri yükleniyor…</p>}
+        {target && (
+          <p className="vlan-inspector-target" role="status">
+            {target} bulundu
+          </p>
+        )}
         {!!data?.items?.length && (
           <>
             <p className="vlan-inspector-range" aria-live="polite">
@@ -107,6 +120,10 @@ export function VLANInspector({
                 <button
                   type="button"
                   key={item.address}
+                  ref={item.address === target ? targetTile : undefined}
+                  data-search-target={
+                    item.address === target ? "true" : undefined
+                  }
                   className={`vlan-address-tile ${item.state === "free" ? "inspector-free" : "inspector-occupied"}`}
                   aria-label={`${item.address} · ${item.state === "free" ? "Boş · IP ekle" : "Dolu · IP ayrıntıları"}`}
                   title={`${item.address} · ${item.state === "free" ? "Boş" : "Dolu"}`}
@@ -133,7 +150,7 @@ export function VLANInspector({
                 className="secondary"
                 disabled={!data.previous_offset}
                 onClick={() => {
-                  setSearch("");
+                  setSearch({ address: "" });
                   setOffset(data.previous_offset);
                 }}
               >
@@ -143,7 +160,7 @@ export function VLANInspector({
                 className="secondary"
                 disabled={!data.next_offset}
                 onClick={() => {
-                  setSearch("");
+                  setSearch({ address: "" });
                   setOffset(data.next_offset);
                 }}
               >
