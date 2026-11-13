@@ -215,7 +215,8 @@ def write(db, result, value):
     obs.extend(
         o for o in db.new if isinstance(o, m.IPObservation) and o.address_id == iprow.id and o not in obs
     )
-    if value.get("_sql_only"):
+    gateway_sql = value.get("_gateway_sql") or value.get("_sql_only")
+    if gateway_sql:
         for ref in value.get("_sql_refs", []):
             model, relation = {
                 "gateway": (m.GatewayBinding, "gateway"),
@@ -242,7 +243,13 @@ def write(db, result, value):
         if value.get("_sql_only") and item["source"] != "dns":
             continue
         source = item["source"]
-        if source not in ("dns", "icmp", "vcenter", "windows_dhcp", "gateway"):
+        if (gateway_sql and source == "gateway") or source not in (
+            "dns",
+            "icmp",
+            "vcenter",
+            "windows_dhcp",
+            "gateway",
+        ):
             continue
         data = item.get("data") or {}
         # Missing PTR / DNS failure is not evidence that the last valid name changed.
@@ -261,7 +268,7 @@ def write(db, result, value):
             obs.append(link)
         link.observed_at = records.stamp(item.get("observed_at"))
         records.write_observation(db, link, data)
-    for i, data in enumerate([] if value.get("_sql_only") else value.get("gateway_evidence") or []):
+    for i, data in enumerate([] if gateway_sql else value.get("gateway_evidence") or []):
         g = records.gateway(db, iprow, data, data.get("observed_at"))
         link = next((o for o in obs if o.source == "gateway" and o.source_key == g.source_key), None)
         if link is None:
@@ -272,7 +279,7 @@ def write(db, result, value):
         link.observed_at = g.observed_at
         link.present = True
     if (
-        not value.get("_sql_only")
+        not gateway_sql
         and value.get("mac_address")
         and value.get("field_sources", {}).get("mac_address") == "gateway"
         and not any(o.gateway and o.gateway.mac_address == value["mac_address"] for o in obs)

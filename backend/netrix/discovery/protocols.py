@@ -99,6 +99,20 @@ IPAM_TABLES = {
 }
 
 
+GATEWAY_TABLES = (
+    "arp_mac",
+    "arp_type",
+    "ndp_mac",
+    "ndp_type",
+    "ndp_state",
+    "ip_addr_ifindex",
+    "ip_addr_address",
+    "ip_addr_mask",
+    "ip_address_ifindex",
+    "ip_address_prefix",
+)
+
+
 def ipv4_value(value):
     """Agents may encode IP-MIB addresses/masks as raw four-octet strings."""
     try:
@@ -231,10 +245,17 @@ class SNMPCollector:
 
                 limit = 65536
                 deadline = asyncio.get_running_loop().time() + 160
-                selected_tables = IPAM_TABLES if ipam_only else TABLES
+                selected_tables = (
+                    IPAM_TABLES if ipam_only else {**TABLES, **{k: IPAM_TABLES[k] for k in GATEWAY_TABLES}}
+                )
                 # Resolve core port identity before optional vendor/neighbor tables
                 # can consume the collection deadline.
                 priority = (
+                    "arp_mac",
+                    "arp_type",
+                    "ndp_mac",
+                    "ndp_type",
+                    "ndp_state",
                     "if_name",
                     "if_descr",
                     "if_status",
@@ -298,8 +319,7 @@ class SNMPCollector:
                         tuple(selected_tables)
                         if ipam_only
                         else (
-                            "arp_mac",
-                            "ndp_mac",
+                            *GATEWAY_TABLES,
                             "fdb_port",
                             "bridge_ifindex",
                             "vlan_fdb_port",

@@ -521,3 +521,12 @@ IPAM, envanter SQL kanıtını değerlendirirken toplamada kullanılan SNMP prof
 kimliğini ve güncelleme zamanını cihazın atanmış profiliyle karşılaştırmaz. Kanıt
 cihaz, yönetim adresi, VRF ve port bağlamında doğrulanır. SSH ile üretilen kanıtlar
 için SSH bağlamı, ayrıca kaynak güncelliği, VLAN/FID ve uplink kontrolleri uygulanır.
+
+
+## Gateway IP–MAC kaynak sahipliği
+
+Ağ keşfi, gateway ARP/NDP tablosundaki geçerli tekil gözlem satırlarını
+`ip_adres_yonetimi.gateway_bindings` tablosuna yazar. Manuel ve zamanlanmış
+VLAN taramaları gateway kanıtını bu tablodan okur, kaynak satırına referans
+verir ve gateway tablosunu güncellemez. DHCP kaydı hostname sağlayabilir.
+Otomatik IP–MAC kimliği için gateway kanıtı gerekir.

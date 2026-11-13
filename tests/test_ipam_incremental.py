@@ -69,6 +69,7 @@ async def test_fast_results_are_readable_before_slow_ip_and_later_sources(
         failed_devices = set()
         base = SimpleNamespace(devices={})
         gateway_evidence = SimpleNamespace(snapshots={})
+        gateway_bindings = {}
 
         def __init__(self, *_):
             pass

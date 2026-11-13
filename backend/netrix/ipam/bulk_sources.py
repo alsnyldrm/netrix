@@ -7,23 +7,16 @@ import json
 from collections import defaultdict
 from types import SimpleNamespace
 
-from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
-
 from .. import models as m
 from ..core import now, session_factory
 from ..discovery.protocols import NetworkError
-from ..identity.security import decrypt, secret_data
-from ..runtime_limits import device_slot, sql_read, sql_write
+from ..identity.security import decrypt
+from ..runtime_limits import sql_read
 from . import adapters
-from .connections import Evidence, gateway_interfaces
-from .mac_cache import is_switch
-from .network import read_context
+from .connections import Evidence
+from .gateway_sources import binding_view, bindings_query
 from .point_sources import PointSources, integration_signature
 from .service import normalized_mac
-
-# Matches the SNMP collector ceiling; a full gateway ARP read does not fit in a minute.
-READ_BUDGET_SECONDS = 185
 
 
 class BulkContext:
@@ -38,6 +31,7 @@ class BulkContext:
         self.locks = {key: asyncio.Lock() for key in ("gateway", "switch", "vcenter", "windows_dhcp")}
         self.failed_devices = set()
         self.read_counts = {"gateway": 0, "switch": 0}
+        self.gateway_bindings = {}
         self.gateway_evidence = None
         self.switch_evidence = None
 
@@ -77,84 +71,31 @@ class BulkContext:
                     with session_factory()() as db:
                         return Evidence(db, {self.base.vlan.vrf_id})
 
-                self.switch_evidence = await sql_read(load_inventory)
+                self.switch_evidence = self.gateway_evidence = await sql_read(load_inventory)
                 self.values[kind] = True
                 return
-            ids = [
-                id
-                for id, d in self.base.devices.items()
-                if (d.is_gateway or d.kind in ("router", "firewall")) and not is_switch(d)
-            ]
-            failures = []
 
-            def save(id, d, data, profile, ssh):
+            def load_gateway():
+                network = ipaddress.ip_network(self.base.vlan.cidr)
+                matches = defaultdict(list)
                 with session_factory()() as db:
-                    item = db.scalar(
-                        select(m.IPAMNetworkState)
-                        .where(m.IPAMNetworkState.device_id == id)
-                        .with_for_update(of=m.IPAMNetworkState)
-                    )
-                    if item is None:
-                        item = m.IPAMNetworkState(device_id=id, address=d.management_ip)
-                        db.add(item)
-                    item.evidence = {**data, "read_context": read_context(d, profile, ssh)}
-                    item.address, item.observed_at = d.management_ip, now()
-                    db.commit()
-
-            async def read(id):
-                async with device_slot():
-                    self.check()
-                    self.read_counts[kind] += 1
-                    self.base.device_check(id)
-                    d = self.base.devices[id]
-                    profile = self.base.profiles[id]
-                    ssh = self.base.ssh[id]
-                    try:
-                        # Only non-switch gateway devices may be contacted by IPAM.
-                        async with asyncio.timeout(READ_BUDGET_SECONDS):
-                            data = await self.base.collector.ipam(
-                                d.management_ip, d.snmp_port, secret_data(profile)
+                    for binding in db.scalars(bindings_query(self.base.vlan.vrf_id, self.base.devices)):
+                        if ipaddress.ip_address(binding.address) in network:
+                            matches[binding.address].append(
+                                (
+                                    binding_view(binding, self.base.devices[binding.device_id]),
+                                    {
+                                        "kind": "gateway",
+                                        "id": binding.id,
+                                        "source_key": binding.source_key,
+                                        "observed_at": binding.observed_at.isoformat(),
+                                    },
+                                )
                             )
-                    except Exception as exc:
-                        from ..worker import Cancelled
+                return matches
 
-                        if isinstance(exc, Cancelled):
-                            raise
-                        failures.append(type(exc).__name__)
-                        self.failed_devices.add(id)
-                        # Preserve the previous protocol snapshot on a transport error.
-                        return
-                self.check()
-                self.base.device_check(id)
-                try:
-                    await sql_write(save, id, d, data, profile, ssh)
-                except OperationalError as exc:
-                    # One device's lost write is a failed source, not a failed VLAN scan.
-                    failures.append(type(exc).__name__)
-                    self.failed_devices.add(id)
-
-            tasks = [asyncio.create_task(read(id)) for id in ids]
-            try:
-                await asyncio.gather(*tasks)
-            finally:
-                for task in tasks:
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
+            self.gateway_bindings = await sql_read(load_gateway)
             self.values[kind] = True
-
-            def load():
-                with session_factory()() as db:
-                    return Evidence(db, {self.base.vlan.vrf_id})
-
-            evidence = await sql_read(load)
-            evidence.snapshots = {
-                id: state for id, state in evidence.snapshots.items() if id not in self.failed_devices
-            }
-            evidence.static = {}
-            self.gateway_evidence = evidence
-            if failures:
-                self.errors[kind] = failures
 
     async def integration(self, kind):
         async with self.locks[kind]:
@@ -224,7 +165,7 @@ class BulkContext:
 
 
 class BulkSources:
-    inventory_fallback = True
+    gateway_sql = True
 
     def __init__(self, point, context):
         self.point, self.context = point, context
@@ -233,32 +174,16 @@ class BulkSources:
     async def gateway(self, address):
         c = self.context
         await c.network("gateway")
-        network = ipaddress.ip_network(self.point.vlan.cidr)
-        matches = []
-        for id, (snapshot, p) in c.gateway_evidence.snapshots.items():
-            if id not in self.point.devices:
-                continue
-            d = self.point.devices[id]
-            if not (d.is_gateway or d.kind in ("router", "firewall")):
-                continue
-            indexes = gateway_interfaces(p["tables"], network)
-            matches.extend(
-                {
-                    "device_id": id,
-                    "device_name": d.name,
-                    "mac_address": mac,
-                    "source": "gateway",
-                    "observed_at": snapshot.created_at.isoformat(),
-                }
-                for mac, index in p["bindings"].get(address, [])
-                if index in indexes
-            )
+        entries = c.gateway_bindings.get(address, [])
+        matches = [value for value, _ in entries]
         macs = {r["mac_address"] for r in matches}
         if len(macs) > 1:
             raise NetworkError("Conflicting gateway identities")
-        if not macs and c.failed_devices:
-            raise NetworkError("Scheduled gateway source failed")
-        return {"mac_address": next(iter(macs)) if macs else "", "gateway_evidence": matches}
+        return {
+            "mac_address": next(iter(macs)) if macs else "",
+            "gateway_evidence": matches,
+            "refs": [ref for _, ref in entries],
+        }
 
     async def vmware(self, address, mac):
         await self.context.integration("vcenter")

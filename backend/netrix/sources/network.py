@@ -395,7 +395,9 @@ def write(db, state, data, at):
         and (not state.gateway_at or at >= state.gateway_at)
         and ("arp_mac" in tables or "ndp_mac" in tables)
     ):
-        gateway_complete = complete("arp_mac", "ndp_mac")
+        arp_complete = complete("arp_mac")
+        ndp_complete = complete("ndp_mac")
+        gateway_complete = arp_complete or ndp_complete
         if gateway_complete:
             state.gateway_at = at
         from types import SimpleNamespace
@@ -403,7 +405,9 @@ def write(db, state, data, at):
         from ..ipam.connections import bindings
 
         found = set()
-        for address, mac, index in bindings(tables, unsupported):
+        # Positive rows from a bounded or interrupted walk remain usable.
+        # Completeness is required separately before retiring missing rows.
+        for address, mac, index in bindings(tables, set(unsupported) - {"arp_mac", "ndp_mac"}):
             item = gateway(
                 db,
                 SimpleNamespace(address=address, vrf_id=device.vrf_id),
@@ -411,13 +415,17 @@ def write(db, state, data, at):
                 at,
             )
             found.add(item.id)
-        if gateway_complete and not data.get("partial"):
+        # Only a complete ARP and NDP view can retire IPv4 observations:
+        # either table can carry IPv4 on dual-stack agents.
+        if gateway_complete:
             for item in db.scalars(
                 select(m.GatewayBinding).where(
                     m.GatewayBinding.device_id == device.id, m.GatewayBinding.present.is_(True)
                 )
             ):
-                if item.id not in found and item.observed_at <= at:
+                family = ipaddress.ip_address(item.address).version
+                authoritative = ndp_complete and (family == 6 or arp_complete)
+                if authoritative and item.id not in found and item.observed_at <= at:
                     item.present = False
     complete = set(data.get("neighbor_protocols_complete") or [])
     if "neighbor_protocols_complete" in data and (not state.neighbors_at or at >= state.neighbors_at):

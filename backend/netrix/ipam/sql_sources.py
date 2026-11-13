@@ -15,6 +15,7 @@ from ..services import in_scope, publish
 from ..sources import records
 from . import adapters, pipeline, service
 from .connections import Evidence, network_device
+from .gateway_sources import binding_view, bindings_query
 
 
 def vlan_inputs(vlan):
@@ -67,7 +68,7 @@ class SQLContext:
 
 
 class SQLSources:
-    inventory_fallback = True
+    gateway_sql = True
 
     def __init__(self, row, context):
         self.row, self.context = row, context
@@ -82,25 +83,12 @@ class SQLSources:
         matches = []
         with session_factory()() as db:
             for g in db.scalars(
-                select(m.GatewayBinding).where(
-                    m.GatewayBinding.vrf_id == self.row.vrf_id,
-                    m.GatewayBinding.address == address,
-                    m.GatewayBinding.present.is_(True),
+                bindings_query(self.row.vrf_id, self.context.devices).where(
+                    m.GatewayBinding.address == address
                 )
             ):
-                d = self.context.devices.get(g.device_id)
-                if not d or not (d.is_gateway or d.kind in ("router", "firewall")):
-                    continue
                 self.ref("gateway", g, g.source_key, g.observed_at)
-                matches.append(
-                    dict(
-                        device_id=d.id,
-                        device_name=d.name,
-                        mac_address=g.mac_address,
-                        observed_at=g.observed_at.isoformat(),
-                        source="gateway",
-                    )
-                )
+                matches.append(binding_view(g, self.context.devices[g.device_id]))
         macs = {r["mac_address"] for r in matches}
         if len(macs) > 1:
             raise ValueError("Conflicting SQL gateway identities")
@@ -198,7 +186,9 @@ class SQLSources:
         result = await pipeline.resolve(self.row.address, self, progress)
         for issue in result["issues"]:
             if issue["code"] == "identity_missing":
-                issue["message"] = "SQL'de etkin gateway IP/MAC kaydı yok; cihaz sorgulanmadı."
+                issue["message"] = (
+                    "Ağ keşfinin SQL kayıtlarında bu IP için etkin gateway IP/MAC eşleşmesi bulunamadı."
+                )
             elif issue["code"] == "missing_hostname":
                 issue["message"] = (
                     "SQL kaynaklarından güncel hostname doğrulanamadı; varsa önceki doğrulanmış ad korunur."

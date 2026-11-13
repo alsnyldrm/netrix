@@ -115,8 +115,12 @@ async def resolve(address, sources, progress=None):
     mac = normalized_mac((gateway or {}).get("mac_address"))
     values["mac_address"] = mac
     values["gateway_evidence"] = (gateway or {}).get("gateway_evidence", [])
-    for i, g in enumerate(values["gateway_evidence"][:4]):
-        source_row("gateway", g, i)
+    if getattr(sources, "gateway_sql", False):
+        values["_gateway_sql"] = True
+        values["_sql_refs"] = (gateway or {}).get("refs", [])
+    else:
+        for i, g in enumerate(values["gateway_evidence"][:4]):
+            source_row("gateway", g, i)
     values["field_sources"]["mac_address"] = "gateway" if mac else ""
     records = await stage("vmware", lambda: sources.vmware(address, mac))
     records = records if records is not None else None
@@ -203,7 +207,6 @@ async def resolve(address, sources, progress=None):
                     k: host.get(k) for k in ("host_id", "host_uuid", "hostname", "vmkernel_device")
                 }
                 values["physical_nics"] = host.get("physical_nics", [])[:32]
-        fallback = not mac and getattr(sources, "inventory_fallback", False)
 
         def active_leases(rows):
             return [
@@ -218,49 +221,24 @@ async def resolve(address, sources, progress=None):
                 normalized_mac(r.get("mac_address")) == identity and r.get("address") != address
             )
 
-        dhcp = await stage("dhcp", lambda: sources.dhcp(address, "")) if fallback else []
-        candidate_macs = {
-            normalized_mac(r.get("mac_address")) for r in active_leases(dhcp) if r.get("address") == address
-        }
-        hint = next(iter(candidate_macs)) if gateway is not None and len(candidate_macs) == 1 else ""
-        if hint:
-            dhcp = await stage("dhcp", lambda: sources.dhcp(address, hint))
-            leases = active_leases(dhcp)
-            if not any(r.get("address") == address for r in leases) or any(mismatch(r, hint) for r in leases):
-                issue("dhcp", "identity_conflict", "DHCP MAC adayı tek bir IP ile doğrulanamadı.")
-                hint = ""
-        elif len(candidate_macs) > 1:
-            issue("dhcp", "identity_conflict", "Aynı IP için çelişkili DHCP MAC kayıtları var.")
-        if mac or fallback:
-            physical = await stage("backbone", lambda: sources.physical(address, mac or hint))
+        if mac:
+            physical = await stage("backbone", lambda: sources.physical(address, mac))
             inspected_inventory = physical is not None
             if physical:
-                gateway_macs = {g["mac_address"] for g in physical.get("gateway_evidence", [])}
-                if physical.get("connection_ambiguous") or (hint and not gateway_macs <= {hint}):
+                if physical.get("connection_ambiguous"):
                     issue(
                         "switch",
                         "ambiguous",
                         physical.get("connection_reason") or "Switch/port ve IP kimliği tekil doğrulanamadı.",
                     )
-                else:
-                    connections = physical.get("connections", [])
-                    if connections:
-                        values.update(connections=connections, connection_type="physical")
-                        # DHCP alone does not establish the endpoint. Promote
-                        # the MAC only when the same VLAN's FDB proves an edge.
-                        if hint and all(c["source"] == "gateway+vlan_fdb" for c in connections):
-                            mac = hint
-                            values["mac_address"] = mac
-                            values["field_sources"]["mac_address"] = "windows_dhcp"
-                            values["connections"] = [
-                                {**c, "source": "windows_dhcp+vlan_fdb"} for c in connections
-                            ]
+                elif connections := physical.get("connections"):
+                    values.update(connections=connections, connection_type="physical")
                 steps.extend(physical.get("steps", [])[:16])
         else:
-            for source in ("backbone", "switch", "dhcp"):
-                steps.append({"source": source, "status": "skipped_identity"})
-        if mac and not fallback:
-            dhcp = await stage("dhcp", lambda: sources.dhcp(address, mac))
+            steps.extend(
+                {"source": source, "status": "skipped_identity"} for source in ("backbone", "switch")
+            )
+        dhcp = await stage("dhcp", lambda: sources.dhcp(address, mac))
         eligible = active_leases(dhcp)
         bad = [r for r in eligible if mac and mismatch(r, mac)]
         names = {
@@ -296,7 +274,7 @@ async def resolve(address, sources, progress=None):
         issue(
             "gateway",
             "identity_missing",
-            "Gateway üzerinde tekil IP/MAC eşleşmesi bulunamadı; MAC tahmin edilmedi.",
+            "Ağ keşfinin SQL kayıtlarında bu IP için etkin gateway IP/MAC eşleşmesi bulunamadı.",
         )
     if not values["hostname"] and (hostname is not None or vm_candidates):
         issue("resolution", "missing_hostname", "Hostname bilgisi bulunamadı.")
@@ -359,6 +337,23 @@ def save_result(db, row, started, result):
         db.add(item)
     previous = item.values if item.address_scope == scope else {}
     incoming = result["values"]
+    if incoming.get("_gateway_sql") and previous.get("field_sources", {}).get("mac_address") not in (
+        "",
+        None,
+        "gateway",
+    ):
+        previous = {
+            **previous,
+            "mac_address": "",
+            "connections": [],
+            "connected_device": "",
+            "connected_port": "",
+            "connection_groups": [],
+            "field_sources": {
+                k: v for k, v in previous.get("field_sources", {}).items() if k != "mac_address"
+            },
+        }
+
     retained = False
     if result["status"] == "problem":
         # Never carry an attachment/hostname to a new gateway identity.

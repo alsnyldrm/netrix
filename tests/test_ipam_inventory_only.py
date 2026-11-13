@@ -68,16 +68,17 @@ async def test_scheduled_scan_reads_switch_sql_without_touching_or_refreshing_it
         db.commit()
         jid = job.id
         before = inventory_facts(db, ids[1:])
-        gateway = deepcopy(
-            read(db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[0])))
-        )
+        gateway_before = [
+            (g.id, g.address, g.mac_address, g.present, g.observed_at)
+            for g in db.scalars(select(m.GatewayBinding).order_by(m.GatewayBinding.id))
+        ]
     calls = []
 
     class Collector:
         async def ipam(self, host, *_):
             assert host == "198.51.100.1", "IPAM contacted an inventory switch"
             calls.append(host)
-            return deepcopy(gateway)
+            raise AssertionError("VLAN scan contacted a gateway")
 
         async def ipam_switch(self, *_):
             raise AssertionError("IPAM attempted direct switch MAC lookup")
@@ -107,7 +108,11 @@ async def test_scheduled_scan_reads_switch_sql_without_touching_or_refreshing_it
     with sf() as db:
         job = db.get(m.Job, jid)
         assert job.status == ("succeeded" if available else "partial"), job.error
-        assert calls == ["198.51.100.1"]
+        assert calls == []
+        assert [
+            (g.id, g.address, g.mac_address, g.present, g.observed_at)
+            for g in db.scalars(select(m.GatewayBinding).order_by(m.GatewayBinding.id))
+        ] == gateway_before
         assert job.result["network"]["switch_mode"] == "inventory_sql"
         after = inventory_facts(db, ids[1:])
         for did in ids[1:]:
@@ -220,3 +225,33 @@ async def test_two_switch_nics_are_resolved_from_stored_neighbors_without_device
                     before[did]["payload"][key],
                 )
             assert after[did]["mac_rows"] == before[did]["mac_rows"]
+
+
+def test_inventory_gateway_persists_bindings_outside_the_ipam_vlan(network):
+    from netrix.core import now
+
+    sf, _, _, ids = network
+    with sf() as db:
+        from netrix.sources.network import write
+
+        state = db.scalar(select(m.IPAMNetworkState).where(m.IPAMNetworkState.device_id == ids[0]))
+        write(
+            db,
+            state,
+            {
+                "tables": {
+                    "arp_mac": {
+                        "40.10.5.0.38": "50:2e:91:14:d2:92",
+                        "40.10.5.0.39": "50:2e:91:14:d2:93",
+                    },
+                    "arp_type": {"40.10.5.0.38": "3", "40.10.5.0.39": "2"},
+                },
+                "unsupported": ["arp_mac", "ndp_mac"],
+            },
+            now(),
+        )
+        db.commit()
+        rows = list(db.scalars(select(m.GatewayBinding).where(m.GatewayBinding.address.like("10.5.0.%"))))
+        assert [(row.address, row.mac_address, row.if_index) for row in rows] == [
+            ("10.5.0.38", "50:2e:91:14:d2:92", 40)
+        ]
