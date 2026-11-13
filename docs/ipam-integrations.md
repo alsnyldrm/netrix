@@ -414,8 +414,9 @@ izinlerinin yerine geçer. Switch kaynaklarının tek yazarı Envanter'dir.
 - Tek IP işi, kimlik ve DNS/VMware dalı belirlenmeden bütün envanter FDB'sini
   yüklemez. SQL cihaz kataloğu ayrıdır; fiziksel kanıt gerektiğinde ilgili MAC'in
   VLAN/MAC kayıtları ve IP/MAC ile eşleşen tüm LLDP/CDP cihazları seçilir.
-- Çok-MAC portlar tek başına uç kanıtı olamaz. Seçilen cihazların tam port nüfusu,
-  komşulukları, VLAN–FID, kaynak bağlamı, güncellik ve uplink kontrolleri korunur;
+- Backbone yolu eksikse aynı VLAN/MAC için güncel uç port adayları SQL’den kontrol edilir.
+  Aynı portta başka MAC’ler bulunabilir. Bilinen uplink’ler elenir ve birden fazla
+  bağımsız uç adayından seçim yapılmaz. VLAN–FID ve güncellik kontrolleri korunur;
   iki port/iki switch adayları birlikte değerlendirilir. Yeni ağ sorgusu yapılmaz.
 - Noktasal SQL işlemleri ayrı, tek kapasiteli worker ve SQL yürütme sırası kullanır;
   uzun keşif/VLAN işleri ile toplu kaynak/ping yazımları bu kapasiteyi tüketmez.

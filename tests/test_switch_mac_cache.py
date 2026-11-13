@@ -174,7 +174,7 @@ def test_cached_fdb_safety_matches_primary_rules(network, fault):
         data["tables"]["bridge_ifindex"] = {}
     cache(network, evidence=data)
     clear_primary_switches(network)
-    assert read(network)["connected_port"] == ""
+    assert read(network)["connected_port"] == ("Gi1/0/9" if fault == "multiple_macs" else "")
 
 
 def test_manual_connection_and_ambiguous_primary_are_not_replaced(network):

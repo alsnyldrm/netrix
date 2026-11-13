@@ -57,9 +57,18 @@ def test_backbone_path_keeps_multi_mac_access_port(network, unmapped_neighbor):
             result = attachment(db, row, vlan, MAC, evidence=evidence)
             assert [(c["device_id"], c["port"]) for c in result["connections"]] == [(ids[1], "Gi1/0/1")]
 
-        # Without the verified backbone hop the unrelated access record cannot win.
+        # A missing backbone hop falls back to a unique, proven terminal port.
         link = db.scalar(select(m.Link).where(m.Link.device_id == ids[2]))
         link.remote_device_id = None
         link.evidence = {"spanning_tree": {"port": link.interface_name}}
         db.commit()
-        assert not attachment(db, row, vlan, MAC)["connections"]
+        phone = db.scalar(select(m.Link).where(m.Link.device_id == ids[1], m.Link.interface_name == "Gi1/0/1"))
+        phone.evidence = {"lldp": {"port_subtype": 3, "port_id": "00:11:22:33:44:66"}}
+        db.commit()
+        for evidence in (None, point_evidence(db, row, vlan, MAC)):
+            fallback = attachment(db, row, vlan, MAC, evidence=evidence)
+            if unmapped_neighbor:
+                assert not fallback["connections"]
+            else:
+                assert fallback["connected_device"] == "Access"
+                assert fallback["connected_port"] == "Gi1/0/1"

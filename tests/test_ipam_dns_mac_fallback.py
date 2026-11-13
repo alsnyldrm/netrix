@@ -117,7 +117,7 @@ def test_partial_table_keeps_valid_mac_port_without_endpoint_neighbor(network, c
     with sf() as db:
         row, vlan = db.get(m.IPAddress, rid), db.get(m.VLAN, vid)
         proof = attachment(db, row, vlan, MAC, evidence=point_evidence(db, row, vlan, MAC))
-        if condition == "valid":
+        if condition in ("valid", "multi_mac"):
             assert (proof["connected_device"], proof["connected_port"]) == ("Access", "Gi1/0/1")
             assert proof["connections"][0]["source"] == "gateway+vlan_fdb"
             assert not proof["connections"][0].get("remote_port")

@@ -12,7 +12,7 @@ from sqlalchemy.orm import load_only
 from .. import models as m
 from ..core import now
 from ..discovery.visibility import inventory_links
-from .fdb_path import backbone, routed_ports
+from .fdb_path import backbone, routed_ports, terminal_ports
 
 
 def network_device(device):
@@ -671,57 +671,21 @@ class Evidence:
         if not direct and len(macs) == 1:
             mac = next(iter(macs))
             roots = {id for id, d in self.devices.items() if d.vrf_id == row.vrf_id and backbone(d)}
-            if roots:
-                for (id, port), (obs, observed) in routed_ports(roots, static, vlan.vid, mac, cutoff).items():
-                    candidates[(id, port)] = {
-                        "device_id": id,
-                        "device_name": self.devices[id].name,
-                        "port": port,
-                        "aggregate": None,
-                        "source": identity_source + "+vlan_fdb",
-                        "observed_at": observed,
-                        "evidence_id": obs.id,
-                        "endpoint_identity": None,
-                        "confidence": 0.85,
-                    }
-            else:
-                for id, (obs, p) in snapshots.items():
-                    fdb_at = p["evidence"].get("fdb_at")
-                    if (
-                        "_canonical_fdb_times" not in p["evidence"]
-                        and fdb_at
-                        and datetime.fromisoformat(fdb_at) < cutoff
-                    ):
-                        continue
-                    if not p["evidence"].get("neighbor_protocols_complete"):
-                        continue
-                    if any(
-                        n.get("interface_name") not in p["names"] for n in p["evidence"].get("neighbors", [])
-                    ):
-                        # An unresolved LLDP local port could be the FDB uplink.
-                        # Do not infer an edge until every advertised port is mapped.
-                        continue
-                    for port in p["fdb"].get((vlan.vid, mac), ()):
-                        row_at = p["fdb_times"].get((vlan.vid, mac, port))
-                        if "_canonical_fdb_times" in p["evidence"] and (
-                            not row_at or datetime.fromisoformat(row_at) < cutoff
-                        ):
-                            continue
-                        # Multi-MAC ports may hide another bridge, phone or hypervisor.
-                        # They are not evidence of a direct endpoint attachment.
-                        if (id, port) in blocked or p["population"].get(port) != {mac}:
-                            continue
-                        candidates[(id, port)] = {
-                            "device_id": id,
-                            "device_name": self.devices[id].name,
-                            "port": port,
-                            "aggregate": None,
-                            "source": identity_source + "+vlan_fdb",
-                            "observed_at": row_at or obs.created_at.isoformat(),
-                            "evidence_id": obs.id,
-                            "endpoint_identity": None,
-                            "confidence": 0.85,
-                        }
+            ports = routed_ports(roots, static, vlan.vid, mac, cutoff) if roots else {}
+            if not ports:
+                ports = terminal_ports(static, blocked, vlan.vid, mac, cutoff)
+            for (id, port), (obs, observed) in ports.items():
+                candidates[(id, port)] = {
+                    "device_id": id,
+                    "device_name": self.devices[id].name,
+                    "port": port,
+                    "aggregate": None,
+                    "source": identity_source + "+vlan_fdb",
+                    "observed_at": observed,
+                    "evidence_id": obs.id,
+                    "endpoint_identity": None,
+                    "confidence": 0.85,
+                }
         values = sorted(candidates.values(), key=lambda c: (c["device_name"], c["port"]))
         identities = {c["endpoint_identity"] for c in values}
         aggregates = {(c["device_id"], c["aggregate"]) for c in values}

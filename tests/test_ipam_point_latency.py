@@ -109,7 +109,7 @@ async def test_point_transactions_do_not_queue_behind_bulk_or_ping_writes():
         await asyncio.gather(*tasks)
 
 
-def test_point_projection_excludes_multi_mac_uplinks_but_keeps_all_edge_candidates(network):
+def test_point_projection_keeps_multi_mac_candidates_for_ambiguity_checks(network):
     from netrix.ipam.inventory_sources import point_evidence
 
     sf, vid, rid, ids = network
@@ -152,10 +152,13 @@ def test_point_projection_excludes_multi_mac_uplinks_but_keeps_all_edge_candidat
         vlan = db.get(m.VLAN, vid)
         evidence = point_evidence(db, row, vlan, "00:11:22:33:44:55")
         assert noise.id in evidence.devices  # Retain infrastructure identity for uplink checks.
-        assert noise.id not in evidence.snapshots
+        assert noise.id in evidence.snapshots
         assert set(ids) <= evidence.snapshots.keys()
         result = evidence.resolve(row, vlan, identity_mac="00:11:22:33:44:55")
-        assert {(c["device_id"], c["port"]) for c in result["connections"]} == {(ids[1], "Gi1/0/1")}
+        assert {(c["device_id"], c["port"]) for c in result["connections"]} == {
+            (ids[1], "Gi1/0/1"), (noise.id, "Gi1/0/1")
+        }
+        assert result["connection_ambiguous"]
 
 
 async def test_point_worker_heartbeat_does_not_use_ping_writer(admin_client, network, monkeypatch):

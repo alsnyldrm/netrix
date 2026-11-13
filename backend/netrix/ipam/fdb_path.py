@@ -9,9 +9,7 @@ def backbone(device):
     return kind in {"backbone", "backbone switch"} or "bb" in device.name.casefold().split("-")
 
 
-def routed_ports(roots, static, vid, mac, cutoff):
-    """Return terminal switch ports on a proven route, never transit ports."""
-    snapshots = static["snapshots"]
+def topology(static):
     hops = defaultdict(set)
     peer_ports = defaultdict(set)
     transit = set()
@@ -32,7 +30,29 @@ def routed_ports(roots, static, vid, mac, cutoff):
         if remote_port:
             transit.add((remote, remote_port))
 
+    return hops, peer_ports, transit
+
+
+def fresh_ports(snapshot, vid, mac, cutoff):
+    obs, projected = snapshot
+    evidence = projected["evidence"]
+    if not evidence.get("neighbor_protocols_complete"):
+        return
+    for port in projected["fdb"].get((vid, mac), ()):
+        observed = projected["fdb_times"].get((vid, mac, port))
+        if "_canonical_fdb_times" in evidence and not observed:
+            continue
+        at = observed or evidence.get("fdb_at") or obs.created_at.isoformat()
+        if datetime.fromisoformat(at) >= cutoff:
+            yield port, (obs, at)
+
+
+def routed_ports(roots, static, vid, mac, cutoff):
+    """Prefer a proven forwarding path, without treating uplinks as endpoint ports."""
+    snapshots = static["snapshots"]
+    hops, peer_ports, transit = topology(static)
     found = {}
+
     pending = [(root, None) for root in roots]
     visited = set()
     while pending:
@@ -40,17 +60,7 @@ def routed_ports(roots, static, vid, mac, cutoff):
         if (device, previous) in visited or device not in snapshots:
             continue
         visited.add((device, previous))
-        obs, p = snapshots[device]
-        evidence = p["evidence"]
-        if not evidence.get("neighbor_protocols_complete"):
-            continue
-        for port in p["fdb"].get((vid, mac), ()):
-            observed = p["fdb_times"].get((vid, mac, port))
-            if "_canonical_fdb_times" in evidence and not observed:
-                continue
-            at = observed or evidence.get("fdb_at") or obs.created_at.isoformat()
-            if datetime.fromisoformat(at) < cutoff:
-                continue
+        for port, proof in fresh_ports(snapshots[device], vid, mac, cutoff):
             key = device, port
             peers = hops[key]
             if peers:
@@ -61,5 +71,49 @@ def routed_ports(roots, static, vid, mac, cutoff):
                 continue
             # Only mapped transit evidence can disqualify this exact port.
             # Unmapped neighbors on the switch do not invalidate the FDB match.
-            found[key] = obs, at
+            found[key] = proof
+    return found
+
+
+def learned_peer(link, learned):
+    from .connections import lldp_mac
+
+    _, _, remote, data, _, _ = link
+    if remote:
+        return False
+    lldp, cdp = data.get("lldp") or {}, data.get("cdp") or {}
+    return lldp_mac(cdp.get("port_id")) in learned or (
+        lldp.get("port_subtype") == 3 and lldp_mac(lldp.get("port_id")) in learned
+    )
+
+
+def terminal_ports(static, blocked, vid, mac, cutoff):
+    _, _, transit = topology(static)
+    peers_by_port = defaultdict(list)
+    for record in static["records"]:
+        if not record["down"]:
+            for key in record["blocks"]:
+                peers_by_port[key].append(record["link"])
+
+    found = {}
+    for device, snapshot in static["snapshots"].items():
+        _, projected = snapshot
+        if any(
+            n.get("interface_name") not in projected["names"]
+            for n in projected["evidence"].get("neighbors", [])
+        ):
+            # Unknown local ports could hide an uplink on this switch.
+            continue
+        for port, proof in fresh_ports(snapshot, vid, mac, cutoff):
+            key = device, port
+            if key in transit:
+                continue
+            if key in blocked:
+                peers = peers_by_port[key]
+                learned = projected["population"].get(port, set())
+                # A phone or another local peer may share this port. Require
+                # each advertised peer to have its own MAC learned on it.
+                if not peers or not all(learned_peer(peer, learned) for peer in peers):
+                    continue
+            found[key] = proof
     return found

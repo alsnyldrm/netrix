@@ -295,7 +295,7 @@ def test_transit_or_incomplete_switch_evidence_cannot_prove_endpoint(network, fa
             data["tables"]["vlan_fdb_status"]["900.0.17.34.51.68.86"] = "3"
         obs.evidence = data
         db.commit()
-    assert read(network)["connected_port"] == ""
+    assert read(network)["connected_port"] == ("Gi1/0/1" if fault in ("multiple_macs", "shared_fid_transit") else "")
 
 
 @pytest.mark.parametrize(
