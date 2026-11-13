@@ -118,7 +118,6 @@
 .ssh-terminal {
   min-width: 0;
   min-height: 0;
-  background: #300a24;
   padding: 12px;
   overflow: hidden;
 }
@@ -578,7 +577,7 @@
 }
 .ssh-appearance-fields {
   display: grid;
-  grid-template-columns: minmax(160px, 1.5fr) repeat(3, minmax(100px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
 }
 .ssh-appearance-fields label {
@@ -595,6 +594,15 @@
 .ssh-appearance-fields input[type="color"] {
   padding: 4px;
   cursor: pointer;
+}
+.ssh-opacity-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ssh-appearance-fields input[type="range"] {
+  accent-color: var(--accent);
+  padding: 0;
 }
 .ssh-appearance-actions {
   display: flex;

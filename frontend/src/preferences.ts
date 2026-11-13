@@ -8,6 +8,8 @@ export type TerminalAppearance = {
   font_size: number;
   font_weight: 400 | 700;
   background: string;
+  background_end: string;
+  background_opacity: number;
   commands_width: number;
   commands_collapsed: boolean;
 };
@@ -16,6 +18,8 @@ export const defaultTerminalAppearance: TerminalAppearance = {
   font_size: 15,
   font_weight: 400,
   background: "#300a24",
+  background_end: "#16152e",
+  background_opacity: 100,
   commands_width: 300,
   commands_collapsed: false,
 };

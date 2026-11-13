@@ -62,15 +62,30 @@ const terminalFonts = {
   plex: '"IBM Plex Mono", monospace',
   system: 'ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
 };
-function terminalOptions(value: TerminalAppearance) {
-  const rgb = value.background
+function terminalLuminance(color: string) {
+  const rgb = color
     .slice(1)
     .match(/../g)!
     .map((c) => parseInt(c, 16) / 255);
-  const luminance = rgb
+  return rgb
     .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
     .reduce((sum, c, i) => sum + c * [0.2126, 0.7152, 0.0722][i], 0);
-  const light = luminance < 0.179;
+}
+
+function terminalOptions(value: TerminalAppearance) {
+  const luminance =
+    (terminalLuminance(value.background) +
+      terminalLuminance(value.background_end)) /
+    2;
+  const surface = getComputedStyle(document.documentElement)
+    .getPropertyValue("--surface")
+    .trim();
+  const base = /^#[0-9a-f]{6}$/i.test(surface)
+    ? terminalLuminance(surface)
+    : 0.02;
+  const opacity = value.background_opacity / 100;
+  const light = luminance * opacity + base * (1 - opacity) < 0.179;
+  const inverse = light ? "#000000" : "#ffffff";
   const foreground = light ? "#ffffff" : "#000000";
   return {
     fontSize: value.font_size,
@@ -81,12 +96,12 @@ function terminalOptions(value: TerminalAppearance) {
     cursorStyle: "block" as const,
     cursorInactiveStyle: "outline" as const,
     theme: {
-      background: value.background,
+      background: "#00000000",
       foreground,
       cursor: foreground,
-      cursorAccent: value.background,
+      cursorAccent: inverse,
       selectionBackground: light ? "#ffffff" : "#000000",
-      selectionForeground: value.background,
+      selectionForeground: inverse,
     },
   };
 }
@@ -142,7 +157,7 @@ function Terminal({
           scrollback: 1000,
           allowProposedApi: false,
           screenReaderMode: true,
-          allowTransparency: false,
+          allowTransparency: true,
         });
         const fit = new FitAddon();
         terminal.loadAddon(fit);
@@ -171,6 +186,8 @@ function Terminal({
               value.font_size,
               value.font_weight,
               value.background,
+              value.background_end,
+              value.background_opacity,
             ]);
             if (appliedFont !== signature) {
               appliedFont = signature;
@@ -315,6 +332,8 @@ function Terminal({
     appearance.font_size,
     appearance.font_weight,
     appearance.background,
+    appearance.background_end,
+    appearance.background_opacity,
   ]);
   useEffect(() => {
     if (!hidden) requestAnimationFrame(() => resize.current?.());
@@ -322,7 +341,11 @@ function Terminal({
   return (
     <div
       className="ssh-terminal"
-      style={{ background: appearance.background }}
+      style={{
+        backgroundImage: `linear-gradient(135deg,
+          color-mix(in srgb, ${appearance.background} ${appearance.background_opacity}%, transparent),
+          color-mix(in srgb, ${appearance.background_end} ${appearance.background_opacity}%, transparent))`,
+      }}
       aria-label="SSH terminali"
     >
       <div className="ssh-terminal-screen" ref={host} />
@@ -767,6 +790,8 @@ function SessionWindow({
                 font_size: draft.font_size,
                 font_weight: draft.font_weight,
                 background: draft.background,
+                background_end: draft.background_end,
+                background_opacity: draft.background_opacity,
               })
             )
               setSettings(false);
@@ -829,7 +854,7 @@ function SessionWindow({
               </select>
             </label>
             <label>
-              Arka plan rengi
+              Başlangıç rengi
               <input
                 name="terminal-background"
                 type="color"
@@ -837,6 +862,36 @@ function SessionWindow({
                 disabled={saving}
                 onChange={(e) =>
                   setDraft((v) => ({ ...v, background: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              Bitiş rengi
+              <input
+                type="color"
+                value={draft.background_end}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({ ...v, background_end: e.target.value }))
+                }
+              />
+            </label>
+            <label>
+              <span className="ssh-opacity-label">
+                Saydamlık <output>{100 - draft.background_opacity}%</output>
+              </span>
+              <input
+                type="range"
+                aria-label="Saydamlık"
+                min="0"
+                max="100"
+                value={100 - draft.background_opacity}
+                disabled={saving}
+                onChange={(e) =>
+                  setDraft((v) => ({
+                    ...v,
+                    background_opacity: 100 - Number(e.target.value),
+                  }))
                 }
               />
             </label>

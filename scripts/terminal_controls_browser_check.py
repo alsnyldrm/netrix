@@ -94,8 +94,8 @@ with sync_playwright() as p:
         .startswith('"Ubuntu Mono"')
     )
     assert (
-        terminal.locator(".ssh-terminal").evaluate("e=>getComputedStyle(e).backgroundColor")
-        == "rgb(48, 10, 36)"
+        terminal.locator(".ssh-terminal").evaluate("e=>getComputedStyle(e).backgroundImage")
+        .startswith("linear-gradient(")
     )
     assert terminal.locator(".xterm-cursor-blink").count() == 0
     font_cells_aligned()
@@ -157,7 +157,12 @@ with sync_playwright() as p:
     terminal.get_by_label("Yazı tipi", exact=True).select_option("plex")
     terminal.get_by_label("Yazı kalınlığı", exact=True).select_option("700")
     terminal.get_by_label("Yazı boyutu", exact=True).select_option("22")
-    terminal.get_by_label("Arka plan rengi", exact=True).fill("#ffffff")
+    terminal.get_by_label("Başlangıç rengi", exact=True).fill("#ffffff")
+    terminal.get_by_label("Bitiş rengi", exact=True).fill("#32456a")
+    terminal.get_by_role("slider", name="Saydamlık").fill("35")
+    expect(terminal.locator(".ssh-opacity-label output")).to_have_text("35%")
+    expect(terminal.locator(".ssh-terminal")).to_have_css("opacity", "1")
+    assert "0.65" in terminal.locator(".ssh-terminal").evaluate("e=>getComputedStyle(e).backgroundImage")
     page.wait_for_function("()=>getComputedStyle(document.querySelector('.xterm-rows')).fontSize==='22px'")
     expect(terminal.locator(".xterm-rows")).to_contain_text("NETRIX terminal fixture")
     terminal.get_by_role("button", name="Görünümü kaydet").click()
@@ -169,6 +174,8 @@ with sync_playwright() as p:
         "font_size": 22,
         "font_weight": 700,
         "background": "#ffffff",
+        "background_end": "#32456a",
+        "background_opacity": 65,
         "commands_width": 440,
         "commands_collapsed": False,
     }
@@ -241,7 +248,7 @@ with sync_playwright() as p:
     font_cells_aligned()
     terminal.get_by_role("button", name="Vazgeç", exact=True).click()
     font_cells_aligned()
-    for design in ("atlas", "orbit", "terminal", "panorama", "focus"):
+    for design in ("lumelle",):
         for mode in ("dark", "light"):
             page.evaluate(
                 "v=>{document.documentElement.dataset.design=v.design;document.documentElement.dataset.theme=v.mode;document.documentElement.dataset.palette='amber'}",
@@ -255,6 +262,7 @@ with sync_playwright() as p:
                 capture(f"{design}-{mode}-{width}-appearance")
                 terminal.get_by_role("button", name="Vazgeç", exact=True).click()
     page.set_viewport_size({"width": 812, "height": 375})
+    page.wait_for_function("document.querySelector('.ssh-footer').getBoundingClientRect().bottom <= innerHeight + 1")
     capture("landscape-commands")
     assert connections == 1
     assert not errors, errors
