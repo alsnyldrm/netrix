@@ -130,6 +130,10 @@
 /* Unused space below the last complete cell row must show the terminal background. */
 .ssh-terminal .xterm .xterm-viewport {
   background-color: transparent;
+  scrollbar-width: none;
+}
+.ssh-terminal .xterm .xterm-viewport::-webkit-scrollbar {
+  display: none;
 }
 .ssh-commands {
   height: 100%;
