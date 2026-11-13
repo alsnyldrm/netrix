@@ -1321,9 +1321,7 @@ export function IPAMWorkspace({
                 ).map((label) => (
                   <th key={label}>{label}</th>
                 ))}
-                <th className={!isBlocks ? "ipam-actions-column" : undefined}>
-                  İşlemler
-                </th>
+                <th>İşlemler</th>
               </tr>
             </thead>
             <tbody>
@@ -1438,7 +1436,7 @@ export function IPAMWorkspace({
                         {renderCell(r, c.key)}
                       </td>
                     ))}
-                    <td className="ipam-actions-column">
+                    <td>
                       <div className="ipam-actions ipam-row-actions">
                         {r.id && (
                           <button

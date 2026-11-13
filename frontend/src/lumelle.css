@@ -424,18 +424,6 @@
   background: var(--glass-reflection);
 }
 
-[data-design="lumelle"] .ipam-address-table .ipam-actions-column {
-  z-index: 1;
-  background: color-mix(in srgb, var(--surface-2) 12%, transparent);
-  box-shadow: -1px 0 var(--glass-line);
-  backdrop-filter: blur(16px);
-}
-
-[data-design="lumelle"] .ipam-address-table th.ipam-actions-column {
-  z-index: 2;
-  background: color-mix(in srgb, var(--surface-2) 84%, transparent);
-}
-
 [data-design="lumelle"]
   :is(
     input:not([type="checkbox"], [type="radio"], [type="color"]),
