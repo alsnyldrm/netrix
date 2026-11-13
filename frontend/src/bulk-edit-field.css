@@ -1,0 +1,54 @@
+.bulk-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.bulk-edit-field {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 2;
+  row-gap: 4px;
+  min-width: 0;
+}
+
+.bulk-edit-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  width: fit-content;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.bulk-edit-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  flex: 0 0 16px;
+}
+
+.bulk-edit-toggle input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.bulk-edit-field > :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+}
+
+.bulk-edit-field > :disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .bulk-edit-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

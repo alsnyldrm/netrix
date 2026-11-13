@@ -1,3 +1,4 @@
+import { BulkEditField } from "./bulk-edit-field";
 import { ColumnTable } from "./column-table";
 import { hasAdminAccess, canSSH } from "./permissions";
 import { openSSH, sendBulkCommand } from "./ssh-workspace";
@@ -447,38 +448,27 @@ export function BulkEditor({
           }
         }}
       >
-        <p className="muted">
-          {ids.length} cihaz seçildi. Yalnızca işaretlediğiniz alanlar
-          değiştirilir.
-          {backup
-            ? " Grup seçiliyse grubun aralık ve saklama ayarları kullanılır. 0: zamanlama kapalı / saklama sınırsız."
-            : " Üretici, cihaz türü ve model için uyguladığınız değerler cihaz sorgularında korunur."}
-        </p>
-        <div className="bulk-fields">
+        <div className="bulk-edit-fields">
           {fields.map((f: any) => {
             const enabled = f.key in changes;
             return (
-              <div className="bulk-field" key={f.key}>
-                <label className="choice-row">
-                  <input
-                    type="checkbox"
-                    aria-label={`${f.label} değiştir`}
-                    checked={enabled}
-                    onChange={(e) => {
-                      const next = { ...changes };
-                      if (e.target.checked)
-                        next[f.key] =
-                          f.type === "checkbox"
-                            ? false
-                            : f.ref
-                              ? null
-                              : (f.default ?? "");
-                      else delete next[f.key];
-                      setChanges(next);
-                    }}
-                  />
-                  <span>{f.label}</span>
-                </label>
+              <BulkEditField
+                key={f.key}
+                label={f.label}
+                enabled={enabled}
+                onToggle={(checked) => {
+                  const next = { ...changes };
+                  if (checked)
+                    next[f.key] =
+                      f.type === "checkbox"
+                        ? false
+                        : f.ref
+                          ? null
+                          : (f.default ?? "");
+                  else delete next[f.key];
+                  setChanges(next);
+                }}
+              >
                 {f.type === "checkbox" ? (
                   <select
                     aria-label={`${f.label} değeri`}
@@ -549,7 +539,7 @@ export function BulkEditor({
                     }
                   />
                 )}
-              </div>
+              </BulkEditField>
             );
           })}
         </div>

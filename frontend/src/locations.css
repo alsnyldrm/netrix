@@ -203,12 +203,6 @@
 .ipam-notice {
   padding: 12px 20px;
 }
-.ipam-bulk-field {
-  min-width: 0;
-}
-.ipam-bulk-field > .ipam-check {
-  margin-bottom: 6px;
-}
 @media (max-width: 700px) {
   .location-toolbar {
     align-items: flex-start;

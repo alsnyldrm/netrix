@@ -1,3 +1,4 @@
+import { BulkEditField } from "./bulk-edit-field";
 import { ColumnTable } from "./column-table";
 import { hasAdminAccess, canOperate } from "./permissions";
 import { useLiveQuery } from "./data";
@@ -1553,7 +1554,6 @@ export function IPAMWorkspace({
       {bulkOpen && (
         <IPBulkEditor
           ids={selected}
-          refs={refs}
           close={() => setBulkOpen(false)}
           saved={selectionDone}
         />
@@ -1578,16 +1578,13 @@ export function IPAMWorkspace({
 
 function IPBulkEditor({
   ids,
-  refs,
   close,
   saved,
 }: {
   ids: string[];
-  refs: Record<string, Row[]>;
   close: () => void;
   saved: () => void;
 }) {
-  const locationFields = ["institution_id", "site_id", "sub_site_id"];
   const [values, setValues] = useState<Row>({
     institution_id: "",
     site_id: "",
@@ -1596,9 +1593,41 @@ function IPBulkEditor({
   const [enabled, setEnabled] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const unavailable = (key: string) =>
+    (key === "site_id" && !values.institution_id) ||
+    (key === "sub_site_id" && !values.site_id) ||
+    (key === "interface_id" && !values.device_id);
   const fields = ADDRESS_PAGE.fields!.filter(
-    (f) => !["address", "mac_address"].includes(f.key),
+    (field) => !["address", "mac_address"].includes(field.key),
   );
+  const [refs, setRefs] = useState<Record<string, Row[]>>({});
+  useEffect(() => {
+    let active = true;
+    const names = new Set(
+      ADDRESS_PAGE.fields!.flatMap(
+        (field) => field.ref || field.suggestions || [],
+      ),
+    );
+    Promise.all(
+      [...names].map(
+        async (name) => [name, await allRows("/" + name)] as const,
+      ),
+    )
+      .then((results) => {
+        if (active) setRefs(Object.fromEntries(results));
+      })
+      .catch((error: Error) => {
+        if (active) setError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const editable = (key: string) => {
+    const field = fields.find((field) => field.key === key);
+    const reference = field?.ref || field?.suggestions;
+    return !unavailable(key) && (!reference || reference in refs);
+  };
   return (
     <Dialog title={`${ids.length} IP · Toplu düzenle`} onClose={close} drawer>
       <form
@@ -1609,18 +1638,17 @@ function IPBulkEditor({
           setError("");
           try {
             const changes = Object.fromEntries(
-              enabled.map((key) => [
-                key,
-                fields.find((f) => f.key === key)?.type === "checkbox"
-                  ? !!values[key]
-                  : values[key] ||
-                    (fields.find((f) => f.key === key)?.ref ? null : ""),
-              ]),
+              enabled
+                .filter((key) => editable(key))
+                .map((key) => [
+                  key,
+                  fields.find((f) => f.key === key)?.type === "checkbox"
+                    ? !!values[key]
+                    : values[key] ||
+                      (fields.find((f) => f.key === key)?.ref ? null : ""),
+                ]),
             );
-            if (
-              enabled.includes("device_id") &&
-              !enabled.includes("interface_id")
-            )
+            if (enabled.includes("device_id") && !("interface_id" in changes))
               changes.interface_id = null;
             await api("/ipam/addresses/bulk", "POST", {
               ids,
@@ -1635,100 +1663,82 @@ function IPBulkEditor({
           }
         }}
       >
-        <p className="ipam-hint">
-          İşaretlenen alanlar tüm seçili kayıtlara uygulanır. IP ve MAC
-          adresleri korunur.
-        </p>
         <ErrorNote error={error} />
-        <div className="ipam-fields">
+        <div className="bulk-edit-fields">
           {fields.map((f) => (
-            <div className="ipam-bulk-field" key={f.key}>
-              <label className="ipam-check">
-                <input
-                  type="checkbox"
-                  checked={enabled.includes(f.key)}
-                  onChange={(e) => {
-                    if (locationFields.includes(f.key)) {
-                      setEnabled(
-                        e.target.checked
-                          ? [...new Set([...enabled, ...locationFields])]
-                          : enabled.filter(
-                              (key) => !locationFields.includes(key),
-                            ),
-                      );
-                    } else
-                      setEnabled(
-                        e.target.checked
-                          ? [...enabled, f.key]
-                          : enabled.filter((k) => k !== f.key),
-                      );
-                  }}
-                />
-                {f.label} değiştir
-              </label>
-              <label className="ipam-field">
-                <span>{f.label}</span>
-                {f.ref || f.suggestions || f.options ? (
-                  <select
-                    aria-label={f.label}
-                    disabled={
-                      !enabled.includes(f.key) ||
-                      (f.key === "site_id" && !values.institution_id) ||
-                      (f.key === "sub_site_id" && !values.site_id)
-                    }
-                    value={values[f.key] || ""}
-                    onChange={(e) =>
-                      setValues(dependentChange(values, f.key, e.target.value))
-                    }
-                  >
-                    <option value="">Temizle / seçilmedi</option>
-                    {(f.ref
-                      ? resourceChoices(f, refs, values, "addresses").map(
-                          (r) => [r.id, r.name || r.cidr || r.address],
+            <BulkEditField
+              key={f.key}
+              label={f.label}
+              enabled={enabled.includes(f.key)}
+              onToggle={(checked) => {
+                setEnabled((current) =>
+                  checked
+                    ? [...current, f.key]
+                    : current.filter((key) => key !== f.key),
+                );
+                if (!checked)
+                  setValues((current) => dependentChange(current, f.key, ""));
+              }}
+            >
+              {f.ref || f.suggestions || f.options ? (
+                <select
+                  aria-label={f.label}
+                  disabled={!enabled.includes(f.key) || !editable(f.key)}
+                  value={values[f.key] || ""}
+                  onChange={(e) =>
+                    setValues(dependentChange(values, f.key, e.target.value))
+                  }
+                >
+                  <option value="">Temizle / seçilmedi</option>
+                  {(f.ref
+                    ? resourceChoices(f, refs, values, "addresses").map((r) => [
+                        r.id,
+                        r.name || r.cidr || r.address,
+                      ])
+                    : f.suggestions
+                      ? (refs[f.suggestions] || []).map((r) => [r.name, r.name])
+                      : (f.options || []).map((r) =>
+                          Array.isArray(r) ? r : [r, stateName(r)],
                         )
-                      : f.suggestions
-                        ? (refs[f.suggestions] || []).map((r) => [
-                            r.name,
-                            r.name,
-                          ])
-                        : (f.options || []).map((r) =>
-                            Array.isArray(r) ? r : [r, stateName(r)],
-                          )
-                    ).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                ) : f.type === "checkbox" ? (
-                  <input
-                    type="checkbox"
-                    aria-label={f.label}
-                    disabled={!enabled.includes(f.key)}
-                    checked={!!values[f.key]}
-                    onChange={(e) =>
-                      setValues({ ...values, [f.key]: e.target.checked })
-                    }
-                  />
-                ) : (
-                  <input
-                    aria-label={f.label}
-                    disabled={!enabled.includes(f.key)}
-                    value={values[f.key] || ""}
-                    onChange={(e) =>
-                      setValues({ ...values, [f.key]: e.target.value })
-                    }
-                  />
-                )}
-              </label>
-            </div>
+                  ).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              ) : f.type === "checkbox" ? (
+                <select
+                  aria-label={f.label}
+                  disabled={!enabled.includes(f.key)}
+                  value={String(!!values[f.key])}
+                  onChange={(e) =>
+                    setValues({ ...values, [f.key]: e.target.value === "true" })
+                  }
+                >
+                  <option value="true">Etkin</option>
+                  <option value="false">Kapalı</option>
+                </select>
+              ) : (
+                <input
+                  aria-label={f.label}
+                  disabled={!enabled.includes(f.key)}
+                  value={values[f.key] || ""}
+                  onChange={(e) =>
+                    setValues({ ...values, [f.key]: e.target.value })
+                  }
+                />
+              )}
+            </BulkEditField>
           ))}
         </div>
         <div className="ipam-actions">
           <button type="button" className="secondary" onClick={close}>
             Vazgeç
           </button>
-          <button className="primary" disabled={busy || !enabled.length}>
+          <button
+            className="primary"
+            disabled={busy || !enabled.some((key) => editable(key))}
+          >
             Değişiklikleri uygula
           </button>
         </div>

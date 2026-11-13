@@ -127,19 +127,6 @@
 .choice-row input {
   flex: 0 0 18px;
 }
-.bulk-fields {
-  display: grid;
-  gap: 16px;
-}
-.bulk-field {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-}
-.bulk-field .choice-row {
-  flex-wrap: nowrap;
-}
 .inventory-breadcrumb {
   margin-bottom: 16px;
 }
@@ -222,12 +209,8 @@
     justify-self: end;
     grid-column: 2;
   }
-  .choice-grid,
-  .bulk-field {
+  .choice-grid {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .bulk-field {
-    gap: 8px;
   }
   .inventory-toolbar > button {
     flex: 1 1 auto;
