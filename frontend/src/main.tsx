@@ -3441,7 +3441,7 @@ function App() {
                   (!["users", "audit"].includes(item.key) || isAdmin),
               );
               const Icon = items[0].icon;
-              const expanded = drawer || openGroup === g;
+              const expanded = drawer || (!collapsed && openGroup === g);
               const section = NAV_SECTIONS[g];
               if (items.length === 1) {
                 return (
@@ -3457,6 +3457,7 @@ function App() {
                       aria-current={
                         current === items[0].key ? "page" : undefined
                       }
+                      title={collapsed && !drawer ? g : undefined}
                       onClick={() => navigate(items[0].key)}
                     >
                       <Icon size={17} aria-hidden="true" />
@@ -3478,6 +3479,12 @@ function App() {
                     className="nav-group-title"
                     aria-expanded={expanded}
                     aria-controls={`nav-group-${index}`}
+                    aria-current={
+                      collapsed && !drawer && page.group === g
+                        ? "location"
+                        : undefined
+                    }
+                    title={collapsed && !drawer ? g : undefined}
                     onClick={() => navigate(items[0].key)}
                   >
                     <Icon size={17} aria-hidden="true" />

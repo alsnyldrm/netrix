@@ -655,6 +655,7 @@
   }
 
   [data-design="lumelle"] .collapsed .nav-group-title {
+    position: relative;
     display: flex;
     justify-content: center;
     padding-inline: 0;
@@ -675,8 +676,21 @@
     display: none;
   }
 
-  [data-design="lumelle"] .collapsed .nav-item.selected::before {
-    left: 1px;
+  [data-design="lumelle"]
+    .collapsed
+    :is(
+      .nav-group.active > .nav-group-title,
+      .nav-group-title.selected
+    )::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--accent);
+    transform: translateY(-50%);
   }
 }
 
