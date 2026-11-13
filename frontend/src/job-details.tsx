@@ -44,11 +44,7 @@ export function JobDetails({
     };
   }, [job.id]);
   return (
-    <Dialog
-      title="Görev açıklaması"
-      onClose={onClose}
-      className="lumelle-detail-drawer"
-    >
+    <Dialog title="Görev açıklaması" onClose={onClose} drawer>
       <div className="job-details">
         <div className="job-details-heading">
           <div>

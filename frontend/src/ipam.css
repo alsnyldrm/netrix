@@ -227,7 +227,7 @@
 }
 .ipam-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin: 0;
 }
@@ -246,6 +246,9 @@
   border-bottom: 1px solid var(--border);
   color: var(--text-2);
   font-size: 13px;
+}
+.ipam-address-scan > [role="status"] {
+  flex: 1 1 170px;
 }
 .ipam-address-scan button {
   min-height: 40px;
@@ -352,9 +355,6 @@
   }
   .ipam-fields {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .ipam-summary {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .ipam-form,
   .ipam-block-header {

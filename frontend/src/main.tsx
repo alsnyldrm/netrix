@@ -1149,40 +1149,98 @@ export function Dialog({
   onClose,
   wide = false,
   className,
+  drawer = false,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
   wide?: boolean;
   className?: string;
+  drawer?: boolean;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const [closing, setClosing] = useState(false);
+  const backdropPressed = useRef(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement;
-    dialog.current?.showModal();
+    const element = dialog.current;
+    element?.showModal();
     return () => {
-      dialog.current?.close();
+      element?.close();
       previous?.focus();
     };
   }, []);
+  useEffect(() => {
+    if (!closing) return;
+    const exit = dialog.current
+      ?.getAnimations()
+      .find(
+        (animation) =>
+          animation instanceof CSSAnimation &&
+          animation.animationName === "lumelle-detail-out",
+      );
+    if (!exit) {
+      onClose();
+      return;
+    }
+    let active = true;
+    const finish = () => {
+      if (active) onClose();
+    };
+    void exit.finished.then(finish, finish);
+    return () => {
+      active = false;
+    };
+  }, [closing, onClose]);
+  const dismiss = () => (drawer ? setClosing(true) : onClose());
+  const isBackdrop = (event: React.MouseEvent<HTMLDialogElement>) => {
+    if (event.target !== event.currentTarget) return false;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return (
+      event.clientX < bounds.left ||
+      event.clientX >= bounds.right ||
+      event.clientY < bounds.top ||
+      event.clientY >= bounds.bottom
+    );
+  };
   return (
     <dialog
       aria-label={title}
-      className={["dialog", wide && "wide", className]
+      className={[
+        "dialog",
+        drawer ? "lumelle-detail-drawer" : wide && "wide",
+        className,
+      ]
         .filter(Boolean)
         .join(" ")}
+      data-closing={closing || undefined}
       ref={dialog}
       onCancel={(event) => {
         event.preventDefault();
-        onClose();
+        dismiss();
       }}
+      onPointerDown={
+        drawer
+          ? (event) => {
+              backdropPressed.current = isBackdrop(event);
+            }
+          : undefined
+      }
+      onClick={
+        drawer
+          ? (event) => {
+              if (backdropPressed.current && isBackdrop(event)) dismiss();
+              backdropPressed.current = false;
+            }
+          : undefined
+      }
     >
       <div className="dialog-header">
         <h2>{title}</h2>
         <button
           className="icon-button"
           aria-label="Pencereyi kapat"
-          onClick={onClose}
+          onClick={dismiss}
         >
           <X size={20} />
         </button>
@@ -4437,11 +4495,7 @@ function App() {
         </Dialog>
       )}
       {detail && (
-        <Dialog
-          title={detail.name}
-          onClose={() => setDetail(null)}
-          className="lumelle-detail-drawer"
-        >
+        <Dialog title={detail.name} onClose={() => setDetail(null)} drawer>
           <div className="device-detail">
             <div className="device-summary">
               <DeviceVendorMark vendor={detail.vendor} />

@@ -159,7 +159,7 @@ export function AddressDetail({
   const manual = manualConnection(detail);
   const location = detail.rack_location || detail.manual_location;
   return (
-    <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} wide>
+    <Dialog title={`${row.address} · IP ayrıntıları`} onClose={close} drawer>
       <div className="ipam-form">
         <ErrorNote error={error} />
         <div className="ipam-address-scan">
