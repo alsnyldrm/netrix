@@ -15,13 +15,13 @@ export function BulkEditField({
   return (
     <div className="bulk-edit-field">
       <label className="bulk-edit-toggle">
-        <span>{label}</span>
         <input
           type="checkbox"
           aria-label={`${label} değiştir`}
           checked={enabled}
           onChange={(event) => onToggle(event.target.checked)}
         />
+        <span>{label}</span>
       </label>
       {children}
     </div>
