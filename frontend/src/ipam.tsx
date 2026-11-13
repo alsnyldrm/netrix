@@ -142,7 +142,19 @@ export function AddressDetail({
     "/ipam/addresses/" + row.id + "/scan",
     ipamRevision + scanRevision,
   );
-  const job = scan.data;
+  const [submittedJob, setSubmittedJob] = useState<Row | null>(null);
+  const observedJob = scan.data;
+  // The POST already knows which job started. An older status response can
+  // still arrive while the first refresh for that job is queued.
+  const job =
+    submittedJob &&
+    submittedJob.target_id === row.id &&
+    (!observedJob ||
+      (observedJob.id !== submittedJob.id &&
+        Date.parse(observedJob.created_at) <=
+          Date.parse(submittedJob.created_at)))
+      ? submittedJob
+      : observedJob;
   const running = job && ["queued", "running"].includes(job.status);
   useEffect(() => {
     if (!running) return;
@@ -229,7 +241,9 @@ export function AddressDetail({
                   setBusy(true);
                   setScanError("");
                   try {
-                    await api("/ipam/addresses/" + row.id + "/scan", "POST");
+                    setSubmittedJob(
+                      await api("/ipam/addresses/" + row.id + "/scan", "POST"),
+                    );
                     setScanRevision((n) => n + 1);
                   } catch (e: any) {
                     setScanError(e.message);
