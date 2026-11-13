@@ -76,36 +76,52 @@ th[data-column-target] {
 .column-table-label {
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .column-table-label > .column-sort {
   width: 100%;
+  min-width: 0;
+}
+
+.column-table-label .column-sort > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .column-table-resize {
   position: absolute;
   inset-block: 0;
   width: 8px;
-  z-index: 1;
+  z-index: 3;
   cursor: col-resize;
   touch-action: none;
-}
-
-.column-table-resize-left {
-  left: 0;
 }
 
 .column-table-resize-right {
   right: 0;
 }
 
+.column-table-resize-left {
+  left: 0;
+}
+
 .column-table-resize::after {
   content: "";
   position: absolute;
-  inset: 25% 3px;
+  inset: 18% 0 18% auto;
+  width: 2px;
   border-radius: 2px;
   background: var(--border-strong);
   opacity: 0;
+}
+
+.column-table-resize-left::after {
+  inset-inline: 0 auto;
 }
 
 th:hover > .column-table-resize::after {
@@ -125,21 +141,36 @@ table[data-column-layout="fixed"] {
 table[data-column-layout="fixed"] :is(th, td)[data-column-id],
 table[data-column-layout="fixed"]
   :is(.column-table-heading, .column-sort, .ipam-connection-lines > span) {
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
-.column-table-resize-guide {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: 3px;
-  width: 2px;
+table[data-column-layout="fixed"] td[data-column-id],
+table[data-column-layout="fixed"] .ipam-connection-lines > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table[data-column-layout="fixed"]
+  td[data-column-id]
+  .text-button:not(:has(svg)) {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.column-table-resize[data-column-resizing="true"]::after {
+  opacity: 1;
   background: var(--accent);
-  pointer-events: none;
 }
 
-th[data-column-resizing="true"] > .column-table-resize::after {
-  opacity: 0;
+html.column-resizing,
+html.column-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 
 table.column-table-measure {
