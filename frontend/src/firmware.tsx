@@ -20,6 +20,9 @@ import "./firmware.css";
 import FirmwareHistory from "./firmware-history";
 import FirmwareReleaseNotes, {
   ReleaseNotesField,
+  ReleaseDocumentField,
+  releaseFileError,
+  uploadReleaseDocument,
 } from "./firmware-release-notes";
 import OutdatedGroups, { UpdateState, type PlanStep } from "./firmware-updates";
 
@@ -616,6 +619,9 @@ function ImageForm({
     notes: row?.notes || "",
     release_notes: row?.release_notes || "",
   });
+  const [releaseDocument, setReleaseDocument] = useState<File | null>(null);
+  const [imageUploaded, setImageUploaded] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [file, setFile] = useState<File | null>(null),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -657,10 +663,15 @@ function ImageForm({
         className="fw-form fw-upload-form"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!file) return;
+          if (busy || (!file && !imageUploaded)) return;
           const extension = values.family === "hp1950" ? ".ipe" : ".swi";
-          if (!file.name.toLowerCase().endsWith(extension)) {
+          if (!imageUploaded && !file!.name.toLowerCase().endsWith(extension)) {
             setError(`Seçilen cihaz ailesi için ${extension} dosyası seçin.`);
+            return;
+          }
+          const documentError = releaseFileError(releaseDocument);
+          if (documentError) {
+            setError(documentError);
             return;
           }
           setBusy(true);
@@ -670,46 +681,53 @@ function ImageForm({
               created ||
               (await api("/firmware/images", "POST", {
                 ...values,
-                original_name: file.name,
+                original_name: file!.name,
               }));
             setCreated(image);
-            await new Promise<void>((resolve, reject) => {
-              const request = new XMLHttpRequest();
-              request.open(
-                "PUT",
-                `/api/v1/firmware/images/${image.id}/content`,
-              );
-              request.setRequestHeader("X-Netrix-Request", "1");
-              request.setRequestHeader(
-                "Content-Type",
-                "application/octet-stream",
-              );
-              request.timeout = 3600000;
-              request.upload.onprogress = (e) => {
-                if (e.lengthComputable)
-                  setProgress(Math.round((e.loaded / e.total) * 100));
-              };
-              request.onerror = () =>
-                reject(
-                  new Error(
-                    "Dosya aktarımı kesildi; aynı dosyayla yeniden deneyin.",
-                  ),
+            if (!imageUploaded) {
+              await new Promise<void>((resolve, reject) => {
+                const request = new XMLHttpRequest();
+                request.open(
+                  "PUT",
+                  `/api/v1/firmware/images/${image.id}/content`,
                 );
-              request.ontimeout = () =>
-                reject(new Error("Dosya aktarımı zaman aşımına uğradı."));
-              request.onload = () => {
-                if (request.status >= 200 && request.status < 300) resolve();
-                else {
-                  let message = "Dosya yüklenemedi";
-                  try {
-                    message =
-                      JSON.parse(request.responseText).detail || message;
-                  } catch {}
-                  reject(new Error(message));
-                }
-              };
-              request.send(file);
-            });
+                request.setRequestHeader("X-Netrix-Request", "1");
+                request.setRequestHeader(
+                  "Content-Type",
+                  "application/octet-stream",
+                );
+                request.timeout = 3600000;
+                request.upload.onprogress = (e) => {
+                  if (e.lengthComputable)
+                    setProgress(Math.round((e.loaded / e.total) * 100));
+                };
+                request.onerror = () =>
+                  reject(
+                    new Error(
+                      "Dosya aktarımı kesildi; aynı dosyayla yeniden deneyin.",
+                    ),
+                  );
+                request.ontimeout = () =>
+                  reject(new Error("Dosya aktarımı zaman aşımına uğradı."));
+                request.onload = () => {
+                  if (request.status >= 200 && request.status < 300) resolve();
+                  else {
+                    let message = "Dosya yüklenemedi";
+                    try {
+                      message =
+                        JSON.parse(request.responseText).detail || message;
+                    } catch {}
+                    reject(new Error(message));
+                  }
+                };
+                request.send(file);
+              });
+              setImageUploaded(true);
+            }
+            if (releaseDocument) {
+              setUploadingDocument(true);
+              await uploadReleaseDocument(image.id, releaseDocument);
+            }
             clearReadCache();
             onSaved();
             onClose();
@@ -717,6 +735,7 @@ function ImageForm({
             setError(e.message);
           } finally {
             setBusy(false);
+            setUploadingDocument(false);
           }
         }}
       >
@@ -793,8 +812,8 @@ function ImageForm({
             Firmware dosyası
             <input
               type="file"
-              required
-              disabled={busy || !values.family}
+              required={!imageUploaded}
+              disabled={busy || imageUploaded || !values.family}
               accept={values.family === "hp1950" ? ".ipe" : ".swi"}
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
@@ -804,6 +823,7 @@ function ImageForm({
             disabled={!!created || busy}
             onChange={(value) => setValues({ ...values, release_notes: value })}
           />
+          <ReleaseDocumentField disabled={busy} onChange={setReleaseDocument} />
           <details
             className="fw-full fw-upload-notes"
             open={values.notes ? true : undefined}
@@ -821,11 +841,15 @@ function ImageForm({
         </div>
         {busy && (
           <div role="status">
-            <progress max={100} value={progress} aria-label="Dosya yükleme" />
+            {!uploadingDocument && (
+              <progress max={100} value={progress} aria-label="Dosya yükleme" />
+            )}
             <p>
-              {progress === 100
-                ? "Sunucu dosyayı doğruluyor…"
-                : `Dosya aktarılıyor · %${progress}`}
+              {uploadingDocument
+                ? "Release belgesi yükleniyor…"
+                : progress === 100
+                  ? "Sunucu dosyayı doğruluyor…"
+                  : `Dosya aktarılıyor · %${progress}`}
             </p>
           </div>
         )}
@@ -843,9 +867,18 @@ function ImageForm({
           >
             Vazgeç
           </button>
-          <button className="primary" disabled={busy || !file}>
+          <button
+            className="primary"
+            disabled={busy || (!file && !imageUploaded)}
+          >
             <UploadSimple aria-hidden="true" size={18} />
-            {busy ? "Yükleniyor…" : "Dosyayı yükle"}
+            {busy
+              ? "Yükleniyor…"
+              : imageUploaded
+                ? releaseDocument
+                  ? "Belgeyi yükle"
+                  : "Tamamla"
+                : "Dosyayı yükle"}
           </button>
         </div>
       </form>

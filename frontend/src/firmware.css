@@ -1197,7 +1197,8 @@
 /* Firmware upload follows the same control axes in both themes and on mobile. */
 .fw-release-notes,
 .fw-release-notes-field,
-.fw-release-notes-editor {
+.fw-release-notes-editor,
+.fw-release-document {
   display: grid;
   gap: 12px;
   min-width: 0;
@@ -1209,6 +1210,46 @@
   width: 100%;
   min-height: 132px;
   resize: vertical;
+}
+.fw-release-notes-field input[type="file"] {
+  width: 100%;
+  height: auto;
+  min-height: 44px;
+  padding: 8px;
+}
+.fw-release-notes-field input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.fw-release-document {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.fw-release-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  justify-self: start;
+  text-decoration: none;
+}
+.fw-release-download > svg {
+  flex-shrink: 0;
+}
+.fw-release-download > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fw-release-download small {
+  display: block;
+  color: var(--text-2);
+  margin-top: 4px;
 }
 .fw-release-notes-field small {
   color: var(--text-2);

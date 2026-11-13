@@ -1,5 +1,180 @@
 import React, { useId, useState } from "react";
-import { api, useLiveQuery } from "./data";
+import { DownloadSimple } from "@phosphor-icons/react";
+import { api, clearReadCache, useLiveQuery } from "./data";
+
+export function releaseFileError(file: File | null) {
+  if (!file) return "";
+  if (!/\.(pdf|docx|txt)$/i.test(file.name))
+    return "PDF, DOCX veya TXT belgesi seçin.";
+  if (!file.size) return "Release belgesi boş olamaz.";
+  if (file.size > 20 * 1024 * 1024)
+    return "Release belgesi en fazla 20 MB olabilir.";
+  return "";
+}
+
+function documentPath(id: string) {
+  return `/api/v1/firmware/images/${id}/release-notes/content`;
+}
+
+export async function uploadReleaseDocument(id: string, file: File) {
+  const error = releaseFileError(file);
+  if (error) throw new Error(error);
+  let response: Response;
+  try {
+    response = await fetch(documentPath(id), {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Netrix-Request": "1",
+        "X-Netrix-Filename": encodeURIComponent(file.name),
+      },
+      body: file,
+      signal: AbortSignal.timeout(125000),
+    });
+  } catch {
+    throw new Error("Belge aktarımı tamamlanamadı. Yeniden deneyin.");
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      typeof body.detail === "string"
+        ? body.detail
+        : "Release belgesi yüklenemedi. Yeniden deneyin.",
+    );
+  }
+  clearReadCache();
+}
+
+export function ReleaseDocumentField({
+  disabled,
+  onChange,
+}: {
+  disabled: boolean;
+  onChange: (file: File | null) => void;
+}) {
+  const id = useId();
+  const [error, setError] = useState("");
+  return (
+    <div className="fw-full fw-release-notes-field">
+      <label htmlFor={id}>Release belgesi (isteğe bağlı)</label>
+      <input
+        id={id}
+        name="release_document"
+        type="file"
+        accept=".pdf,.docx,.txt"
+        aria-label="Release belgesi"
+        aria-describedby={`${id}-hint${error ? ` ${id}-error` : ""}`}
+        aria-invalid={!!error}
+        disabled={disabled}
+        onChange={(event) => {
+          const file = event.target.files?.[0] || null;
+          const message = releaseFileError(file);
+          event.target.setCustomValidity(message);
+          setError(message);
+          onChange(file);
+        }}
+      />
+      <small id={`${id}-hint`}>PDF, DOCX veya TXT · En fazla 20 MB.</small>
+      {error && (
+        <p id={`${id}-error`} className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+type ReleaseFile = { filename: string; size_bytes: number };
+
+function ReleaseDocument({
+  imageId,
+  file,
+  admin,
+  onSaved,
+}: {
+  imageId: string;
+  file: ReleaseFile | null;
+  admin: boolean;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<File | null>(null),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState(""),
+    [saved, setSaved] = useState(false);
+  return (
+    <section className="fw-release-document" aria-label="Belge eki">
+      <h4>Belge eki</h4>
+      {file ? (
+        <a
+          className="secondary fw-release-download"
+          href={documentPath(imageId)}
+          download
+        >
+          <DownloadSimple size={18} aria-hidden="true" />
+          <span>
+            {file.filename}
+            <small>
+              İndir · {Math.max(1, Math.ceil(file.size_bytes / 1024))} KB
+            </small>
+          </span>
+        </a>
+      ) : (
+        <p className="muted">Belge yüklenmemiş.</p>
+      )}
+      {admin && (
+        <form
+          className="fw-release-notes-editor"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!selected || busy) return;
+            const form = event.currentTarget;
+            setBusy(true);
+            setError("");
+            setSaved(false);
+            try {
+              await uploadReleaseDocument(imageId, selected);
+              form.reset();
+              setSelected(null);
+              setSaved(true);
+              onSaved();
+            } catch (e: any) {
+              setError(e.message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <ReleaseDocumentField
+            disabled={busy}
+            onChange={(next) => {
+              setSelected(next);
+              setError("");
+              setSaved(false);
+            }}
+          />
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          {saved && <p role="status">Release belgesi yüklendi.</p>}
+          <div className="fw-row-actions">
+            <button
+              className="primary"
+              disabled={!selected || !!releaseFileError(selected) || busy}
+            >
+              {busy
+                ? "Yükleniyor…"
+                : file
+                  ? "Belgeyi değiştir"
+                  : "Belgeyi yükle"}
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
 
 export function ReleaseNotesField({
   value,
@@ -45,10 +220,10 @@ export default function FirmwareReleaseNotes({
   refresh: number;
   onSaved: () => void;
 }) {
-  const result = useLiveQuery<{ release_notes: string }>(
-    `/firmware/images/${imageId}`,
-    refresh,
-  );
+  const result = useLiveQuery<{
+    release_notes: string;
+    release_file: ReleaseFile | null;
+  }>(`/firmware/images/${imageId}`, refresh);
   const [editing, setEditing] = useState(false),
     [value, setValue] = useState(""),
     [busy, setBusy] = useState(false),
@@ -125,6 +300,14 @@ export default function FirmwareReleaseNotes({
             </button>
           </div>
         </form>
+      )}
+      {result.data && (
+        <ReleaseDocument
+          imageId={imageId}
+          file={result.data.release_file}
+          admin={admin}
+          onSaved={onSaved}
+        />
       )}
     </section>
   );

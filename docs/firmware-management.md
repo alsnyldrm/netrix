@@ -8,6 +8,8 @@ Firmware yükleme formundaki isteğe bağlı **Release notları** alanı üretic
 
 `GET /api/v1/firmware/images/{id}` ayrıntıyı okur; `PATCH /api/v1/firmware/images/{id}/release-notes` yalnız notu günceller ve içeriğini kopyalamayan denetim kaydı oluşturur. Uzun release metni SQL depo listesi sorgusuna ve liste yanıtına dahil edilmez; yalnız ayrıntı veya yarım yükleme yeniden açılırken okunur. PostgreSQL `20261110_02`, mevcut `firmware.firmware_images` tablosuna boş varsayılanlı `release_notes TEXT NOT NULL` ekler. Eski imajlar ve yükseltme notları korunur; dolu release notu varsa kayıplı downgrade reddedilir.
 
+14 Kasım eklemesi: **Release belgesi**, yazılı notla birlikte veya tek başına yüklenebilir. Bir imaj için bir PDF, DOCX veya UTF-8 TXT dosyası, en fazla 20 MiB kabul edilir. Dosyanın biçimi sunucuda kontrol edilir. İmaj ayrıntısında dosya indirilebilir ve firmware yöneticisi dosyayı değiştirebilir. Metni kaydetmek dosyayı değiştirmez; dosyayı yüklemek metni veya firmware imajını değiştirmez. Birlikte yüklemede belge adımı başarısız olursa yalnız belge yeniden gönderilir. İçerik listede veya ayrıntı JSON'unda okunmaz; yetkili indirme isteğinde dosya eki olarak verilir. PostgreSQL `20261114_01` belgeyi, boyutunu ve SHA-256 değerini `firmware.firmware_release_files` içinde tutar.
+
 ## Kapsam ve protokoller
 
 Cihazların HTTPS/WebUI/REST servisi kullanılmaz ve kendiliğinden açılıp kapatılmaz. Uygulamanın kullanıcıya sunduğu mevcut HTTPS erişimi korunur.

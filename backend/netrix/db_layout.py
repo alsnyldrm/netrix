@@ -59,6 +59,7 @@ SCHEMA_TABLES = {
     ),
     "firmware": (
         "firmware_images",
+        "firmware_release_files",
         "firmware_groups",
         "firmware_group_members",
         "firmware_plans",

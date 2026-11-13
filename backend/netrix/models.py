@@ -783,6 +783,19 @@ class FirmwareImage(Entity, Base):
     )
 
 
+class FirmwareReleaseFile(Base):
+    __tablename__ = "firmware_release_files"
+    image_id: Mapped[str] = mapped_column(
+        ForeignKey("firmware.firmware_images.id", ondelete="CASCADE"), primary_key=True
+    )
+    filename: Mapped[str] = mapped_column(String(180))
+    media_type: Mapped[str] = mapped_column(String(80))
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    sha256: Mapped[str] = mapped_column(String(64))
+    content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
+    __table_args__ = (CheckConstraint("size_bytes > 0 AND size_bytes <= 20971520", name="ck_fw_release_size"),)
+
+
 class FirmwareGroup(Entity, Base):
     __tablename__ = "firmware_groups"
     name: Mapped[str] = mapped_column(String(120), unique=True)

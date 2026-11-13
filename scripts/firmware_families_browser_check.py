@@ -18,8 +18,10 @@ RELEASE_NOTES = (
     "Yenilikler\n• SSH bağlantısı iyileştirildi.\n\nBilinen sorunlar: <script>alert('release')</script>\n"
     + "uzunsatır" * 30
 )
+RELEASE_NAME = "Sürüm notları.pdf"
+RELEASE_CONTENT = b"%PDF-1.7\nRelease fixture\n%%EOF"
 Path("artifacts").mkdir(exist_ok=True)
-reports, errors, posts = {}, [], []
+reports, errors, posts, firmware_uploads = {}, [], [], []
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
     page = browser.new_page(
@@ -27,6 +29,14 @@ with sync_playwright() as p:
     )
     page.route_web_socket("**/api/v1/ws", lambda ws: None)
     page.on("pageerror", lambda e: errors.append(str(e)))
+    page.on(
+        "request",
+        lambda r: (
+            firmware_uploads.append(r.url)
+            if r.method == "PUT" and r.url.endswith("/content") and "/release-notes/" not in r.url
+            else None
+        ),
+    )
     page.on(
         "request",
         lambda r: (
@@ -66,6 +76,7 @@ with sync_playwright() as p:
         assert not issues, (name, issues)
         if upload:
             expect(dialog.get_by_label("Release notları", exact=True)).to_be_visible()
+            expect(dialog.get_by_label("Release belgesi", exact=True)).to_have_attribute("type", "file")
         assert dialog.locator(".fw-notes script").count() == 0
         page.add_script_tag(path=str(Path("frontend/node_modules/axe-core/axe.min.js").resolve()))
         reports[name] = page.evaluate(
@@ -86,6 +97,14 @@ with sync_playwright() as p:
         assert dialog.get_by_label("Hedef sürüm", exact=True).evaluate("(e)=>e.checkValidity()")
         dialog.get_by_label("Dosya adı için açıklama", exact=True).fill("Family upload " + family)
         dialog.get_by_label("Release notları", exact=True).fill(RELEASE_NOTES)
+        if family in ("aos_s_54xx", "cx6100"):
+            dialog.get_by_label("Release belgesi", exact=True).set_input_files(
+                {
+                    "name": RELEASE_NAME,
+                    "mimeType": "application/pdf",
+                    "buffer": b"wrong content" if family == "aos_s_54xx" else RELEASE_CONTENT,
+                }
+            )
         content = ("family fixture " + family).encode()
         dialog.get_by_label("Üreticinin yayımladığı SHA-256", exact=True).fill(
             hashlib.sha256(content).hexdigest()
@@ -123,6 +142,17 @@ with sync_playwright() as p:
         )
         check(f"{family}-notes-mobile")
         dialog.get_by_role("button", name="Dosyayı yükle", exact=True).click()
+        if family == "aos_s_54xx":
+            expect(dialog.get_by_role("alert")).to_contain_text("Belge içeriği")
+            assert len(posts) == len(firmware_uploads) == 1
+            dialog.get_by_label("Release belgesi", exact=True).set_input_files(
+                {
+                    "name": RELEASE_NAME,
+                    "mimeType": "application/pdf",
+                    "buffer": RELEASE_CONTENT,
+                }
+            )
+            dialog.get_by_role("button", name="Belgeyi yükle", exact=True).click()
         expect(page.get_by_role("dialog")).to_have_count(0)
         expect(page.locator(".fw-workspace tbody")).to_contain_text("Family upload " + family)
         assert posts[-1]["family"] == family and "models" not in posts[-1]
@@ -132,6 +162,10 @@ with sync_playwright() as p:
             page.get_by_role("button", name="Family upload cx6100", exact=True).click()
             notes = page.get_by_role("region", name="Release notları", exact=True)
             expect(notes.locator(".fw-notes")).to_have_text(RELEASE_NOTES)
+            with page.expect_download() as download:
+                notes.get_by_role("link", name=RELEASE_NAME).click()
+            assert download.value.suggested_filename == RELEASE_NAME
+            assert Path(download.value.path()).read_bytes() == RELEASE_CONTENT
             for width in (1440, 375):
                 page.set_viewport_size({"width": width, "height": 1050 if width == 1440 else 960})
                 for theme in ("light", "dark"):
@@ -142,16 +176,30 @@ with sync_playwright() as p:
             notes.get_by_label("Release notları", exact=True).fill(edited)
             check("release-editor-mobile", upload=False)
             notes.get_by_role("button", name="Release notlarını kaydet", exact=True).click()
-            expect(notes.get_by_role("status")).to_have_text("Release notları kaydedildi.")
+            expect(notes.get_by_text("Release notları kaydedildi.", exact=True)).to_be_visible()
+            expect(notes.locator(".fw-notes")).to_have_text(edited)
+            replacement = "Ek sürüm açıklaması".encode()
+            notes.get_by_label("Release belgesi", exact=True).set_input_files(
+                {
+                    "name": "Yeni belge.txt",
+                    "mimeType": "text/plain",
+                    "buffer": replacement,
+                }
+            )
+            notes.get_by_role("button", name="Belgeyi değiştir", exact=True).click()
+            expect(notes.get_by_role("link", name="Yeni belge.txt")).to_be_visible()
             expect(notes.locator(".fw-notes")).to_have_text(edited)
             page.get_by_role("dialog").get_by_role("button", name="Kapat", exact=True).click()
             page.get_by_role("button", name="Family upload cx6100", exact=True).click()
             expect(page.get_by_role("region", name="Release notları").locator(".fw-notes")).to_have_text(
                 edited
             )
+            with page.expect_download() as download:
+                page.get_by_role("link", name="Yeni belge.txt").click()
+            assert Path(download.value.path()).read_bytes() == replacement
             page.get_by_role("dialog").get_by_role("button", name="Kapat", exact=True).click()
         page.set_viewport_size({"width": 1440, "height": 1050})
-    assert len(posts) == 4 and not errors, errors
+    assert len(posts) == len(firmware_uploads) == 4 and not errors, errors
     assert all(not issues for issues in reports.values()), reports
     Path("artifacts/firmware-families-browser.json").write_text(
         json.dumps({"views": len(reports), "axe": reports, "errors": errors, "uploads": len(posts)}, indent=2)

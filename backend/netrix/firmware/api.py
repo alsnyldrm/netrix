@@ -17,7 +17,7 @@ from .. import models as m
 from ..core import db_session, now, settings
 from ..identity.security import admin, audit, current_user, operator
 from ..services import get, publish, serialize
-from . import catalog, controls, grouping, history
+from . import catalog, controls, grouping, history, release_files
 from .service import (
     GroupInput,
     ImageInput,
@@ -36,6 +36,7 @@ from .service import (
 )
 
 router = APIRouter(prefix="/api/v1/firmware", tags=["Firmware"])
+router.include_router(release_files.router)
 
 
 @router.get("/overview")
@@ -85,7 +86,7 @@ def images(
 
 @router.get("/images/{id}")
 def image_details(id: str, db=Depends(db_session), user=Depends(current_user)):
-    return serialize(get(db, m.FirmwareImage, id))
+    return {**serialize(get(db, m.FirmwareImage, id)), "release_file": release_files.metadata(db, id)}
 
 
 @router.patch("/images/{id}/release-notes")
