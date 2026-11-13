@@ -130,6 +130,21 @@
   justify-content: space-between;
   gap: 12px;
 }
+[data-design="lumelle"] .vlan-address-grid {
+  padding: 8px;
+  scroll-padding: 8px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
+  background: linear-gradient(155deg, var(--glass-reflection), transparent 65%);
+  scrollbar-color: var(--border-strong) transparent;
+}
+[data-design="lumelle"]
+  .vlan-inspector
+  :is(.inspector-free, .inspector-occupied) {
+  border-color: color-mix(in srgb, currentColor 54%, transparent);
+  border-radius: var(--radius-sm);
+}
+
 @media (max-width: 600px) {
   .vlan-inspector {
     padding: 16px;

@@ -34,6 +34,8 @@
   --glass-base: rgb(255 250 249 / 50%);
   --glass-solid: rgb(255 248 247 / 91%);
   --glass-reflection: rgb(255 255 255 / 48%);
+  --overlay-tint: 24%;
+  --overlay-scrim: rgb(40 14 24 / 16%);
   --glass-shadow: 0 12px 36px -20px rgb(54 25 35 / 38%);
   --wall-rose: #edb3c3;
   --wall-blue: #c5d6f8;
@@ -47,6 +49,8 @@
   --glass-base: rgb(32 20 25 / 32%);
   --glass-solid: rgb(29 20 25 / 93%);
   --glass-reflection: rgb(255 255 255 / 10%);
+  --overlay-tint: 32%;
+  --overlay-scrim: rgb(0 0 0 / 40%);
   --glass-shadow: 0 14px 38px -16px rgb(0 0 0 / 54%);
   --wall-rose: #792341;
   --wall-blue: #223965;
@@ -434,17 +438,49 @@
 }
 
 [data-design="lumelle"] :is(.dialog, .ssh-dialog) {
-  background: var(--glass-solid);
-  backdrop-filter: blur(20px);
+  --overlay-start: color-mix(
+    in srgb,
+    var(--wall-rose) var(--overlay-tint),
+    var(--surface)
+  );
+  --overlay-end: color-mix(
+    in srgb,
+    var(--wall-blue) var(--overlay-tint),
+    var(--surface)
+  );
+  background:
+    linear-gradient(150deg, var(--glass-reflection), transparent 55%),
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--overlay-start) 76%, transparent),
+      color-mix(in srgb, var(--surface) 76%, transparent) 55%,
+      color-mix(in srgb, var(--overlay-end) 76%, transparent)
+    );
+  backdrop-filter: blur(28px) saturate(145%);
   border-color: var(--glass-line);
   box-shadow:
     inset 0 1px 0 var(--glass-edge),
     var(--shadow-lg);
 }
 
+[data-design="lumelle"] :is(.dialog, .ssh-dialog)::backdrop {
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+
 [data-design="lumelle"] .dialog-header {
-  background: var(--glass-solid);
+  background: linear-gradient(
+    115deg,
+    color-mix(in srgb, var(--overlay-start) 90%, transparent),
+    color-mix(in srgb, var(--overlay-end) 90%, transparent)
+  );
+  border-color: var(--glass-line);
   backdrop-filter: blur(18px);
+}
+
+[data-design="lumelle"] .profile-menu {
+  background: color-mix(in srgb, var(--overlay-start) 24%, transparent);
+  border-color: var(--glass-line);
 }
 
 [data-design="lumelle"] .auth-shell {
