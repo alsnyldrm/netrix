@@ -1,3 +1,10 @@
+import {
+  MotionTitle,
+  usePageMotion,
+  useSubmenuMotion,
+  useSidebarMotion,
+  moveNavMarker,
+} from "./lumelle-motion";
 import { ColumnTable } from "./column-table";
 import {
   isSuperAdmin,
@@ -2109,7 +2116,7 @@ function Overview({
     <>
       <div className="overview-heading">
         <div>
-          <h1>Ağınızın bütün resmi</h1>
+          <MotionTitle>Ağınızın bütün resmi</MotionTitle>
           <p>
             {formatDate(new Date(), true)} · {c.active_devices ?? 0} aktif
             cihaz, {c.firing_alerts ?? 0} aktif alarm
@@ -2729,25 +2736,36 @@ function App() {
         p.key === current &&
         (!["users", "audit"].includes(p.key) || hasAdminAccess(user)),
     ) || PAGES[0];
+  useSubmenuMotion(openGroup, collapsed, drawer);
+  const toggleSidebar = useSidebarMotion(collapsed, (next) => {
+    writePref("netrix-sidebar", next ? "collapsed" : "expanded");
+    setSidebarOverride(next);
+  });
+  const markerGroup = useRef(page.group);
   useLayoutEffect(() => {
     const nav = sidebarNavigation.current;
     const active = nav?.querySelector<HTMLElement>(
       ".nav-group.active > .nav-group-title, .nav-group-title.selected",
     );
-    if (!nav || !active) return;
-    const placeMarker = () => {
+    const marker = nav?.querySelector<HTMLElement>(".nav-active-marker");
+    if (!nav || !active || !marker) return;
+    const changed = markerGroup.current !== page.group;
+    markerGroup.current = page.group;
+    const placeMarker = (animate = false) => {
+      // Ignore the observer's initial callback while the pill is stretching.
+      if (
+        !animate &&
+        marker.getAnimations().some((a) => a.playState === "running")
+      )
+        return;
       const top =
         active.getBoundingClientRect().top -
         nav.getBoundingClientRect().top +
         nav.scrollTop;
-      nav.style.setProperty("--selected-nav-top", `${top}px`);
-      nav.style.setProperty(
-        "--selected-nav-height",
-        `${active.offsetHeight}px`,
-      );
+      moveNavMarker(marker, top, active.offsetHeight, animate);
     };
-    placeMarker();
-    const resize = new ResizeObserver(placeMarker);
+    placeMarker(changed);
+    const resize = new ResizeObserver(() => placeMarker());
     resize.observe(nav);
     nav
       .querySelectorAll(".nav-group")
@@ -2843,50 +2861,24 @@ function App() {
     }
   };
   const displayedPage = useRef(current);
+  const requestedPage = useRef(current);
   const [previousPage, setPreviousPage] = useState(current);
-  const pageTransition = useRef<ViewTransition | null>(null);
-  const [fallbackDirection, setFallbackDirection] = useState<
-    "forward" | "backward" | null
-  >(null);
-  const changePage = useCallback((key: string, update: () => void) => {
-    const previous = displayedPage.current;
-    const direction =
-      PAGES.findIndex((item) => item.key === key) <
-      PAGES.findIndex((item) => item.key === previous)
-        ? "backward"
-        : "forward";
-    const commit = (fallback: typeof fallbackDirection) => {
-      displayedPage.current = key;
-      setPreviousPage(previous);
-      setFallbackDirection(fallback);
-      update();
-    };
-    const root = document.documentElement;
-    pageTransition.current?.skipTransition();
-    pageTransition.current = null;
-    const animate =
-      previous !== key &&
-      root.dataset.reduceMotion !== "true" &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
-      document.visibilityState === "visible";
-    if (!animate || !document.startViewTransition) {
-      delete root.dataset.routeMotion;
-      commit(animate ? direction : null);
-      return;
-    }
-
-    root.dataset.routeMotion = direction;
-    const transition = document.startViewTransition(() => {
-      if (pageTransition.current === transition) flushSync(() => commit(null));
-    });
-    pageTransition.current = transition;
-    const finish = () => {
-      if (pageTransition.current !== transition) return;
-      pageTransition.current = null;
-      delete root.dataset.routeMotion;
-    };
-    void transition.finished.then(finish, finish);
-  }, []);
+  const runPageMotion = usePageMotion(current, user?.id);
+  const changePage = useCallback(
+    (key: string, update: () => void) => {
+      const previous = displayedPage.current;
+      requestedPage.current = key;
+      const backward =
+        PAGES.findIndex((item) => item.key === key) <
+        PAGES.findIndex((item) => item.key === previous);
+      runPageMotion(previous === key ? null : backward, () => {
+        displayedPage.current = key;
+        setPreviousPage(previous);
+        update();
+      });
+    },
+    [runPageMotion],
+  );
   const navigate = useCallback(
     (key: string, destination?: { vlan?: Row; section?: string }) => {
       const p = PAGES.find((p) => p.key === key);
@@ -2913,7 +2905,11 @@ function App() {
       const p = PAGES.find(
         (p) => p.key === location.hash.slice(1).split("/")[0],
       );
-      if (!p || p.key === displayedPage.current) return;
+      if (
+        !p ||
+        (p.key === displayedPage.current && p.key === requestedPage.current)
+      )
+        return;
       changePage(p.key, () => {
         setCurrent(p.key);
         setGroup(p.group);
@@ -3398,13 +3394,7 @@ function App() {
               title={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
               aria-expanded={!collapsed}
               aria-controls="main-sidebar"
-              onClick={() => {
-                writePref(
-                  "netrix-sidebar",
-                  collapsed ? "expanded" : "collapsed",
-                );
-                setSidebarOverride(!collapsed);
-              }}
+              onClick={toggleSidebar}
             >
               <SidebarSimple size={18} aria-hidden="true" />
             </button>
@@ -3623,16 +3613,11 @@ function App() {
           </header>
         </div>
         <main id="main" tabIndex={-1}>
-          <div
-            className="page-view"
-            key={current}
-            data-page={page.key}
-            data-fallback-motion={fallbackDirection ?? undefined}
-          >
+          <div className="page-view" key={current} data-page={page.key}>
             {page.key !== "overview" && (
               <div className="page-heading">
                 <div>
-                  <h1>{page.title}</h1>
+                  <MotionTitle>{page.title}</MotionTitle>
                   <p>
                     {page.key === "users" && !canAssignRoles
                       ? "Kullanıcı hesaplarını ve atanmış rolleri görüntüleyin."
