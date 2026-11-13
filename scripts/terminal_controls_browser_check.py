@@ -176,9 +176,25 @@ with sync_playwright() as p:
         "background": "#ffffff",
         "background_end": "#32456a",
         "background_opacity": 65,
+        "background_system": False,
         "commands_width": 440,
         "commands_collapsed": False,
     }
+    terminal.get_by_role("button", name="Terminal görünümü", exact=True).click()
+    gradient = terminal.locator(".ssh-terminal")
+    custom = gradient.evaluate("e=>getComputedStyle(e).backgroundImage")
+    terminal.get_by_role("checkbox", name="Sistem paletini kullan").check()
+    expect(terminal.get_by_label("Başlangıç rengi")).to_be_disabled()
+    expect(terminal.get_by_role("slider", name="Saydamlık")).to_be_enabled()
+    assert gradient.evaluate("e=>getComputedStyle(e).backgroundImage") != custom
+    page.evaluate("document.documentElement.dataset.palette = 'teal'")
+    teal = gradient.evaluate("e=>getComputedStyle(e).backgroundImage")
+    page.evaluate("document.documentElement.dataset.palette = 'cobalt'")
+    assert gradient.evaluate("e=>getComputedStyle(e).backgroundImage") != teal
+    terminal.get_by_role("button", name="Görünümü kaydet").click()
+    expect(terminal.get_by_role("form", name="Terminal görünüm ayarları")).to_have_count(0)
+    assert request("/access/preferences")["terminal"]["background_system"] is True
+    prefs = request("/access/preferences")
     assert connections == 1
     terminal.get_by_role("button", name="Terminal görünümü", exact=True).click()
     terminal.get_by_role("button", name="Ubuntu varsayılanı").click()

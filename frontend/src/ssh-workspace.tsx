@@ -84,7 +84,9 @@ function terminalOptions(value: TerminalAppearance) {
     ? terminalLuminance(surface)
     : 0.02;
   const opacity = value.background_opacity / 100;
-  const light = luminance * opacity + base * (1 - opacity) < 0.179;
+  const light = value.background_system
+    ? document.documentElement.dataset.theme === "dark"
+    : luminance * opacity + base * (1 - opacity) < 0.179;
   const inverse = light ? "#000000" : "#ffffff";
   const foreground = light ? "#ffffff" : "#000000";
   return {
@@ -136,6 +138,7 @@ function Terminal({
     let disposed = false;
     let terminal: import("@xterm/xterm").Terminal | undefined;
     let socket: WebSocket | undefined;
+    const themeObserver = new MutationObserver(() => resize.current?.());
     let observer: ResizeObserver | undefined;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempts = 0;
@@ -188,6 +191,8 @@ function Terminal({
               value.background,
               value.background_end,
               value.background_opacity,
+              value.background_system,
+              document.documentElement.dataset.theme,
             ]);
             if (appliedFont !== signature) {
               appliedFont = signature;
@@ -250,6 +255,9 @@ function Terminal({
         resize.current = fitVisible;
         observer = new ResizeObserver(fitVisible);
         observer.observe(host.current);
+        themeObserver.observe(document.documentElement, {
+          attributeFilter: ["data-theme"],
+        });
         fitVisible();
         sendRef.current = (data) => {
           if (socket?.readyState === WebSocket.OPEN) {
@@ -304,6 +312,7 @@ function Terminal({
       disposed = true;
       clearTimeout(retry);
       observer?.disconnect();
+      themeObserver.disconnect();
       cancelAnimationFrame(frame);
       cancelAnimationFrame(fontFrame);
       socket?.close();
@@ -334,6 +343,7 @@ function Terminal({
     appearance.background,
     appearance.background_end,
     appearance.background_opacity,
+    appearance.background_system,
   ]);
   useEffect(() => {
     if (!hidden) requestAnimationFrame(() => resize.current?.());
@@ -343,8 +353,8 @@ function Terminal({
       className="ssh-terminal"
       style={{
         backgroundImage: `linear-gradient(135deg,
-          color-mix(in srgb, ${appearance.background} ${appearance.background_opacity}%, transparent),
-          color-mix(in srgb, ${appearance.background_end} ${appearance.background_opacity}%, transparent))`,
+          color-mix(in srgb, ${appearance.background_system ? "var(--wall-rose, var(--surface-2))" : appearance.background} ${appearance.background_opacity}%, transparent),
+          color-mix(in srgb, ${appearance.background_system ? "var(--wall-blue, var(--surface))" : appearance.background_end} ${appearance.background_opacity}%, transparent))`,
       }}
       aria-label="SSH terminali"
     >
@@ -792,6 +802,7 @@ function SessionWindow({
                 background: draft.background,
                 background_end: draft.background_end,
                 background_opacity: draft.background_opacity,
+                background_system: draft.background_system,
               })
             )
               setSettings(false);
@@ -859,7 +870,7 @@ function SessionWindow({
                 name="terminal-background"
                 type="color"
                 value={draft.background}
-                disabled={saving}
+                disabled={saving || draft.background_system}
                 onChange={(e) =>
                   setDraft((v) => ({ ...v, background: e.target.value }))
                 }
@@ -870,7 +881,7 @@ function SessionWindow({
               <input
                 type="color"
                 value={draft.background_end}
-                disabled={saving}
+                disabled={saving || draft.background_system}
                 onChange={(e) =>
                   setDraft((v) => ({ ...v, background_end: e.target.value }))
                 }
@@ -896,6 +907,17 @@ function SessionWindow({
               />
             </label>
           </div>
+          <label className="ssh-system-palette">
+            <input
+              type="checkbox"
+              checked={draft.background_system}
+              disabled={saving}
+              onChange={(e) =>
+                setDraft((v) => ({ ...v, background_system: e.target.checked }))
+              }
+            />
+            Sistem paletini kullan
+          </label>
           <div className="ssh-appearance-actions">
             <span>Değişiklikleri terminalde canlı önizleyin.</span>
             <button

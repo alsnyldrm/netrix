@@ -10,6 +10,7 @@ export type TerminalAppearance = {
   background: string;
   background_end: string;
   background_opacity: number;
+  background_system: boolean;
   commands_width: number;
   commands_collapsed: boolean;
 };
@@ -20,6 +21,7 @@ export const defaultTerminalAppearance: TerminalAppearance = {
   background: "#300a24",
   background_end: "#16152e",
   background_opacity: 100,
+  background_system: false,
   commands_width: 300,
   commands_collapsed: false,
 };

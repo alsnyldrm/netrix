@@ -822,3 +822,12 @@
     justify-content: flex-start;
   }
 }
+
+.ssh-system-palette {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  margin-top: 8px;
+  font-size: 0.8rem;
+}

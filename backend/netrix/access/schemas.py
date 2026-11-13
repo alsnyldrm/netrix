@@ -17,6 +17,7 @@ class TerminalAppearance(Input):
     background: str = Field(default="#300a24", pattern=r"^#[0-9a-fA-F]{6}$")
     background_end: str = Field(default="#16152e", pattern=r"^#[0-9a-fA-F]{6}$")
     background_opacity: int = Field(default=100, ge=0, le=100)
+    background_system: bool = False
     commands_width: int = Field(default=300, ge=240, le=560)
     commands_collapsed: bool = False
 
