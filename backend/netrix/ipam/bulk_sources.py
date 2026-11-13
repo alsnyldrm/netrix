@@ -218,10 +218,6 @@ class BulkContext:
             return self.values[kind]
 
     def for_row(self, row):
-        if row.nic_teaming:
-            from .teaming import TeamingSources
-
-            return TeamingSources(row, self.base.vlan, self.job_id)
         result = copy.copy(self.base)
         result.row = row
         return BulkSources(result, self)

@@ -138,22 +138,10 @@ async def test_sql_vm_and_dhcp_bind_existing_facts_without_rewriting_them(admin_
         assert source_snapshot(db) == before
 
 
-async def test_sql_teaming_queries_dns_and_uses_both_stored_ports(admin_client, network, blocked):
-    sf, vid, rid, ids = network
+async def test_sql_teaming_uses_normal_resolution_without_dns_name_matching(admin_client, network, blocked):
+    sf, _, rid, _ = network
     with sf() as db:
         db.get(m.IPAddress, rid).nic_teaming = True
-        for port in ("A7", "B7"):
-            db.add(
-                m.Link(
-                    device_id=ids[1],
-                    interface_name=port,
-                    remote_name="dns.example",
-                    remote_port=port,
-                    source="lldp",
-                    last_seen_at=now(),
-                    is_current=True,
-                )
-            )
         db.commit()
     job = admin_client.post(f"/api/v1/ipam/addresses/{rid}/scan").json()
     assert worker.claim(interactive=False, include_kinds=("ipam_address_scan",)) == job["id"]
@@ -161,7 +149,7 @@ async def test_sql_teaming_queries_dns_and_uses_both_stored_ports(admin_client, 
     with sf() as db:
         assert db.get(m.Job, job["id"]).status == "succeeded", db.get(m.Job, job["id"]).error
         value = db.scalar(select(m.IPAMResult).where(m.IPAMResult.address_id == rid)).values
-        assert {c["port"] for c in value["connections"]} == {"A7", "B7"}
+        assert {c["port"] for c in value["connections"]} == {"Gi1/0/1"}
 
 
 async def test_cancel_and_scope_change_prevent_sql_result_write(admin_client, network, blocked, monkeypatch):

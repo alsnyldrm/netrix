@@ -37,8 +37,6 @@ def groups(connections):
 
 
 async def resolve(address, sources, progress=None):
-    if getattr(sources, "nic_teaming", False):
-        return await sources.resolve(progress)
     values = {
         "mac_address": "",
         "hostname": "",
@@ -399,16 +397,6 @@ def save_result(db, row, started, result):
         item.last_success_at = item.completed_at
     db.flush()
     return True
-
-
-def sources_for(db, row, vlan, collector):
-    from .point_sources import PointSources
-
-    if getattr(row, "nic_teaming", False):
-        from .teaming import TeamingSources
-
-        return TeamingSources(row, vlan)
-    return PointSources(db, row, vlan, collector)
 
 
 def apply(item, result, *, details=True):

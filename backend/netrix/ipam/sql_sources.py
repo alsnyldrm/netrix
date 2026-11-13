@@ -13,7 +13,7 @@ from ..core import now, session_factory
 from ..runtime_limits import sql_read, sql_write
 from ..services import in_scope, publish
 from ..sources import records
-from . import adapters, pipeline, service, teaming
+from . import adapters, pipeline, service
 from .connections import Evidence, network_device
 
 
@@ -195,18 +195,7 @@ class SQLSources:
                 self.row.nic_teaming,
             ):
                 raise Cancelled()
-        if self.row.nic_teaming:
-            error = None
-            try:
-                hostname = await self.dns(self.row.address)
-            except Cancelled:
-                raise
-            except Exception as exc:
-                hostname, error = "", exc
-            with session_factory()() as db:
-                result = teaming.result(hostname, teaming.neighbors(db, self.row, hostname), error=error)
-        else:
-            result = await pipeline.resolve(self.row.address, self, progress)
+        result = await pipeline.resolve(self.row.address, self, progress)
         for issue in result["issues"]:
             if issue["code"] == "identity_missing":
                 issue["message"] = "SQL'de etkin gateway IP/MAC kaydı yok; cihaz sorgulanmadı."

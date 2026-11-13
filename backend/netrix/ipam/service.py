@@ -647,6 +647,9 @@ def enrich(db, rows, *, details=True, include_options=False):
         )
         values = {item["id"]: item for item in legacy}
         result = [values.get(item["id"], item) for item in result]
+    from .teaming import display_members
+
+    display_members(db, result)
     if not details:
         for item in result:
             item.pop("connections", None)

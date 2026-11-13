@@ -71,16 +71,10 @@ repository'lerini günceller; IPAM ve envanter bu kayıtlardan okur. Yönetilen
 cihaz alanları, kullanıcı etiketleri ve hariç tutmalar kaynak kanıtından ayrıdır.
 Tablo listesi ve doğrulamalı aktarım `docs/data-model.md` revision 50 bölümündedir.
 
-IP **NIC-Teaming** seçeneği varsayılan kapalıdır. Etkin IP taramasında yalnız
-seçili DNS ile hostname bulunur; sonra aynı VRF'nin güncel, etkin ve hariç
-tutulmamış envanter komşuları SQL'den tam hostname ile eşleştirilir. Gateway,
-VMware, DHCP, backbone/switch istemcisi oluşturulmaz ve sorgulanmaz. Aynı veya
-farklı switchlerdeki bütün eşleşen portlar ve NIC/uzak port bilgileri birlikte
-gösterilir; yalnız isim benzerliğinden eşleşme yapılmaz. 24 saatten eski komşular
-son bilinen kanıt olarak Sorunlu uyarısıyla gösterilir. DNS yoksa isim tahmin
-edilmez. Mod seçimi ve sayfa açılışı ağ sorgusu başlatmaz; mevcut SQL DNS/komşu
-verisiyle form tercihi uygulanır. Sonraki açık Tara veya zamanlama DNS'i günceller.
-NIC-Teaming kapalı IP'lerde gateway → VM/host ayrımı → fiziksel dal aynen sürer.
+IP **NIC-Teaming** bir gösterim seçeneğidir. Normal IP çözümlemesi devam eder.
+Doğrulanmış bağlantılar aynı IP satırında gösterilir. Bir bağlantı Trk/LAG
+arayüzüne işaret ediyorsa, envanter SQL'inde kayıtlı üye portlar Trk/LAG adıyla
+birlikte gösterilir. Üyeler kaynak kayıtlardan okunur ve ayrı eşleşme olarak yazılmaz.
 
 Normal kaynak okuyucuları tamamlanan IP'nin kaynaklarını önce kanonik SQL'ye,
 sonra sonuç referanslarını aynı IP'ye yazar; diğer IP'lerin bitmesi beklenmez.
@@ -340,7 +334,7 @@ Boş/dolu hesabı IP ekleme listesinin SQL kuralını paylaşır: en son güncel
 
 - Kullanıcının IP ayrıntısında **Tara** ve VLAN içinde **Tara** eylemleri yalnız
   kanonik SQL kaynaklarını yeniden eşleştirir. SNMP, SSH, VMware, DHCP, DNS veya
-  ICMP istemcisi çalıştırmaz. NIC-Teaming de SQL DNS/LLDP/CDP kayıtlarını kullanır.
+  ICMP istemcisi çalıştırmaz. NIC-Teaming mevcut sonucun port gösterimini düzenler.
 - VLAN işlemi yalnız seçili VLAN/VRF/CIDR içindeki kayıtları işler; kaynak SQL'de
   bulunan yeni adresleri içeri alabilir. Kaynağın zamanı korunur; yeniden hesaplama
   eski gözlemi yeni gözlem yapmaz. Her IP sonucu ayrı transaction ile yayımlanır.
@@ -453,7 +447,7 @@ aynı kalsa da kaydın güncelleme zamanı yenilenir, değişirse yeni hostname 
 DNS için değer değişikliği yaşı üzerinden ikinci bir 24 saat kontrolü yapılmaz.
 Kaynak anahtarı VLAN'ın DNS sunucusu kimliğidir; sistem DNS'i için `system` kullanılır.
 VMware kimliği doğrulanmış VM dalının kaynak önceliği, manuel alanlar, pasif sayfa
-okumaları ve NIC-Teaming'in DNS → SQL komşuluk dalı korunur.
+okumaları korunur. NIC-Teaming port gösterimini düzenler.
 
 LLDP/CDP ile hedef uç eşleşmiyorsa gateway MAC'i, envanter SQL'indeki VLAN/FID ve
 MAC–port kanıtıyla terminal switch/yerel portuna çözülebilir. Başka FDB satırlarının

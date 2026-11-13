@@ -460,10 +460,6 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             if exc.status_code != 422:
                 raise
             initial_backup = {"status": "skipped", "message": str(exc.detail)}
-    if name == "addresses":
-        from .ipam.teaming import reconcile
-
-        reconcile(db, row)
     if commit:
         db.commit()
         publish()

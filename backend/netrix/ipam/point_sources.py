@@ -66,7 +66,6 @@ class PointSources:
             vlan = db.get(m.VLAN, self.vlan.id)
             if (
                 not current
-                or current.nic_teaming
                 or not vlan
                 or [current.address, current.vrf_id, current.vlan_id]
                 != [self.row.address, self.row.vrf_id, self.vlan.id]
