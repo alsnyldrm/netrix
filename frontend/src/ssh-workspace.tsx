@@ -690,13 +690,14 @@ function SessionWindow({
         </div>
         <div className="ssh-window-actions">
           <button
-            className="secondary ssh-reconnect"
+            className="icon-button"
+            aria-label={retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
+            title={retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
             type="button"
             disabled={retrying}
             onClick={() => void reconnect()}
           >
-            <ArrowClockwise size={17} aria-hidden="true" />
-            {retrying ? "Bağlanılıyor…" : "Yeniden bağlan"}
+            <ArrowClockwise size={19} aria-hidden="true" />
           </button>
           <button
             className="icon-button"

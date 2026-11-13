@@ -233,13 +233,6 @@
 .ssh-session-header .ssh-window-actions {
   flex-wrap: wrap;
 }
-.ssh-session-header .ssh-window-actions .ssh-reconnect {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  gap: 8px;
-}
 .ssh-terminal-screen .xterm .xterm-scrollable-element > .scrollbar {
   visibility: hidden;
 }
