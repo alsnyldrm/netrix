@@ -298,9 +298,24 @@ export function LumelleSectionTabs({
       '[aria-current="page"]',
     );
     if (!nav || !marker || !active) return;
+    const geometry = (button: HTMLButtonElement) => {
+      const rect = button.getBoundingClientRect();
+      const left =
+        rect.left -
+        nav.getBoundingClientRect().left -
+        nav.clientLeft +
+        nav.scrollLeft;
+      return { left: `${left}px`, width: `${rect.width}px` };
+    };
     const align = () => {
-      marker.style.left = `${active.offsetLeft}px`;
-      marker.style.width = `${active.offsetWidth}px`;
+      Object.assign(marker.style, geometry(active));
+    };
+    const revealActive = () => {
+      const start = nav.getBoundingClientRect().left + nav.clientLeft;
+      const end = start + nav.clientWidth;
+      const rect = active.getBoundingClientRect();
+      if (rect.left < start) nav.scrollLeft += rect.left - start;
+      else if (rect.right > end) nav.scrollLeft += rect.right - end;
     };
     align();
     const before = Array.from(
@@ -311,23 +326,16 @@ export function LumelleSectionTabs({
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const motion =
       before && before !== active && !reduceMotion
-        ? marker.animate(
-            [
-              {
-                left: `${before.offsetLeft}px`,
-                width: `${before.offsetWidth}px`,
-              },
-              {
-                left: `${active.offsetLeft}px`,
-                width: `${active.offsetWidth}px`,
-              },
-            ],
-            { duration: 320, easing: "cubic-bezier(0.2, 0.65, 0.2, 1)" },
-          )
+        ? marker.animate([geometry(before), geometry(active)], {
+            duration: 320,
+            easing: "cubic-bezier(0.2, 0.65, 0.2, 1)",
+          })
         : undefined;
-    if (active.offsetLeft + active.offsetWidth > nav.clientWidth)
-      nav.scrollLeft = active.offsetLeft + active.offsetWidth - nav.clientWidth;
-    const resize = new ResizeObserver(align);
+    revealActive();
+    const resize = new ResizeObserver(() => {
+      align();
+      revealActive();
+    });
     resize.observe(nav);
     nav.querySelectorAll("button").forEach((button) => resize.observe(button));
     return () => {
