@@ -128,7 +128,9 @@ def descriptions(db, *, ids=None, specs=None, current=False):
             return {}
         stmt = stmt.where(m.PatchPort.id.in_(ids))
     if current:
-        stmt = stmt.with_for_update(read=True).execution_options(populate_existing=True)
+        stmt = stmt.with_for_update(
+            read=True, of=(m.PatchPort, m.PatchPanel, m.Cabinet)
+        ).execution_options(populate_existing=True)
     result = {}
     for (
         port,

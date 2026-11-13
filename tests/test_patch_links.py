@@ -1,7 +1,11 @@
 """Front/rear cabling, reciprocal updates and eventual matching without inventory writes."""
 
+from unittest.mock import Mock
+
 from netrix import models as m
+from netrix.ipam import patch_links
 from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
 from test_patch_panels import rack as rack
 
 
@@ -260,3 +264,13 @@ def test_port_list_fetches_reciprocal_metadata_in_one_batch(admin_client, rack, 
         assert len(result["items"]) == 100
         assert len(sql) <= 3
         assert result["items"][0]["external"]["port_id"] == bb[0]["id"]
+
+
+
+def test_current_patch_descriptions_lock_only_required_rows_on_postgresql():
+    db = Mock()
+    db.execute.return_value = []
+    patch_links.descriptions(db, ids={"port-id"}, current=True)
+
+    statement = db.execute.call_args.args[0].compile(dialect=postgresql.dialect())
+    assert "FOR SHARE OF patch_ports, patch_panels, cabinets" in str(statement)
