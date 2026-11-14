@@ -1,6 +1,6 @@
 .overview-workspace {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -52,7 +52,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
   min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--border-strong);
@@ -64,9 +64,29 @@
   font-size: 13px;
 }
 
-.overview-command-actions button:hover,
-.overview-command-actions button[aria-pressed="true"] {
+.overview-command-actions button span {
+  line-height: 1.2;
+}
+
+.overview-command-actions button svg {
+  flex: 0 0 16px;
+}
+
+.overview-command-actions .overview-edit-button {
+  min-inline-size: 152px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+
+.overview-command-actions .overview-edit-button:hover,
+.overview-command-actions .overview-edit-button[aria-pressed="true"] {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.overview-command-actions .overview-edit-button[aria-pressed="true"] {
+  border-color: var(--border-strong);
 }
 
 .overview-command-actions .overview-add-button {
@@ -100,11 +120,12 @@
 .overview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
   align-items: stretch;
 }
 
 .overview-widget {
+  --widget-inset: 12px;
   display: flex;
   flex-direction: column;
   overflow-wrap: anywhere;
@@ -113,16 +134,16 @@
 .overview-widget-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 72px;
-  padding: 16px 20px;
+  gap: 8px;
+  min-height: 52px;
+  padding: 3px 4px 3px var(--widget-inset);
   border-bottom: 1px solid var(--border);
 }
 
 .overview-widget-header h2 {
   flex: 1;
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
   line-height: 1.3;
 }
 
@@ -135,6 +156,13 @@
   border-radius: 10px;
   background: var(--accent-soft);
   color: var(--accent-soft-text);
+}
+
+.overview-widget-header .overview-widget-icon {
+  flex-basis: 30px;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
 }
 
 .overview-alarm-count {
@@ -157,7 +185,7 @@
 
 .overview-widget-body {
   flex: 1;
-  padding: 4px 20px;
+  padding: 2px var(--widget-inset);
 }
 
 .overview-stat-rows,
@@ -174,7 +202,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 0;
+  padding: 8px 0;
 }
 
 .overview-stat-rows dd {
@@ -192,7 +220,7 @@
 .overview-entry-list li {
   display: grid;
   gap: 4px;
-  padding: 12px 0;
+  padding: 8px 0;
 }
 
 .overview-entry-list strong {
@@ -226,7 +254,7 @@
 
 .overview-widget footer {
   border-top: 1px solid var(--border);
-  padding: 0 20px;
+  padding: 0 var(--widget-inset);
 }
 
 .overview-widget .overview-details {
@@ -237,7 +265,7 @@
 }
 
 .overview-empty {
-  margin: 14px 0;
+  margin: 10px 0;
   color: var(--text-2);
 }
 
@@ -327,11 +355,6 @@
   .overview-widget-tools {
     padding-inline: 12px;
   }
-  .overview-widget-header,
-  .overview-widget-body,
-  .overview-widget footer {
-    padding-inline: 16px;
-  }
   .overview-catalog-list {
     padding-inline: 12px;
   }
@@ -349,26 +372,22 @@
   box-shadow: none;
 }
 
-.overview-widget-header {
-  min-height: 64px;
-  padding-block: 9px;
-}
-
 .overview-grip {
   display: grid;
   place-items: center;
   flex: 0 0 44px;
   height: 44px;
   padding: 0;
-  border: 1px solid var(--border-strong);
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--surface-2);
+  background: transparent;
   color: var(--text-2);
   cursor: grab;
   touch-action: none;
 }
 
 .overview-grip:hover {
+  background: var(--surface-2);
   color: var(--accent);
   border-color: var(--accent);
 }
@@ -402,15 +421,12 @@
 }
 
 .overview-chart {
-  margin: 12px 0;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-2);
+  margin: 8px 0;
+  font-size: 13px;
 }
 
 .overview-chart figcaption {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   color: var(--text);
   font-weight: 600;
 }
@@ -432,7 +448,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
-  padding-top: 10px;
+  padding-top: 6px;
 }
 
 .overview-chart-legend > div {
@@ -443,7 +459,7 @@
 
 .overview-chart-bars {
   display: grid;
-  gap: 9px;
+  gap: 7px;
 }
 
 .overview-chart-bars > div {
@@ -455,14 +471,14 @@
 .overview-chart-track {
   grid-column: 1 / -1;
   display: flex;
-  height: 8px;
+  height: 10px;
   overflow: hidden;
   border-radius: 4px;
   background: var(--surface-3);
 }
 
 .overview-chart-stack {
-  height: 12px;
+  height: 16px;
 }
 .overview-chart-track i {
   height: 100%;
@@ -515,6 +531,7 @@
 .overview-trend svg {
   display: block;
   width: 100%;
+  height: clamp(110px, 11vw, 148px);
 }
 
 .overview-trend-gridline {
@@ -526,7 +543,8 @@
 .overview-trend-line {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -539,7 +557,7 @@
 .overview-trend .overview-trend-days {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 2px;
+  gap: 0;
   text-align: center;
 }
 
@@ -561,7 +579,15 @@
     width: 100%;
   }
 
-  .overview-command-actions button {
+  .overview-command-actions button,
+  .overview-command-actions .overview-edit-button {
+    min-inline-size: 0;
     padding-inline: 5px;
+  }
+}
+
+@media (pointer: fine) {
+  .overview-widget .overview-details {
+    min-height: 36px;
   }
 }

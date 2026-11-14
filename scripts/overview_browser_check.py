@@ -72,6 +72,12 @@ def verify(page, mobile, theme):
         })"""
     )
     assert alignment
+    chart = page.locator(".overview-trend").first
+    plot = chart.locator("svg").bounding_box()
+    chart_box = chart.bounding_box()
+    assert plot["width"] >= chart_box["width"] - 1 and plot["height"] >= 110
+    first_card = page.locator("[data-overview-widget]").first
+    assert first_card.locator("header").bounding_box()["height"] <= 54
     toolbar = page.locator(".overview-command")
     expect(toolbar.get_by_text("Son veri", exact=False)).to_be_visible()
     edit_button = toolbar.get_by_role("button", name="Yerleşimi düzenle", exact=True)
@@ -79,6 +85,9 @@ def verify(page, mobile, theme):
     edit_box, add_box = edit_button.bounding_box(), add_button.bounding_box()
     assert abs(edit_box["y"] - add_box["y"]) < 1
     assert abs(edit_box["height"] - add_box["height"]) < 1
+    edit_icon = edit_button.locator("svg").bounding_box()
+    edit_label = edit_button.locator("span").bounding_box()
+    assert abs(edit_icon["y"] + edit_icon["height"] / 2 - edit_label["y"] - edit_label["height"] / 2) < 1
     if mobile:
         assert abs(edit_box["width"] - add_box["width"]) < 1
     else:

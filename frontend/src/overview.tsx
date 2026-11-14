@@ -16,7 +16,7 @@ import {
   GearSix,
   HardDrives,
   ListChecks,
-  PencilSimple,
+  SquaresFour,
   PlugsConnected,
   Plus,
   ShieldCheck,
@@ -285,7 +285,8 @@ function Trend({
     return <p className="overview-empty">Grafik verisi alınamadı.</p>;
   const peak = Math.max(1, ...points.map(({ count }) => count));
   const line = points.map(
-    ({ count }, index) => `${12 + index * 46},${94 - (count / peak) * 76}`,
+    ({ count }, index) =>
+      `${((index + 0.5) * 300) / points.length},${110 - (count / peak) * 96}`,
   );
   const total = points.reduce((sum, { count }) => sum + count, 0);
   return (
@@ -295,19 +296,23 @@ function Trend({
         <span>{label} · 7 gün</span>
       </figcaption>
       {total > 0 ? (
-        <svg viewBox="0 0 300 100" aria-hidden="true">
-          {[18, 56, 94].map((y) => (
+        <svg
+          viewBox="0 0 300 120"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          {[14, 62, 110].map((y) => (
             <line
               key={y}
-              x1="12"
-              x2="288"
+              x1="0"
+              x2="300"
               y1={y}
               y2={y}
               className="overview-trend-gridline"
             />
           ))}
           <polygon
-            points={`12,94 ${line.join(" ")} 288,94`}
+            points={`${line[0].split(",")[0]},110 ${line.join(" ")} ${line.at(-1)?.split(",")[0]},110`}
             className="overview-trend-fill"
           />
           <polyline points={line.join(" ")} className="overview-trend-line" />
@@ -851,11 +856,11 @@ export function Overview({
             onClick={() => setEditing(!editing)}
           >
             {editing ? (
-              <Check size={18} aria-hidden="true" />
+              <Check size={16} aria-hidden="true" />
             ) : (
-              <PencilSimple size={17} aria-hidden="true" />
+              <SquaresFour size={16} aria-hidden="true" />
             )}
-            {editing ? "Düzenlemeyi bitir" : "Yerleşimi düzenle"}
+            <span>{editing ? "Düzenlemeyi bitir" : "Yerleşimi düzenle"}</span>
           </button>
           <button
             ref={catalogTrigger}
@@ -863,7 +868,7 @@ export function Overview({
             className="overview-add-button"
             onClick={() => setCatalogOpen(true)}
           >
-            <Plus size={18} aria-hidden="true" /> Widget ekle
+            <Plus size={16} aria-hidden="true" /> <span>Widget ekle</span>
           </button>
         </div>
       </header>
@@ -911,7 +916,7 @@ export function Overview({
             >
               <header className="overview-widget-header">
                 <span className="overview-widget-icon">
-                  <Icon size={21} aria-hidden="true" />
+                  <Icon size={18} aria-hidden="true" />
                 </span>
                 <h2>{title}</h2>
                 {id === "alarms" && c.firing_alerts !== undefined && (
@@ -935,7 +940,7 @@ export function Overview({
                   onPointerCancel={clearDrag}
                   onLostPointerCapture={clearDrag}
                 >
-                  <DotsSixVertical size={20} aria-hidden="true" />
+                  <DotsSixVertical size={18} aria-hidden="true" />
                 </button>
               </header>
               {editing && (
