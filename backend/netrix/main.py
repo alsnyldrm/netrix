@@ -377,6 +377,13 @@ def approve_config(id: str, user=Depends(operator), db=Depends(db_session)):
     return approve(db, id, user)
 
 
+@app.post(P + "/configuration/backups/delete")
+def clear_backups(payload: s.BackupHistoryDeleteInput, user=Depends(admin), db=Depends(db_session)):
+    from .configuration.management import clear_device_backups
+
+    return clear_device_backups(db, payload.device_ids, user)
+
+
 @app.post(P + "/configuration/compare")
 def compare_configs(payload: s.ConfigCompareInput, user=Depends(operator), db=Depends(db_session)):
     from .configuration.baselines import comparison

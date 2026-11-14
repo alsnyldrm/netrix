@@ -596,6 +596,10 @@ export function InventoryTable({
   });
   const [error, setError] = useState("");
   const [dialog, setDialog] = useState("");
+  const [backupDeletion, setBackupDeletion] = useState<{
+    ids: string[];
+    name?: string;
+  } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [group, setGroup] = useState("");
@@ -694,6 +698,7 @@ export function InventoryTable({
   useEffect(() => {
     setSelected([]);
     setDialog("");
+    setBackupDeletion(null);
   }, [user.role, user.ssh_access]);
   const hasActions =
     (restorable && hasAdminAccess(user)) ||
@@ -706,12 +711,37 @@ export function InventoryTable({
       ));
   const sshActions =
     resource === "devices" && purpose === "devices" && canSSH(user);
+  const canDeleteBackups =
+    resource === "backup-devices" && hasAdminAccess(user);
   const selectRows =
-    (writable || sshActions) &&
-    (!archive || hasAdminAccess(user)) &&
-    purpose !== "interface-devices" &&
-    (["devices", "interfaces"].includes(resource) ||
-      (resource === "links" && hasAdminAccess(user)));
+    canDeleteBackups ||
+    ((writable || sshActions) &&
+      (!archive || hasAdminAccess(user)) &&
+      purpose !== "interface-devices" &&
+      (["devices", "interfaces"].includes(resource) ||
+        (resource === "links" && hasAdminAccess(user))));
+  const deleteBackups = async (ids: string[]) => {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api("/configuration/backups/delete", "POST", {
+        device_ids: ids,
+      });
+      setBackupDeletion(null);
+      setSelected([]);
+      setNotice(`${result.deleted_count} yedek silindi.`);
+      onSaved();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmBackupDeletion = (ids: string[], name?: string) => {
+    setError("");
+    setNotice("");
+    setBackupDeletion({ ids, name });
+  };
   const apply = async (action: string) => {
     setBusy(true);
     setError("");
@@ -869,7 +899,17 @@ export function InventoryTable({
               Kalıcı sil
             </button>
           )}
-          {hasAdminAccess(user) && !restorable && (
+          {canDeleteBackups && (
+            <button
+              className="secondary"
+              disabled={busy || loading}
+              onClick={() => confirmBackupDeletion([...selected])}
+            >
+              <Trash size={16} aria-hidden="true" />
+              Seçilen yedekleri sil
+            </button>
+          )}
+          {hasAdminAccess(user) && !restorable && !canDeleteBackups && (
             <button className="secondary" onClick={() => setDialog("delete")}>
               <Trash size={16} aria-hidden="true" />
               Sil
@@ -1199,6 +1239,19 @@ export function InventoryTable({
                                 <Eye size={18} />
                               </button>
                             )}
+                            {canDeleteBackups && (
+                              <button
+                                className="icon-button"
+                                aria-label={`${row.name} yedeklerini sil`}
+                                title="Yedekleri sil"
+                                disabled={busy || loading}
+                                onClick={() =>
+                                  confirmBackupDeletion([row.id], row.name)
+                                }
+                              >
+                                <Trash size={18} aria-hidden="true" />
+                              </button>
+                            )}
                             {writable && onEdit && (
                               <button
                                 className="icon-button"
@@ -1350,6 +1403,48 @@ export function InventoryTable({
           }}
           onClose={() => setDialog("")}
         />
+      )}
+      {backupDeletion && canDeleteBackups && (
+        <Dialog
+          title="Yedek geçmişini sil"
+          onClose={() => {
+            if (!busy) setBackupDeletion(null);
+          }}
+        >
+          <form
+            className="link-delete-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!busy) void deleteBackups(backupDeletion.ids);
+            }}
+          >
+            <p>
+              {backupDeletion.name
+                ? `${backupDeletion.name} cihazının`
+                : `Seçilen ${backupDeletion.ids.length} cihazın`}{" "}
+              tüm yedekleri, base config dahil, kalıcı olarak silinecek.
+              Cihazlar envanterde kalacak.
+            </p>
+            {error && (
+              <p role="alert" className="error">
+                {error}
+              </p>
+            )}
+            <div className="dialog-footer">
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => setBackupDeletion(null)}
+              >
+                Vazgeç
+              </button>
+              <button className="secondary delete-confirm" disabled={busy}>
+                {busy ? "Siliniyor…" : "Yedekleri sil"}
+              </button>
+            </div>
+          </form>
+        </Dialog>
       )}
       {dialog === "delete" && (
         <Dialog

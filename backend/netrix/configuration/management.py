@@ -1,7 +1,8 @@
 """Backup policies, retention and asynchronous live comparisons."""
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from .. import models as m
 from .. import services as svc
@@ -152,3 +153,38 @@ def delete_snapshot(db, id, user):
     audit(db, user, "delete", "snapshots", id, "Konfigürasyon yedeği silindi")
     db.commit()
     svc.publish()
+
+
+def clear_device_backups(db, device_ids, user):
+    """Delete whole backup histories without deleting or archiving devices."""
+    ids = set(device_ids)
+    devices = list(
+        db.scalars(select(m.Device).where(m.Device.id.in_(ids)).order_by(m.Device.id).with_for_update())
+    )
+    if len(devices) != len(ids):
+        raise HTTPException(404, "Seçilen cihazlardan biri bulunamadı")
+
+    snapshots = select(m.Snapshot.id).where(m.Snapshot.device_id.in_(ids))
+    if db.scalar(select(m.FirmwareTarget.id).where(m.FirmwareTarget.snapshot_id.in_(snapshots)).limit(1)):
+        raise HTTPException(409, "Firmware geçmişine bağlı yedekler var. Hiçbir yedek silinmedi.")
+    if any(pinned_snapshots(db, device.id) - {None} for device in devices):
+        raise HTTPException(409, "Çalışan karşılaştırmada kullanılan yedekler var. Hiçbir yedek silinmedi.")
+
+    # The base FK must be cleared before removing its snapshot. A new history
+    # starts with a fresh base and must not inherit earlier approvals.
+    for device in devices:
+        device.base_snapshot_id = None
+        device.approved_config_hash = ""
+        device.config_approved_at = device.config_approved_by = None
+        audit(db, user, "clear_backups", "device_backups", device.id, "Cihazın yedek geçmişi silindi")
+    try:
+        db.flush()
+        count = db.execute(delete(m.Snapshot).where(m.Snapshot.device_id.in_(ids))).rowcount
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409, "Bir yedek başka bir işlemde kullanılıyor. Hiçbir yedek silinmedi."
+        ) from None
+    svc.publish()
+    return {"deleted_count": count}

@@ -409,3 +409,7 @@ class LinkLabelsInput(Input):
 class ConfigCompareInput(Input):
     snapshot_ids: list[str] = Field(min_length=2, max_length=4)
     distinct_devices: bool = False
+
+
+class BackupHistoryDeleteInput(Input):
+    device_ids: list[str] = Field(min_length=1, max_length=100)
