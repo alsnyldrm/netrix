@@ -1,6 +1,7 @@
 """Verify the widget layout and interactions without any live network or inventory requests."""
 
 import os
+from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -8,7 +9,14 @@ from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("NETRIX_BROWSER_URL", "http://127.0.0.1:8219")
 WHEN = "2026-11-14T09:00:00Z"
-WIDGETS = {"counts": {"scopes": 0, "rules": 1, "no_backup": 2, "ip_problems": 3, "links": 14, "unverified": 2, "ip_resolved": 7, "alarm_critical": 1,
+DAILY = [{"day": (date(2026, 11, 8) + timedelta(days=i)).isoformat(), "count": count}
+         for i, count in enumerate((2, 9, 4, 0, 14, 6, 10))]
+WIDGETS = {"charts": {
+               "daily": {"jobs": DAILY, "backups": DAILY, "alarms": DAILY},
+               "device_types": [{"label": "Switch", "count": 9}],
+               "firmware": {"queued": 5, "succeeded": 15},
+               "vlan_problems": [{"label": "Laboratuvar · VLAN 30 · default", "count": 3}],
+           },"counts": {"scopes": 0, "rules": 1, "no_backup": 2, "ip_problems": 3, "links": 14, "unverified": 2, "ip_resolved": 7, "alarm_critical": 1,
                       "alarm_warning": 0, "alarm_info": 0, "succeeded": 24, "partial": 3, "failed": 2},
            "alerts": [{"id": "1", "message": "Konfigürasyon değişikliği algılandı",
                        "severity": "critical", "created_at": WHEN, "acknowledged_at": None}],
@@ -35,13 +43,19 @@ def verify(page, mobile, theme):
         route.fulfill(json=response)
 
     page.add_init_script(f"localStorage.setItem('netrix-theme', '{theme}')")
+    if theme == "dark":
+        page.add_init_script("""if (!localStorage.getItem('netrix-overview-v1:overview-fixture')) {
+           localStorage.setItem('netrix-overview-v1:overview-fixture', JSON.stringify(
+             ['alarms', 'gaps', 'inventory', 'ipam', 'backups', 'jobs', 'firmware', 'system', 'events']
+           ));
+        }""")
     page.route("**/api/v1/**", fixture)
     page.goto(BASE + "/#overview")
     page.wait_for_load_state("networkidle")
     expect(page.get_by_role("heading", name="Genel bakış", exact=True)).to_be_visible()
     expect(page.get_by_text("Konfigürasyon değişikliği algılandı", exact=True)).to_be_visible()
     expect(page.get_by_text("Yanıt yok", exact=True)).to_be_visible()
-    expect(page.locator(".overview-chart")).to_have_count(4)
+    expect(page.locator(".overview-chart")).to_have_count(10)
     assert not any(path.split("/")[0] in {"devices", "links", "topology"} for path in requests)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.wait_for_function("""() => !document.querySelector('.overview-workspace')

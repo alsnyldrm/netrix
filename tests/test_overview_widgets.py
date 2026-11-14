@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from netrix import models as m
 from netrix.core import now
@@ -53,6 +53,30 @@ def test_overview_widgets_use_current_scope_and_prioritize_active_alarms(admin_c
     data = response.json()
     assert [row["message"] for row in data["alerts"]] == ["Kritik", "Uyarı", "Görüldü"]
     assert [row["message"] for row in data["events"]] == ["Olay"]
+    assert data["charts"]["vlan_problems"] == [{"label": "Fixture VLAN · VLAN 3 · default", "count": 1}]
+    assert [row["count"] for row in data["charts"]["device_types"]] == [1]
     assert {key: data["counts"][key] for key in (
         "ip_problems", "unplaced", "no_cidr", "queued", "running", "failed",
     )} == {"ip_problems": 1, "unplaced": 1, "no_cidr": 1, "queued": 1, "running": 0, "failed": 1}
+
+
+def test_overview_daily_series_uses_istanbul_midnight_and_excludes_ping(admin_client, env, monkeypatch):
+    from netrix import overview
+
+    now_at = datetime(2026, 11, 14, 9, tzinfo=UTC)
+    monkeypatch.setattr(overview, "now", lambda: now_at)
+    with env() as db:
+        for kind, ts in (
+            ("discovery", datetime(2026, 11, 13, 20, 59, tzinfo=UTC)),
+            ("backup", datetime(2026, 11, 13, 21, tzinfo=UTC)),
+            ("ipam_ping", datetime(2026, 11, 13, 21, tzinfo=UTC)),
+            ("backup", datetime(2026, 11, 7, 20, 59, tzinfo=UTC)),
+        ):
+            db.add(m.Job(kind=kind, status="succeeded", target_id="test", finished_at=ts))
+        db.commit()
+    response = admin_client.get("/api/v1/dashboard/widgets")
+    assert response.status_code == 200
+    jobs = response.json()["charts"]["daily"]["jobs"]
+    assert len(jobs) == 7
+    assert [entry["count"] for entry in jobs] == [0, 0, 0, 0, 0, 1, 1]
+    assert jobs[-1]["day"] == "2026-11-14"

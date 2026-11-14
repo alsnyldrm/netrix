@@ -9,6 +9,8 @@ import {
   Bell,
   Check,
   Circuitry,
+  ChartBar,
+  ChartLineUp,
   ClockCounterClockwise,
   DotsSixVertical,
   GearSix,
@@ -99,6 +101,42 @@ const widgets = {
     icon: PlugsConnected,
     page: "integrations",
   },
+  "job-trend": {
+    title: "Görev trendi",
+    description: "Son yedi günde sonuçlanan görevler.",
+    icon: ChartLineUp,
+    page: "jobs",
+  },
+  "backup-trend": {
+    title: "Yedekleme trendi",
+    description: "Son yedi günde oluşturulan ve arşivde bulunan yedekler.",
+    icon: ChartLineUp,
+    page: "configuration",
+  },
+  "alarm-trend": {
+    title: "Alarm trendi",
+    description: "Son yedi günde açılan alarmlar.",
+    icon: ChartLineUp,
+    page: "alerts",
+  },
+  "device-mix": {
+    title: "Cihaz türleri",
+    description: "En çok cihaz kaydı bulunan sekiz tür.",
+    icon: ChartBar,
+    page: "devices",
+  },
+  "firmware-mix": {
+    title: "Firmware hedefleri",
+    description: "Silinmemiş planlardaki hedeflerin son durumları.",
+    icon: ChartBar,
+    page: "firmware-plans",
+  },
+  "vlan-problems": {
+    title: "Sorunlu IP’ler · VLAN",
+    description: "En çok sorunlu IP çözümlemesi olan altı VLAN.",
+    icon: ChartBar,
+    page: "vlans",
+  },
   administration: {
     title: "Yönetim",
     description: "Erişim profilleri ve etkin alarm kuralları.",
@@ -110,7 +148,15 @@ const widgets = {
 type Widget = keyof typeof widgets;
 type Entry = { id: string; message: string; created_at: string };
 type AlarmEntry = Entry & { severity: string; acknowledged_at: string | null };
+type DayPoint = { day: string; count: number };
+type Category = { label: string; count: number };
 type WidgetData = {
+  charts?: {
+    daily: Record<"jobs" | "backups" | "alarms", DayPoint[]>;
+    device_types: Category[];
+    firmware: Record<string, number>;
+    vlan_problems: Category[];
+  };
   counts: Record<string, number>;
   alerts: AlarmEntry[];
   events: Entry[];
@@ -118,9 +164,18 @@ type WidgetData = {
 };
 type Dashboard = { counts?: Record<string, number>; server_time?: string };
 const catalog = Object.keys(widgets) as Widget[];
+const chartWidgets: Widget[] = [
+  "job-trend",
+  "backup-trend",
+  "alarm-trend",
+  "device-mix",
+  "vlan-problems",
+  "firmware-mix",
+];
 const defaults: Widget[] = [
   "alarms",
   "gaps",
+  ...chartWidgets,
   "inventory",
   "ipam",
   "backups",
@@ -136,10 +191,19 @@ const number = new Intl.NumberFormat("tr-TR");
 function storedLayout(key: string) {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(key) ?? "null");
-    if (Array.isArray(saved))
-      return [
-        ...new Set(saved.filter((id): id is Widget => catalog.includes(id))),
+    const legacy = Array.isArray(saved);
+    const items: unknown = legacy
+      ? saved
+      : (saved as { widgets?: unknown } | null)?.widgets;
+    if (Array.isArray(items)) {
+      const valid = [
+        ...new Set(items.filter((id): id is Widget => catalog.includes(id))),
       ];
+      if (legacy && valid.length) {
+        valid.splice(2, 0, ...chartWidgets.filter((id) => !valid.includes(id)));
+      }
+      return valid;
+    }
   } catch {
     // A blocked or malformed storage entry uses the default layout.
   }
@@ -202,6 +266,90 @@ function Distribution({
     </figure>
   );
 }
+
+const shortDay = new Intl.DateTimeFormat("tr-TR", {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
+function Trend({
+  points,
+  label,
+}: {
+  points: DayPoint[] | undefined;
+  label: string;
+}) {
+  if (!points?.length)
+    return <p className="overview-empty">Grafik verisi alınamadı.</p>;
+  const peak = Math.max(1, ...points.map(({ count }) => count));
+  const line = points.map(
+    ({ count }, index) => `${12 + index * 46},${94 - (count / peak) * 76}`,
+  );
+  const total = points.reduce((sum, { count }) => sum + count, 0);
+  return (
+    <figure className="overview-chart overview-trend">
+      <figcaption>
+        <strong>{number.format(total)}</strong>
+        <span>{label} · 7 gün</span>
+      </figcaption>
+      {total > 0 ? (
+        <svg viewBox="0 0 300 100" aria-hidden="true">
+          {[18, 56, 94].map((y) => (
+            <line
+              key={y}
+              x1="12"
+              x2="288"
+              y1={y}
+              y2={y}
+              className="overview-trend-gridline"
+            />
+          ))}
+          <polygon
+            points={`12,94 ${line.join(" ")} 288,94`}
+            className="overview-trend-fill"
+          />
+          <polyline points={line.join(" ")} className="overview-trend-line" />
+          {line.map((point) => {
+            const [cx, cy] = point.split(",");
+            return (
+              <circle
+                key={cx}
+                cx={cx}
+                cy={cy}
+                r="3"
+                className="overview-trend-point"
+              />
+            );
+          })}
+        </svg>
+      ) : (
+        <p className="overview-empty">Bu aralıkta kayıt yok.</p>
+      )}
+      <dl className="overview-trend-days">
+        {points.map(({ day, count }) => (
+          <div key={day}>
+            <dt>
+              <time dateTime={day}>{shortDay.format(new Date(day))}</time>
+            </dt>
+            <dd>{number.format(count)}</dd>
+          </div>
+        ))}
+      </dl>
+    </figure>
+  );
+}
+
+const firmwareStates = [
+  ["queued", "Kuyrukta", "accent"],
+  ["running", "Çalışıyor", "accent"],
+  ["checked", "Kontrol edildi", "success"],
+  ["staged", "Hazırlandı", "success"],
+  ["succeeded", "Tamamlandı", "success"],
+  ["failed", "Başarısız", "danger"],
+  ["attention", "Müdahale bekliyor", "warning"],
+  ["cancelled", "İptal edildi", "accent"],
+] as const;
 
 function StatRows({
   rows,
@@ -304,7 +452,7 @@ export function Overview({
     setLayout(next);
     setAnnouncement(message);
     try {
-      localStorage.setItem(storageKey, JSON.stringify(next));
+      localStorage.setItem(storageKey, JSON.stringify({ widgets: next }));
       setStorageError(false);
     } catch {
       setStorageError(true);
@@ -567,6 +715,62 @@ export function Overview({
             />
           </>
         );
+      case "job-trend":
+        return (
+          <Trend
+            points={api.data?.charts?.daily.jobs}
+            label="Sonuçlanan görev"
+          />
+        );
+      case "backup-trend":
+        return (
+          <Trend
+            points={api.data?.charts?.daily.backups}
+            label="Kayıtlı yedek"
+          />
+        );
+      case "alarm-trend":
+        return (
+          <Trend points={api.data?.charts?.daily.alarms} label="Açılan alarm" />
+        );
+      case "device-mix":
+      case "vlan-problems": {
+        const types = id === "device-mix";
+        const rows = types
+          ? api.data?.charts?.device_types
+          : api.data?.charts?.vlan_problems;
+        if (!rows?.length)
+          return (
+            <p className="overview-empty">
+              {types ? "Henüz cihaz kaydı yok." : "Sorunlu IP çözümlemesi yok."}
+            </p>
+          );
+        return (
+          <Distribution
+            title={
+              types
+                ? "Cihaz sayısına göre ilk 8 tür"
+                : "Sorunlu adres sayısına göre ilk 6 VLAN"
+            }
+            values={rows.map(({ label, count }) => [
+              label,
+              count,
+              types ? "accent" : "danger",
+            ])}
+          />
+        );
+      }
+      case "firmware-mix": {
+        const statuses = api.data?.charts?.firmware;
+        const rows: Segment[] = firmwareStates
+          .filter(([status]) => !!statuses?.[status])
+          .map(([status, label, tone]) => [label, statuses?.[status], tone]);
+        if (!rows.length)
+          return <p className="overview-empty">Henüz firmware hedefi yok.</p>;
+        return (
+          <Distribution title="Planlardaki hedef durumları" values={rows} />
+        );
+      }
       case "firmware":
         return (
           <StatRows

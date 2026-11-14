@@ -460,3 +460,62 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.overview-trend figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+}
+
+.overview-trend figcaption strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-trend figcaption span {
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.overview-trend svg {
+  display: block;
+  width: 100%;
+}
+
+.overview-trend-gridline {
+  stroke: var(--border-strong);
+}
+.overview-trend-fill {
+  fill: var(--accent-soft);
+}
+.overview-trend-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.overview-trend-point {
+  fill: var(--surface);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.overview-trend .overview-trend-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  text-align: center;
+}
+
+.overview-trend-days dt {
+  display: block;
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.overview-trend-days dd {
+  font: 600 clamp(9px, 1vw, 12px) var(--mono);
+  overflow-wrap: anywhere;
+}
