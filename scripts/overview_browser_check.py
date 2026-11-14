@@ -8,7 +8,8 @@ from playwright.sync_api import expect, sync_playwright
 
 BASE = os.environ.get("NETRIX_BROWSER_URL", "http://127.0.0.1:8219")
 WHEN = "2026-11-14T09:00:00Z"
-WIDGETS = {"counts": {"scopes": 0, "rules": 1, "no_backup": 2, "ip_problems": 3, "links": 14},
+WIDGETS = {"counts": {"scopes": 0, "rules": 1, "no_backup": 2, "ip_problems": 3, "links": 14, "unverified": 2, "ip_resolved": 7, "alarm_critical": 1,
+                      "alarm_warning": 0, "alarm_info": 0, "succeeded": 24, "partial": 3, "failed": 2},
            "alerts": [{"id": "1", "message": "Konfigürasyon değişikliği algılandı",
                        "severity": "critical", "created_at": WHEN, "acknowledged_at": None}],
            "events": [{"id": "2", "message": "Konfigürasyon yedeği tamamlandı", "created_at": WHEN}],
@@ -40,11 +41,14 @@ def verify(page, mobile, theme):
     expect(page.get_by_role("heading", name="Genel bakış", exact=True)).to_be_visible()
     expect(page.get_by_text("Konfigürasyon değişikliği algılandı", exact=True)).to_be_visible()
     expect(page.get_by_text("Yanıt yok", exact=True)).to_be_visible()
+    expect(page.locator(".overview-chart")).to_have_count(4)
     assert not any(path.split("/")[0] in {"devices", "links", "topology"} for path in requests)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.wait_for_function("""() => !document.querySelector('.overview-workspace')
+        .getAnimations({subtree: true}).some(animation => animation.playState === 'running')""")
     page.add_script_tag(path="frontend/node_modules/axe-core/axe.min.js")
     violations = page.evaluate("async () => (await axe.run('.overview-workspace')).violations")
-    assert not violations, [(item["id"], [node["target"] for node in item["nodes"]]) for item in violations]
+    assert not violations, [(item["id"], [(node["target"], node["failureSummary"]) for node in item["nodes"]]) for item in violations]
     alignment = page.locator("[data-overview-widget] header").evaluate_all(
         """headers => headers.every(header => {
           const [icon, title] = header.children;
@@ -67,29 +71,37 @@ def verify(page, mobile, theme):
     expect(button).to_be_focused()
     expect(card.last).to_have_attribute("data-overview-widget", "integrations")
 
-    page.get_by_role("button", name="Yerleşimi düzenle", exact=True).click()
-    page.get_by_role("button", name="Aktif alarmlar aşağı taşı", exact=True).press("Enter")
-    expect(card.first).to_have_attribute("data-overview-widget", "gaps")
-
-    grip = page.get_by_role("button", name="Eksikler ve inceleme sürükle", exact=True)
+    grip = page.get_by_role("button", name="Aktif alarmlar sürükle", exact=True)
     grip.scroll_into_view_if_needed()
-    if mobile:
-        # Fit two cards into the viewport so the touch drag has a visible destination.
-        page.locator(".overview-widget-body").evaluate_all("(items) => items.forEach(i => i.hidden = true)")
     source = grip.bounding_box()
-    target = card.nth(1).locator("header").bounding_box()
-    x, y = source["x"] + 20, source["y"] + 20
-    tx, ty = target["x"] + 32, target["y"] + 22
+    x, y = source["x"] + 22, source["y"] + 22
+    destination = card.nth(1)
+    target = destination.bounding_box()
+    tx = target["x"] + 55
+    ty = min(target["y"] + 70, page.viewport_size["height"] - 15)
     if mobile:
         cdp = page.context.new_cdp_session(page)
         cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
+        # Holding the pointer at the bottom must scroll even without another move.
+        edge = page.viewport_size["height"] - 12
+        original_scroll = page.evaluate("scrollY")
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tx, "y": edge}]})
+        page.wait_for_function("(start) => scrollY > start + 50", arg=original_scroll)
+        target = destination.bounding_box()
+        ty = min(target["y"] + 80, page.viewport_size["height"] - 105)
         cdp.send("Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": tx, "y": ty}]})
         cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
     else:
         page.mouse.move(x, y)
         page.mouse.down()
         page.mouse.move(tx, ty, steps=10)
+        expect(page.locator(".overview-drag-preview")).to_be_visible()
+        expect(destination).to_have_class("panel overview-widget overview-drop-target")
         page.mouse.up()
+    expect(card.first).to_have_attribute("data-overview-widget", "gaps")
+    expect(page.get_by_role("button", name="Yerleşimi düzenle", exact=True)).to_be_visible()
+    page.get_by_role("button", name="Yerleşimi düzenle", exact=True).click()
+    page.get_by_role("button", name="Aktif alarmlar yukarı taşı", exact=True).press("Enter")
     expect(card.first).to_have_attribute("data-overview-widget", "alarms")
 
     page.get_by_role("button", name="Son hareketler kaldır", exact=True).click()
@@ -108,7 +120,7 @@ if __name__ == "__main__":
             for theme in ("light", "dark"):
                 page = browser.new_page(
                     viewport={"width": width, "height": height},
-                    has_touch=mobile, reduced_motion="reduce",
+                    has_touch=mobile,
                 )
                 verify(page, mobile, theme)
                 page.context.close()

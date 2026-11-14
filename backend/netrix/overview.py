@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 
 from . import models as m
 from .core import now
@@ -19,18 +19,22 @@ def widget_data(db):
         m.Device.lifecycle_status == "active",
     )
     operational_jobs = (m.Job.kind != "ipam_ping", m.Job.archived_at.is_(None))
-    ip_problems = (
-        select(func.count())
-        .select_from(m.IPAMResult)
-        .join(m.IPAddress, m.IPAddress.id == m.IPAMResult.address_id)
-        .where(
-            m.IPAMResult.scope_address == m.IPAddress.address,
-            m.IPAMResult.scope_vrf == m.IPAddress.vrf_id,
-            m.IPAMResult.scope_vlan == m.IPAddress.vlan_id,
-            m.IPAMResult.status == "problem",
-        )
-        .scalar_subquery()
+    ip_scope = and_(
+        m.IPAMResult.scope_address == m.IPAddress.address,
+        m.IPAMResult.scope_vrf == m.IPAddress.vrf_id,
+        m.IPAMResult.scope_vlan == m.IPAddress.vlan_id,
     )
+
+    def ip_count(status):
+        return (
+            select(func.count())
+            .select_from(m.IPAMResult)
+            .join(m.IPAddress, m.IPAddress.id == m.IPAMResult.address_id)
+            .where(ip_scope, m.IPAMResult.status == status)
+            .scalar_subquery()
+        )
+
+    recent = m.Job.finished_at >= now() - timedelta(hours=24)
     counts = {
         "unverified": count(m.Device, *active, m.Device.reachability != "reachable"),
         "unplaced": count(m.Device, *active, m.Device.site_id.is_(None)),
@@ -43,7 +47,12 @@ def widget_data(db):
         "scopes": count(m.Scope, m.Scope.enabled.is_(True)),
         "credentials": count(m.Credential),
         "no_cidr": count(m.VLAN, m.VLAN.cidr.is_(None)),
-        "ip_problems": ip_problems,
+        "ip_problems": ip_count("problem"),
+        "ip_resolved": ip_count("success"),
+        **{
+            f"alarm_{severity}": count(m.Alert, m.Alert.state == "firing", m.Alert.severity == severity)
+            for severity in ("critical", "warning", "info")
+        },
         "scan_groups": count(m.IPAMScanGroup, m.IPAMScanGroup.enabled.is_(True)),
         "integrations": count(m.Integration, m.Integration.enabled.is_(True)),
         "links": count(
@@ -51,12 +60,10 @@ def widget_data(db):
         ),
         "queued": count(m.Job, *operational_jobs, m.Job.status == "queued"),
         "running": count(m.Job, *operational_jobs, m.Job.status == "running"),
-        "failed": count(
-            m.Job,
-            *operational_jobs,
-            m.Job.status == "failed",
-            m.Job.finished_at >= now() - timedelta(hours=24),
-        ),
+        **{
+            status: count(m.Job, *operational_jobs, recent, m.Job.status == status)
+            for status in ("succeeded", "partial", "failed")
+        },
         "firmware_plans": count(
             m.FirmwarePlan,
             m.FirmwarePlan.deleted_at.is_(None),

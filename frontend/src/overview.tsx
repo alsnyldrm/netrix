@@ -1,4 +1,5 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ComponentType, PointerEvent, ReactNode } from "react";
 import {
   Pulse,
@@ -145,6 +146,63 @@ function storedLayout(key: string) {
   return defaults;
 }
 
+type Segment = [label: string, value: number | undefined, tone: string];
+
+function Distribution({
+  title,
+  values,
+  stacked = false,
+}: {
+  title: string;
+  values: Segment[];
+  stacked?: boolean;
+}) {
+  if (values.some(([, value]) => value === undefined)) return null;
+  const sizes = values.map(([, value]) => value ?? 0);
+  const max =
+    (stacked
+      ? sizes.reduce((sum, value) => sum + value, 0)
+      : Math.max(...sizes)) || 1;
+  return (
+    <figure className="overview-chart">
+      <figcaption>{title}</figcaption>
+      {stacked && (
+        <div
+          className="overview-chart-track overview-chart-stack"
+          aria-hidden="true"
+        >
+          {values.map(([label, value, tone]) => (
+            <i
+              key={label}
+              data-tone={tone}
+              style={{ width: `${((value ?? 0) / max) * 100}%` }}
+            />
+          ))}
+        </div>
+      )}
+      <dl className={stacked ? "overview-chart-legend" : "overview-chart-bars"}>
+        {values.map(([label, value, tone]) => (
+          <div key={label}>
+            <dt>
+              <i data-tone={tone} aria-hidden="true" />
+              {label}
+            </dt>
+            <dd>{number.format(value ?? 0)}</dd>
+            {!stacked && (
+              <div className="overview-chart-track" aria-hidden="true">
+                <i
+                  data-tone={tone}
+                  style={{ width: `${((value ?? 0) / max) * 100}%` }}
+                />
+              </div>
+            )}
+          </div>
+        ))}
+      </dl>
+    </figure>
+  );
+}
+
 function StatRows({
   rows,
 }: {
@@ -222,7 +280,17 @@ export function Overview({
   const [announcement, setAnnouncement] = useState("");
   const [storageError, setStorageError] = useState(false);
   const [dropTarget, setDropTarget] = useState<Widget | null>(null);
-  const drag = useRef<{ id: Widget; x: number; y: number } | null>(null);
+  const drag = useRef<{
+    id: Widget;
+    x: number;
+    y: number;
+    active: boolean;
+  } | null>(null);
+  const pointer = useRef({ x: 0, y: 0 });
+  const frame = useRef(0);
+  const preview = useRef<HTMLDivElement>(null);
+  const [dragged, setDragged] = useState<Widget | null>(null);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
   const grid = useRef<HTMLElement>(null);
   const catalogTrigger = useRef<HTMLButtonElement>(null);
   const api = useLiveQuery<WidgetData>(
@@ -257,43 +325,76 @@ export function Overview({
       `${widgets[id].title}, ${destination + 1}. sıraya taşındı.`,
     );
   }
-  function targetAt(event: PointerEvent) {
-    const target = document
-      .elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>("[data-overview-widget]");
-    return grid.current?.contains(target ?? null)
-      ? (target?.dataset.overviewWidget as Widget)
-      : null;
+  function targetAt(x: number, y: number): Widget | null {
+    if (
+      !grid.current ||
+      !document.elementFromPoint(x, y) ||
+      y < 0 ||
+      y >= window.innerHeight
+    )
+      return null;
+    const bounds = grid.current.getBoundingClientRect();
+    if (
+      x < bounds.left - 16 ||
+      x > bounds.right + 16 ||
+      y < bounds.top - 16 ||
+      y > bounds.bottom + 16
+    )
+      return null;
+    let nearest: Widget | null = null;
+    let distance = Infinity;
+    for (const card of grid.current.querySelectorAll<HTMLElement>(
+      "[data-overview-widget]",
+    )) {
+      const rect = card.getBoundingClientRect();
+      const dx = Math.max(rect.left - x, 0, x - rect.right);
+      const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+      if (dx * dx + dy * dy < distance) {
+        distance = dx * dx + dy * dy;
+        nearest = card.dataset.overviewWidget as Widget;
+      }
+      if (distance === 0) break;
+    }
+    return nearest;
+  }
+  function updateDrag() {
+    const { x, y } = pointer.current;
+    const edge = 100;
+    const scroll =
+      y < edge
+        ? Math.max(-20, (y - edge) / 3)
+        : Math.min(20, Math.max(0, (y - (window.innerHeight - edge)) / 3));
+    if (scroll) window.scrollBy(0, scroll);
+    if (preview.current)
+      preview.current.style.transform = `translate(${Math.min(x + 14, window.innerWidth - preview.current.offsetWidth - 8)}px, ${Math.min(y + 14, window.innerHeight - 50)}px)`;
+    setDropTarget(targetAt(x, y));
+    frame.current = requestAnimationFrame(updateDrag);
   }
   function startDrag(event: PointerEvent<HTMLButtonElement>, id: Widget) {
     if (!event.isPrimary || event.button !== 0) return;
-    drag.current = { id, x: event.clientX, y: event.clientY };
+    drag.current = { id, x: event.clientX, y: event.clientY, active: false };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
   function dragOver(event: PointerEvent<HTMLButtonElement>) {
     if (!drag.current) return;
-    const { x, y } = drag.current;
-    if (Math.hypot(event.clientX - x, event.clientY - y) < 8 && !dropTarget)
-      return;
-    if (event.clientY < 65) window.scrollBy(0, -18);
-    if (event.clientY > window.innerHeight - 65) window.scrollBy(0, 18);
-    setDropTarget(targetAt(event));
+    const { x, y, id, active } = drag.current;
+    pointer.current = { x: event.clientX, y: event.clientY };
+    if (active || Math.hypot(event.clientX - x, event.clientY - y) < 6) return;
+    drag.current.active = true;
+    setDragged(id);
+    frame.current = requestAnimationFrame(updateDrag);
   }
   function clearDrag() {
+    cancelAnimationFrame(frame.current);
     setDropTarget(null);
+    setDragged(null);
     drag.current = null;
   }
   function finishDrag(event: PointerEvent<HTMLButtonElement>) {
-    const target = targetAt(event);
-    if (
-      drag.current &&
-      target &&
-      Math.hypot(
-        event.clientX - drag.current.x,
-        event.clientY - drag.current.y,
-      ) >= 8
-    ) {
-      move(drag.current.id, layout.indexOf(target));
+    const target = targetAt(event.clientX, event.clientY);
+    if (drag.current?.active) {
+      event.preventDefault();
+      if (target) move(drag.current.id, layout.indexOf(target));
     }
     clearDrag();
   }
@@ -328,35 +429,48 @@ export function Overview({
             </p>
           );
         return (
-          <ul className="overview-entry-list">
-            {entries.map((entry) => (
-              <li key={entry.id}>
-                <strong>{entry.message}</strong>
-                <span>
-                  {"severity" in entry && "acknowledged_at" in entry && (
-                    <span
-                      className={
-                        entry.severity === "critical"
-                          ? "overview-attention"
-                          : undefined
-                      }
-                    >
-                      {entry.severity === "critical"
-                        ? "Kritik"
-                        : entry.severity === "warning"
-                          ? "Uyarı"
-                          : "Bilgi"}
-                      {entry.acknowledged_at ? " · Görüldü" : " · Görülmedi"}{" "}
-                      ·{" "}
-                    </span>
-                  )}
-                  <time dateTime={entry.created_at}>
-                    {formatDate(entry.created_at)}
-                  </time>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            {id === "alarms" && (
+              <Distribution
+                title="Açık alarmların önem dağılımı"
+                stacked
+                values={[
+                  ["Kritik", d.alarm_critical, "danger"],
+                  ["Uyarı", d.alarm_warning, "warning"],
+                  ["Bilgi", d.alarm_info, "accent"],
+                ]}
+              />
+            )}
+            <ul className="overview-entry-list">
+              {entries.map((entry) => (
+                <li key={entry.id}>
+                  <strong>{entry.message}</strong>
+                  <span>
+                    {"severity" in entry && "acknowledged_at" in entry && (
+                      <span
+                        className={
+                          entry.severity === "critical"
+                            ? "overview-attention"
+                            : undefined
+                        }
+                      >
+                        {entry.severity === "critical"
+                          ? "Kritik"
+                          : entry.severity === "warning"
+                            ? "Uyarı"
+                            : "Bilgi"}
+                        {entry.acknowledged_at ? " · Görüldü" : " · Görülmedi"}{" "}
+                        ·{" "}
+                      </span>
+                    )}
+                    <time dateTime={entry.created_at}>
+                      {formatDate(entry.created_at)}
+                    </time>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         );
       }
       case "gaps": {
@@ -387,25 +501,42 @@ export function Overview({
       }
       case "inventory":
         return (
-          <StatRows
-            rows={[
-              ["Envanterdeki cihaz", c.devices],
-              ["Aktif cihaz", c.active_devices],
-              ["Erişilebilir olarak kaydedilen", c.reachable],
-              ["Erişilebilirliği doğrulanmamış", d.unverified, true],
-              ["Lokasyon", c.sites],
-            ]}
-          />
+          <>
+            <Distribution
+              title="Aktif cihazların erişilebilirliği"
+              stacked
+              values={[
+                ["Erişilebilir", c.reachable, "success"],
+                ["Doğrulanmamış", d.unverified, "warning"],
+              ]}
+            />
+            <StatRows
+              rows={[
+                ["Envanterdeki cihaz", c.devices],
+                ["Aktif cihaz", c.active_devices],
+                ["Lokasyon", c.sites],
+              ]}
+            />
+          </>
         );
       case "ipam":
         return (
-          <StatRows
-            rows={[
-              ["VLAN", c.vlans],
-              ["Kayıtlı adres", c.addresses],
-              ["Sorunlu IP çözümlemesi", d.ip_problems, true],
-            ]}
-          />
+          <>
+            <Distribution
+              title="Kayıtlı IP çözümleme sonuçları"
+              stacked
+              values={[
+                ["Başarılı", d.ip_resolved, "success"],
+                ["Sorunlu", d.ip_problems, "danger"],
+              ]}
+            />
+            <StatRows
+              rows={[
+                ["VLAN", c.vlans],
+                ["Kayıtlı adres", c.addresses],
+              ]}
+            />
+          </>
         );
       case "backups":
         return (
@@ -419,13 +550,22 @@ export function Overview({
         );
       case "jobs":
         return (
-          <StatRows
-            rows={[
-              ["Kuyrukta", d.queued],
-              ["Çalışıyor", d.running],
-              ["Başarısız · Son 24 saat", d.failed, true],
-            ]}
-          />
+          <>
+            <Distribution
+              title="Son 24 saatte sonuçlanan görevler"
+              values={[
+                ["Başarılı", d.succeeded, "success"],
+                ["Kısmi", d.partial, "warning"],
+                ["Başarısız", d.failed, "danger"],
+              ]}
+            />
+            <StatRows
+              rows={[
+                ["Kuyrukta", d.queued],
+                ["Çalışıyor", d.running],
+              ]}
+            />
+          </>
         );
       case "firmware":
         return (
@@ -472,11 +612,22 @@ export function Overview({
   }
 
   return (
-    <div className="overview-workspace">
+    <div className={`overview-workspace${dragged ? " overview-dragging" : ""}`}>
+      {dragged &&
+        createPortal(
+          <div
+            ref={preview}
+            className="overview-drag-preview"
+            aria-hidden="true"
+          >
+            <DotsSixVertical size={20} /> {widgets[dragged].title}
+          </div>,
+          document.body,
+        )}
       <header className="overview-command">
         <div>
           <h1>Genel bakış</h1>
-          <p>NETRIX operasyon durumu</p>
+          <p>Ağ, sistem ve operasyon durumu</p>
         </div>
         <div className="overview-command-actions">
           <button
@@ -507,7 +658,7 @@ export function Overview({
         <span>
           {editing
             ? "Widget’leri tutamacından sürükleyin veya oklarla taşıyın."
-            : `${layout.length} widget`}
+            : `${layout.length} widget · Başlıktaki tutamaçtan sürükleyin`}
         </span>
         {(api.data?.server_time || dashboard?.server_time) && (
           <span>
@@ -551,7 +702,7 @@ export function Overview({
             <article
               key={id}
               data-overview-widget={id}
-              className={`panel overview-widget${dropTarget === id && drag.current?.id !== id ? " overview-drop-target" : ""}`}
+              className={`panel overview-widget${dragged === id ? " overview-drag-source" : ""}${dropTarget === id && dragged !== id ? " overview-drop-target" : ""}`}
             >
               <header className="overview-widget-header">
                 <span className="overview-widget-icon">
@@ -565,26 +716,28 @@ export function Overview({
                     {number.format(c.firing_alerts)}
                   </span>
                 )}
+                <button
+                  className="overview-grip"
+                  type="button"
+                  onClick={(event) => {
+                    if (!editing && event.detail === 0) setEditing(true);
+                  }}
+                  aria-label={`${title} sürükle`}
+                  title="Sürükle ve bırak · Klavyeyle düzenlemek için Enter"
+                  onPointerDown={(event) => startDrag(event, id)}
+                  onPointerMove={dragOver}
+                  onPointerUp={finishDrag}
+                  onPointerCancel={clearDrag}
+                  onLostPointerCapture={clearDrag}
+                >
+                  <DotsSixVertical size={20} aria-hidden="true" />
+                </button>
               </header>
               {editing && (
                 <div
                   className="overview-widget-tools"
                   aria-label={`${title} düzenleme araçları`}
                 >
-                  <button
-                    className="overview-grip"
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={`${title} sürükle`}
-                    title="Sürükle ve bırak"
-                    onPointerDown={(event) => startDrag(event, id)}
-                    onPointerMove={dragOver}
-                    onPointerUp={finishDrag}
-                    onPointerCancel={clearDrag}
-                    onLostPointerCapture={clearDrag}
-                  >
-                    <DotsSixVertical size={20} aria-hidden="true" />
-                  </button>
                   <button
                     type="button"
                     aria-label={`${title} yukarı taşı`}
