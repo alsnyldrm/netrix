@@ -38,7 +38,7 @@ def verify(page, mobile, theme):
                           "server_time": WHEN},
             "dashboard/widgets": WIDGETS,
             "system": {"database": "postgresql", "redis": "ok", "worker": WHEN, "scheduler": None},
-            "access/preferences": {},
+            "access/preferences": {"palette": "violet"},
         }.get(path, {"items": [], "total": 0})
         route.fulfill(json=response)
 
@@ -72,6 +72,19 @@ def verify(page, mobile, theme):
         })"""
     )
     assert alignment
+    toolbar = page.locator(".overview-command")
+    expect(toolbar.get_by_text("Son veri", exact=False)).to_be_visible()
+    edit_button = toolbar.get_by_role("button", name="Yerleşimi düzenle", exact=True)
+    add_button = toolbar.get_by_role("button", name="Widget ekle", exact=True)
+    edit_box, add_box = edit_button.bounding_box(), add_button.bounding_box()
+    assert abs(edit_box["y"] - add_box["y"]) < 1
+    assert abs(edit_box["height"] - add_box["height"]) < 1
+    if mobile:
+        assert abs(edit_box["width"] - add_box["width"]) < 1
+    else:
+        title_box = toolbar.locator(".overview-command-title").bounding_box()
+        assert abs(title_box["y"] + title_box["height"] / 2 - edit_box["y"] - edit_box["height"] / 2) < 1
+    expect(page.locator(".overview-edit-hint")).to_have_count(0)
     if output := os.environ.get("NETRIX_OVERVIEW_SCREENSHOTS"):
         page.screenshot(path=str(Path(output) / f"overview-{'mobile' if mobile else 'desktop'}-{theme}.png"), full_page=True)
 
@@ -114,7 +127,8 @@ def verify(page, mobile, theme):
         page.mouse.up()
     expect(card.first).to_have_attribute("data-overview-widget", "gaps")
     expect(page.get_by_role("button", name="Yerleşimi düzenle", exact=True)).to_be_visible()
-    page.get_by_role("button", name="Yerleşimi düzenle", exact=True).click()
+    edit_button.click()
+    expect(page.locator(".overview-edit-hint")).to_be_visible()
     page.get_by_role("button", name="Aktif alarmlar yukarı taşı", exact=True).press("Enter")
     expect(card.first).to_have_attribute("data-overview-widget", "alarms")
 

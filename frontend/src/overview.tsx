@@ -16,6 +16,7 @@ import {
   GearSix,
   HardDrives,
   ListChecks,
+  PencilSimple,
   PlugsConnected,
   Plus,
   ShieldCheck,
@@ -445,6 +446,7 @@ export function Overview({
     layout.some((item) => item !== "system") ? "/dashboard/widgets" : null,
     refresh,
   );
+  const lastUpdated = api.data?.server_time || dashboard?.server_time;
   const c = dashboard?.counts ?? {};
   const d = api.data?.counts ?? {};
 
@@ -829,28 +831,36 @@ export function Overview({
           document.body,
         )}
       <header className="overview-command">
-        <div>
+        <div className="overview-command-title">
           <h1>Genel bakış</h1>
-          <p>Ağ, sistem ve operasyon durumu</p>
+          <p className="overview-command-meta">
+            <span>{number.format(layout.length)} widget</span>
+            {lastUpdated && (
+              <span>
+                Son veri{" "}
+                <time dateTime={lastUpdated}>{formatDate(lastUpdated)}</time>
+              </span>
+            )}
+          </p>
         </div>
         <div className="overview-command-actions">
           <button
             type="button"
-            className="secondary"
+            className="overview-edit-button"
             aria-pressed={editing}
             onClick={() => setEditing(!editing)}
           >
             {editing ? (
               <Check size={18} aria-hidden="true" />
             ) : (
-              <GearSix size={18} aria-hidden="true" />
+              <PencilSimple size={17} aria-hidden="true" />
             )}
             {editing ? "Düzenlemeyi bitir" : "Yerleşimi düzenle"}
           </button>
           <button
             ref={catalogTrigger}
             type="button"
-            className="primary"
+            className="overview-add-button"
             onClick={() => setCatalogOpen(true)}
           >
             <Plus size={18} aria-hidden="true" /> Widget ekle
@@ -858,21 +868,12 @@ export function Overview({
         </div>
       </header>
 
-      <div className="overview-status">
-        <span>
-          {editing
-            ? "Widget’leri tutamacından sürükleyin veya oklarla taşıyın."
-            : `${layout.length} widget · Başlıktaki tutamaçtan sürükleyin`}
-        </span>
-        {(api.data?.server_time || dashboard?.server_time) && (
-          <span>
-            Son veri{" "}
-            <time dateTime={api.data?.server_time || dashboard?.server_time}>
-              {formatDate(api.data?.server_time || dashboard?.server_time)}
-            </time>
-          </span>
-        )}
-      </div>
+      {editing && (
+        <p className="overview-edit-hint">
+          <DotsSixVertical size={18} aria-hidden="true" />
+          Kartları tutamacından sürükleyin veya oklarla taşıyın.
+        </p>
+      )}
       <span className="overview-announcement" role="status">
         {announcement}
       </span>
