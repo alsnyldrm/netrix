@@ -181,7 +181,13 @@ export function Profile({
                 Tercihleriniz hesabınıza özeldir ve diğer kullanıcıları
                 etkilemez.
               </p>
-              <PasswordChange onChanged={onPasswordChanged} />
+              {user.auth_source === "saml" ? (
+                <p className="muted">
+                  Hesap parolanız Microsoft Entra ID tarafından yönetilir.
+                </p>
+              ) : (
+                <PasswordChange onChanged={onPasswordChanged} />
+              )}
             </>
           )}
           {tab === "design" && (

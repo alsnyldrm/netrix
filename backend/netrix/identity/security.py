@@ -91,3 +91,15 @@ def issue_session(db, user):
     token = secrets.token_urlsafe(48)
     db.add(AuthSession(token_hash=token_hash(token), user_id=user.id, expires_at=now() + timedelta(hours=12)))
     return token
+
+
+def set_session_cookie(response, token):
+    response.set_cookie(
+        "netrix_session",
+        token,
+        httponly=True,
+        secure=settings().secure_cookies,
+        samesite="strict",
+        max_age=43200,
+        path="/",
+    )

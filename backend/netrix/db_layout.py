@@ -72,6 +72,8 @@ SCHEMA_TABLES = {
         "users",
         "user_avatars",
         "auth_sessions",
+        "saml_settings",
+        "saml_identities",
         "audit_events",
         "credentials",
         "integrations",

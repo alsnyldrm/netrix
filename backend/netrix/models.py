@@ -45,16 +45,35 @@ class User(Entity, Base):
     email: Mapped[str] = mapped_column(String(190), unique=True)
     display_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(Text)
+    auth_source: Mapped[str] = mapped_column(String(10), default="local", server_default="local")
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     ssh_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (
+        CheckConstraint("auth_source in ('local','saml')", name="ck_user_auth_source"),
+        CheckConstraint("auth_source = 'local' OR role <> 'super_admin'", name="ck_saml_no_super_admin"),
         CheckConstraint("role in ('super_admin','admin','operator','viewer')", name="ck_user_role"),
         CheckConstraint(
             "role <> 'super_admin' OR lower(email) = 'alisan.yildirim@fbu.edu.tr'",
             name="ck_user_super_admin_email",
         ),
     )
+
+
+class SamlSettings(Base):
+    __tablename__ = "saml_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    config: Mapped[dict] = mapped_column(JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"))
+    __table_args__ = (CheckConstraint("id = 1", name="ck_saml_settings_singleton"),)
+
+
+class SamlIdentity(Base):
+    __tablename__ = "saml_identities"
+    user_id: Mapped[str] = mapped_column(ForeignKey("yonetim.users.id", ondelete="CASCADE"), primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(512))
+    subject: Mapped[str] = mapped_column(String(400))
+    manual_role: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    __table_args__ = (UniqueConstraint("issuer", "subject", name="uq_saml_identity"),)
 
 
 class UserAvatar(Base):
@@ -793,7 +812,9 @@ class FirmwareReleaseFile(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger)
     sha256: Mapped[str] = mapped_column(String(64))
     content: Mapped[bytes] = mapped_column(LargeBinary, deferred=True)
-    __table_args__ = (CheckConstraint("size_bytes > 0 AND size_bytes <= 20971520", name="ck_fw_release_size"),)
+    __table_args__ = (
+        CheckConstraint("size_bytes > 0 AND size_bytes <= 20971520", name="ck_fw_release_size"),
+    )
 
 
 class FirmwareGroup(Entity, Base):

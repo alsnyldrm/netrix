@@ -24,6 +24,7 @@ from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .firmware.api import router as firmware_router
+from .identity import saml
 from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin, is_super_admin
 from .identity.security import (
     DUMMY_HASH,
@@ -34,6 +35,7 @@ from .identity.security import (
     issue_session,
     operator,
     session_user,
+    set_session_cookie,
     super_admin,
     token_hash,
     verify,
@@ -67,7 +69,9 @@ P = "/api/v1"
 @app.middleware("http")
 async def security_headers(request, call_next):
     request_id = secrets.token_hex(12)
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE") and not (
+        request.method == "POST" and request.url.path == saml.ACS
+    ):
         origin = request.headers.get("origin")
         if request.headers.get("x-netrix-request") != "1" or (origin and origin != settings().public_url):
             return JSONResponse({"detail": "İstek doğrulanamadı", "request_id": request_id}, status_code=403)
@@ -160,7 +164,10 @@ def ready(response: Response):
 
 @app.get(P + "/auth/status")
 def auth_status(db=Depends(db_session)):
-    return {"setup_required": db.scalar(select(func.count()).select_from(m.User)) == 0}
+    return {
+        "setup_required": db.scalar(select(func.count()).select_from(m.User)) == 0,
+        "saml_enabled": saml.enabled(db),
+    }
 
 
 @app.post(P + "/auth/setup", status_code=201)
@@ -207,21 +214,15 @@ def rate_limit(key):
 def login(payload: s.LoginInput, request: Request, response: Response, db=Depends(db_session)):
     rate_limit(request.client.host)
     user = db.scalar(select(m.User).where(m.User.email == payload.email.casefold()))
-    valid = verify(payload.password, user.password_hash if user else DUMMY_HASH)
-    if not valid or not user or not user.is_active:
+    valid = verify(
+        payload.password, user.password_hash if user and user.auth_source == "local" else DUMMY_HASH
+    )
+    if not valid or not user or not user.is_active or user.auth_source != "local":
         raise HTTPException(401, "E-posta veya parola hatalı")
     token = issue_session(db, user)
     audit(db, user, "login", "users", user.id, "Oturum açıldı")
     db.commit()
-    response.set_cookie(
-        "netrix_session",
-        token,
-        httponly=True,
-        secure=settings().secure_cookies,
-        samesite="strict",
-        max_age=43200,
-        path="/",
-    )
+    set_session_cookie(response, token)
     return svc.serialize(user)
 
 
@@ -249,6 +250,8 @@ def password(
     user=Depends(current_user),
     db=Depends(db_session),
 ):
+    if user.auth_source != "local":
+        raise HTTPException(403, "Bu hesabın parolası Microsoft Entra ID tarafından yönetilir.")
     if not verify(payload.current_password, user.password_hash):
         raise HTTPException(403, "Mevcut parola hatalı")
     user.password_hash = hasher.hash(payload.new_password)
@@ -446,11 +449,19 @@ def acknowledge(id: str, user=Depends(operator), db=Depends(db_session)):
 
 @app.put(P + "/users/{id}/roles")
 def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(super_admin), db=Depends(db_session)):
-    row = svc.get(db, m.User, id)
+    row = db.scalar(select(m.User).where(m.User.id == id).with_for_update())
+    if not row:
+        raise HTTPException(404, "Kullanıcı bulunamadı")
     if row.email.casefold() == SUPER_ADMIN_EMAIL and payload.role != "super_admin":
         raise HTTPException(409, "Süper yönetici rolü bu hesaptan kaldırılamaz")
-    if payload.role == "super_admin" and row.email.casefold() != SUPER_ADMIN_EMAIL:
+    if payload.role == "super_admin" and (
+        row.email.casefold() != SUPER_ADMIN_EMAIL or row.auth_source != "local"
+    ):
         raise HTTPException(422, "Süper yönetici yalnızca tanımlı uygulama sahibine atanabilir")
+    if row.auth_source == "saml" and row.role != payload.role:
+        binding = db.get(m.SamlIdentity, id)
+        if binding:
+            binding.manual_role = True
     row.role, row.ssh_access = payload.role, payload.ssh_access
     audit(db, user, "user_roles_updated", "users", id, "Uygulama ve SSH bağlantısı rolleri güncellendi")
     db.commit()
@@ -649,6 +660,7 @@ def remove_snapshot(id: str, user=Depends(admin), db=Depends(db_session)):
     delete_snapshot(db, id, user)
 
 
+app.include_router(saml.router, prefix=P)
 app.include_router(access_router)
 app.include_router(avatar_router)
 app.include_router(firmware_router)

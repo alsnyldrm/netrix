@@ -26,6 +26,10 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 | click | 8.5.0 | BSD-3-Clause |
 | cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
 | openpyxl | 3.1.5 | MIT |
+| python3-saml | 1.16.0 | MIT |
+| xmlsec | 1.3.18 | MIT |
+| lxml | 6.1.3 | BSD-3-Clause |
+| isodate | 0.7.2 | BSD-3-Clause |
 | defusedxml | 0.7.1 | PSF |
 | et_xmlfile | 2.0.0 | MIT |
 | fastapi | 0.162.0 | MIT |

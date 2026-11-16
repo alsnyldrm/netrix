@@ -1,3 +1,4 @@
+import { SamlSettings } from "./saml-settings";
 import {
   MotionTitle,
   usePageMotion,
@@ -815,6 +816,13 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    key: "saml",
+    title: "SAML / Microsoft Entra ID",
+    desc: "Kurumsal oturum açma ve Entra rol eşlemelerini yapılandırın.",
+    group: "Yönetim",
+    icon: LockKey,
+  },
+  {
     key: "settings",
     title: "Sistem odası",
     desc: "Platform sağlığı ve sistem durumu.",
@@ -1285,7 +1293,19 @@ function Auth({
   const [setup, setSetup] = useState(false);
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [samlEnabled, setSamlEnabled] = useState(false);
+  const [error, setError] = useState(() => {
+    const state = new URLSearchParams(location.search).get("saml");
+    if (state === "expired")
+      return "Entra giriş isteğinin süresi doldu. Yeniden giriş yapın.";
+    if (state === "invalid")
+      return "Entra girişi doğrulanamadı. Yeniden deneyin veya yöneticinize başvurun.";
+    if (state === "disabled")
+      return "Microsoft Entra ID ile giriş şu anda kapalı.";
+    if (state === "unavailable")
+      return "Microsoft Entra ID ile giriş şu anda kullanılamıyor.";
+    return "";
+  });
   const [values, setValues] = useState<Row>({
     email: "",
     password: "",
@@ -1293,8 +1313,20 @@ function Auth({
     setup_token: "",
   });
   useEffect(() => {
+    const url = new URL(location.href);
+    if (url.searchParams.has("saml")) {
+      url.searchParams.delete("saml");
+      history.replaceState(
+        history.state,
+        "",
+        url.pathname + url.search + url.hash,
+      );
+    }
     api("/auth/status")
-      .then((d) => setSetup(d.setup_required))
+      .then((d) => {
+        setSetup(d.setup_required);
+        setSamlEnabled(d.saml_enabled === true);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setChecking(false));
   }, []);
@@ -1407,6 +1439,12 @@ function Auth({
                 <ArrowRight size={19} />
               </button>
             </form>
+          )}
+          {!checking && !setup && samlEnabled && (
+            <a className="auth-saml" href="/api/v1/auth/saml/login">
+              <LockKey size={18} aria-hidden="true" /> Microsoft Entra ID ile
+              giriş yap
+            </a>
           )}
           <div className="secure-note">
             <LockKey size={16} /> Şifreli bağlantı · Merkezi yetkilendirme
@@ -2445,7 +2483,8 @@ function App() {
     PAGES.find(
       (p) =>
         p.key === current &&
-        (!["users", "audit"].includes(p.key) || hasAdminAccess(user)),
+        (!["users", "audit"].includes(p.key) || hasAdminAccess(user)) &&
+        (p.key !== "saml" || isSuperAdmin(user)),
     ) || PAGES[0];
   useSubmenuMotion(openGroup, collapsed, drawer);
   const toggleSidebar = useSidebarMotion(collapsed, (next) => {
@@ -2713,10 +2752,7 @@ function App() {
           referencesKey
             .split(",")
             .filter(Boolean)
-            .map(async (name) => [
-              name,
-              await allRows("/" + name),
-            ]),
+            .map(async (name) => [name, await allRows("/" + name)]),
         ),
       ),
   );
@@ -3028,7 +3064,8 @@ function App() {
   const sectionPages = PAGES.filter(
     (item) =>
       item.group === page.group &&
-      (!["users", "audit"].includes(item.key) || isAdmin),
+      (!["users", "audit"].includes(item.key) || isAdmin) &&
+      (item.key !== "saml" || canAssignRoles),
   );
   const commandTrigger = (
     <button
@@ -3146,7 +3183,8 @@ function App() {
               const items = PAGES.filter(
                 (item) =>
                   item.group === g &&
-                  (!["users", "audit"].includes(item.key) || isAdmin),
+                  (!["users", "audit"].includes(item.key) || isAdmin) &&
+                  (item.key !== "saml" || canAssignRoles),
               );
               const Icon = items[0].icon;
               const expanded = drawer || (!collapsed && openGroup === g);
@@ -3571,6 +3609,8 @@ function App() {
                   }
                 />
               </>
+            ) : page.key === "saml" ? (
+              <SamlSettings />
             ) : page.key === "settings" ? (
               <Settings section={settingsSection} />
             ) : (
@@ -4185,7 +4225,9 @@ function App() {
           onClose={() => setCommand(false)}
         >
           <WorkspaceSearch
-            pages={PAGES}
+            pages={PAGES.filter(
+              (item) => item.key !== "saml" || canAssignRoles,
+            )}
             query={commandQuery}
             setQuery={setCommandQuery}
             admin={isAdmin}

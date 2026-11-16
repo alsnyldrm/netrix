@@ -1,0 +1,114 @@
+.saml-panel {
+  min-width: 0;
+  padding: clamp(16px, 2.4vw, 28px);
+}
+.saml-panel-header,
+.saml-title,
+.saml-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.saml-panel-header {
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+.saml-title h2 {
+  margin: 0;
+  text-wrap: balance;
+}
+.saml-role-pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.saml-form,
+.saml-form fieldset {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.saml-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.saml-form .saml-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  width: fit-content;
+}
+.saml-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.saml-fields label {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+.saml-fields input,
+.saml-fields textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+}
+.saml-fields input[readonly] {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+.saml-fields textarea {
+  resize: vertical;
+}
+.saml-full {
+  grid-column: 1 / -1;
+}
+.saml-metadata a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-soft-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.saml-form p {
+  margin: 0;
+  line-height: 1.6;
+}
+.saml-form-actions button {
+  min-height: 44px;
+}
+.auth-saml {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+  margin-top: 16px;
+}
+.auth-saml:hover {
+  background: var(--surface-2);
+}
+@media (max-width: 680px) {
+  .saml-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
