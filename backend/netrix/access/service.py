@@ -33,7 +33,10 @@ def lock_owner(db, user):
     if db.new or db.dirty or db.deleted:
         raise RuntimeError("Workspace writes require a clean transaction")
     db.rollback()
-    db.scalar(select(m.User.id).where(m.User.id == user_id).with_for_update())
+    if not db.scalar(
+        select(m.User.id).where(m.User.id == user_id, m.User.is_active.is_(True)).with_for_update()
+    ):
+        raise HTTPException(401, "Oturum açmanız gerekiyor")
 
 
 def owned_profile(db, user, id):

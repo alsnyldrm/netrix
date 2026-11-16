@@ -4,29 +4,30 @@ from fastapi import HTTPException
 from sqlalchemy import delete, select
 
 from .. import models as m
+from ..core import now
 from .permissions import is_admin, is_recovery_owner, is_super_admin
-from .security import audit
+from .security import DUMMY_HASH, audit
 
 
-def locked_accounts(db, actor_id, target_id):
+def locked_accounts(db, ids):
     # The same order is used for grants, revocations and deactivations. Re-read
     # the actor after acquiring the locks so a concurrent demotion cannot leave
     # a request authorized by the earlier session lookup.
-    accounts = {
+    return {
         row.id: row
         for row in db.scalars(
             select(m.User)
-            .where(m.User.id.in_({actor_id, target_id}))
+            .where(m.User.id.in_(ids), m.User.deleted_at.is_(None))
             .order_by(m.User.id)
             .with_for_update()
             .execution_options(populate_existing=True)
         )
     }
-    return accounts.get(actor_id), accounts.get(target_id)
 
 
 def assign(db, actor_id, target_id, payload):
-    actor, target = locked_accounts(db, actor_id, target_id)
+    accounts = locked_accounts(db, {actor_id, target_id})
+    actor, target = accounts.get(actor_id), accounts.get(target_id)
     if not is_super_admin(actor) or not actor.is_active:
         raise HTTPException(403, "Bu işlem için süper yönetici yetkisi gerekiyor")
     if not target:
@@ -48,7 +49,8 @@ def assign(db, actor_id, target_id, payload):
 
 
 def toggle(db, actor_id, target_id):
-    actor, target = locked_accounts(db, actor_id, target_id)
+    accounts = locked_accounts(db, {actor_id, target_id})
+    actor, target = accounts.get(actor_id), accounts.get(target_id)
     if not is_admin(actor) or not actor.is_active:
         raise HTTPException(403, "Bu işlem için yönetici yetkisi gerekiyor")
     if actor_id == target_id:
@@ -62,3 +64,39 @@ def toggle(db, actor_id, target_id):
     audit(db, actor, "toggle_user", "users", target_id, "Hesap erişimi değiştirildi")
     db.commit()
     return target
+
+
+def remove(db, actor_id, ids):
+    targets = set(ids)
+    accounts = locked_accounts(db, targets | {actor_id})
+    actor = accounts.get(actor_id)
+    if not is_super_admin(actor) or not actor.is_active:
+        raise HTTPException(403, "Bu işlem için süper yönetici yetkisi gerekiyor")
+    if actor_id in targets:
+        raise HTTPException(409, "Kendi hesabınızı silemezsiniz")
+    if targets - accounts.keys():
+        raise HTTPException(404, "Seçilen kullanıcılardan biri artık mevcut değil")
+    if any(is_recovery_owner(accounts[id]) for id in targets):
+        raise HTTPException(409, "Yerel kurtarma hesabı silinemez")
+
+    # Keep the identity and SAML binding for history and to prevent automatic
+    # re-provisioning. Remove private profile data and revoke every session.
+    for model, owner in (
+        (m.AuthSession, m.AuthSession.user_id),
+        (m.UserAvatar, m.UserAvatar.user_id),
+        (m.UserWorkspace, m.UserWorkspace.user_id),
+        (m.AccessGroup, m.AccessGroup.owner_id),
+        (m.UserSSHProfile, m.UserSSHProfile.owner_id),
+    ):
+        db.execute(delete(model).where(owner.in_(targets)))
+    deleted_at = now()
+    for id in sorted(targets):
+        target = accounts[id]
+        target.deleted_at = deleted_at
+        target.is_active = target.ssh_access = False
+        target.role = "viewer"
+        target.password_hash = DUMMY_HASH
+        method = "Microsoft Entra ID" if target.auth_source == "saml" else "Yerel parola"
+        audit(db, actor, "delete", "users", id, f"Kullanıcı “{target.email}” ({method}) silindi")
+    db.commit()
+    return len(targets)

@@ -24,6 +24,7 @@ def preferences(user=Depends(current_user), db=Depends(db_session)):
 
 @router.put("/preferences")
 def save_preferences(payload: s.Preferences, user=Depends(current_user), db=Depends(db_session)):
+    svc.lock_owner(db, user)
     svc.workspace(db, user).preferences = payload.model_dump()
     db.commit()
     return payload
@@ -66,6 +67,7 @@ def commands(user=Depends(ssh_user), db=Depends(db_session)):
 
 @router.put("/commands")
 def save_commands(payload: s.Commands, user=Depends(ssh_user), db=Depends(db_session)):
+    svc.lock_owner(db, user)
     svc.workspace(db, user).encrypted_commands = e.pack([c.model_dump() for c in payload.items])
     db.commit()
     return payload

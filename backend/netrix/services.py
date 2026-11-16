@@ -490,6 +490,8 @@ def list_resource(db, name, limit=100, offset=0, q="", device_id=None):
         options.extend((selectinload(m.Scope.profiles), selectinload(m.Scope.model_profiles)))
     if name == "devices":
         stmt = stmt.where(m.Device.discovery_scope_id.is_not(None))
+    if name == "users":
+        stmt = stmt.where(m.User.deleted_at.is_(None))
     if name == "jobs":
         # ICMP checks keep their worker state but never enter the task center.
         stmt = stmt.where(m.Job.kind != "ipam_ping", m.Job.archived_at.is_(None))
@@ -586,10 +588,16 @@ def delete_resource(db, name, id, user):
         raise HTTPException(405, "Bu kaynak salt okunur")
     if not is_admin(user):
         raise HTTPException(403, "Silme için yönetici yetkisi gerekli")
+    if name == "users":
+        from .identity.roles import remove
+
+        remove(db, user.id, [id])
+        publish()
+        return
     model = RESOURCES[name][0]
     row = get(db, model, id)
-    if name in ("users", "vrfs"):
-        raise HTTPException(409, "Kimlik ve VRF kayıtları geçmişi korumak için silinemez")
+    if name == "vrfs":
+        raise HTTPException(409, "VRF kayıtları geçmişi korumak için silinemez")
     if name == "vlans":
         from .ipam.vlan_deletion import remove
 

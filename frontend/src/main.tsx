@@ -8,12 +8,19 @@ import {
 } from "./lumelle-motion";
 import { ColumnTable } from "./column-table";
 import {
+  isRecoveryOwner,
   isSuperAdmin,
   hasAdminAccess,
   canOperate,
   canSSH,
 } from "./permissions";
-import { UserRoleEditor } from "./identity-roles";
+import {
+  UserDeleteAction,
+  UserDeleteDialog,
+  UserDeleteSelection,
+  UserRoleEditor,
+  type UserDeleteTarget,
+} from "./identity-roles";
 import { Profile } from "./user-workspace";
 import { darkPaletteId } from "./appearance";
 import type { ThemePreference } from "./preferences";
@@ -2414,6 +2421,11 @@ function App() {
   const standaloneView = !!terminalId || !!batchRoute;
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleUser, setRoleUser] = useState<Row | null>(null);
+  const [pickedUsers, setPickedUsers] = useState<string[]>([]);
+  const [deletingUsers, setDeletingUsers] = useState<{
+    accounts: UserDeleteTarget[];
+    bulk: boolean;
+  } | null>(null);
   const [user, setUser] = useState<Row | null>(null);
   const accountAvatar = useAccountAvatar(user?.id);
   const [boot, setBoot] = useState(true);
@@ -2811,6 +2823,23 @@ function App() {
   const items: Row[] = tableQuery.data?.items || [];
   const total = tableQuery.data?.total || 0;
   const loading = tableQuery.loading;
+  const canDeleteUsers = page.key === "users" && canAssignRoles;
+  const removableUsers = new Map<string, UserDeleteTarget>();
+  if (canDeleteUsers && query === search) {
+    for (const row of items) {
+      const { id, display_name, email, auth_source } = row;
+      if (id !== user?.id && !isRecoveryOwner(row)) {
+        removableUsers.set(id, { id, display_name, email, auth_source });
+      }
+    }
+  }
+  const selectedUsers = [...removableUsers.values()].filter(({ id }) =>
+    pickedUsers.includes(id),
+  );
+  const allUsersSelected =
+    selectedUsers.length > 0 && selectedUsers.length === removableUsers.size;
+  useEffect(() => setPickedUsers([]), [current, offset, query, user?.id]);
+  useEffect(() => setDeletingUsers(null), [current, user?.id, canDeleteUsers]);
   useEffect(() => {
     const issue =
       tableQuery.error || referenceQuery.error || dashboardQuery.error;
@@ -3662,7 +3691,8 @@ function App() {
                 <section
                   className={
                     "panel table-panel" +
-                    (page.key === "audit" ? " audit-panel" : "")
+                    (page.key === "audit" ? " audit-panel" : "") +
+                    (canDeleteUsers ? " user-account-table" : "")
                   }
                 >
                   <div className="toolbar">
@@ -3671,6 +3701,24 @@ function App() {
                       <b>{page.title}</b>
                       <span className="count-pill">{total}</span>
                     </div>
+                    {canDeleteUsers && (
+                      <button
+                        className="secondary user-bulk-delete"
+                        disabled={!selectedUsers.length}
+                        onClick={() =>
+                          setDeletingUsers({
+                            accounts: selectedUsers,
+                            bulk: true,
+                          })
+                        }
+                      >
+                        <Trash size={17} aria-hidden="true" />
+                        Seçilenleri sil
+                        {selectedUsers.length
+                          ? ` (${selectedUsers.length})`
+                          : ""}
+                      </button>
+                    )}
                     <label className="search-box">
                       <MagnifyingGlass size={17} />
                       <input
@@ -3692,17 +3740,52 @@ function App() {
                   ) : items.length ? (
                     <div
                       className="table-scroll"
-                      tabIndex={page.key === "audit" ? 0 : undefined}
-                      role={page.key === "audit" ? "region" : undefined}
+                      tabIndex={
+                        page.key === "audit" || canDeleteUsers ? 0 : undefined
+                      }
+                      role={
+                        page.key === "audit" || canDeleteUsers
+                          ? "region"
+                          : undefined
+                      }
                       aria-label={
                         page.key === "audit"
                           ? "Tüm kullanıcıların denetim izi"
-                          : undefined
+                          : canDeleteUsers
+                            ? "Kullanıcı hesapları"
+                            : undefined
                       }
                     >
                       <ColumnTable orderKey={page.key}>
                         <thead>
                           <tr>
+                            {canDeleteUsers && (
+                              <th
+                                className="user-select"
+                                data-column-fixed
+                                aria-label="Seçim"
+                              >
+                                <input
+                                  type="checkbox"
+                                  aria-label="Bu sayfadaki silinebilir kullanıcıları seç"
+                                  checked={allUsersSelected}
+                                  disabled={!removableUsers.size}
+                                  ref={(input) => {
+                                    if (input)
+                                      input.indeterminate =
+                                        selectedUsers.length > 0 &&
+                                        !allUsersSelected;
+                                  }}
+                                  onChange={(event) =>
+                                    setPickedUsers(
+                                      event.target.checked
+                                        ? [...removableUsers.keys()]
+                                        : [],
+                                    )
+                                  }
+                                />
+                              </th>
+                            )}
                             {page.columns?.map(([key, title]) => (
                               <th key={key} data-column-id={key}>
                                 {title}
@@ -3716,6 +3799,19 @@ function App() {
                         <tbody>
                           {items.map((row) => (
                             <tr key={row.id}>
+                              {canDeleteUsers && (
+                                <UserDeleteSelection
+                                  account={removableUsers.get(row.id)}
+                                  checked={pickedUsers.includes(row.id)}
+                                  onSelect={(checked) =>
+                                    setPickedUsers((ids) =>
+                                      checked
+                                        ? [...ids, row.id]
+                                        : ids.filter((id) => id !== row.id),
+                                    )
+                                  }
+                                />
+                              )}
                               {page.columns?.map(([key]) => (
                                 <td
                                   key={key}
@@ -3777,7 +3873,13 @@ function App() {
                                 </td>
                               ))}
                               <td>
-                                <div className="row-actions">
+                                <div
+                                  className={
+                                    canDeleteUsers
+                                      ? "row-actions user-row-actions"
+                                      : "row-actions"
+                                  }
+                                >
                                   {page.key === "devices" && (
                                     <button
                                       className="icon-button"
@@ -3903,7 +4005,7 @@ function App() {
                                     )}
                                   {page.key === "users" && canAssignRoles && (
                                     <button
-                                      className="icon-button"
+                                      className="icon-button user-role-action"
                                       aria-label={`${row.display_name} rollerini düzenle`}
                                       onClick={() => setRoleUser(row)}
                                     >
@@ -3915,7 +4017,7 @@ function App() {
                                     !isSuperAdmin(row) &&
                                     row.id !== user.id && (
                                       <button
-                                        className="icon-button"
+                                        className="icon-button user-access-action"
                                         aria-label="Hesap erişimini değiştir"
                                         onClick={async () => {
                                           try {
@@ -3932,6 +4034,15 @@ function App() {
                                         <LockKey size={17} />
                                       </button>
                                     )}
+                                  <UserDeleteAction
+                                    account={removableUsers.get(row.id)}
+                                    onDelete={(account) =>
+                                      setDeletingUsers({
+                                        accounts: [account],
+                                        bulk: false,
+                                      })
+                                    }
+                                  />
                                   {page.fields &&
                                     page.key !== "users" &&
                                     canWrite &&
@@ -4115,6 +4226,21 @@ function App() {
           onClose={() => setRoleUser(null)}
           onSaved={() => {
             reload();
+          }}
+        />
+      )}
+      {deletingUsers && canDeleteUsers && (
+        <UserDeleteDialog
+          accounts={deletingUsers.accounts}
+          bulk={deletingUsers.bulk}
+          onClose={() => setDeletingUsers(null)}
+          onDeleted={(count) => {
+            const removed = new Set(deletingUsers.accounts.map(({ id }) => id));
+            setPickedUsers((ids) => ids.filter((id) => !removed.has(id)));
+            setDeletingUsers(null);
+            if (offset && total - count <= offset) setOffset(offset - 25);
+            reload();
+            notify(`${count} kullanıcı silindi.`);
           }}
         />
       )}

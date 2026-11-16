@@ -1485,6 +1485,78 @@ tbody tr:last-child td {
   width: 34px;
   height: 34px;
 }
+.user-account-table .user-bulk-delete {
+  margin-inline-start: auto;
+}
+.user-account-table .user-select {
+  width: 48px;
+  min-width: 48px;
+  padding-inline: 8px;
+  text-align: center;
+}
+.user-select input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+.user-account-table .user-row-actions {
+  display: grid;
+  grid-template-columns: repeat(3, 36px);
+  grid-auto-flow: column;
+  justify-content: end;
+  gap: 4px;
+}
+.user-row-actions .icon-button {
+  width: 36px;
+  height: 36px;
+}
+.user-role-action {
+  grid-column: 1;
+}
+.user-access-action {
+  grid-column: 2;
+}
+.user-delete-action {
+  grid-column: 3;
+}
+.user-delete-form {
+  display: grid;
+  gap: 16px;
+  padding: clamp(16px, 4vw, 24px);
+}
+.user-delete-form p {
+  margin: 0;
+}
+.user-delete-targets {
+  display: grid;
+  max-height: 28vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.user-delete-targets li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.user-delete-targets li + li {
+  border-top: 1px solid var(--border);
+}
+.user-delete-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.user-delete-actions .user-delete-confirm {
+  color: var(--danger);
+}
 .device-link {
   justify-content: flex-start;
   gap: 10px;

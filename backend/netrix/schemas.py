@@ -1,6 +1,6 @@
 import ipaddress
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -304,6 +304,10 @@ class RuleInput(Input):
 class UserRolesInput(Input):
     role: Literal["super_admin", "admin", "operator", "viewer"]
     ssh_access: bool = False
+
+
+class UserDeleteInput(Input):
+    ids: list[Annotated[str, Field(min_length=1, max_length=36)]] = Field(min_length=1, max_length=100)
 
 
 class UserInput(Input):

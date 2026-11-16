@@ -448,6 +448,7 @@ def provision(db, config, auth):
         select(m.User.id).where(
             m.User.auth_source == "saml",
             m.User.email == email,
+            m.User.deleted_at.is_(None),
             *((m.User.id != link.user_id,) if link else ()),
         )
     )
@@ -455,11 +456,11 @@ def provision(db, config, auth):
         raise IdentityRejected("account_conflict")
     if link:
         user = db.scalar(select(m.User).where(m.User.id == link.user_id).with_for_update())
-        db.refresh(link)
         if not user or user.auth_source != "saml":
             raise IdentityRejected("account_conflict")
         if not user.is_active:
             raise IdentityRejected("account_inactive")
+        db.refresh(link)
         user.email, user.display_name = email, display
         if not link.manual_role and user.role != role:
             user.role = role

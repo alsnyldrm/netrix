@@ -386,6 +386,18 @@ def test_entra_and_local_owner_can_sign_in_with_same_email(fixture, env):
     assert authenticated["id"] == local["id"] and authenticated["role"] == "super_admin"
 
 
+def test_deleted_entra_account_does_not_reappear_or_affect_same_email_local_account(fixture):
+    admin, browser, signer, config, _ = fixture
+    local = admin.get("/api/v1/auth/me").json()
+    activate(admin, config)
+    assert login(browser, signer, email=OWNER).headers["location"] == "/"
+    entra = browser.get("/api/v1/auth/me").json()
+    assert admin.post("/api/v1/users/bulk-delete", json={"ids": [entra["id"]]}).json() == {"deleted": 1}
+    assert browser.get("/api/v1/auth/me").status_code == 401
+    assert login(browser, signer, email=OWNER).headers["location"] == "/?saml=account_inactive"
+    assert admin.get("/api/v1/users").json()["items"] == [admin.get(f"/api/v1/users/{local['id']}").json()]
+
+
 def test_entra_alias_only_used_as_email_after_stable_binding(fixture, caplog):
     admin, browser, signer, config, _ = fixture
     activate(admin, config)

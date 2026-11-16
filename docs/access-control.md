@@ -1,6 +1,8 @@
 # NETRIX rol ve erişim sözleşmesi
 
-`super_admin` yönetici ve operatör işlemleri ile kişisel SSH dahil uygulamadaki tüm erişimi kapsar. Aktif bir yerel veya Microsoft Entra ID hesabına yalnız başka bir süper yönetici tarafından, **Yönetim → Ekip & yetkiler → Kullanıcı rollerini düzenle** üzerinden verilebilir veya kaldırılabilir. Entra rol eşlemeleri bu rolü veremez; Entra girişleri elle verilen rolü değiştirmez. İlk yerel kurtarma hesabının rolü düşürülemez, e-posta adresi değiştirilemez ve hesap devre dışı bırakılamaz. Yetki verilmiş başka bir hesabı devre dışı bırakmak için önce süper yönetici rolünü kaldırın. Kullanıcılar geçmişi korumak için fiziksel silinmez.
+`super_admin` yönetici ve operatör işlemleri ile kişisel SSH dahil uygulamadaki tüm erişimi kapsar. Aktif bir yerel veya Microsoft Entra ID hesabına yalnız başka bir süper yönetici tarafından, **Yönetim → Ekip & yetkiler → Kullanıcı rollerini düzenle** üzerinden verilebilir veya kaldırılabilir. Entra rol eşlemeleri bu rolü veremez; Entra girişleri elle verilen rolü değiştirmez. İlk yerel kurtarma hesabının rolü düşürülemez, e-posta adresi değiştirilemez ve hesap devre dışı bırakılamaz. Yetki verilmiş başka bir hesabı devre dışı bırakmak için önce süper yönetici rolünü kaldırın.
+
+Süper yönetici, **Ekip & yetkiler** ekranında yerel ve Entra hesaplarını tek tek veya seçerek silebilir. Kendi hesabı ve ilk yerel kurtarma hesabı silinemez. Silme işlemi uygulama erişimini ve oturumları kapatır, kişisel ayarları ve SSH profillerini temizler, denetim ve görev geçmişi için kimlik kaydını korur. Silinen Entra kimliği bir sonraki girişte tekrar oluşturulmaz. Aynı e-posta adresiyle yeni bir yerel hesap açılabilir.
 
 Boş kurulumun tek kullanımlık kurulum anahtarı yalnız bu e-posta hesabıyla ilk süper yöneticiyi oluşturur; farklı bir hesapla kurulumu tamamlayıp sistemi rol atayamaz durumda bırakmaz.
 
@@ -10,6 +12,7 @@ Boş kurulumun tek kullanımlık kurulum anahtarı yalnız bu e-posta hesabıyla
 | Operatör yazma/konfigürasyon işlemleri | Hayır | Evet | Evet | Evet |
 | Yönetici işlemleri, kullanıcı ve denetim listeleri | Hayır | Hayır | Evet | Evet |
 | Uygulama rolü / SSH yetkisi atama | Hayır | Hayır | Hayır | Evet |
+| Kullanıcıları silme | Hayır | Hayır | Hayır | Evet |
 | Kişisel SSH, toplu komut ve kişisel cihaz grupları | Açık SSH atamasıyla | Açık SSH atamasıyla | Açık SSH atamasıyla | Tam erişim |
 
 Sıradan yöneticiler yeni hesabı yalnız izleyici olarak ve SSH yetkisi olmadan açabilir; atama alanları gösterilmez. User creation API'si üzerinden yönetici/operatör/süper yönetici veya SSH yetkisi verme girişimi 403 alır. Rol atama API'si yalnız süper yöneticiye açıktır. Süper yönetici rolü mevcut hesaba rol atama API’si üzerinden verilir. Rol değişiklikleri denetim izine kaydedilir.

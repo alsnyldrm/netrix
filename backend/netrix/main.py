@@ -214,7 +214,13 @@ def rate_limit(key):
 def login(payload: s.LoginInput, request: Request, response: Response, db=Depends(db_session)):
     rate_limit(request.client.host)
     user = db.scalar(
-        select(m.User).where(m.User.auth_source == "local", m.User.email == payload.email.casefold())
+        select(m.User)
+        .where(
+            m.User.auth_source == "local",
+            m.User.email == payload.email.casefold(),
+            m.User.deleted_at.is_(None),
+        )
+        .with_for_update()
     )
     valid = verify(
         payload.password, user.password_hash if user and user.auth_source == "local" else DUMMY_HASH
@@ -254,6 +260,10 @@ def password(
 ):
     if user.auth_source != "local":
         raise HTTPException(403, "Bu hesabın parolası Microsoft Entra ID tarafından yönetilir.")
+    user_id = user.id
+    user = roles.locked_accounts(db, {user_id}).get(user_id)
+    if not user or not user.is_active:
+        raise HTTPException(401, "Oturum açmanız gerekiyor")
     if not verify(payload.current_password, user.password_hash):
         raise HTTPException(403, "Mevcut parola hatalı")
     user.password_hash = hasher.hash(payload.new_password)
@@ -477,6 +487,13 @@ def toggle_user(id: str, user=Depends(admin), db=Depends(db_session)):
     row = roles.toggle(db, user.id, id)
     svc.publish()
     return svc.serialize(row)
+
+
+@app.post(P + "/users/bulk-delete")
+def delete_users(payload: s.UserDeleteInput, user=Depends(super_admin), db=Depends(db_session)):
+    count = roles.remove(db, user.id, payload.ids)
+    svc.publish()
+    return {"deleted": count}
 
 
 @app.post(P + "/backup-settings")
@@ -723,7 +740,10 @@ def get_item(resource: str, id: str, user=Depends(current_user), db=Depends(db_s
         if row is None:
             raise HTTPException(404, "Bağlantı kaydı bulunamadı")
         return svc.serialize(row)
-    item = svc.serialize(svc.get(db, svc.RESOURCES[resource][0], id))
+    row = svc.get(db, svc.RESOURCES[resource][0], id)
+    if resource == "users" and row.deleted_at is not None:
+        raise HTTPException(404, "Kullanıcı bulunamadı")
+    item = svc.serialize(row)
     if resource == "devices":
         from .inventory.placement import device_location
 

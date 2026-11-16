@@ -49,8 +49,17 @@ class User(Entity, Base):
     role: Mapped[str] = mapped_column(String(20), default="viewer")
     ssh_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted_at: Mapped[object | None] = mapped_column(UTCDateTime())
     __table_args__ = (
-        UniqueConstraint("auth_source", "email", name="uq_users_auth_source_email"),
+        Index(
+            "uq_users_auth_source_current_email",
+            "auth_source",
+            "email",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+        CheckConstraint("deleted_at IS NULL OR NOT is_active", name="ck_user_deleted_inactive"),
         CheckConstraint("auth_source in ('local','saml')", name="ck_user_auth_source"),
         CheckConstraint("role in ('super_admin','admin','operator','viewer')", name="ck_user_role"),
     )
