@@ -799,6 +799,7 @@ export const PAGES: Page[] = [
     columns: [
       ["display_name", "Kullanıcı"],
       ["email", "E-posta"],
+      ["auth_source", "Giriş yöntemi"],
       ["role", "Uygulama rolü"],
       ["ssh_access", "SSH bağlantısı rolü"],
       ["is_active", "Etkin"],
@@ -1298,6 +1299,14 @@ function Auth({
     const state = new URLSearchParams(location.search).get("saml");
     if (state === "expired")
       return "Entra giriş isteğinin süresi doldu. Yeniden giriş yapın.";
+    if (state === "missing_email")
+      return "Entra, bu hesap için geçerli bir e-posta göndermedi. Yöneticinizden SAML e-posta özniteliğini kontrol etmesini isteyin.";
+    if (state === "missing_subject")
+      return "Entra, bu hesap için sabit kullanıcı kimliği göndermedi. Yöneticinizden SAML kullanıcı nesne kimliği özniteliğini kontrol etmesini isteyin.";
+    if (state === "account_conflict")
+      return "Entra hesabı NETRIX’teki bir kayıtla çakışıyor. Yöneticinizle görüşün.";
+    if (state === "account_inactive")
+      return "Bu NETRIX hesabı devre dışı. Yöneticinizle görüşün.";
     if (state === "invalid")
       return "Entra girişi doğrulanamadı. Yeniden deneyin veya yöneticinize başvurun.";
     if (state === "disabled")
@@ -3730,6 +3739,13 @@ function App() {
                                   ) : page.key === "audit" &&
                                     key === "summary" ? (
                                     <AuditSummary row={row} />
+                                  ) : key === "auth_source" &&
+                                    page.key === "users" ? (
+                                    row.auth_source === "saml" ? (
+                                      "Microsoft Entra ID"
+                                    ) : (
+                                      "Yerel parola"
+                                    )
                                   ) : key === "kind" && page.key === "jobs" ? (
                                     <button
                                       className="job-name-button"

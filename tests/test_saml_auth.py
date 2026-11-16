@@ -135,13 +135,22 @@ def initiate(browser):
 
 
 def assertion(
-    request_id, signer, *, subject=OBJECT_ID, email=ACCOUNT, roles=(), signed=True, assertion_id=None
+    request_id,
+    signer,
+    *,
+    subject=OBJECT_ID,
+    email=ACCOUNT,
+    username_claim=None,
+    roles=(),
+    signed=True,
+    assertion_id=None,
 ):
     def ts(seconds):
         return (now() + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     attrs = {
         saml.EMAIL: [email],
+        saml.USER_NAME: [username_claim] if username_claim else [],
         saml.DISPLAY: ["Örnek Entra Hesabı"],
         saml.OBJECT_ID: [subject] if subject else [],
         saml.ROLE_CLAIMS[0]: roles,
@@ -283,7 +292,7 @@ def test_client_requires_valid_signed_request(fixture, case):
     assert browser.get("/api/v1/auth/me").status_code == 401
 
 
-def test_one_use_and_privileged_or_email_only_accounts_never_link(fixture):
+def test_one_use_and_missing_subject_or_existing_saml_conflict(fixture):
     admin, browser, signer, config, _ = fixture
     activate(admin, config)
     request_id, state = initiate(browser)
@@ -292,11 +301,11 @@ def test_one_use_and_privileged_or_email_only_accounts_never_link(fixture):
     browser.cookies.set(saml.COOKIE, state)
     assert submit(browser, state, message).headers["location"] == "/?saml=expired"
     browser.cookies.clear()
-    assert login(browser, signer, email=OWNER).headers["location"] == "/?saml=invalid"
     assert (
-        login(browser, signer, subject="", email="other@example.test").headers["location"] == "/?saml=invalid"
+        login(browser, signer, subject="", email="other@example.test").headers["location"]
+        == "/?saml=missing_subject"
     )
-    assert login(browser, signer, subject=str(uuid4())).headers["location"] == "/?saml=invalid"
+    assert login(browser, signer, subject=str(uuid4())).headers["location"] == "/?saml=account_conflict"
     assert admin.get("/api/v1/auth/me").json()["role"] == "super_admin"
 
 
@@ -326,8 +335,60 @@ def test_mapped_roles_revoke_and_manual_role_persists(fixture):
     )
     assert browser.get(SETTINGS).status_code == 403
     assert admin.post(f"/api/v1/users/{user['id']}/toggle").status_code == 200
-    assert login(browser, signer, email="renamed@example.test").headers["location"] == "/?saml=invalid"
+    assert (
+        login(browser, signer, email="renamed@example.test").headers["location"] == "/?saml=account_inactive"
+    )
     assert browser.get("/api/v1/auth/me").status_code == 401
+
+
+def test_entra_and_local_owner_can_sign_in_with_same_email(fixture, env):
+    admin, browser, signer, config, _ = fixture
+    local = admin.get("/api/v1/auth/me").json()
+    activate(admin, config)
+
+    assert login(browser, signer, email=OWNER).headers["location"] == "/"
+    entra = browser.get("/api/v1/auth/me").json()
+    assert entra["id"] != local["id"] and entra["email"] == local["email"]
+    assert entra["role"] == "viewer" and entra["auth_source"] == "saml" and not entra["ssh_access"]
+    assert browser.get(SETTINGS).status_code == 403
+    assert browser.get("/api/v1/access/ssh-profiles").status_code == 403
+    assert (
+        admin.put(
+            f"/api/v1/users/{entra['id']}/roles", json={"role": "super_admin", "ssh_access": False}
+        ).status_code
+        == 422
+    )
+    assert (
+        admin.put(
+            f"/api/v1/users/{entra['id']}/roles", json={"role": "operator", "ssh_access": False}
+        ).status_code
+        == 200
+    )
+    assert browser.get("/api/v1/auth/me").json()["role"] == "operator"
+    assert admin.get("/api/v1/auth/me").json()["role"] == "super_admin"
+    with env() as db:
+        assert db.get(m.SamlIdentity, local["id"]) is None
+        assert db.get(m.SamlIdentity, entra["id"]).subject == "oid:" + OBJECT_ID
+
+    # Both entries exist: the password form must still select the local one.
+    assert admin.post("/api/v1/auth/logout").status_code == 204
+    authenticated = admin.post(
+        "/api/v1/auth/login",
+        json={
+            "email": OWNER,
+            "password": "fixture-owner-only-password",
+        },
+    ).json()
+    assert authenticated["id"] == local["id"] and authenticated["role"] == "super_admin"
+
+
+def test_entra_alias_only_used_as_email_after_stable_binding(fixture, caplog):
+    admin, browser, signer, config, _ = fixture
+    activate(admin, config)
+    assert login(browser, signer, email="opaque").headers["location"] == "/?saml=missing_email"
+    assert "SAML sign-in rejected: missing_email" in caplog.text and "opaque" not in caplog.text
+    assert login(browser, signer, email="opaque", username_claim=ACCOUNT).headers["location"] == "/"
+    assert browser.get("/api/v1/auth/me").json()["email"] == ACCOUNT
 
 
 ENTRA_TENANT = "66000000-1111-2222-3333-444444444440"

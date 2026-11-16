@@ -1,6 +1,7 @@
 """NETRIX-initiated Entra SAML using a pinned signing certificate and stable identity."""
 
 import json
+import logging
 import re
 import secrets
 from typing import Literal
@@ -16,14 +17,13 @@ from onelogin.saml2.settings import OneLogin_Saml2_Settings
 from onelogin.saml2.xml_utils import OneLogin_Saml2_XML
 from pydantic import Field, field_validator, model_validator
 from redis.exceptions import RedisError
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from .. import models as m
 from ..core import db_session, now, redis_client, settings
 from ..schemas import Input
 from . import saml_metadata
-from .permissions import SUPER_ADMIN_EMAIL
 from .security import DUMMY_HASH, audit, issue_session, set_session_cookie, super_admin, token_hash
 
 PREFIX = "/api/v1/auth/saml"
@@ -34,6 +34,7 @@ MAX_BODY = 256 * 1024
 EMAIL = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
 DISPLAY = "http://schemas.microsoft.com/identity/claims/displayname"
 OBJECT_ID = "http://schemas.microsoft.com/identity/claims/objectidentifier"
+USER_NAME = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
 ROLE_CLAIMS = (
     "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
     "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
@@ -42,6 +43,21 @@ ROLE_CLAIMS = (
 )
 ROLES = ("viewer", "operator", "admin")
 router = APIRouter(tags=["SAML / Microsoft Entra ID"])
+
+
+LOG = logging.getLogger("netrix.saml")
+
+
+class IdentityRejected(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+
+
+def rejected(reason, status="invalid"):
+    # Fixed internal reasons only; the response and logs never include a claim,
+    # assertion identifier, credentials or a raw toolkit exception.
+    LOG.warning("SAML sign-in rejected: %s", reason)
+    return finish(status)
 
 
 def public_url(path):
@@ -394,16 +410,27 @@ def identity(auth, config):
         return values[0].strip() if len(values) == 1 else ""
 
     name_id = (auth.get_nameid() or "").strip()
-    email = (claim(config.email_attribute) or name_id).casefold()
-    if len(email) > 190 or not re.fullmatch(r"[^\s@\x00-\x1f]+@[^\s@\x00-\x1f]+", email):
-        raise ValueError()
+    candidates = [claim(config.email_attribute), name_id, claim(USER_NAME)]
+    email = next(
+        (
+            value.casefold()
+            for value in candidates
+            if len(value.casefold()) <= 190 and re.fullmatch(r"[^\s@\x00-\x1f]+@[^\s@\x00-\x1f]+", value)
+        ),
+        "",
+    )
+    if not email:
+        raise IdentityRejected("missing_email")
     object_id = claim(OBJECT_ID)
     if object_id:
-        subject = "oid:" + str(UUID(object_id))
+        try:
+            subject = "oid:" + str(UUID(object_id))
+        except ValueError:
+            raise IdentityRejected("missing_subject") from None
     elif auth.get_nameid_format() == C.NAMEID_PERSISTENT and 0 < len(name_id) <= 390:
         subject = "persistent:" + name_id
     else:
-        raise ValueError()
+        raise IdentityRejected("missing_subject")
     values = {value.strip().casefold() for key in ROLE_CLAIMS for value in attrs.get(key, [])}
     matched = {config.role_mapping[value] for value in values if value in config.role_mapping}
     role = next((role for role in ROLES if role in matched), "viewer")
@@ -417,20 +444,22 @@ def provision(db, config, auth):
             m.SamlIdentity.issuer == config.idp_entity_id, m.SamlIdentity.subject == subject
         )
     )
-    if email == SUPER_ADMIN_EMAIL:
-        raise ValueError()
     conflict = db.scalar(
         select(m.User.id).where(
-            func.lower(m.User.email) == email, *((m.User.id != link.user_id,) if link else ())
+            m.User.auth_source == "saml",
+            m.User.email == email,
+            *((m.User.id != link.user_id,) if link else ()),
         )
     )
     if conflict:
-        raise ValueError()
+        raise IdentityRejected("account_conflict")
     if link:
         user = db.scalar(select(m.User).where(m.User.id == link.user_id).with_for_update())
         db.refresh(link)
-        if not user or not user.is_active or user.auth_source != "saml":
-            raise ValueError()
+        if not user or user.auth_source != "saml":
+            raise IdentityRejected("account_conflict")
+        if not user.is_active:
+            raise IdentityRejected("account_inactive")
         user.email, user.display_name = email, display
         if not link.manual_role and user.role != role:
             user.role = role
@@ -468,7 +497,7 @@ def complete(request, db, form):
         # even if two API processes receive the same request concurrently.
         replay = "netrix:saml:assertion:" + token_hash(config.idp_entity_id + "\n" + assertion_id)
         if not client.set(replay, 1, nx=True, ex=int(expires - now().timestamp()) + 61):
-            return finish("invalid")
+            return rejected("replayed_assertion")
         row = stored(db, lock=True)
         if not row or row.config != snapshot:
             return finish("expired")
@@ -476,15 +505,19 @@ def complete(request, db, form):
         token = issue_session(db, user)
         audit(db, user, "saml_login", "users", user.id, "Microsoft Entra ID ile oturum açıldı")
         db.commit()
+    except IdentityRejected as exc:
+        return rejected(exc.reason, exc.reason)
     except RedisError:
-        return finish("unavailable")
-    except (ValueError, TypeError, IntegrityError):
-        return finish("invalid")
+        return rejected("redis_unavailable", "unavailable")
+    except IntegrityError:
+        return rejected("account_integrity", "account_conflict")
+    except (ValueError, TypeError):
+        return rejected("response_validation")
     except HTTPException:
         raise
     except Exception:
         # Neither raw toolkit errors nor assertion/claim contents are public.
-        return finish("invalid")
+        return rejected("unexpected_failure", "unavailable")
     response = finish()
     set_session_cookie(response, token)
     return response
@@ -494,5 +527,5 @@ def complete(request, db, form):
 async def acs(request: Request, db=Depends(db_session)):
     form = await extract_form(request)
     if form is None:
-        return finish("invalid")
+        return rejected("invalid_form")
     return await run_in_threadpool(complete, request, db, form)

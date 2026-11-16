@@ -42,7 +42,7 @@ class Entity:
 
 class User(Entity, Base):
     __tablename__ = "users"
-    email: Mapped[str] = mapped_column(String(190), unique=True)
+    email: Mapped[str] = mapped_column(String(190))
     display_name: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(Text)
     auth_source: Mapped[str] = mapped_column(String(10), default="local", server_default="local")
@@ -50,6 +50,7 @@ class User(Entity, Base):
     ssh_access: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     __table_args__ = (
+        UniqueConstraint("auth_source", "email", name="uq_users_auth_source_email"),
         CheckConstraint("auth_source in ('local','saml')", name="ck_user_auth_source"),
         CheckConstraint("auth_source = 'local' OR role <> 'super_admin'", name="ck_saml_no_super_admin"),
         CheckConstraint("role in ('super_admin','admin','operator','viewer')", name="ck_user_role"),

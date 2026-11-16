@@ -22,7 +22,7 @@ Bu belge hedef ilişkisel modeli tanımlar; uygulanmış şema değildir. İlk a
 
 ## 1. Merkezi kimlik ve denetim
 
-PostgreSQL migration `20261116_01`, `yonetim.users.auth_source` ile yerel ve SAML hesaplarını ayırır. `yonetim.saml_settings` tek satırda SAML yapılandırmasını JSONB olarak saklar; `yonetim.saml_identities` kullanıcıya tam nitelikli FK ve tekil IdP/konu bağıyla erişir. Uygulama rolünü elle değiştirme işareti bu bağa aittir. Ham assertion ve giriş durumu PostgreSQL’e yazılmaz. [SAML yapılandırması](saml-entra.md).
+PostgreSQL migration `20261116_01`, `yonetim.users.auth_source` ile yerel ve SAML hesaplarını ayırır. `yonetim.saml_settings` tek satırda SAML yapılandırmasını JSONB olarak saklar; `yonetim.saml_identities` kullanıcıya tam nitelikli FK ve tekil IdP/konu bağıyla erişir. Uygulama rolünü elle değiştirme işareti bu bağa aittir. Ham assertion ve giriş durumu PostgreSQL’e yazılmaz. `20261116_02` ile `users` için e-posta tekilliği giriş yöntemine göre uygulanır; aynı adresi kullanan yerel ve Entra hesaplarının kullanıcı kimlikleri ve rolleri ayrı kalır. [SAML yapılandırması](saml-entra.md).
 
 `20261104_47`, hesaba ait profil görselini `user_avatars` tablosunda saklar. `user_id` tekil birincil anahtar ve kullanıcı silindiğinde temizlenen FK’dır. Kayıt ya izin verilen bir hazır avatar kimliği ya da 256×256 WebP fotoğrafı içerir; aynı anda ikisini içermez. Fotoğraflar yalnız hesabın kendi kimliği doğrulanmış isteğiyle okunur. Seçim değişikliği için UUID sürümü ve UTC güncelleme zamanı tutulur.
 

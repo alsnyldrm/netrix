@@ -213,7 +213,9 @@ def rate_limit(key):
 @app.post(P + "/auth/login")
 def login(payload: s.LoginInput, request: Request, response: Response, db=Depends(db_session)):
     rate_limit(request.client.host)
-    user = db.scalar(select(m.User).where(m.User.email == payload.email.casefold()))
+    user = db.scalar(
+        select(m.User).where(m.User.auth_source == "local", m.User.email == payload.email.casefold())
+    )
     valid = verify(
         payload.password, user.password_hash if user and user.auth_source == "local" else DUMMY_HASH
     )
@@ -452,7 +454,7 @@ def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(super_adm
     row = db.scalar(select(m.User).where(m.User.id == id).with_for_update())
     if not row:
         raise HTTPException(404, "Kullanıcı bulunamadı")
-    if row.email.casefold() == SUPER_ADMIN_EMAIL and payload.role != "super_admin":
+    if is_super_admin(row) and payload.role != "super_admin":
         raise HTTPException(409, "Süper yönetici rolü bu hesaptan kaldırılamaz")
     if payload.role == "super_admin" and (
         row.email.casefold() != SUPER_ADMIN_EMAIL or row.auth_source != "local"

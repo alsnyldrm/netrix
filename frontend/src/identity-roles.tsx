@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dialog } from "./main";
 import { api } from "./data";
-import { SUPER_ADMIN_EMAIL } from "./permissions";
+import { isSuperAdmin } from "./permissions";
 export function UserRoleEditor({
   user,
   onClose,
@@ -15,7 +15,7 @@ export function UserRoleEditor({
   const [ssh, setSSH] = useState(Boolean(user.ssh_access));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const owner = user.email.toLowerCase() === SUPER_ADMIN_EMAIL;
+  const owner = isSuperAdmin(user);
   return (
     <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose} drawer>
       <form
@@ -41,7 +41,12 @@ export function UserRoleEditor({
         <p>
           <b>{user.display_name}</b>
           <br />
-          <span className="muted">{user.email}</span>
+          <span className="muted">
+            {user.email} ·{" "}
+            {user.auth_source === "saml"
+              ? "Microsoft Entra ID"
+              : "Yerel parola"}
+          </span>
         </p>
         <label>
           Uygulama rolü
