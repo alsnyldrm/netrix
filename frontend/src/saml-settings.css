@@ -80,6 +80,21 @@
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.saml-import {
+  display: grid;
+  gap: 8px;
+  padding-block: 16px;
+  border-block: 1px solid var(--border);
+}
+.saml-import-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+.saml-import-controls button {
+  min-height: 44px;
+}
 .saml-form p {
   margin: 0;
   line-height: 1.6;
@@ -108,7 +123,8 @@
   background: var(--surface-2);
 }
 @media (max-width: 680px) {
-  .saml-fields {
+  .saml-fields,
+  .saml-import-controls {
     grid-template-columns: minmax(0, 1fr);
   }
 }

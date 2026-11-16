@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowSquareOut, FloppyDisk, ShieldCheck } from "@phosphor-icons/react";
+import { DownloadSimple, FloppyDisk, ShieldCheck } from "@phosphor-icons/react";
 import { api } from "./data";
 import "./saml-settings.css";
 
@@ -9,6 +9,7 @@ type Settings = {
   sp_acs_url: string;
   sp_metadata_url: string;
   sp_login_url: string;
+  idp_metadata_url: string;
   idp_entity_id: string;
   sso_url: string;
   slo_url: string;
@@ -23,6 +24,9 @@ export function SamlSettings() {
   const [values, setValues] = useState<Settings | null>(null);
   const [mapping, setMapping] = useState("{}");
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importNotice, setImportNotice] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
@@ -52,6 +56,33 @@ export function SamlSettings() {
   const change = (key: keyof Settings, value: string | boolean) => {
     setValues({ ...values, [key]: value });
     setNotice("");
+  };
+  const pullMetadata = async () => {
+    if (saving || importing || !values.idp_metadata_url.trim()) return;
+    setImporting(true);
+    setImportError("");
+    setImportNotice("");
+    setNotice("");
+    try {
+      const result: Pick<
+        Settings,
+        | "idp_metadata_url"
+        | "idp_entity_id"
+        | "sso_url"
+        | "slo_url"
+        | "x509_certificate"
+      > = await api("/saml/metadata/import", "POST", {
+        url: values.idp_metadata_url,
+      });
+      setValues((current) => current && { ...current, ...result });
+      setImportNotice(
+        "Metadata forma aktarıldı. Alanları kontrol edip SAML ayarlarını kaydedin.",
+      );
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : "Metadata aktarılamadı.");
+    } finally {
+      setImporting(false);
+    }
   };
   const field = (
     key: Exclude<keyof Settings, "enabled" | "role_mapping">,
@@ -91,6 +122,7 @@ export function SamlSettings() {
         className="saml-form"
         onSubmit={async (e) => {
           e.preventDefault();
+          if (importing || saving) return;
           setError("");
           setNotice("");
           let role_mapping: Settings["role_mapping"];
@@ -122,6 +154,8 @@ export function SamlSettings() {
             setValues(result);
             setMapping(JSON.stringify(result.role_mapping, null, 2));
             setNotice("SAML ayarları kaydedildi.");
+            setImportNotice("");
+            setImportError("");
           } catch (e: any) {
             setError(e.message);
           } finally {
@@ -129,7 +163,7 @@ export function SamlSettings() {
           }
         }}
       >
-        <fieldset disabled={saving}>
+        <fieldset disabled={saving || importing}>
           <label className="saml-checkbox">
             <input
               type="checkbox"
@@ -148,12 +182,62 @@ export function SamlSettings() {
             })}
             <div className="saml-full saml-metadata">
               <a
-                href="/api/v1/auth/saml/metadata"
-                target="_blank"
-                rel="noreferrer"
+                href="/api/v1/auth/saml/metadata?download=true"
+                download="netrix-saml-metadata.xml"
               >
-                SP metadata XML <ArrowSquareOut size={16} aria-hidden="true" />
+                <DownloadSimple size={18} aria-hidden="true" /> SP metadata XML
+                indir
               </a>
+            </div>
+            <div className="saml-full saml-import" aria-busy={importing}>
+              <div className="saml-import-controls">
+                <label>
+                  <span>Microsoft Entra ID Metadata XML URL</span>
+                  <input
+                    name="idp_metadata_url"
+                    type="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    maxLength={1024}
+                    value={values.idp_metadata_url}
+                    placeholder="https://login.microsoftonline.com/…"
+                    aria-describedby="saml-import-help"
+                    onChange={(e) => {
+                      change("idp_metadata_url", e.target.value);
+                      setImportError("");
+                      setImportNotice("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void pullMetadata();
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={!values.idp_metadata_url.trim()}
+                  onClick={() => void pullMetadata()}
+                >
+                  {importing ? "Metadata alınıyor…" : "Metadata’yı aktar"}
+                </button>
+              </div>
+              <p className="muted" id="saml-import-help">
+                Entra’daki SAML ekranından App Federation Metadata URL değerini
+                kopyalayın.
+              </p>
+              {importError && (
+                <div className="error" role="alert">
+                  {importError}
+                </div>
+              )}
+              {importNotice && (
+                <p className="muted" role="status">
+                  {importNotice}
+                </p>
+              )}
             </div>
             {field("idp_entity_id", "IdP Entity ID", {
               full: true,
@@ -165,7 +249,7 @@ export function SamlSettings() {
               type: "url",
             })}
             <label className="saml-full">
-              <span>X.509 imzalama sertifikası</span>
+              <span>X.509 imzalama sertifikaları</span>
               <textarea
                 name="x509_certificate"
                 rows={6}
@@ -207,7 +291,11 @@ export function SamlSettings() {
           </div>
         )}
         <div className="saml-form-actions">
-          <button type="submit" className="primary" disabled={saving}>
+          <button
+            type="submit"
+            className="primary"
+            disabled={saving || importing}
+          >
             <FloppyDisk size={18} aria-hidden="true" />{" "}
             {saving ? "Kaydediliyor…" : "SAML ayarlarını kaydet"}
           </button>

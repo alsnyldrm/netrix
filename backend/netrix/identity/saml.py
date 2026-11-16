@@ -1,7 +1,5 @@
 """NETRIX-initiated Entra SAML using a pinned signing certificate and stable identity."""
 
-import base64
-import binascii
 import json
 import re
 import secrets
@@ -9,9 +7,6 @@ from typing import Literal
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
-from cryptography import x509
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response
@@ -27,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from .. import models as m
 from ..core import db_session, now, redis_client, settings
 from ..schemas import Input
+from . import saml_metadata
 from .permissions import SUPER_ADMIN_EMAIL
 from .security import DUMMY_HASH, audit, issue_session, set_session_cookie, super_admin, token_hash
 
@@ -69,39 +65,25 @@ def https_url(value):
     return value
 
 
-def certificate(value):
-    if not value:
-        return None
-    try:
-        if value.startswith("-----BEGIN CERTIFICATE-----"):
-            if not re.fullmatch(
-                r"-----BEGIN CERTIFICATE-----\s+[A-Za-z0-9+/=\s]+-----END CERTIFICATE-----", value
-            ):
-                raise ValueError()
-            cert = x509.load_pem_x509_certificate(value.encode())
-        else:
-            cert = x509.load_der_x509_certificate(base64.b64decode("".join(value.split()), validate=True))
-        key = cert.public_key()
-        if not isinstance(key, RSAPublicKey) or key.key_size < 2048:
-            raise ValueError()
-        return cert
-    except (ValueError, UnicodeError, binascii.Error):
-        raise ValueError("Tek bir geçerli RSA X.509 imzalama sertifikası girin (en az 2048 bit).") from None
-
-
 class SamlInput(Input):
     enabled: bool = False
     sp_entity_id: str = Field(default="", max_length=512)
+    idp_metadata_url: str = Field(default="", max_length=1024)
     idp_entity_id: str = Field(default="", max_length=512)
     sso_url: str = Field(default="", max_length=1024)
     slo_url: str = Field(default="", max_length=1024)
-    x509_certificate: str = Field(default="", max_length=16000)
+    x509_certificate: str = Field(default="", max_length=saml_metadata.MAX_CERT_TEXT)
     email_attribute: str = Field(default=EMAIL, min_length=1, max_length=400)
     display_name_attribute: str = Field(default=DISPLAY, min_length=1, max_length=400)
     nameid_mapping: str = Field(default=C.NAMEID_EMAIL_ADDRESS, max_length=400, pattern=r"^urn:[^\s<>&'\"]+$")
     role_mapping: dict[str, Literal["viewer", "operator", "admin"]] = Field(
         default_factory=dict, max_length=100
     )
+
+    @field_validator("idp_metadata_url")
+    @classmethod
+    def entra_metadata_url(cls, value):
+        return saml_metadata.metadata_url(value)
 
     @field_validator("sso_url", "slo_url")
     @classmethod
@@ -127,16 +109,15 @@ class SamlInput(Input):
 
     @model_validator(mode="after")
     def valid_config(self):
-        cert = certificate(self.x509_certificate)
+        certs = saml_metadata.certificates(self.x509_certificate)
         if self.enabled:
-            if not (self.idp_entity_id and self.sso_url and cert):
+            if not (self.idp_entity_id and self.sso_url and certs):
                 raise ValueError("SAML girişi için IdP Entity ID, SSO URL ve imzalama sertifikası gerekli.")
             if not settings().secure_cookies or urlsplit(public_url(ACS)).scheme != "https":
                 raise ValueError("SAML girişi için HTTPS ve güvenli oturum çerezleri gerekli.")
-            if not cert.not_valid_before_utc <= now() < cert.not_valid_after_utc:
+            if not saml_metadata.valid_certificates(certs):
                 raise ValueError("İmzalama sertifikasının geçerlilik tarihlerini kontrol edin.")
-        if cert:
-            self.x509_certificate = cert.public_bytes(serialization.Encoding.PEM).decode().strip()
+        self.x509_certificate = "\n".join(saml_metadata.pem(cert) for cert in certs)
         return self
 
 
@@ -161,7 +142,7 @@ def settings_view(config):
     }
 
 
-def toolkit_settings(config):
+def toolkit_settings(config, *, sp_only=False):
     view = settings_view(config)
     result = {
         "strict": True,
@@ -178,11 +159,18 @@ def toolkit_settings(config):
             "rejectDeprecatedAlgorithm": True,
         },
     }
-    if config.idp_entity_id:
+    if config.idp_entity_id and not sp_only:
         result["idp"] = {
             "entityId": config.idp_entity_id,
             "singleSignOnService": {"url": config.sso_url, "binding": C.BINDING_HTTP_REDIRECT},
-            "x509cert": config.x509_certificate,
+            "x509certMulti": {
+                "signing": [
+                    saml_metadata.pem(cert)
+                    for cert in saml_metadata.valid_certificates(
+                        saml_metadata.certificates(config.x509_certificate)
+                    )
+                ]
+            },
         }
         if config.slo_url:
             result["idp"]["singleLogoutService"] = {"url": config.slo_url, "binding": C.BINDING_HTTP_REDIRECT}
@@ -202,7 +190,12 @@ def request_data(path, post=None):
 
 
 def config_hash(config):
-    return token_hash(json.dumps(settings_view(config), sort_keys=True))
+    # The URL is only an import shortcut; changing it does not alter trust.
+    return token_hash(
+        json.dumps(
+            {k: v for k, v in settings_view(config).items() if k != "idp_metadata_url"}, sort_keys=True
+        )
+    )
 
 
 def rate_limit(client, request):
@@ -247,30 +240,63 @@ def save_settings(config: SamlInput, user=Depends(super_admin), db=Depends(db_se
         config.sp_entity_id = public_url(PREFIX + "/metadata")
     data = config.model_dump()
     row = stored(db, lock=True)
-    if not row or row.config != data:
+    previous = SamlInput.model_construct(**row.config) if row else None
+    if previous is None or previous.model_dump() != data:
         if row:
             row.config = data
         else:
             db.add(m.SamlSettings(id=1, config=data))
-        db.execute(
-            delete(m.AuthSession).where(
-                m.AuthSession.user_id.in_(select(m.User.id).where(m.User.auth_source == "saml"))
+        if previous is None or config_hash(previous) != config_hash(config):
+            db.execute(
+                delete(m.AuthSession).where(
+                    m.AuthSession.user_id.in_(select(m.User.id).where(m.User.auth_source == "saml"))
+                )
             )
-        )
         audit(db, user, "saml_settings", "saml_settings", None, "SAML ayarları güncellendi")
         db.commit()
     return settings_view(config)
 
 
+class MetadataImport(Input):
+    url: str = Field(min_length=1, max_length=1024)
+
+    @field_validator("url")
+    @classmethod
+    def entra_url(cls, value):
+        return saml_metadata.metadata_url(value)
+
+
+@router.post("/saml/metadata/import")
+async def preview_metadata(payload: MetadataImport, request: Request, user=Depends(super_admin)):
+    try:
+        await run_in_threadpool(rate_limit, redis_client(), request)
+        document = await saml_metadata.download(payload.url)
+        return await run_in_threadpool(saml_metadata.parse, document, payload.url)
+    except RedisError:
+        raise HTTPException(503, "Metadata aktarımı şu anda kullanılamıyor.") from None
+    except saml_metadata.MetadataUnavailable as exc:
+        raise HTTPException(502, str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
 @router.get("/auth/saml/metadata")
-def metadata(db=Depends(db_session)):
+def metadata(db=Depends(db_session), download: bool = False):
     row = stored(db)
     config = SamlInput.model_construct(**row.config) if row else SamlInput()
     # Metadata is available before configuring or enabling the provider.
-    toolkit = OneLogin_Saml2_Settings(toolkit_settings(config), sp_validation_only=True)
+    toolkit = OneLogin_Saml2_Settings(toolkit_settings(config, sp_only=True), sp_validation_only=True)
     document = toolkit.get_sp_metadata()
     if toolkit.validate_metadata(document):
         raise HTTPException(503, "NETRIX SAML metadata oluşturulamadı.")
+    if download:
+        return Response(
+            document,
+            media_type="application/xml",
+            headers={
+                "Content-Disposition": 'attachment; filename="netrix-saml-metadata.xml"',
+            },
+        )
     return Response(document, media_type="application/samlmetadata+xml")
 
 
@@ -433,7 +459,8 @@ def complete(request, db, form):
         row = stored(db)
         if not row or not row.config.get("enabled"):
             return finish("disabled")
-        config = SamlInput.model_validate(row.config)
+        snapshot = row.config
+        config = SamlInput.model_validate(snapshot)
         if not request_id or config_hash(config) != digest:
             return finish("expired")
         auth, assertion_id, expires = validate_response(config, form, request_id)
@@ -443,7 +470,7 @@ def complete(request, db, form):
         if not client.set(replay, 1, nx=True, ex=int(expires - now().timestamp()) + 61):
             return finish("invalid")
         row = stored(db, lock=True)
-        if not row or row.config != config.model_dump():
+        if not row or row.config != snapshot:
             return finish("expired")
         user = provision(db, config, auth)
         token = issue_session(db, user)

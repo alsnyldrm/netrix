@@ -328,3 +328,166 @@ def test_mapped_roles_revoke_and_manual_role_persists(fixture):
     assert admin.post(f"/api/v1/users/{user['id']}/toggle").status_code == 200
     assert login(browser, signer, email="renamed@example.test").headers["location"] == "/?saml=invalid"
     assert browser.get("/api/v1/auth/me").status_code == 401
+
+
+ENTRA_TENANT = "66000000-1111-2222-3333-444444444440"
+ENTRA_APP = "66000000-1111-2222-3333-444444444441"
+ENTRA_URL = f"https://login.microsoftonline.com/{ENTRA_TENANT}/federationmetadata/2007-06/federationmetadata.xml?appid={ENTRA_APP}"
+ENTRA_ISSUER = f"https://sts.windows.net/{ENTRA_TENANT}/"
+ENTRA_SSO = f"https://login.microsoftonline.com/{ENTRA_TENANT}/saml2"
+
+
+def entra_xml(*certs):
+    md = saml.saml_metadata
+    key_descriptors = "".join(
+        f'<KeyDescriptor use="{use}"><ds:KeyInfo><ds:X509Data><ds:X509Certificate>'
+        + base64.b64encode(md.certificates(cert)[0].public_bytes(serialization.Encoding.DER)).decode()
+        + "</ds:X509Certificate></ds:X509Data></ds:KeyInfo></KeyDescriptor>"
+        for use, cert in certs
+    )
+    return f'''<EntityDescriptor xmlns="{saml.C.NS_MD}" xmlns:ds="{saml.C.NS_DS}" entityID="{ENTRA_ISSUER}">
+      <IDPSSODescriptor protocolSupportEnumeration="{saml.C.NS_SAMLP}">
+        {key_descriptors}
+        <SingleSignOnService Binding="{saml.C.BINDING_HTTP_POST}" Location="{ENTRA_SSO}"/>
+        <SingleSignOnService Binding="{saml.C.BINDING_HTTP_REDIRECT}" Location="{ENTRA_SSO}"/>
+        <SingleLogoutService Binding="{saml.C.BINDING_HTTP_REDIRECT}" Location="{ENTRA_SSO}"/>
+      </IDPSSODescriptor>
+      </EntityDescriptor>'''.encode()
+
+
+def test_sp_metadata_as_file_and_endpoint_even_with_incomplete_idp(fixture):
+    admin, browser, _, _, _ = fixture
+    activate(admin, {"idp_entity_id": ENTRA_ISSUER})
+    endpoint = browser.get(saml.PREFIX + "/metadata")
+    exported = browser.get(saml.PREFIX + "/metadata?download=true")
+    assert endpoint.status_code == exported.status_code == 200
+    assert "content-disposition" not in endpoint.headers
+    assert endpoint.headers["content-type"].startswith("application/samlmetadata+xml")
+    assert exported.headers["content-type"].startswith("application/xml")
+    assert exported.headers["content-disposition"] == 'attachment; filename="netrix-saml-metadata.xml"'
+    xml = etree.fromstring(exported.content)
+    assert xml.get("entityID") == ENTITY
+    assert xml.find(f".//{{{saml.C.NS_MD}}}AssertionConsumerService").get("Location") == ACS
+
+
+def test_import_fills_draft_and_retains_multiple_signing_certs(fixture, monkeypatch):
+    admin, browser, first, config, _ = fixture
+    second = new_cert()
+    ignored = new_cert()
+    activate(admin, config)
+    source = ENTRA_URL.replace("login.microsoftonline.com", "login.windows.net").replace(
+        "federationmetadata.xml", "FederationMetadata.xml"
+    )
+    calls = []
+
+    async def fetch(url):
+        calls.append(url)
+        return entra_xml(("signing", first[1]), ("signing", second[1]), ("encryption", ignored[1]))
+
+    monkeypatch.setattr(saml.saml_metadata, "download", fetch)
+    assert (
+        browser.post(
+            "/api/v1/saml/metadata/import", json={"url": source}, headers={"X-Netrix-Request": "1"}
+        ).status_code
+        == 401
+    )
+    draft = admin.post("/api/v1/saml/metadata/import", json={"url": source})
+    assert draft.status_code == 200, draft.text
+    assert calls == [ENTRA_URL]
+    fields = draft.json()
+    assert fields["idp_metadata_url"] == ENTRA_URL and fields["idp_entity_id"] == ENTRA_ISSUER
+    assert fields["sso_url"] == fields["slo_url"] == ENTRA_SSO
+    assert fields["x509_certificate"] == first[1].strip() + "\n" + second[1].strip()
+    assert admin.get(SETTINGS).json()["idp_entity_id"] == ISSUER
+    activate(admin, {**config, **fields})
+    assert admin.get(SETTINGS).json()["idp_metadata_url"] == ENTRA_URL
+    assert admin.get(SETTINGS).json()["role_mapping"] == {"netrix.operations": "operator"}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "https://example.test/" + ENTRA_URL.split("https://", 1)[1],
+        ENTRA_URL.replace("https:", "http:"),
+        ENTRA_URL.replace("microsoftonline.com/", "microsoftonline.com:444/"),
+        ENTRA_URL.replace(ENTRA_TENANT, "common"),
+        ENTRA_URL + "&appid=" + ENTRA_APP,
+    ],
+)
+def test_import_rejects_unsupported_urls_before_transport(fixture, monkeypatch, source):
+    admin, _, _, _, _ = fixture
+
+    async def no_fetch(_):
+        pytest.fail("Invalid metadata URL must not cause a fetch")
+
+    monkeypatch.setattr(saml.saml_metadata, "download", no_fetch)
+    assert admin.post("/api/v1/saml/metadata/import", json={"url": source}).status_code == 422
+
+
+def test_malformed_and_wrong_tenant_metadata_rejected(fixture, monkeypatch):
+    admin, _, signer, _, _ = fixture
+    documents = iter(
+        (
+            b"<html>Not metadata</html>",
+            entra_xml(("signing", signer[1])).replace(ENTRA_TENANT.encode(), ENTRA_APP.encode()),
+            entra_xml(("encryption", signer[1])),
+        )
+    )
+
+    async def fetch(_):
+        return next(documents)
+
+    monkeypatch.setattr(saml.saml_metadata, "download", fetch)
+    for _ in range(3):
+        assert admin.post("/api/v1/saml/metadata/import", json={"url": ENTRA_URL}).status_code == 422
+
+
+async def test_metadata_download_rejects_redirect_and_oversize_response(monkeypatch):
+    import httpx
+
+    actual_client = httpx.AsyncClient
+    md = saml.saml_metadata
+    calls = []
+    replies = iter(
+        [
+            httpx.Response(302, headers={"Location": "https://example.test/redirected"}),
+            httpx.Response(200, content=b"x" * (md.MAX_XML + 1)),
+        ]
+    )
+
+    def handler(request):
+        calls.append(str(request.url))
+        return next(replies)
+
+    def client(**kwargs):
+        assert kwargs["follow_redirects"] is False and kwargs["trust_env"] is False
+        return actual_client(**kwargs, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(md.httpx, "AsyncClient", client)
+    with pytest.raises(md.MetadataUnavailable):
+        await md.download(ENTRA_URL)
+    with pytest.raises(ValueError, match="boyutu"):
+        await md.download(ENTRA_URL)
+    assert calls == [ENTRA_URL, ENTRA_URL]
+
+
+def test_old_settings_and_rollover_key_can_authenticate(fixture, env):
+    admin, browser, first, config, _ = fixture
+    second = new_cert()
+    activate(admin, {**config, "x509_certificate": first[1].strip() + "\n" + second[1].strip()})
+    with env() as db:
+        row = db.get(m.SamlSettings, 1)
+        row.config = {k: v for k, v in row.config.items() if k != "idp_metadata_url"}
+        db.commit()
+    assert login(browser, second).headers["location"] == "/"
+    assert browser.get("/api/v1/auth/me").status_code == 200
+    assert admin.get(SETTINGS).json()["idp_metadata_url"] == ""
+    activate(
+        admin,
+        {
+            **config,
+            "idp_metadata_url": ENTRA_URL,
+            "x509_certificate": first[1].strip() + "\n" + second[1].strip(),
+        },
+    )
+    assert browser.get("/api/v1/auth/me").status_code == 200
