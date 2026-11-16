@@ -144,15 +144,60 @@ async def compare_live(job_id):
 
 def delete_snapshot(db, id, user):
     row = svc.get(db, m.Snapshot, id)
-    db.scalar(select(m.Device).where(m.Device.id == row.device_id).with_for_update())
-    if db.get(m.Device, row.device_id).base_snapshot_id == id:
+    delete_snapshots(db, row.device_id, [id], user)
+
+
+def delete_snapshots(db, device_id, snapshot_ids, user):
+    ids = set(snapshot_ids)
+    device = db.scalar(
+        select(m.Device)
+        .where(m.Device.id == device_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    rows = set(
+        db.scalars(select(m.Snapshot.id).where(m.Snapshot.device_id == device_id, m.Snapshot.id.in_(ids)))
+    )
+    if device is None or rows != ids:
+        raise HTTPException(404, "Seçilen yedeklerden biri bu cihazda bulunamadı")
+    if device.base_snapshot_id in ids:
         raise HTTPException(409, "Önce başka bir base config seçin")
-    if id in pinned_snapshots(db, row.device_id):
-        raise HTTPException(409, "Bu yedek çalışan karşılaştırmada kullanılıyor")
-    db.delete(row)
-    audit(db, user, "delete", "snapshots", id, "Konfigürasyon yedeği silindi")
-    db.commit()
+    if ids & pinned_snapshots(db, device_id):
+        raise HTTPException(409, "Seçilen yedeklerden biri çalışan karşılaştırmada kullanılıyor")
+    if db.scalar(select(m.FirmwareTarget.id).where(m.FirmwareTarget.snapshot_id.in_(ids)).limit(1)):
+        raise HTTPException(409, "Firmware geçmişine bağlı yedekler silinemez")
+
+    for id in sorted(ids):
+        audit(db, user, "delete", "snapshots", id, "Konfigürasyon yedeği silindi")
+    try:
+        count = db.execute(
+            delete(m.Snapshot).where(m.Snapshot.device_id == device_id, m.Snapshot.id.in_(ids))
+        ).rowcount
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409, "Bir yedek başka bir işlemde kullanılıyor. Hiçbir yedek silinmedi."
+        ) from None
     svc.publish()
+    return {"deleted_count": count}
+
+
+def queue_device_backups(db, device_ids, user):
+    jobs, rejected = [], []
+    for device_id in sorted(set(device_ids)):
+        try:
+            with db.begin_nested():
+                job = svc.enqueue(db, "backup", device_id, user, commit=False)
+            jobs.append({"device_id": device_id, "job_id": job.id})
+        except HTTPException as exc:
+            if exc.status_code not in (404, 409, 422):
+                raise
+            rejected.append({"device_id": device_id, "reason": exc.detail})
+    db.commit()
+    if jobs:
+        svc.publish()
+    return {"jobs": jobs, "rejected": rejected}
 
 
 def clear_device_backups(db, device_ids, user):

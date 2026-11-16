@@ -411,5 +411,10 @@ class ConfigCompareInput(Input):
     distinct_devices: bool = False
 
 
-class BackupHistoryDeleteInput(Input):
+class BackupDevicesInput(Input):
     device_ids: list[str] = Field(min_length=1, max_length=100)
+
+
+class BackupSnapshotsDeleteInput(Input):
+    device_id: str = Field(min_length=1, max_length=36)
+    snapshot_ids: list[str] = Field(min_length=1, max_length=100)

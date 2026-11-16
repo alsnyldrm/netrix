@@ -383,10 +383,26 @@ def approve_config(id: str, user=Depends(operator), db=Depends(db_session)):
 
 
 @app.post(P + "/configuration/backups/delete")
-def clear_backups(payload: s.BackupHistoryDeleteInput, user=Depends(admin), db=Depends(db_session)):
+def clear_backups(payload: s.BackupDevicesInput, user=Depends(admin), db=Depends(db_session)):
     from .configuration.management import clear_device_backups
 
     return clear_device_backups(db, payload.device_ids, user)
+
+
+@app.post(P + "/configuration/snapshots/delete")
+def clear_selected_snapshots(
+    payload: s.BackupSnapshotsDeleteInput, user=Depends(admin), db=Depends(db_session)
+):
+    from .configuration.management import delete_snapshots
+
+    return delete_snapshots(db, payload.device_id, payload.snapshot_ids, user)
+
+
+@app.post(P + "/configuration/backups/queue", status_code=202)
+def queue_backups(payload: s.BackupDevicesInput, user=Depends(operator), db=Depends(db_session)):
+    from .configuration.management import queue_device_backups
+
+    return queue_device_backups(db, payload.device_ids, user)
 
 
 @app.post(P + "/configuration/compare")

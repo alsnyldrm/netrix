@@ -113,3 +113,65 @@ def test_operator_cannot_clear_backup_history(admin_client, env, histories):
         == 200
     )
     assert admin_client.post(PATH, json={"device_ids": [histories[0][0]]}).status_code == 403
+
+
+def test_selected_snapshot_deletion_preserves_base_and_other_devices(admin_client, env, histories):
+    first, second = histories[:2]
+    path = "/api/v1/configuration/snapshots/delete"
+
+    def remove(*ids):
+        return admin_client.post(path, json={"device_id": first[0], "snapshot_ids": list(ids)})
+
+    assert remove(first[2], second[2]).status_code == 404
+    assert remove(first[1], first[2]).status_code == 409
+    with env() as db:
+        db.add(
+            m.Job(kind="compare", target_id=first[0], status="running", result={"base_snapshot_id": first[2]})
+        )
+        db.commit()
+    assert remove(first[2]).status_code == 409
+
+    with env() as db:
+        job = db.scalar(select(m.Job).where(m.Job.kind == "compare"))
+        job.status = "succeeded"
+        extra = snapshot(db, db.get(m.Device, first[0]), "hostname extra")
+        db.commit()
+        extra_id = extra.id
+    assert remove(first[2], extra_id).json() == {"deleted_count": 2}
+    with env() as db:
+        assert db.get(m.Device, first[0]).base_snapshot_id == first[1]
+        assert db.get(m.Snapshot, first[1]) and db.get(m.Snapshot, second[2])
+        assert db.get(m.Snapshot, first[2]) is None and db.get(m.Snapshot, extra_id) is None
+
+
+def test_bulk_backup_queues_eligible_devices_and_reuses_active_jobs(admin_client, env, histories):
+    from netrix.identity.security import encrypt
+
+    first, second, third = (row[0] for row in histories)
+    with env() as db:
+        profile = m.Credential(
+            name="Fixture SSH",
+            protocol="ssh",
+            encrypted_secret=encrypt('{"protocol":"ssh","username":"fixture","password":"fixture"}'),
+        )
+        db.add(profile)
+        db.flush()
+        for id in (first, third):
+            db.get(m.Device, id).config_credential_id = profile.id
+        db.commit()
+
+    endpoint = "/api/v1/configuration/backups/queue"
+    payload = {"device_ids": [first, second, third, first]}
+    response = admin_client.post(endpoint, json=payload)
+    assert response.status_code == 202
+    result = response.json()
+    assert {row["device_id"] for row in result["jobs"]} == {first, third}
+    assert [row["device_id"] for row in result["rejected"]] == [second]
+    assert result["rejected"][0]["reason"]
+    assert admin_client.post(endpoint, json=payload).json() == result
+    with env() as db:
+        assert {j.target_id for j in db.scalars(select(m.Job).where(m.Job.status == "queued"))} == {
+            first,
+            third,
+        }
+        assert all(db.get(m.Device, id).backup_interval == 0 for id in (first, second, third))

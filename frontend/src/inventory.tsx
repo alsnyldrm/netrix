@@ -1,6 +1,6 @@
 import { BulkEditField } from "./bulk-edit-field";
 import { ColumnTable } from "./column-table";
-import { hasAdminAccess, canSSH } from "./permissions";
+import { hasAdminAccess, canOperate, canSSH } from "./permissions";
 import { openSSH, sendBulkCommand } from "./ssh-workspace";
 import { useLiveQuery } from "./data";
 import React, { useDeferredValue, useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import {
   TerminalWindow,
   Columns,
   Trash,
+  Play,
   PencilSimple,
   Plus,
   X,
@@ -713,8 +714,21 @@ export function InventoryTable({
     resource === "devices" && purpose === "devices" && canSSH(user);
   const canDeleteBackups =
     resource === "backup-devices" && hasAdminAccess(user);
+  const canDeleteSnapshots =
+    resource === "snapshots" &&
+    purpose === "snapshots" &&
+    !!deviceId &&
+    hasAdminAccess(user);
+  const canQueueBackups = purpose === "backup-settings" && canOperate(user);
+  const selectableRows: Row[] = canDeleteSnapshots
+    ? data.items.filter((row: Row) => !row.is_base)
+    : data.items;
+  const selectedRows = selectableRows.filter((row) =>
+    selected.includes(row.id),
+  );
   const selectRows =
     canDeleteBackups ||
+    canDeleteSnapshots ||
     ((writable || sshActions) &&
       (!archive || hasAdminAccess(user)) &&
       purpose !== "interface-devices" &&
@@ -724,9 +738,15 @@ export function InventoryTable({
     setBusy(true);
     setError("");
     try {
-      const result = await api("/configuration/backups/delete", "POST", {
-        device_ids: ids,
-      });
+      const result = await api(
+        canDeleteSnapshots
+          ? "/configuration/snapshots/delete"
+          : "/configuration/backups/delete",
+        "POST",
+        canDeleteSnapshots
+          ? { device_id: deviceId, snapshot_ids: ids }
+          : { device_ids: ids },
+      );
       setBackupDeletion(null);
       setSelected([]);
       setNotice(`${result.deleted_count} yedek silindi.`);
@@ -741,6 +761,36 @@ export function InventoryTable({
     setError("");
     setNotice("");
     setBackupDeletion({ ids, name });
+  };
+  const queueBackups = async () => {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api("/configuration/backups/queue", "POST", {
+        device_ids: selectedRows.map((row) => row.id),
+      });
+      const rejected: { device_id: string; reason: string }[] = result.rejected;
+      setSelected(rejected.map((row) => row.device_id));
+      if (result.jobs.length)
+        setNotice(
+          `${result.jobs.length} cihazın yedekleme görevi sırada veya çalışıyor. Görev merkezinden izleyebilirsiniz.`,
+        );
+      if (rejected.length)
+        setError(
+          rejected
+            .map(
+              ({ device_id, reason }) =>
+                `${selectedRows.find((row) => row.id === device_id)?.name || device_id}: ${reason}`,
+            )
+            .join(" · "),
+        );
+      if (result.jobs.length) onSaved();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
   };
   const apply = async (action: string) => {
     setBusy(true);
@@ -899,22 +949,38 @@ export function InventoryTable({
               Kalıcı sil
             </button>
           )}
-          {canDeleteBackups && (
+          {canQueueBackups && (
             <button
               className="secondary"
-              disabled={busy || loading}
-              onClick={() => confirmBackupDeletion([...selected])}
+              disabled={busy || loading || !selectedRows.length}
+              onClick={queueBackups}
+            >
+              <Play size={16} aria-hidden="true" />
+              Seçilenleri yedekle
+            </button>
+          )}
+          {(canDeleteBackups || canDeleteSnapshots) && (
+            <button
+              className="secondary"
+              disabled={busy || loading || !selectedRows.length}
+              onClick={() =>
+                confirmBackupDeletion(selectedRows.map((row) => row.id))
+              }
             >
               <Trash size={16} aria-hidden="true" />
               Seçilen yedekleri sil
             </button>
           )}
-          {hasAdminAccess(user) && !restorable && !canDeleteBackups && (
-            <button className="secondary" onClick={() => setDialog("delete")}>
-              <Trash size={16} aria-hidden="true" />
-              Sil
-            </button>
-          )}
+          {hasAdminAccess(user) &&
+            !restorable &&
+            !canDeleteBackups &&
+            !canDeleteSnapshots &&
+            purpose !== "backup-settings" && (
+              <button className="secondary" onClick={() => setDialog("delete")}>
+                <Trash size={16} aria-hidden="true" />
+                Sil
+              </button>
+            )}
           {selected.length > 0 && (
             <button className="text-button" onClick={() => setSelected([])}>
               Seçimi kaldır
@@ -964,24 +1030,22 @@ export function InventoryTable({
                   >
                     <input
                       aria-label="Bu sayfadaki kayıtları seç"
-                      disabled={loading}
+                      disabled={loading || busy || !selectableRows.length}
                       type="checkbox"
                       checked={
-                        data.items.length > 0 &&
-                        data.items.every((r: Row) => selected.includes(r.id))
+                        selectableRows.length > 0 &&
+                        selectedRows.length === selectableRows.length
                       }
                       ref={(el) => {
                         if (el)
                           el.indeterminate =
-                            selected.length > 0 &&
-                            !data.items.every((r: Row) =>
-                              selected.includes(r.id),
-                            );
+                            selectedRows.length > 0 &&
+                            selectedRows.length < selectableRows.length;
                       }}
                       onChange={(e) =>
                         setSelected(
                           e.target.checked
-                            ? data.items.map((r: Row) => r.id)
+                            ? selectableRows.map((row) => row.id)
                             : [],
                         )
                       }
@@ -1092,10 +1156,21 @@ export function InventoryTable({
                           aria-label={
                             resource === "links"
                               ? `${row.interface_name || "Bilinmeyen port"} · ${row.remote_name} komşuluğunu seç`
-                              : `${row.name} seç`
+                              : canDeleteSnapshots
+                                ? row.is_base
+                                  ? "Base config silmek için önce başka bir base config seçin"
+                                  : `${date(row.created_at)} tarihli yedeği seç`
+                                : `${row.name} seç`
                           }
-                          disabled={loading}
-                          checked={selected.includes(row.id)}
+                          disabled={
+                            loading ||
+                            busy ||
+                            (canDeleteSnapshots && row.is_base)
+                          }
+                          checked={
+                            !(canDeleteSnapshots && row.is_base) &&
+                            selected.includes(row.id)
+                          }
                           onChange={(e) =>
                             setSelected(
                               e.target.checked
@@ -1404,9 +1479,11 @@ export function InventoryTable({
           onClose={() => setDialog("")}
         />
       )}
-      {backupDeletion && canDeleteBackups && (
+      {backupDeletion && (canDeleteBackups || canDeleteSnapshots) && (
         <Dialog
-          title="Yedek geçmişini sil"
+          title={
+            canDeleteSnapshots ? "Seçilen yedekleri sil" : "Yedek geçmişini sil"
+          }
           onClose={() => {
             if (!busy) setBackupDeletion(null);
           }}
@@ -1418,13 +1495,20 @@ export function InventoryTable({
               if (!busy) void deleteBackups(backupDeletion.ids);
             }}
           >
-            <p>
-              {backupDeletion.name
-                ? `${backupDeletion.name} cihazının`
-                : `Seçilen ${backupDeletion.ids.length} cihazın`}{" "}
-              tüm yedekleri, base config dahil, kalıcı olarak silinecek.
-              Cihazlar envanterde kalacak.
-            </p>
+            {canDeleteSnapshots ? (
+              <p>
+                Seçilen {backupDeletion.ids.length} yedek dosyası kalıcı olarak
+                silinecek. Base config ve cihaz kaydı korunacak.
+              </p>
+            ) : (
+              <p>
+                {backupDeletion.name
+                  ? `${backupDeletion.name} cihazının`
+                  : `Seçilen ${backupDeletion.ids.length} cihazın`}{" "}
+                tüm yedekleri, base config dahil, kalıcı olarak silinecek.
+                Cihazlar envanterde kalacak.
+              </p>
+            )}
             {error && (
               <p role="alert" className="error">
                 {error}
