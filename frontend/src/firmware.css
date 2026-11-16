@@ -1027,6 +1027,11 @@
 .fw-device-selection p {
   margin: 0;
 }
+.fw-device-selection .fw-selection-hint {
+  margin-top: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+}
 .fw-inventory-note {
   margin: 0;
   padding: 12px 20px;

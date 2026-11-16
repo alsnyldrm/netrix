@@ -1555,11 +1555,12 @@ export default function FirmwareWorkspace({
     [detail, setDetail] = useState<string | null>(null),
     [busy, setBusy] = useState(false);
   const [deviceView, setDeviceView] = useState("all"),
-    [selected, setSelected] = useState<string[]>([]);
+    [selected, setSelected] = useState(() => new Map<string, boolean>());
+  const selectionStatusId = useId();
   const selectView = (value: string) => {
     setDeviceView(value);
     setOffset(0);
-    setSelected([]);
+    setSelected(new Map());
   };
   const refresh = revision + externalRefresh,
     admin = hasAdminAccess(user),
@@ -1578,7 +1579,7 @@ export default function FirmwareWorkspace({
   useEffect(() => {
     setOffset(0);
     setQ("");
-    setSelected([]);
+    setSelected(new Map());
     setDeviceView("all");
   }, [tab]);
   useEffect(() => {
@@ -1602,16 +1603,49 @@ export default function FirmwareWorkspace({
       setBusy(false);
     }
   };
-  const rows = result.data?.items || [];
-  const eligible: Row[] = rows.filter(
-    (r: Row) => r.update_status === "outdated",
+  const rows: Row[] = result.data?.items || [];
+  useEffect(() => {
+    if (tab !== "devices" || !result.data) return;
+    setSelected((previous) => {
+      let next = previous;
+      for (const row of result.data!.items) {
+        const outdated = row.update_status === "outdated";
+        if (!previous.has(row.id) || previous.get(row.id) === outdated)
+          continue;
+        if (next === previous) next = new Map(previous);
+        next.set(row.id, outdated);
+      }
+      return next;
+    });
+  }, [tab, result.data]);
+  const visibleStatus = new Map(
+    tab === "devices"
+      ? rows.map((r) => [r.id, r.update_status === "outdated"])
+      : [],
   );
+  const updateIds = [...selected]
+    .filter(([id, outdated]) => visibleStatus.get(id) ?? outdated)
+    .map(([id]) => id);
+  const selectedOnPage = rows.filter((r) => selected.has(r.id)).length;
+  const allOnPage = rows.length > 0 && selectedOnPage === rows.length;
+  const updateSelection = (devices: Row[], checked: boolean) => {
+    setSelected((previous) => {
+      const next = new Map(previous);
+      for (const device of devices) {
+        if (!checked) next.delete(device.id);
+        else if (next.size < 1000 || next.has(device.id))
+          next.set(device.id, device.update_status === "outdated");
+      }
+      return next;
+    });
+  };
   const planSelected = async () => {
+    if (busy || !updateIds.length) return;
     setBusy(true);
     setError("");
     try {
       const prepared = await api("/firmware/plans/prepare", "POST", {
-        device_ids: selected,
+        device_ids: updateIds,
       });
       setModal({ kind: "plan", row: prepared });
     } catch (e: any) {
@@ -1714,7 +1748,7 @@ export default function FirmwareWorkspace({
                 onChange={(e) => {
                   setQ(e.target.value);
                   setOffset(0);
-                  setSelected([]);
+                  setSelected(new Map());
                 }}
               />
             )}
@@ -1761,16 +1795,29 @@ export default function FirmwareWorkspace({
         </div>
         {tab === "devices" && deviceView !== "outdated" && admin && (
           <div className="fw-device-selection">
-            <p role="status">{selected.length} cihaz seçildi</p>
+            <div role="status" id={selectionStatusId}>
+              <p>{selected.size} cihaz seçildi</p>
+              {selected.size > 0 && (
+                <p className="fw-selection-hint">
+                  {updateIds.length
+                    ? `${updateIds.length} cihaz güncellenebilir`
+                    : "Güncelleme gereken cihaz yok."}
+                </p>
+              )}
+            </div>
             <div className="fw-row-actions">
-              {!!selected.length && (
+              {selected.size > 0 && (
                 <>
-                  <button className="secondary" onClick={() => setSelected([])}>
+                  <button
+                    className="secondary"
+                    onClick={() => setSelected(new Map())}
+                  >
                     Seçimi temizle
                   </button>
                   <button
                     className="primary"
-                    disabled={busy}
+                    disabled={busy || !updateIds.length}
+                    aria-describedby={selectionStatusId}
                     onClick={planSelected}
                   >
                     Güncelle
@@ -1836,37 +1883,19 @@ export default function FirmwareWorkspace({
                         <th className="fw-select-cell">
                           <input
                             type="checkbox"
-                            aria-label="Bu sayfadaki güncel olmayan cihazları seç"
-                            checked={
-                              !!eligible.length &&
-                              eligible.every((r) => selected.includes(r.id))
-                            }
+                            aria-label="Bu sayfadaki tüm cihazları seç"
+                            checked={allOnPage}
                             ref={(input) => {
                               if (input)
                                 input.indeterminate =
-                                  eligible.some((r) =>
-                                    selected.includes(r.id),
-                                  ) &&
-                                  !eligible.every((r) =>
-                                    selected.includes(r.id),
-                                  );
+                                  selectedOnPage > 0 && !allOnPage;
                             }}
-                            disabled={!eligible.length}
-                            onChange={(e) =>
-                              setSelected((ids) =>
-                                e.target.checked
-                                  ? [
-                                      ...new Set([
-                                        ...ids,
-                                        ...eligible.map((r) => r.id),
-                                      ]),
-                                    ].slice(0, 1000)
-                                  : ids.filter(
-                                      (id) =>
-                                        !eligible.some((r) => r.id === id),
-                                    ),
-                              )
+                            disabled={
+                              busy ||
+                              !rows.length ||
+                              (selected.size >= 1000 && !allOnPage)
                             }
+                            onChange={() => updateSelection(rows, !allOnPage)}
                           />
                         </th>
                       )}
@@ -1910,17 +1939,13 @@ export default function FirmwareWorkspace({
                                   type="checkbox"
                                   aria-label={`${r.name} cihazını seç`}
                                   disabled={
-                                    r.update_status !== "outdated" ||
-                                    (!selected.includes(r.id) &&
-                                      selected.length >= 1000)
+                                    busy ||
+                                    (!selected.has(r.id) &&
+                                      selected.size >= 1000)
                                   }
-                                  checked={selected.includes(r.id)}
+                                  checked={selected.has(r.id)}
                                   onChange={(e) =>
-                                    setSelected((ids) =>
-                                      e.target.checked
-                                        ? [...ids, r.id]
-                                        : ids.filter((id) => id !== r.id),
-                                    )
+                                    updateSelection([r], e.target.checked)
                                   }
                                 />
                               </td>
