@@ -52,12 +52,7 @@ class User(Entity, Base):
     __table_args__ = (
         UniqueConstraint("auth_source", "email", name="uq_users_auth_source_email"),
         CheckConstraint("auth_source in ('local','saml')", name="ck_user_auth_source"),
-        CheckConstraint("auth_source = 'local' OR role <> 'super_admin'", name="ck_saml_no_super_admin"),
         CheckConstraint("role in ('super_admin','admin','operator','viewer')", name="ck_user_role"),
-        CheckConstraint(
-            "role <> 'super_admin' OR lower(email) = 'alisan.yildirim@fbu.edu.tr'",
-            name="ck_user_super_admin_email",
-        ),
     )
 
 

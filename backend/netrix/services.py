@@ -286,7 +286,9 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
         ):
             raise HTTPException(403, "Rol ve SSH yetkisini yalnızca süper yönetici atayabilir")
         if data["role"] == "super_admin" and data["email"] != SUPER_ADMIN_EMAIL:
-            raise HTTPException(422, "Süper yönetici yalnızca tanımlı uygulama sahibine atanabilir")
+            raise HTTPException(
+                422, "Süper yönetici rolünü hesap açıldıktan sonra Ekip & yetkiler ekranından atayın"
+            )
         if data["email"] == SUPER_ADMIN_EMAIL and data["role"] != "super_admin":
             raise HTTPException(422, "Tanımlı uygulama sahibi süper yönetici rolünü kullanmalıdır")
     if name in ("sites", "cabinets"):

@@ -1,4 +1,4 @@
-"""Exclusive owner role, independent SSH grants and escalation protection."""
+"""Delegated super admins, recovery owner protection and independent SSH grants."""
 
 from types import SimpleNamespace
 
@@ -6,7 +6,6 @@ import pytest
 from netrix import models as m
 from netrix.identity.permissions import SUPER_ADMIN_EMAIL, can_operate, can_ssh, is_admin, is_super_admin
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 
 
 @pytest.mark.parametrize(
@@ -27,7 +26,7 @@ def test_capabilities(role, ssh, admin, write, terminal):
     assert can_ssh(user) == terminal
 
 
-def test_owner_exclusive_and_protected(admin_client, env):
+def test_recovery_owner_protected_and_regular_admin_cannot_grant_roles(admin_client):
     owner = admin_client.get("/api/v1/auth/me").json()
     assert owner["email"] == SUPER_ADMIN_EMAIL and owner["role"] == "super_admin"
     assert admin_client.get("/api/v1/audit").status_code == 200
@@ -44,17 +43,6 @@ def test_owner_exclusive_and_protected(admin_client, env):
     payload["role"] = "admin"
     target = admin_client.post("/api/v1/users", json=payload).json()
     assert not target["ssh_access"]
-    assert (
-        admin_client.put(f"/api/v1/users/{target['id']}/roles", json={"role": "super_admin"}).status_code
-        == 422
-    )
-    with env() as db:
-        row = db.get(m.User, target["id"])
-        row.role = "super_admin"
-        with pytest.raises(IntegrityError):
-            db.commit()
-        db.rollback()
-        assert len(list(db.scalars(select(m.User).where(m.User.role == "super_admin")))) == 1
     admin_client.post("/api/v1/auth/logout")
     assert (
         admin_client.post(
@@ -66,6 +54,10 @@ def test_owner_exclusive_and_protected(admin_client, env):
         admin_client.put(
             f"/api/v1/users/{target['id']}/roles", json={"role": "admin", "ssh_access": True}
         ).status_code
+        == 403
+    )
+    assert (
+        admin_client.put(f"/api/v1/users/{target['id']}/roles", json={"role": "super_admin"}).status_code
         == 403
     )
     assert admin_client.put(f"/api/v1/users/{owner['id']}/roles", json={"role": "viewer"}).status_code == 403
@@ -107,9 +99,53 @@ def test_owner_exclusive_and_protected(admin_client, env):
     assert admin_client.get("/api/v1/users").status_code == 200
 
 
-def test_super_admin_role_with_wrong_identity_never_has_privileged_access():
-    user = SimpleNamespace(role="super_admin", email="another@example.test", ssh_access=False)
-    assert not is_super_admin(user) and not is_admin(user) and not can_operate(user) and not can_ssh(user)
+def test_super_admin_is_an_explicit_role_instead_of_a_reserved_email():
+    user = SimpleNamespace(
+        role="super_admin", email="another@example.test", ssh_access=False, auth_source="saml"
+    )
+    assert is_super_admin(user) and is_admin(user) and can_operate(user) and can_ssh(user)
+
+
+def test_delegated_super_admin_can_grant_and_revoke_but_cannot_demote_recovery_owner(admin_client, env):
+    from fastapi.testclient import TestClient
+    from netrix.main import app
+
+    owner = admin_client.get("/api/v1/auth/me").json()
+    data = {"email": "delegate@example.test", "display_name": "Delegate", "password": "fixture-long-password"}
+    delegate = admin_client.post("/api/v1/users", json=data).json()
+    another = admin_client.post("/api/v1/users", json={**data, "email": "next@example.test"}).json()
+    promote = {"role": "super_admin", "ssh_access": False}
+
+    def roles(id):
+        return f"/api/v1/users/{id}/roles"
+
+    assert admin_client.put(roles(delegate["id"]), json=promote).status_code == 200
+
+    with TestClient(app, headers={"X-Netrix-Request": "1"}) as delegated:
+        response = delegated.post(
+            "/api/v1/auth/login", json={"email": data["email"], "password": data["password"]}
+        )
+        assert response.json()["role"] == "super_admin"
+        assert delegated.get("/api/v1/access/ssh-profiles").status_code == 200
+        assert delegated.put(roles(another["id"]), json=promote).status_code == 200
+        assert delegated.put(roles(owner["id"]), json={"role": "admin"}).status_code == 409
+        assert delegated.post(f"/api/v1/users/{owner['id']}/toggle").status_code == 403
+        assert delegated.post(f"/api/v1/users/{another['id']}/toggle").status_code == 403
+        assert delegated.put(roles(another["id"]), json={"role": "admin"}).json()["role"] == "admin"
+        assert admin_client.put(roles(delegate["id"]), json={"role": "admin"}).status_code == 200
+        assert delegated.put(roles(another["id"]), json=promote).status_code == 403
+        assert delegated.get("/api/v1/access/ssh-profiles").status_code == 403
+
+    with env() as db:
+        rows = db.scalars(
+            select(m.Audit).where(
+                m.Audit.actor_id == delegate["id"],
+                m.Audit.entity_id == another["id"],
+                m.Audit.action == "user_roles_updated",
+            )
+        ).all()
+        assert len(rows) == 2
+        assert db.get(m.User, owner["id"]).role == "super_admin"
 
 
 def test_setup_cannot_leave_installation_without_designated_owner(client):

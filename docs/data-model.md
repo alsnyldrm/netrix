@@ -40,7 +40,7 @@ PostgreSQL migration `20261116_01`, `yonetim.users.auth_source` ile yerel ve SAM
 
 Yetkilendirmeyi HTTP ve WebSocket erişimine uygula. Audit kaydında credential, token veya hassas konfigürasyon içeriği bulunmasın.
 
-MariaDB uygulamasında roller `users.role` ve bağımsız SSH ataması `users.ssh_access` alanındadır; ayrı rol/izin tabloları oluşturulmamıştır. `20261103_43`, yalnız `alisan.yildirim@fbu.edu.tr` hesabına atanabilen `super_admin` rolünü ve veritabanı kısıtını ekler. Yönetici otomatik SSH erişimi taşımaz; rol atamalarını yalnız süper yönetici yapar. [Erişim sözleşmesi](access-control.md).
+Roller `yonetim.users.role` ve bağımsız SSH ataması `yonetim.users.ssh_access` alanlarındadır. Tarihsel `20261103_43` migration’ı süper yönetici rolünü tek bir hesaba bağlamıştı. PostgreSQL `20261116_03`, rolün başka yerel ve Entra hesaplarına elle atanmasına izin verir. İlk yerel kurtarma hesabı uygulama tarafından korunur. [Erişim sözleşmesi](access-control.md).
 
 `20261104_48`, `audit_events.details` nullable JSON alanını ekler. Yeni kullanıcı işlemlerinde aktörün o andaki adı/e-postası, hedef kayıt adı ve izin verilen alanların önceki/sonraki değerleri aynı transaction içinde saklanır. Kimliği doğrulanmış yazma isteklerindeki ORM değişiklikleri merkezi olarak yakalanır; modüllerin açık işlem açıklamaları bu kayıtları tamamlar. Rollback denetim kaydını da geri alır. Gizli alanlarda yalnız değişiklik göstergesi bulunur; parola özeti, şifreli/asıl sır, ham komut, konfigürasyon ve protokol kanıtı kopyalanmaz. Görünüm tercihleri yalnız doğrulanan public şemadan alınır. Zamanlar UTC kalır.
 

@@ -9,11 +9,11 @@ type User =
   | undefined;
 
 export const SUPER_ADMIN_EMAIL = "alisan.yildirim@fbu.edu.tr";
-export const isSuperAdmin = (user: User) =>
+export const isRecoveryOwner = (user: User) =>
   !!user &&
-  user.role === "super_admin" &&
   user.auth_source !== "saml" &&
   user.email?.toLowerCase() === SUPER_ADMIN_EMAIL;
+export const isSuperAdmin = (user: User) => user?.role === "super_admin";
 export const hasAdminAccess = (user: User) =>
   user?.role === "admin" || isSuperAdmin(user);
 export const canOperate = (user: User) =>

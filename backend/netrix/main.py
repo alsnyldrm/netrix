@@ -24,8 +24,8 @@ from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
 from .firmware.api import router as firmware_router
-from .identity import saml
-from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin, is_super_admin
+from .identity import roles, saml
+from .identity.permissions import SUPER_ADMIN_EMAIL, is_admin
 from .identity.security import (
     DUMMY_HASH,
     admin,
@@ -451,37 +451,14 @@ def acknowledge(id: str, user=Depends(operator), db=Depends(db_session)):
 
 @app.put(P + "/users/{id}/roles")
 def update_user_roles(id: str, payload: s.UserRolesInput, user=Depends(super_admin), db=Depends(db_session)):
-    row = db.scalar(select(m.User).where(m.User.id == id).with_for_update())
-    if not row:
-        raise HTTPException(404, "Kullanıcı bulunamadı")
-    if is_super_admin(row) and payload.role != "super_admin":
-        raise HTTPException(409, "Süper yönetici rolü bu hesaptan kaldırılamaz")
-    if payload.role == "super_admin" and (
-        row.email.casefold() != SUPER_ADMIN_EMAIL or row.auth_source != "local"
-    ):
-        raise HTTPException(422, "Süper yönetici yalnızca tanımlı uygulama sahibine atanabilir")
-    if row.auth_source == "saml" and row.role != payload.role:
-        binding = db.get(m.SamlIdentity, id)
-        if binding:
-            binding.manual_role = True
-    row.role, row.ssh_access = payload.role, payload.ssh_access
-    audit(db, user, "user_roles_updated", "users", id, "Uygulama ve SSH bağlantısı rolleri güncellendi")
-    db.commit()
+    row = roles.assign(db, user.id, id, payload)
     svc.publish()
     return svc.serialize(row)
 
 
 @app.post(P + "/users/{id}/toggle")
 def toggle_user(id: str, user=Depends(admin), db=Depends(db_session)):
-    if id == user.id:
-        raise HTTPException(409, "Kendi hesabınızı devre dışı bırakamazsınız")
-    row = svc.get(db, m.User, id)
-    if is_super_admin(row):
-        raise HTTPException(403, "Süper yönetici hesabı devre dışı bırakılamaz")
-    row.is_active = not row.is_active
-    db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == id))
-    audit(db, user, "toggle_user", "users", id, "Hesap erişimi değiştirildi")
-    db.commit()
+    row = roles.toggle(db, user.id, id)
     svc.publish()
     return svc.serialize(row)
 

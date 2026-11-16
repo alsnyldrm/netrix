@@ -3,13 +3,16 @@
 SUPER_ADMIN_EMAIL = "alisan.yildirim@fbu.edu.tr"
 
 
-def is_super_admin(user):
+def is_recovery_owner(user):
     return bool(
         user
-        and user.role == "super_admin"
-        and user.email.casefold() == SUPER_ADMIN_EMAIL
         and getattr(user, "auth_source", "local") == "local"
+        and user.email.casefold() == SUPER_ADMIN_EMAIL
     )
+
+
+def is_super_admin(user):
+    return bool(user and user.role == "super_admin")
 
 
 def is_admin(user):

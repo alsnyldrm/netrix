@@ -352,19 +352,23 @@ def test_entra_and_local_owner_can_sign_in_with_same_email(fixture, env):
     assert entra["role"] == "viewer" and entra["auth_source"] == "saml" and not entra["ssh_access"]
     assert browser.get(SETTINGS).status_code == 403
     assert browser.get("/api/v1/access/ssh-profiles").status_code == 403
+    path = f"/api/v1/users/{entra['id']}/roles"
+    assert admin.put(path, json={"role": "super_admin", "ssh_access": False}).status_code == 200
+    assert browser.get("/api/v1/auth/me").json()["role"] == "super_admin"
+    assert browser.get(SETTINGS).status_code == 200
+    assert browser.get("/api/v1/access/ssh-profiles").status_code == 200
+    # An Entra login or its automatic role mapping cannot overwrite a manual grant.
+    assert login(browser, signer, email=OWNER, roles=["Netrix.Operations"]).headers["location"] == "/"
+    assert browser.get("/api/v1/auth/me").json()["role"] == "super_admin"
     assert (
-        admin.put(
-            f"/api/v1/users/{entra['id']}/roles", json={"role": "super_admin", "ssh_access": False}
+        browser.put(
+            f"/api/v1/users/{local['id']}/roles", json={"role": "admin"}, headers={"X-Netrix-Request": "1"}
         ).status_code
-        == 422
+        == 409
     )
-    assert (
-        admin.put(
-            f"/api/v1/users/{entra['id']}/roles", json={"role": "operator", "ssh_access": False}
-        ).status_code
-        == 200
-    )
+    assert admin.put(path, json={"role": "operator", "ssh_access": False}).status_code == 200
     assert browser.get("/api/v1/auth/me").json()["role"] == "operator"
+    assert browser.get(SETTINGS).status_code == 403
     assert admin.get("/api/v1/auth/me").json()["role"] == "super_admin"
     with env() as db:
         assert db.get(m.SamlIdentity, local["id"]) is None

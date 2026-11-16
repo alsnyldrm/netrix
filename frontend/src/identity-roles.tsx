@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Dialog } from "./main";
 import { api } from "./data";
-import { isSuperAdmin } from "./permissions";
+import { isRecoveryOwner } from "./permissions";
 export function UserRoleEditor({
   user,
   onClose,
@@ -15,7 +15,7 @@ export function UserRoleEditor({
   const [ssh, setSSH] = useState(Boolean(user.ssh_access));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const owner = isSuperAdmin(user);
+  const owner = isRecoveryOwner(user);
   return (
     <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose} drawer>
       <form
@@ -52,14 +52,20 @@ export function UserRoleEditor({
           Uygulama rolü
           <select
             value={role}
-            disabled={owner}
+            disabled={owner || busy}
+            aria-describedby={owner ? "recovery-role-help" : undefined}
             onChange={(e) => setRole(e.target.value)}
           >
-            {owner && <option value="super_admin">Süper yönetici</option>}
+            <option value="super_admin">Süper yönetici</option>
             <option value="viewer">İzleyici</option>
             <option value="operator">Operatör</option>
             <option value="admin">Yönetici</option>
           </select>
+          {owner && (
+            <small id="recovery-role-help" className="muted">
+              Yerel kurtarma hesabının rolü korunur.
+            </small>
+          )}
         </label>
         <fieldset>
           <legend>Ek roller</legend>
@@ -67,7 +73,7 @@ export function UserRoleEditor({
             <input
               type="checkbox"
               checked={role === "super_admin" || ssh}
-              disabled={role === "super_admin"}
+              disabled={role === "super_admin" || busy}
               onChange={(e) => setSSH(e.target.checked)}
             />
             SSH bağlantısı
