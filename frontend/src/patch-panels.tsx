@@ -4,7 +4,7 @@ import { api, useLiveQuery } from "./data";
 import { Dialog } from "./main";
 import { allRows } from "./inventory";
 import "./patch-panels.css";
-import { ExternalEditor } from "./patch-external";
+import { ExternalEditor, externalTargetMode } from "./patch-external";
 
 type Row = Record<string, any>;
 export const panelKind = (kind: string) =>
@@ -301,12 +301,14 @@ function EndpointFields({
   devices,
   readOnly,
   prefix = "",
+  deviceHint = "",
 }: {
   values: Row;
   setValues: (update: (row: Row) => Row) => void;
   devices: Row[];
   readOnly: boolean;
   prefix?: string;
+  deviceHint?: string;
 }) {
   const user = { role: readOnly ? "viewer" : "operator" };
   const label = (text: string) => (prefix ? `${prefix} · ${text}` : text);
@@ -358,13 +360,14 @@ function EndpointFields({
           <Field label={label("Envanter cihazlarında ara")}>
             <input
               type="search"
+              disabled={readOnly || !!deviceHint}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </Field>
           <Field label={label("Bağlı cihaz")}>
             <select
-              disabled={user.role === "viewer"}
+              disabled={readOnly || !!deviceHint}
               value={values.device_id || ""}
               onChange={(e) =>
                 setValues((v) => ({
@@ -375,10 +378,10 @@ function EndpointFields({
                 }))
               }
             >
-              <option value="">Seçilmedi</option>
+              <option value="">{deviceHint || "Seçilmedi"}</option>
               {values.device_id &&
                 !devices.some((d) => d.id === values.device_id) && (
-                  <option value={values.device_id}>
+                  <option value={values.device_id} disabled>
                     {values.device_name || "Önceki cihaz"}
                   </option>
                 )}
@@ -533,6 +536,27 @@ export function PatchPorts({
     editor.current?.focus();
   }, [selected?.id]);
   const [values, setStoredValues] = useState<Row>({});
+  const existingPeer =
+    values.external && externalTargetMode(values.external) === "existing";
+  const peerCabinetId = existingPeer ? values.external.cabinet_id : "";
+  const peerCabinet = useLiveQuery<{ placements: { device: Row }[] }>(
+    peerCabinetId ? `/ipam/cabinets/${peerCabinetId}` : null,
+    refresh + parentRefresh,
+  );
+  const peerDevices = (peerCabinet.data?.placements || [])
+    .map(({ device }) => device)
+    .filter((device) => !device.archived);
+  const peerDeviceHint = !existingPeer
+    ? ""
+    : !peerCabinetId
+      ? "Önce karşı kabineti seçin"
+      : peerCabinet.loading
+        ? "Cihazlar yükleniyor…"
+        : peerCabinet.error
+          ? "Kabinet cihazları yüklenemedi"
+          : !peerDevices.length
+            ? "Kabinette kayıtlı cihaz yok"
+            : "";
   const dirty = useRef(false);
   const setValues = (update: Row | ((previous: Row) => Row)) => {
     dirty.current = true;
@@ -796,7 +820,7 @@ export function PatchPorts({
                   />
                   <h4>Karşı portun iç bağlantısı</h4>
                   <EndpointFields
-                    key={`${selected.id}:${values.external.port_id || "pending"}`}
+                    key={`${selected.id}:${values.external.panel_id || ""}:${values.external.port_id || ""}`}
                     values={values.external}
                     setValues={(update) =>
                       setValues((v) => ({
@@ -804,7 +828,8 @@ export function PatchPorts({
                         external: update(v.external || {}),
                       }))
                     }
-                    devices={devices}
+                    devices={existingPeer ? peerDevices : devices}
+                    deviceHint={peerDeviceHint}
                     readOnly={user.role === "viewer"}
                     prefix="Karşı uç"
                   />

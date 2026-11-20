@@ -1,7 +1,10 @@
-import { useState } from "react";
 import { useLiveQuery } from "./data";
 
 type Row = Record<string, any>;
+export const externalTargetMode = (values: Row) =>
+  values.entry_mode ||
+  (values.room_name && !values.panel_id ? "planned" : "existing");
+
 export function ExternalEditor({
   values,
   setValues,
@@ -13,12 +16,10 @@ export function ExternalEditor({
   refs: Record<string, Row[]>;
   readOnly: boolean;
 }) {
-  const [mode, setMode] = useState(
-    values.room_name && !values.panel_id ? "planned" : "existing",
-  );
-  const [roomId, setRoomId] = useState(values.room_id || "");
-  const [cabinetId, setCabinetId] = useState(values.cabinet_id || "");
-  const [panelId, setPanelId] = useState(values.panel_id || "");
+  const mode = externalTargetMode(values);
+  const roomId = values.room_id || "";
+  const cabinetId = values.cabinet_id || "";
+  const panelId = values.panel_id || "";
   const panelQuery = useLiveQuery(
     cabinetId ? `/ipam/cabinets/${cabinetId}/patch-panels` : null,
   );
@@ -34,11 +35,18 @@ export function ExternalEditor({
   const cabinets = (refs.cabinets || []).filter(
     (c) => c.sub_site_id === roomId,
   );
-  const reset = (next: Row) =>
+  const reset = (next: Row, clearEndpoint = false) =>
     setValues((v) => ({
       ...v,
+      entry_mode: mode,
       port_id: undefined,
       panel_id: undefined,
+      ...(clearEndpoint && {
+        device_id: null,
+        interface_id: null,
+        device_name: "",
+        port_name: "",
+      }),
       ...next,
     }));
   const field = (label: string, key: string, number = false) => (
@@ -80,21 +88,21 @@ export function ExternalEditor({
           disabled={readOnly}
           value={mode}
           onChange={(e) => {
-            setMode(e.target.value);
-            setRoomId("");
-            setCabinetId("");
-            setPanelId("");
-            reset({
-              room_id: undefined,
-              cabinet_id: undefined,
-              floor_number: "",
-              department_name: "",
-              room_name: "",
-              cabinet_name: "",
-              panel_name: "",
-              panel_unit: null,
-              port_number: "",
-            });
+            reset(
+              {
+                entry_mode: e.target.value,
+                room_id: undefined,
+                cabinet_id: undefined,
+                floor_number: "",
+                department_name: "",
+                room_name: "",
+                cabinet_name: "",
+                panel_name: "",
+                panel_unit: null,
+                port_number: "",
+              },
+              true,
+            );
           }}
         >
           <option value="existing">Kayıtlı panelden seç</option>
@@ -109,21 +117,21 @@ export function ExternalEditor({
           disabled={readOnly}
           value={values.site_id || ""}
           onChange={(e) => {
-            setRoomId("");
-            setCabinetId("");
-            setPanelId("");
-            reset({
-              site_id: e.target.value,
-              room_id: undefined,
-              cabinet_id: undefined,
-              floor_number: "",
-              department_name: "",
-              room_name: "",
-              cabinet_name: "",
-              panel_name: "",
-              panel_unit: null,
-              port_number: "",
-            });
+            reset(
+              {
+                site_id: e.target.value,
+                room_id: undefined,
+                cabinet_id: undefined,
+                floor_number: "",
+                department_name: "",
+                room_name: "",
+                cabinet_name: "",
+                panel_name: "",
+                panel_unit: null,
+                port_number: "",
+              },
+              true,
+            );
           }}
         >
           <option value="">Seçiniz</option>
@@ -145,20 +153,20 @@ export function ExternalEditor({
               value={roomId}
               onChange={(e) => {
                 const room = rooms.find((r) => r.id === e.target.value);
-                setRoomId(e.target.value);
-                setCabinetId("");
-                setPanelId("");
-                reset({
-                  room_id: e.target.value,
-                  floor_number: room?.floor_number || "",
-                  department_name: room?.department_name || "",
-                  room_name: room?.name || "",
-                  cabinet_id: undefined,
-                  cabinet_name: "",
-                  panel_name: "",
-                  panel_unit: null,
-                  port_number: "",
-                });
+                reset(
+                  {
+                    room_id: e.target.value,
+                    floor_number: room?.floor_number || "",
+                    department_name: room?.department_name || "",
+                    room_name: room?.name || "",
+                    cabinet_id: undefined,
+                    cabinet_name: "",
+                    panel_name: "",
+                    panel_unit: null,
+                    port_number: "",
+                  },
+                  true,
+                );
               }}
             >
               <option value="">Seçiniz</option>
@@ -183,16 +191,17 @@ export function ExternalEditor({
               disabled={readOnly || !roomId}
               value={cabinetId}
               onChange={(e) => {
-                setCabinetId(e.target.value);
-                setPanelId("");
-                reset({
-                  cabinet_id: e.target.value,
-                  cabinet_name:
-                    cabinets.find((c) => c.id === e.target.value)?.name || "",
-                  panel_name: "",
-                  panel_unit: null,
-                  port_number: "",
-                });
+                reset(
+                  {
+                    cabinet_id: e.target.value,
+                    cabinet_name:
+                      cabinets.find((c) => c.id === e.target.value)?.name || "",
+                    panel_name: "",
+                    panel_unit: null,
+                    port_number: "",
+                  },
+                  true,
+                );
               }}
             >
               <option value="">Seçiniz</option>
@@ -217,13 +226,15 @@ export function ExternalEditor({
                 const panel = panelQuery.data?.items.find(
                   (p: Row) => p.id === e.target.value,
                 );
-                setPanelId(e.target.value);
-                reset({
-                  panel_id: e.target.value,
-                  panel_name: panel?.name || "",
-                  panel_unit: panel?.start_unit || null,
-                  port_number: "",
-                });
+                reset(
+                  {
+                    panel_id: e.target.value,
+                    panel_name: panel?.name || "",
+                    panel_unit: panel?.start_unit || null,
+                    port_number: "",
+                  },
+                  true,
+                );
               }}
             >
               <option value="">

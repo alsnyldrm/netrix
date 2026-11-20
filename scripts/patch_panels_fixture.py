@@ -33,6 +33,9 @@ with session_factory()() as db:
     other_cabinet = m.Cabinet(name="01", site_id=campus.id, sub_site_id=other_room.id, units=42)
     db.add(other_cabinet)
     db.flush()
+    switch = db.scalar(select(m.Device).where(m.Device.name == "Switch 2"))
+    db.add(m.RackPlacement(cabinet_id=other_cabinet.id, device_id=switch.id, start_unit=1, units=1))
+    db.add(m.Cabinet(name="Boş kabinet", site_id=campus.id, sub_site_id=other_room.id, units=42))
     other_panel = m.PatchPanel(
         cabinet_id=other_cabinet.id, name="FIBER-01", kind="fiber", start_unit=41, units=1, port_count=2
     )
