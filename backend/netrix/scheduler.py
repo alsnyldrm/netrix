@@ -3,7 +3,7 @@ import signal
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from . import models as m
 from .configuration.management import policy, prune
@@ -43,15 +43,17 @@ def tick(*, include_ping=True):
             if not scope.last_run_at or (now() - scope.last_run_at).total_seconds() >= scope.interval_seconds:
                 enqueue(db, "discovery", scope.id)
         for device in db.scalars(select(m.Device).where(m.Device.lifecycle_status == "active")):
-            latest_backup_attempt = db.scalar(
-                select(m.Job.created_at)
-                .where(m.Job.kind == "backup", m.Job.target_id == device.id)
-                .order_by(m.Job.created_at.desc())
-                .limit(1)
-            )
-            backup_reference = max(
-                [v for v in (device.last_backup_at, latest_backup_attempt) if v], default=None
-            )
+            # User-triggered backups must not keep moving the automatic clock.
+            # Retained/archived jobs still anchor the schedule. Before the first
+            # automatic attempt, start from the first backup rather than the
+            # latest manual request, so repeated manual backups cannot starve it.
+            latest_automatic, first_attempt = db.execute(
+                select(
+                    func.max(m.Job.created_at).filter(m.Job.requested_by.is_(None)),
+                    func.min(m.Job.created_at),
+                ).where(m.Job.kind == "backup", m.Job.target_id == device.id)
+            ).one()
+            backup_reference = latest_automatic or first_attempt or device.last_backup_at
             interval, _ = policy(db, device)
             if interval and (not backup_reference or (now() - backup_reference).total_seconds() >= interval):
                 try:
