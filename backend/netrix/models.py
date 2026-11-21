@@ -820,6 +820,16 @@ class BlacklistEntryGroup(Base):
     )
 
 
+class BlacklistDelivery(Entity, Base):
+    __tablename__ = "blacklist_deliveries"
+    entry_id: Mapped[str] = mapped_column(ForeignKey("kara_liste.blacklist_entries.id"), index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("operasyon.jobs.id"), unique=True)
+    payload: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql")
+    )
+
+
 class FirmwareImage(Entity, Base):
     __tablename__ = "firmware_images"
     name: Mapped[str] = mapped_column(String(120))

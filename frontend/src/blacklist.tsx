@@ -2,10 +2,12 @@ import {
   Eye,
   Info,
   MagnifyingGlass,
+  PaperPlaneTilt,
+  ClockCounterClockwise,
   PencilSimple,
   Plus,
 } from "@phosphor-icons/react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { api, useLiveQuery } from "./data";
 import { Dialog, date } from "./main";
 import "./blacklist.css";
@@ -17,12 +19,24 @@ type Group = {
   device_ids: string[];
   profiles: Record<string, Profile>;
 };
+type Delivery = {
+  job_id: string;
+  device_id: string;
+  name: string;
+  status: string;
+  phase: string;
+  error: string;
+  ports: string[];
+  cancel_requested: boolean;
+};
 type Entry = {
   id: string;
   address: string;
   description: string;
   group_ids: string[];
   updated_at: string;
+  deliveries: Delivery[];
+  needs_send: boolean;
 };
 type Device = {
   id: string;
@@ -461,8 +475,8 @@ function GroupEditor({
                   )}
                   {family === "comware_1950" && (
                     <p>
-                      Bu ailenin SSH üzerinden ACL yazma desteği doğrulama
-                      bekliyor.
+                      Genişletilmiş CLI gerekiyorsa parolasını cihazın SSH
+                      profiline girin.
                     </p>
                   )}
                 </fieldset>
@@ -558,11 +572,200 @@ function EntryPreview({ id, close }: { id: string; close: () => void }) {
               </ul>
             )}
             <Notice>
-              Bu önizleme kayıtlı envanterden hazırlanır. Cihazlara gönderim
-              henüz etkin değil.
+              Gönderim, kaynak IP engelini cihazların tüm portlarında giriş
+              yönünde uygular. Mevcut farklı ACL bağlantılarında cihaz sonucu
+              çakışma olarak gösterilir.
             </Notice>
           </>
         )}
+      </div>
+    </Dialog>
+  );
+}
+
+const DELIVERY_STATES: Record<string, string> = {
+  queued: "Sırada",
+  running: "Uygulanıyor",
+  succeeded: "Doğrulandı",
+  failed: "Başarısız",
+  partial: "Kısmi",
+  cancelled: "İptal edildi",
+};
+const PHASES: Record<string, string> = {
+  queued: "Kuyrukta",
+  preflight: "Ön kontrol",
+  applying: "ACL ve portlara uygulanıyor",
+  verifying: "Çalışan konfigürasyon doğrulanıyor",
+  saving: "Kalıcı konfigürasyona kaydediliyor",
+  verified: "Tüm portlar ve kalıcı konfigürasyon doğrulandı",
+};
+function entryState(entry: Entry) {
+  const results = entry.deliveries ?? [];
+  if (!results.length) return "Taslak";
+  if (results.some((row) => row.status === "running")) return "Uygulanıyor";
+  if (results.some((row) => row.status === "queued")) return "Sırada";
+  if (entry.needs_send) return "Gönderilmeyi bekliyor";
+  if (results.every((row) => row.status === "succeeded")) return "Doğrulandı";
+  if (results.some((row) => row.status === "succeeded")) return "Kısmi";
+  return DELIVERY_STATES[results[0].status] || "Kontrol gerekli";
+}
+
+function SendDialog({
+  entry,
+  close,
+  sent,
+}: {
+  entry: Entry;
+  close: () => void;
+  sent: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const preview = useLiveQuery<Preview>(
+    root + "/entries/" + entry.id + "/preview",
+  );
+  const count = new Set(preview.data?.targets.map((target) => target.device_id))
+    .size;
+  async function send() {
+    setBusy(true);
+    setError("");
+    try {
+      await api(root + "/entries/" + entry.id + "/send", "POST");
+      sent();
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog
+      title="IP adresini cihazlara gönder"
+      onClose={busy ? () => {} : close}
+    >
+      <div className="blacklist-preview" aria-busy={busy}>
+        <p>
+          <strong className="mono">{entry.address}</strong> kaynak adresi,
+          seçili gruplardaki <strong>{count} cihazın</strong> tüm portlarında
+          engellenecek.
+        </p>
+        <Notice>
+          NETRIX ACL’yi oluşturur, giriş yönüne uygular ve kalıcı konfigürasyona
+          kaydeder. Başka ACL ile çakışan cihazın ayrıntısı sonuçlarda
+          gösterilir.
+        </Notice>
+        {preview.loading && <p role="status">Hedefler yükleniyor…</p>}
+        {(error || preview.error) && (
+          <p className="error" role="alert">
+            {error || preview.error}
+          </p>
+        )}
+        {preview.data?.targets
+          .filter((target) => target.issue)
+          .map((target) => (
+            <p className="error" key={target.device_id}>
+              {target.name} · {target.issue}
+            </p>
+          ))}
+        <div className="blacklist-form-actions">
+          <button className="secondary" onClick={close} disabled={busy}>
+            Vazgeç
+          </button>
+          <button
+            className="primary"
+            onClick={send}
+            disabled={
+              busy ||
+              preview.loading ||
+              !count ||
+              !!preview.error ||
+              !!preview.data?.targets.some((target) => target.issue)
+            }
+          >
+            <PaperPlaneTilt size={16} aria-hidden="true" />
+            {busy ? "Kuyruğa alınıyor…" : "Cihazlara gönder"}
+          </button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function DeliveryDialog({
+  entry,
+  canWrite,
+  close,
+  refresh,
+}: {
+  entry: Entry;
+  canWrite: boolean;
+  close: () => void;
+  refresh: () => void;
+}) {
+  const [error, setError] = useState("");
+  const [pending, setPending] = useState("");
+  async function cancel(id: string) {
+    setPending(id);
+    try {
+      await api("/jobs/" + id + "/cancel", "POST");
+      refresh();
+    } catch (reason) {
+      setError((reason as Error).message);
+    } finally {
+      setPending("");
+    }
+  }
+  return (
+    <Dialog title="Cihaz gönderim sonuçları" onClose={close} wide>
+      <div className="blacklist-preview">
+        <p className="mono">{entry.address}</p>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <ul
+          className="blacklist-targets"
+          tabIndex={0}
+          aria-label="Cihaz gönderim sonuçları"
+        >
+          {(entry.deliveries ?? []).map((delivery) => (
+            <li key={delivery.job_id}>
+              <div>
+                <strong>{delivery.name}</strong>
+                {delivery.phase !== "queued" && (
+                  <small>{PHASES[delivery.phase] || delivery.phase}</small>
+                )}
+                {!!delivery.ports.length && (
+                  <small>{delivery.ports.length} fiziksel port</small>
+                )}
+              </div>
+              <div>
+                <strong>{DELIVERY_STATES[delivery.status]}</strong>
+                <a href="#jobs">Görev merkezini aç</a>
+                {canWrite &&
+                  ["queued", "running"].includes(delivery.status) && (
+                    <button
+                      className="secondary"
+                      disabled={!!pending || delivery.cancel_requested}
+                      onClick={() => cancel(delivery.job_id)}
+                    >
+                      {delivery.cancel_requested
+                        ? "Durdurma istendi"
+                        : "Durdur"}
+                    </button>
+                  )}
+              </div>
+              {delivery.error && (
+                <p className="blacklist-target-issue">{delivery.error}</p>
+              )}
+            </li>
+          ))}
+        </ul>
+        <Notice>
+          Durdurma, sonraki işlemleri keser. Daha önce uygulanan cihaz kuralları
+          geçerliliğini korur.
+        </Notice>
       </div>
     </Dialog>
   );
@@ -582,6 +785,8 @@ export default function BlacklistWorkspace({
   const [revision, setRevision] = useState(0);
   const [editor, setEditor] = useState<{ group?: Group; entry?: Entry }>();
   const [preview, setPreview] = useState("");
+  const [sending, setSending] = useState<Entry>();
+  const [deliveryEntry, setDeliveryEntry] = useState("");
   const [status, setStatus] = useState("");
   const groups = useLiveQuery<{ items: Group[] }>(
     root + "/groups",
@@ -591,6 +796,16 @@ export default function BlacklistWorkspace({
     groupsPage ? null : root + "/entries",
     refresh + revision,
   );
+  const active = entries.data?.items.some((entry) =>
+    entry.deliveries?.some((row) => ["queued", "running"].includes(row.status)),
+  );
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setRevision((value) => value + 1);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [active]);
   const groupNames = new Map(
     groups.data?.items.map((group) => [group.id, group.name]),
   );
@@ -608,12 +823,12 @@ export default function BlacklistWorkspace({
       <section
         className="panel blacklist-panel"
         aria-label={
-          groupsPage ? "Kayıtlı ACL grupları" : "Kayıtlı IP taslakları"
+          groupsPage ? "Kayıtlı ACL grupları" : "Kayıtlı IP adresleri"
         }
       >
         <div className="panel-header blacklist-toolbar">
           <span>
-            {query.data?.items.length ?? 0} {groupsPage ? "grup" : "IP taslağı"}
+            {query.data?.items.length ?? 0} {groupsPage ? "grup" : "IP kaydı"}
           </span>
           {groupsPage
             ? canEditGroups && (
@@ -753,7 +968,9 @@ export default function BlacklistWorkspace({
                             .join(", ") || "—"}
                         </td>
                         <td>
-                          <span className="blacklist-draft">Taslak</span>
+                          <span className="blacklist-draft">
+                            {entryState(entry)}
+                          </span>
                         </td>
                         <td>{date(entry.updated_at)}</td>
                         <td>
@@ -766,6 +983,34 @@ export default function BlacklistWorkspace({
                               <Eye size={16} aria-hidden="true" />
                               Önizle
                             </button>
+                            {!!entry.deliveries?.length && (
+                              <button
+                                className="secondary"
+                                onClick={() => setDeliveryEntry(entry.id)}
+                                aria-label={
+                                  entry.address + " gönderim sonuçları"
+                                }
+                              >
+                                <ClockCounterClockwise
+                                  size={16}
+                                  aria-hidden="true"
+                                />
+                                Sonuçlar
+                              </button>
+                            )}
+                            {canEditEntries && (
+                              <button
+                                className="primary"
+                                onClick={() => setSending(entry)}
+                                disabled={entry.deliveries?.some((row) =>
+                                  ["queued", "running"].includes(row.status),
+                                )}
+                                aria-label={entry.address + " cihazlara gönder"}
+                              >
+                                <PaperPlaneTilt size={16} aria-hidden="true" />
+                                Gönder
+                              </button>
+                            )}
                             {canEditEntries && (
                               <button
                                 className="secondary"
@@ -800,6 +1045,29 @@ export default function BlacklistWorkspace({
             saved={saved}
           />
         ))}
+      {sending && (
+        <SendDialog
+          entry={sending}
+          close={() => setSending(undefined)}
+          sent={() => {
+            setSending(undefined);
+            setRevision((value) => value + 1);
+            setDeliveryEntry(sending.id);
+            setStatus("Gönderim kuyruğa alındı.");
+          }}
+        />
+      )}
+      {deliveryEntry &&
+        entries.data?.items.find((entry) => entry.id === deliveryEntry) && (
+          <DeliveryDialog
+            entry={entries.data.items.find(
+              (entry) => entry.id === deliveryEntry,
+            )!}
+            canWrite={canEditEntries}
+            close={() => setDeliveryEntry("")}
+            refresh={() => setRevision((value) => value + 1)}
+          />
+        )}
       {preview && <EntryPreview id={preview} close={() => setPreview("")} />}
     </div>
   );

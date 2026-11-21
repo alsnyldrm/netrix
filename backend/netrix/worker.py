@@ -6,11 +6,13 @@ import time
 from datetime import timedelta
 
 import asyncssh
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import OperationalError
 
 from . import models as m
 from .alerting.engine import evaluate
+from .blacklist.cli import ACLError
+from .blacklist.delivery import execute as execute_blacklist
 from .configuration.failures import backup_failure
 from .configuration.formatting import config_text
 from .configuration.validation import BackupError, validate_cli_output
@@ -592,6 +594,12 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=(), include_kin
                 )
             ),
         ]
+        running_targets = select(m.Job.target_id).where(m.Job.status == "running").correlate(None)
+        running_acl_targets = running_targets.where(m.Job.kind == "blacklist_send")
+        eligible.extend((
+            m.Job.target_id.not_in(running_acl_targets),
+            or_(m.Job.kind != "blacklist_send", m.Job.target_id.not_in(running_targets)),
+        ))
         if include_kinds:
             eligible.append(m.Job.kind.in_(include_kinds))
         if exclude_kinds:
@@ -608,6 +616,14 @@ def claim(interactive=None, *, exclude_kinds=(), exclude_targets=(), include_kin
         if job:
             # Both workers serialize on the same device before claiming work.
             db.scalar(select(m.Device).where(m.Device.id == job.target_id).with_for_update())
+            running_device_jobs = select(m.Job.id).where(
+                m.Job.target_id == job.target_id, m.Job.status == "running", m.Job.id != job.id,
+            )
+            if job.kind != "blacklist_send":
+                running_device_jobs = running_device_jobs.where(m.Job.kind == "blacklist_send")
+            if db.scalar(running_device_jobs.limit(1)):
+                db.commit()
+                return None
             # Current read closes the race with the dedicated firmware claimant.
             if db.scalar(
                 select(m.FirmwareTarget.id)
@@ -652,6 +668,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         *KINDS,
         INTEGRATION_TEST,
         "compare",
+        "blacklist_send",
         "discovery",
         "identify",
         "backup",
@@ -665,7 +682,9 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
         return
 
     task = asyncio.create_task(
-        test_integration_connection(job_id)
+        execute_blacklist(job_id)
+        if kind == "blacklist_send"
+        else test_integration_connection(job_id)
         if kind == INTEGRATION_TEST
         else execute_ipam(job_id, kind, collector)
         if kind in KINDS
@@ -774,7 +793,7 @@ async def execute(job_id, collector=None, *, heartbeat_role="worker"):
                 "Görev iptal edildi"
                 if cancelled
                 else str(exc)
-                if isinstance(exc, BackupError)
+                if isinstance(exc, (BackupError, ACLError))
                 else "Cihaz işlemi başarısız. Kapsam, erişim profili, protokol ve host anahtarını kontrol edin."
             )
             if kind in KINDS and not cancelled:

@@ -212,6 +212,12 @@ def save_entry(db, user, payload, entry_id=None):
         )
     ):
         raise HTTPException(409, "Bu IP için bir taslak var. Grup seçimini mevcut kayıttan düzenleyin.")
+    if (
+        row.id
+        and row.address != payload.address
+        and db.scalar(select(m.BlacklistDelivery.id).where(m.BlacklistDelivery.entry_id == row.id).limit(1))
+    ):
+        raise HTTPException(409, "Gönderilmiş IP değiştirilemez. Yeni adres için ayrı kayıt oluşturun.")
     row.address = payload.address
     row.description = payload.description
     row.updated_at = now()
@@ -261,8 +267,6 @@ def preview_entry(db, entry_id):
             issue = "Cihaz artık aktif ve uygun bir hedef değil."
         elif not profile:
             issue = "Cihaz ailesinin ACL bilgisi eksik."
-        elif family == "comware_1950":
-            issue = "HP 1950 için desteklenen SSH yazma yolu doğrulanmalı."
         elif ":" in entry.address:
             issue = "IPv6 için ayrı ACL profili gerekir."
         target = targets.setdefault(

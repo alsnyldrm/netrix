@@ -1096,6 +1096,7 @@ const LABELS: Record<string, string> = {
   discovery: "Keşif",
   backup: "Yedekleme",
   firmware_backup: "Firmware öncesi yedek",
+  blacklist_send: "Kara Liste gönderimi",
   compare: "Aktif config karşılaştırması",
   integration: "Entegrasyon eşitleme",
   ipam_ping: "IP durum kontrolü",

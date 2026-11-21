@@ -6,7 +6,7 @@ from sqlalchemy import select
 from .. import models as m
 from ..core import db_session
 from ..identity.security import admin, current_user, operator
-from . import service
+from . import delivery, service
 from .service import EntryInput, GroupInput
 
 router = APIRouter(prefix="/api/v1/blacklist", tags=["Kara Liste"])
@@ -42,19 +42,7 @@ def edit_group(group_id: str, payload: GroupInput, db=Depends(db_session), user=
 
 @router.get("/entries")
 def entries(db=Depends(db_session), user=Depends(current_user)):
-    memberships = {}
-    for entry_id, group_id in db.execute(
-        select(m.BlacklistEntryGroup.entry_id, m.BlacklistEntryGroup.group_id)
-    ):
-        memberships.setdefault(entry_id, []).append(group_id)
-    return {
-        "items": [
-            service.entry_view(row, memberships.get(row.id, []))
-            for row in db.scalars(
-                select(m.BlacklistEntry).order_by(m.BlacklistEntry.updated_at.desc(), m.BlacklistEntry.id)
-            )
-        ]
-    }
+    return {"items": delivery.entry_list(db)}
 
 
 @router.post("/entries", status_code=201)
@@ -70,3 +58,8 @@ def edit_entry(entry_id: str, payload: EntryInput, db=Depends(db_session), user=
 @router.get("/entries/{entry_id}/preview")
 def preview_entry(entry_id: str, db=Depends(db_session), user=Depends(current_user)):
     return service.preview_entry(db, entry_id)
+
+
+@router.post("/entries/{entry_id}/send", status_code=202)
+def send_entry(entry_id: str, db=Depends(db_session), user=Depends(operator)):
+    return delivery.submit(db, user, entry_id)

@@ -269,3 +269,10 @@
     flex: 1;
   }
 }
+
+.blacklist-targets li > div {
+  align-content: start;
+}
+.blacklist-targets li button {
+  justify-self: start;
+}

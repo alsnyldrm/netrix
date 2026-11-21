@@ -19,7 +19,7 @@ os.environ.update(
 from netrix import main, services  # noqa: E402
 from netrix import models as m  # noqa: E402
 from netrix.core import Base, engine, session_factory  # noqa: E402
-from netrix.identity.security import hasher  # noqa: E402
+from netrix.identity.security import encrypt, hasher  # noqa: E402
 
 
 class MemoryRedis:
@@ -52,7 +52,12 @@ with session_factory()() as db:
         )
     )
     vrf = m.VRF(name="Fixture")
-    db.add(vrf)
+    ssh = m.Credential(
+        name="Fixture SSH",
+        protocol="ssh",
+        encrypted_secret=encrypt('{"username":"fixture","password":"fixture-only"}'),
+    )
+    db.add_all([vrf, ssh])
     db.flush()
     for index, (name, model, adapter) in enumerate(
         [
@@ -74,6 +79,7 @@ with session_factory()() as db:
                 management_ip=f"192.0.2.{index + 1}",
                 vrf_id=vrf.id,
                 is_gateway=index == 6,
+                config_credential_id=ssh.id,
             )
         )
     db.commit()
