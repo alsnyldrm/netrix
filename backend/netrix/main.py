@@ -20,6 +20,7 @@ from . import schemas as s
 from . import services as svc
 from .access.api import router as access_router
 from .access.avatars import router as avatar_router
+from .blacklist.api import router as blacklist_router
 from .configuration.diff import config_diff, redact_config
 from .configuration.management import snapshot_text
 from .core import db_session, engine, now, redis_client, session_factory, settings
@@ -676,6 +677,7 @@ app.include_router(saml.router, prefix=P)
 app.include_router(access_router)
 app.include_router(avatar_router)
 app.include_router(firmware_router)
+app.include_router(blacklist_router)
 app.include_router(job_archives_router)
 app.include_router(ipam_router)
 app.include_router(ipam_scan_router)

@@ -71,6 +71,7 @@ import {
   GlobeHemisphereWest,
   GitBranch,
   ShieldCheck,
+  ShieldSlash,
   GearSix,
   ArrowUpRight,
   ArrowRight,
@@ -150,6 +151,7 @@ import {
 } from "./location-choices";
 
 const FirmwareWorkspace = React.lazy(() => import("./firmware"));
+const BlacklistWorkspace = React.lazy(() => import("./blacklist"));
 const IPAMSettings = React.lazy(() => import("./ipam-settings"));
 
 type Row = Record<string, any>;
@@ -698,6 +700,20 @@ export const PAGES: Page[] = [
     ],
   },
   {
+    key: "blacklist",
+    title: "IP kayıtları",
+    desc: "Engellenecek IP adreslerini ve hedef ACL gruplarını hazırlayın.",
+    group: "Kara Liste",
+    icon: ShieldSlash,
+  },
+  {
+    key: "blacklist-groups",
+    title: "ACL grupları",
+    desc: "Envanter cihazlarını gruplandırın ve her aile için hedef ACL’yi tanımlayın.",
+    group: "Kara Liste",
+    icon: Stack,
+  },
+  {
     key: "alerts",
     title: "Alarm akışı",
     desc: "Eşik aşımlarını ve iyileşmeleri bağlamıyla takip edin.",
@@ -895,6 +911,7 @@ const GROUPS = [
   "IP adres yönetimi",
   "Firmware",
   "Konfigürasyon",
+  "Kara Liste",
   "Operasyon",
   "Yönetim",
 ];
@@ -3508,6 +3525,17 @@ function App() {
                 <FirmwareWorkspace
                   tab={page.key.slice(9)}
                   user={user!}
+                  refresh={refresh}
+                />
+              </React.Suspense>
+            ) : page.group === "Kara Liste" ? (
+              <React.Suspense
+                fallback={<p role="status">Kara Liste yükleniyor…</p>}
+              >
+                <BlacklistWorkspace
+                  groupsPage={page.key === "blacklist-groups"}
+                  canEditGroups={isAdmin}
+                  canEditEntries={canWrite}
                   refresh={refresh}
                 />
               </React.Suspense>

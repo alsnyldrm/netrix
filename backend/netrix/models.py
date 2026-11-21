@@ -786,6 +786,40 @@ class Job(Entity, Base):
     )
 
 
+class ACLGroup(Entity, Base):
+    __tablename__ = "acl_groups"
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    profiles: Mapped[dict] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql")
+    )
+
+
+class ACLGroupDevice(Base):
+    __tablename__ = "acl_group_devices"
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("kara_liste.acl_groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    device_id: Mapped[str] = mapped_column(
+        ForeignKey("envanter.devices.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+
+
+class BlacklistEntry(Entity, Base):
+    __tablename__ = "blacklist_entries"
+    address: Mapped[str] = mapped_column(String(45), unique=True)
+    description: Mapped[str] = mapped_column(String(300), default="")
+
+
+class BlacklistEntryGroup(Base):
+    __tablename__ = "blacklist_entry_groups"
+    entry_id: Mapped[str] = mapped_column(
+        ForeignKey("kara_liste.blacklist_entries.id", ondelete="CASCADE"), primary_key=True
+    )
+    group_id: Mapped[str] = mapped_column(
+        ForeignKey("kara_liste.acl_groups.id"), primary_key=True, index=True
+    )
+
+
 class FirmwareImage(Entity, Base):
     __tablename__ = "firmware_images"
     name: Mapped[str] = mapped_column(String(120))

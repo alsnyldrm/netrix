@@ -1,0 +1,271 @@
+.blacklist-workspace,
+.blacklist-form,
+.blacklist-preview {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.blacklist-preview {
+  padding: 20px 22px 22px;
+}
+.blacklist-panel table {
+  min-width: 820px;
+}
+.blacklist-panel td strong.mono {
+  white-space: nowrap;
+}
+.blacklist-panel {
+  overflow: hidden;
+}
+.blacklist-toolbar {
+  min-height: 72px;
+}
+.blacklist-toolbar > span {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.blacklist-empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: var(--text-2);
+  text-align: center;
+}
+.blacklist-empty strong {
+  color: var(--text);
+}
+.blacklist-empty p {
+  margin: 0;
+  max-width: 48ch;
+}
+.blacklist-panel > .error {
+  margin: 16px 20px;
+}
+.blacklist-panel td {
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+.blacklist-panel td > small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.blacklist-acls,
+.blacklist-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.blacklist-acls {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.blacklist-draft {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  white-space: nowrap;
+  font-size: 12px;
+}
+.blacklist-form label {
+  min-width: 0;
+}
+.blacklist-form textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+.blacklist-fieldset {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin: 0;
+}
+.blacklist-fieldset legend {
+  padding: 0 6px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+}
+.blacklist-fieldset > p {
+  margin: 12px 0 0;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.blacklist-picker-bar,
+.blacklist-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.blacklist-picker-bar .search-box {
+  flex: 1;
+  min-width: 0;
+}
+.blacklist-picker-bar > span {
+  flex: none;
+  color: var(--text-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.blacklist-form-actions {
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.blacklist-checklist {
+  display: grid;
+  max-height: 304px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.blacklist-picker-bar + .blacklist-checklist {
+  margin-top: 12px;
+}
+.blacklist-checklist > label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.blacklist-checklist > label:last-child {
+  border-bottom: 0;
+}
+.blacklist-checklist input[type="checkbox"] {
+  margin: 0;
+  width: 18px;
+  height: 18px;
+}
+.blacklist-checklist span,
+.blacklist-targets li > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.blacklist-checklist small,
+.blacklist-targets small {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.blacklist-checklist strong,
+.blacklist-targets strong {
+  font-weight: 500;
+}
+.blacklist-prune {
+  margin-top: 12px;
+}
+.blacklist-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.blacklist-profile-fields label {
+  display: grid;
+  grid-row: span 2;
+  grid-template-rows: subgrid;
+  row-gap: 8px;
+  align-content: start;
+}
+.blacklist-profile-fields label > span {
+  grid-row: 1;
+}
+.blacklist-profile-fields input,
+.blacklist-profile-fields select {
+  grid-row: 2;
+  height: 40px;
+}
+.blacklist-preview-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0;
+}
+.blacklist-preview-summary div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.blacklist-preview-summary dt {
+  color: var(--text-2);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.blacklist-preview-summary dd {
+  margin: 0;
+}
+.blacklist-targets {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.blacklist-targets li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px 20px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.blacklist-targets li:last-child {
+  border-bottom: 0;
+}
+.blacklist-target-issue {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--warning);
+  font-size: 13px;
+}
+.blacklist-notice {
+  margin: 0;
+}
+@media (max-width: 640px) {
+  .blacklist-workspace,
+  .blacklist-form,
+  .blacklist-preview {
+    gap: 16px;
+  }
+  .blacklist-toolbar {
+    padding: 12px 16px;
+  }
+  .blacklist-profile-fields,
+  .blacklist-preview-summary,
+  .blacklist-targets li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .blacklist-fieldset {
+    padding: 12px;
+  }
+  .blacklist-checklist > label {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+  .blacklist-checklist > label > small {
+    grid-column: 2;
+  }
+  .blacklist-picker-bar {
+    flex-wrap: wrap;
+  }
+  .blacklist-picker-bar .search-box {
+    flex-basis: 100%;
+  }
+  .blacklist-form-actions > button {
+    flex: 1;
+  }
+}

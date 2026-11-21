@@ -67,6 +67,7 @@ SCHEMA_TABLES = {
         "firmware_events",
     ),
     "konfigurasyon": ("config_snapshots", "backup_groups"),
+    "kara_liste": ("acl_groups", "acl_group_devices", "blacklist_entries", "blacklist_entry_groups"),
     "operasyon": ("jobs", "job_archives", "change_events", "alert_rules", "alert_instances"),
     "yonetim": (
         "users",

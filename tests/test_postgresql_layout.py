@@ -26,7 +26,10 @@ def test_postgresql_failure_codes_are_safe_and_retryable():
 
 
 def test_every_table_has_one_menu_schema_and_qualified_foreign_keys():
-    assert len(SCHEMA_TABLES) == 8
+    assert set(SCHEMA_TABLES) == {
+        "genel_bakis", "envanter", "baglanti", "ip_adres_yonetimi",
+        "firmware", "konfigurasyon", "kara_liste", "operasyon", "yonetim",
+    }
     assert len(TABLE_SCHEMAS) == sum(map(len, SCHEMA_TABLES.values()))
     assert {t.name for t in m.Base.metadata.tables.values()} == set(TABLE_SCHEMAS)
     for table in m.Base.metadata.tables.values():
