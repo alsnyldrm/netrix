@@ -1367,6 +1367,29 @@ function Feedback({
   );
 }
 
+function EntryExpiry({ value }: { value: string | null }) {
+  const [clock, setClock] = useState(Date.now);
+  const deadline = value ? Date.parse(value) : null;
+  useEffect(() => {
+    if (deadline === null) return;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return;
+    const timer = window.setTimeout(
+      () => setClock(Date.now()),
+      Math.min(remaining + 1, 2147483647),
+    );
+    return () => window.clearTimeout(timer);
+  }, [deadline, clock]);
+  if (!value || deadline === null) return <span>Süresiz</span>;
+  const expired = deadline <= Date.now();
+  return (
+    <span className={`blacklist-expiry ${expired ? "expired" : "remaining"}`}>
+      <time dateTime={value}>{date(value)}</time>
+      <small>{expired ? "Süresi doldu" : "Zamanı var"}</small>
+    </span>
+  );
+}
+
 function EntriesPage({
   canWrite,
   refresh,
@@ -1567,6 +1590,7 @@ function EntriesPage({
                   <th scope="col">IP adresi</th>
                   <th scope="col">ACL grupları</th>
                   <th scope="col">Durum</th>
+                  <th scope="col">Bitiş zamanı</th>
                   <th scope="col">Son düzenleme</th>
                   <th scope="col">İşlemler</th>
                 </tr>
@@ -1598,9 +1622,6 @@ function EntriesPage({
                         {entry.description && (
                           <small>{entry.description}</small>
                         )}
-                        {entry.expires_at && entry.status === "active" && (
-                          <small>Bitiş · {date(entry.expires_at)}</small>
-                        )}
                       </td>
                       <td>
                         {entry.group_ids
@@ -1615,6 +1636,9 @@ function EntriesPage({
                             {applied} / {entry.devices.length} cihazda uygulandı
                           </small>
                         )}
+                      </td>
+                      <td>
+                        <EntryExpiry value={entry.expires_at} />
                       </td>
                       <td>{date(entry.updated_at)}</td>
                       <td>

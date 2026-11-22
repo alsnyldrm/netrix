@@ -453,3 +453,22 @@
     flex: 1;
   }
 }
+
+.blacklist-expiry {
+  display: inline-grid;
+  gap: 4px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.blacklist-expiry time {
+  font-weight: 600;
+}
+.blacklist-expiry small {
+  font-size: 12px;
+}
+.blacklist-expiry.expired {
+  color: var(--danger);
+}
+.blacklist-expiry.remaining {
+  color: var(--success);
+}
