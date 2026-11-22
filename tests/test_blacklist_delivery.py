@@ -421,3 +421,23 @@ async def test_ssh_config_read_tolerates_device_non_utf8_output(monkeypatch):
         async with cli.connect(device, {'username':'fixture','password':'fixture-only'}) as shell:
             config = await shell.command('display current-configuration')
             assert 'legacy-\ufffd-text' in config and 'sysname Fixture' in config
+
+
+@pytest.mark.parametrize('adapter', ['aruba_5400', 'aruba_2900'])
+def test_aos_trunk_suffix_is_physical_port_not_missing_member(adapter):
+    output='Port Type | Status\n A1-Trk1 SFP | Up\n A2-Trk1 SFP | Down\n A3 SFP | Up\n'
+    targets, _, physical=adapters.port_inventory(adapter, output, adapters.blocks('trunk A1-A2 trk1 lacp\n'))
+    assert targets == ['A3','Trk1'] and physical == ['A1','A2','A3']
+
+
+def test_aos_trunk_suffix_conflict_is_not_silently_accepted():
+    with pytest.raises(ACLError):
+        adapters.port_inventory('aruba_5400', 'Port Type | Status\n A1-Trk2 SFP | Up\n', adapters.blocks('trunk A1 trk1 lacp\n'))
+
+
+async def test_managed_controller_reports_conductor_requirement_before_acl_commands():
+    process=Process(['configure terminal\nThis controller is managed by a Mobility Conductor.\nConfiguration changes can only be performed on the Mobility Conductor.\n(controller) #'])
+    shell=Shell(process,'aruba_7200')
+    with pytest.raises(ACLError,match='Conductor'):
+        await shell.command('configure terminal')
+    assert process.writes == ['configure terminal\n']

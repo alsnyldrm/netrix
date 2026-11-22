@@ -66,6 +66,12 @@ class Shell:
     async def command(self, value, *, save=False):
         self.process.stdin.write(value + "\n")
         output, _ = await self.read(save=save)
+        if (self.adapter == "aruba_7200" and value == "configure terminal"
+                and re.search(r"configuration changes can only be performed on the mobility (?:conductor|master)", output, re.I)):
+            raise ACLError(
+                "Bu 7205 Mobility Conductor tarafından yönetiliyor; doğrudan ACL yazılamaz. "
+                "ACL uygulaması Conductor üzerinden yapılmalıdır."
+            )
         # Command echoes are never part of configuration evidence.
         lines = output.splitlines()
         if lines and (

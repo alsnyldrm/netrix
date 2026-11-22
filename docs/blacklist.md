@@ -106,3 +106,10 @@ işler. Genel worker bu işleri almaz. Keşif, yedekleme ve IPAM işleri bu beş
 kapasiteyi tüketmez. Cihaz başına tek iş, firmware çakışma kontrolü, iptal,
 kalıcı SQL kuyruğu ve yeniden deneme davranışı korunur. Sürecin heartbeat'i
 container sağlık kontrolüne dahildir.
+
+
+## AOS-S trunk satırları ve yönetilen 7205 cihazları
+
+5412/5406 ve 2930 port tablosundaki `A2-Trk1`, fiziksel `A2` portunun `Trk1` üyesi olduğunu belirtir. Fiziksel port kimliği ayrıştırılır; tabloda bildirilen trunk ile konfigürasyondaki üyelik karşılaştırılır. Eksik veya çelişkili üyelikte yazma durur.
+
+Mobility Conductor tarafından yönetilen 7205, `configure terminal` isteğini yönetim kısıtıyla reddeder. NETRIX bu yanıtı açık Conductor gereksinimi olarak bildirir ve sonraki ACL komutlarına geçmez. Mevcut motor Conductor bağlantısı, cihaz düğümü seçimi ve Conductor commit akışını uygulamaz; bu cihazlarda başarılı ACL gönderimi iddia edilmez. Yerel yapılandırma istisnası açılmaz, controller yönetim biçimi değiştirilmez.

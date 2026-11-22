@@ -68,12 +68,17 @@ def expand_ports(value):
 
 def port_inventory(adapter, output, config_blocks):
     physical = set()
+    annotations = {}
     if adapter in ("aruba_5400", "aruba_2900"):
         if not re.search(r"Port.*(?:Type|Status)", output, re.I):
             raise ACLError("Tüm fiziksel portların listesi okunamadı.")
-        physical = {
-            canonical_port(port) for port in re.findall(r"(?m)^\s*(" + AOS_PORT + r")\s+[^\n]*\|", output)
-        }
+        for port, trunk in re.findall(
+            r"(?mi)^\s*(" + AOS_PORT + r")(?:-(Trk\d+))?\s+[^\n]*\|", output
+        ):
+            port = canonical_port(port)
+            physical.add(port)
+            if trunk:
+                annotations[port] = canonical_port(trunk)
     elif adapter == "aruba_6100":
         if not re.search(r"(?:Port|Interface)", output, re.I):
             raise ACLError("Tüm fiziksel portların listesi okunamadı.")
@@ -98,6 +103,15 @@ def port_inventory(adapter, output, config_blocks):
         raise ACLError("Tüm fiziksel portların listesi doğrulanamadı; ACL uygulanmadı.")
 
     members, aggregates, interface_blocks = config_interfaces(adapter, config_blocks)
+    if annotations:
+        configured = {}
+        for header, _ in config_blocks:
+            if header.startswith("trunk "):
+                parts = words(header)
+                for member in expand_ports(parts[1]):
+                    configured[member] = canonical_port(parts[2])
+        if any(configured.get(port) != trunk for port, trunk in annotations.items()):
+            raise ACLError("Port tablosu ile yapılandırmadaki LAG üyeliği çelişiyor.")
     if not members <= physical:
         raise ACLError("LAG üyeleri ile fiziksel port listesi tutarsız.")
     targets = sorted((physical - members) | aggregates)
