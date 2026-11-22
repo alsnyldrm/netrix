@@ -122,6 +122,10 @@ def verify_delta(pending, config):
         if actual is None:
             raise ACLError("Conductor ara aşama tanımı cihazda doğrulanamadı.")
         for line in body:
+            if line == "no ip access-group in" and any(
+                item.startswith("ip access-group in ") for item in actual
+            ):
+                raise ACLError("Conductor ara aşama port kaldırması cihazda doğrulanamadı.")
             if (line.startswith("no ") and line[3:] in actual) or (
                 not line.startswith("no ") and line not in actual
             ):

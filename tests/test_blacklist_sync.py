@@ -57,6 +57,8 @@ class SyncCLI(DeviceCLI):
             body = all_blocks[self.context]
             if re.fullmatch(r"(?:rule )?\d+", target):
                 kept = [line for line in body if not (line == target or line.startswith(target + " "))]
+            elif self.adapter == "aruba_7200" and target == "ip access-group in":
+                kept = [line for line in body if not line.startswith(target + " ")]
             else:
                 kept = [line for line in body if line != target]
             assert len(kept) < len(body), command

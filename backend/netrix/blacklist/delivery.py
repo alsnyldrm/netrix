@@ -250,7 +250,14 @@ async def reconcile(shell, job_id, device, target, *, verifier=None):
     config = await shell.command(read_config)
     stale = list(target["stale_profiles"])
     if device.adapter == "aruba_7200" and not target["addresses"] and target["profile"]:
-        stale.append(target["profile"])
+        header, _ = adapters.acl_identity(device.adapter, target["profile"])
+        alias = adapters.alias_for(header)
+        parsed = adapters.blocks(config)
+        body, _ = adapters.session_rules(parsed, header, alias)
+        if adapters.matching_acl(parsed, "netdestination " + alias, device.adapter) is not None or any(
+            " deny" in line for line in body or []
+        ):
+            stale.append(target["profile"])
     for profile in stale:
         plan = adapters.build_removal_plan(device.adapter, profile, config, validated=verifier is not None)
         if plan.commands:

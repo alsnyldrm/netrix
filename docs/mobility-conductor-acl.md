@@ -40,7 +40,7 @@ ip access-list session <ACL_ADI>
  any any any permit
 exit
 interface gigabitethernet <SLOT>/<MODULE>/<PORT>
- ip access-group session <ACL_ADI>
+ ip access-group in <ACL_ADI>
 exit
 end
 ```
@@ -64,3 +64,5 @@ Bir alt düğümde tanımın silinmesi, aynı tanım üst düğümde hâlâ vars
 NETRIX uygulaması `blacklist/conductor.py` içindedir; ayarı ve güvenlik/başarı koşulları [Kara Liste davranışında](blacklist.md#aos-s-trunk-satırları-ve-yönetilen-7205-cihazları) açıklanır. Cihaz düğümü her işte dinamik olarak doğrulanır; bu nottaki örneklerden tahmin edilmez. Canlı ArubaOS 8.10 çıktısında `show switches debug` ve provisioning tablosundaki Nodepath ortak grup yoludur; tam cihaz düğümü hiyerarşi tablosundan alınır. `show configuration committed` seçili düğümün kalıcı yerel içeriğini verir; `show switches` hedefin Config ID ve dağıtım durumunu sağlar. Yönetilen 7205 üzerinde desteklenmeyen `show startup-config` yerine Conductor kalıcı kaydı ve hedef cihaz çalışan konfigürasyonu birlikte doğrulanır.
 
 22 Kasım akşamı gerçek eşitlemede yeni ACL yalnız pending iken ilk port bağlantısı `Invalid access group configuration` ile reddedildi. Aynı düğümün etkin ve kalıcı okumalarında bu yeni ACL yoktu. Motor bağımlı nesneleri artık ayrı commit/geri okuma aşamalarıyla uygular. Üretici merkezi yapılandırma belgesi de bağımlılığın ilgili düğümde veya üst düğümde mevcut olmasını şart koşar. Sahte Conductor artık etkin okumada yalnız committed içeriği verir ve kaydedilmemiş ACL/alias bağımlılıklarını reddeder. [Üretici bağımlılık ve commit açıklaması](https://arubanetworking.hpe.com/techdocs/Archived/AOS-8/ArubaOS_83_Web_Help/Content/ArubaFrameStyles/Configuration_Hierarchy/centralized_config.htm).
+
+Canlı cihaz düzeltmesi: session ACL tanımı kalıcı olup 7205’te okunduktan sonra da `ip access-group session netrix_acl` reddedildi. Aynı nesne için giriş yönündeki `ip access-group in netrix_acl` kabul edildi. NETRIX port bağlantısını bu giriş biçimiyle kurar; ACL türü session olarak kalır. Üretici fiziksel arayüz referansı `in`, `out` ve `session` seçeneklerini ayrı tanımlar; kaynak engeli için `in` kullanılır. PEF lisanslarının iki controller’da da kullanıldığı Conductor lisans kullanım tablosundan doğrulandı.

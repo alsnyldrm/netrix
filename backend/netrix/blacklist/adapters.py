@@ -189,7 +189,7 @@ def acl_identity(adapter, profile):
     if adapter == "aruba_6100":
         return f"access-list ip {name}", f"apply access-list ip {name} in"
     if adapter == "aruba_7200":
-        return f"ip access-list session {name}", f"ip access-group session {name}"
+        return f"ip access-list session {name}", f"ip access-group in {name}"
     suffix = (" name " + profile["name"]) if profile["name"] else ""
     return f"acl number {profile['number']}{suffix}", f"packet-filter {profile['number']} inbound"
 
@@ -277,6 +277,8 @@ def session_rules(config_blocks, header, alias):
 
 
 def undo(adapter, line):
+    if adapter == "aruba_7200" and line.startswith("ip access-group in "):
+        return "no ip access-group in"
     if adapter == "hp_1950":
         # Comware deletes an ACL by number; the optional name is not part of the key.
         return "undo " + re.sub(r"^(acl number \d+) name \S+$", r"\1", line)

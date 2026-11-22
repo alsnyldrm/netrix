@@ -228,14 +228,23 @@ class Writer:
         if self.on_write:
             await self.on_write(command)
         committed = dict(adapters.blocks(self.committed))
+        if command.startswith("no ip access-group in "):
+            raise ACLError("The no form accepts the direction only")
+        if command == "no ip access-group in":
+            lines = dict(adapters.blocks(self.cli.config)).get(self.cli.context, [])
+            bindings = [line for line in lines if line.startswith("ip access-group in ")]
+            assert len(bindings) == 1
+            return await self.cli.command("no " + bindings[0])
         if command.startswith("ip access-group session "):
+            raise ACLError("Invalid access group configuration")
+        if command.startswith("ip access-group in "):
             if "ip access-list session " + command.split()[-1] not in committed:
                 raise ACLError("Invalid access group configuration")
         if command.startswith("alias "):
             if "netdestination " + command.split()[1] not in committed:
                 raise ACLError("Alias dependency is not committed")
         if command.startswith("no ip access-list session "):
-            bind = "ip access-group session " + command.split()[-1]
+            bind = "ip access-group in " + command.split()[-1]
             if any(bind in body for header, body in committed.items() if header.startswith("interface ")):
                 raise ACLError("Committed interface still references ACL")
         if command.startswith("interface gigabitethernet "):
@@ -409,6 +418,24 @@ async def test_delayed_managed_apply_is_polled_before_success(admin_client, env,
     assert "ip access-list session BLOCK" in routed.reader.config
 
 
+async def test_existing_empty_acl_is_retained_when_only_missing_ports_need_sync(admin_client, env, routed):
+    for command in [
+        "configure terminal",
+        "ip access-list session BLOCK",
+        "description NETRIX-BLACKLIST",
+        "any any any permit",
+        "exit",
+        "end",
+    ]:
+        await routed.writer.cli.command(command)
+    routed.writer.committed = routed.writer.cli.config
+    routed.reader.config = routed.writer.committed
+    admin_client.post(ROOT + f"/groups/{routed.group['id']}/sync")
+    await drain(env)
+    assert not any(cmd.startswith("no ip access-list") for path, cmd in routed.writer.commands)
+    assert routed.reader.config.count("ip access-group in BLOCK") == 2
+
+
 @pytest.mark.parametrize("foreign", [False, True])
 async def test_resume_recorded_empty_acl_pending_without_committing_foreign_changes(
     admin_client, env, routed, foreign
@@ -450,7 +477,7 @@ async def test_resume_recorded_empty_acl_pending_without_committing_foreign_chan
         assert not commits
     else:
         assert commits
-        assert "ip access-group session BLOCK" in routed.reader.config
+        assert "ip access-group in BLOCK" in routed.reader.config
         assert not routed.writer.pending().strip()
 
 
