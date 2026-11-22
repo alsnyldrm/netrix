@@ -117,6 +117,12 @@ def test_preferences_single_row_validation_and_saved_commands(admin_client, env)
         row = db.scalar(select(m.UserWorkspace))
         assert "secret-marker" not in row.encrypted_commands
     assert admin_client.put("/api/v1/access/commands", json={"items": [command] * 51}).status_code == 422
+    assert Preferences().navigation_layout == "left"
+    for layout in ("left", "top", "right", "rail", "top-tabs"):
+        result = admin_client.put("/api/v1/access/preferences", json={"navigation_layout": layout})
+        assert result.status_code == 200
+        assert admin_client.get("/api/v1/access/preferences").json()["navigation_layout"] == layout
+    assert admin_client.put("/api/v1/access/preferences", json={"navigation_layout": "invalid"}).status_code == 422
     assert Preferences().features == ["saved_commands", "session_dock"]
 
 

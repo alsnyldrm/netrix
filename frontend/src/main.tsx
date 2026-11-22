@@ -1,3 +1,8 @@
+import {
+  HorizontalNavigation,
+  SectionNavigation,
+  useNavigationLayout,
+} from "./navigation-layout";
 import { SamlSettings } from "./saml-settings";
 import {
   MotionTitle,
@@ -2647,7 +2652,9 @@ function App() {
   const [railViewport, setRailViewport] = useState(
     () => window.matchMedia("(761px <= width < 1280px)").matches,
   );
-  const collapsed = sidebarOverride ?? railViewport;
+  const navigationLayout = useNavigationLayout();
+  const collapsed =
+    navigationLayout === "rail" || (sidebarOverride ?? railViewport);
   const [drawer, setDrawer] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   const drawerClose = useRef<HTMLButtonElement>(null);
@@ -3278,6 +3285,11 @@ function App() {
       <kbd>Ctrl K</kbd>
     </button>
   );
+  const layoutPages = PAGES.filter(
+    (item) =>
+      (!["users", "audit"].includes(item.key) || isAdmin) &&
+      (item.key !== "saml" || canAssignRoles),
+  ).sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
   const workspaceUtilities = (
     <>
       <div
@@ -3528,6 +3540,18 @@ function App() {
             <div className="topbar-brand" aria-hidden="true">
               <Brand small />
             </div>
+            <button
+              className="layout-home"
+              aria-label="NETRIX ana sayfa"
+              onClick={() => navigate("overview")}
+            >
+              <Brand small />
+            </button>
+            <HorizontalNavigation
+              pages={layoutPages}
+              current={current}
+              navigate={navigate}
+            />
             <div className="breadcrumbs">
               <span>NETRIX</span>
               <CaretRight size={12} aria-hidden="true" />
@@ -3561,6 +3585,11 @@ function App() {
               />
             </div>
           </header>
+          <SectionNavigation
+            pages={layoutPages}
+            current={current}
+            navigate={navigate}
+          />
         </div>
         <main id="main" tabIndex={-1}>
           <div className="page-view" key={current} data-page={page.key}>

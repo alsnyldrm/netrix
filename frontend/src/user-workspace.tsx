@@ -1,3 +1,4 @@
+import { navigationLayouts } from "./navigation-layout";
 import React, {
   useDeferredValue,
   useEffect,
@@ -115,6 +116,7 @@ export function Profile({
     ["account", "Hesabım", UserCircle],
     ["design", "Tema", SquaresFour],
     ["palette", "Renk paleti", Palette],
+    ["layout", "Tasarım", Monitor],
     ["font", "Yazı tipi", TextAa],
     ["region", "Tarih, saat ve bölge", Clock],
     ["features", "Özellikler", SlidersHorizontal],
@@ -230,6 +232,48 @@ export function Profile({
                       <Icon size={16} aria-hidden="true" /> {label}
                     </span>
                   </button>
+                ))}
+              </div>
+            </>
+          )}
+          {tab === "layout" && (
+            <>
+              <h3>Menü yerleşimi</h3>
+              <p className="muted">
+                Bir yerleşim seçin. Seçiminiz hemen uygulanır ve hesabınıza
+                kaydedilir.
+              </p>
+              <div
+                className="profile-layout-choices"
+                role="radiogroup"
+                aria-label="Menü yerleşimi"
+              >
+                {navigationLayouts.map(([id, name, description]) => (
+                  <label
+                    key={id}
+                    className="profile-layout-card"
+                    data-layout-preview={id}
+                  >
+                    <span className="profile-layout-preview" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span className="profile-layout-label">
+                      <input
+                        type="radio"
+                        name="navigation-layout"
+                        aria-label={name}
+                        checked={values.navigation_layout === id}
+                        disabled={busy}
+                        onChange={() =>
+                          void save({ ...values, navigation_layout: id })
+                        }
+                      />
+                      {name}
+                    </span>
+                    <small>{description}</small>
+                  </label>
                 ))}
               </div>
             </>

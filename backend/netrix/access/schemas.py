@@ -45,6 +45,7 @@ class Preferences(Input):
         "cobalt", "teal", "violet", "amber", "forest", "slate", "rose", "cyan", "orange", "indigo", "dark"
     ] = "cobalt"
     design: Literal["atlas", "orbit", "terminal", "panorama", "focus"] = "atlas"
+    navigation_layout: Literal["left", "top", "right", "rail", "top-tabs"] = "left"
     timezone: str = "Europe/Istanbul"
     locale: Literal["tr-TR", "en-GB", "en-US", "de-DE"] = "tr-TR"
     hour12: bool = False

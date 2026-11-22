@@ -29,6 +29,7 @@ export type Preferences = {
   ui_font: ApplicationFont;
   palette: string;
   design: string;
+  navigation_layout: "left" | "top" | "right" | "rail" | "top-tabs";
   timezone: string;
   locale: string;
   hour12: boolean;
@@ -39,6 +40,7 @@ export const defaultPreferences: Preferences = {
   ui_font: "theme",
   palette: "cobalt",
   design: "atlas",
+  navigation_layout: "left",
   timezone: "Europe/Istanbul",
   locale: "tr-TR",
   hour12: false,
@@ -54,6 +56,7 @@ export function applyPreferences(value: Preferences) {
   applyApplicationFont(value.ui_font);
   root.dataset.palette = value.palette;
   root.dataset.design = "lumelle";
+  root.dataset.navigationLayout = value.navigation_layout;
   root.dataset.compact = String(value.features.includes("compact_tables"));
   root.dataset.reduceMotion = String(value.features.includes("reduced_motion"));
   window.dispatchEvent(
