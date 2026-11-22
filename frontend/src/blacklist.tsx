@@ -145,6 +145,7 @@ const ENTRY_STATES: Record<string, [string, string]> = {
 const DEVICE_STATES: Record<string, [string, string]> = {
   synced: ["Eşit", "active"],
   pending: ["Eşitleme bekliyor", "pending"],
+  empty: ["Etkin IP yok", ""],
   queued: ["Sırada", "queued"],
   running: ["Uygulanıyor", "running"],
   failed: ["Hata", "failed"],
@@ -1756,7 +1757,9 @@ function GroupsPage({
   );
   const items = groups.data?.items ?? [];
   usePolling(
-    items.some((group) => group.status === "deleting"),
+    items.some(
+      (group) => group.status === "deleting" || group.pending_devices > 0,
+    ),
     reload,
   );
 
@@ -1771,7 +1774,9 @@ function GroupsPage({
       setFeedback({
         message: result.devices
           ? `${group.name} · ${result.devices} cihaz eşitleme kuyruğuna alındı.`
-          : `${group.name} · eşitlenecek cihaz yok.`,
+          : group.active_entries === 0 && group.applied_devices === 0
+            ? `${group.name} · etkin IP yok. IP kayıtlarından bir adres ekleyip Gönder ile etkinleştirin.`
+            : `${group.name} · eşitlenecek cihaz yok.`,
         skipped: result.skipped ?? [],
       });
       reload();
@@ -1870,7 +1875,13 @@ function GroupsPage({
                         ) : (
                           <StateBadge
                             map={DEVICE_STATES}
-                            value={group.applied_devices ? "synced" : "pending"}
+                            value={
+                              group.applied_devices
+                                ? "synced"
+                                : group.active_entries
+                                  ? "pending"
+                                  : "empty"
+                            }
                           />
                         )}
                       </td>
