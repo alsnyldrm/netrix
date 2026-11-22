@@ -98,6 +98,15 @@ def port_inventory(adapter, output, config_blocks):
     if not physical or len(physical) > 4096:
         raise ACLError("Tüm fiziksel portların listesi doğrulanamadı; ACL uygulanmadı.")
 
+    members, aggregates, interface_blocks = config_interfaces(adapter, config_blocks)
+    if not members <= physical:
+        raise ACLError("LAG üyeleri ile fiziksel port listesi tutarsız.")
+    targets = sorted((physical - members) | aggregates)
+    return targets, interface_blocks, sorted(physical)
+
+
+def config_interfaces(adapter, config_blocks):
+    """Interface blocks and LAG membership read from configuration only."""
     members, aggregates, interface_blocks = set(), set(), {}
     for header, body in config_blocks:
         if header.startswith("trunk ") and adapter in ("aruba_5400", "aruba_2900"):
@@ -133,10 +142,7 @@ def port_inventory(adapter, output, config_blocks):
                 for line in body:
                     if re.fullmatch(r"gigabitethernet \d+/\d+/\d+", line):
                         members.add(line)
-    if not members <= physical:
-        raise ACLError("LAG üyeleri ile fiziksel port listesi tutarsız.")
-    targets = sorted((physical - members) | aggregates)
-    return targets, interface_blocks, sorted(physical)
+    return members, aggregates, interface_blocks
 
 
 @dataclass
@@ -152,6 +158,10 @@ class Plan:
     alias: str = ""
     log_host: str | None = None
     log_port: int = 5515
+    addresses: tuple = ()
+    added: tuple = ()
+    removed: tuple = ()
+    removal: bool = False
 
 
 def acl_identity(adapter, profile):
@@ -248,16 +258,90 @@ def session_rules(config_blocks, header, alias):
     return body, hosts
 
 
-def build_plan(adapter, profile, address, config, ports_output, *, log_host=None, log_port=5515):
-    address = str(ip_address(address))
-    if ":" in address:
-        raise ACLError("Bu gönderim IPv4 içindir. IPv6 ACL gönderimi desteklenmiyor.")
+def undo(adapter, line):
+    if adapter == "hp_1950":
+        # Comware deletes an ACL by number; the optional name is not part of the key.
+        return "undo " + re.sub(r"^(acl number \d+) name \S+$", r"\1", line)
+    return "no " + line
+
+
+def validate_config(adapter, config):
     if adapter == "hp_1950":
         validate_comware_config(config)
     elif adapter != "aruba_7200":
         validate_aruba_config(adapter, config)
     elif not re.search(r"(?m)^hostname\s+\S+", config):
         raise ACLError("Controller yapılandırması eksik okundu.")
+
+
+def alias_for(header):
+    return "nxbl_" + hashlib.sha256(header.encode()).hexdigest()[:16]
+
+
+def canonical_addresses(addresses):
+    result = set()
+    for address in addresses:
+        value = ip_address(address)
+        if value.version != 4:
+            raise ACLError("Bu gönderim IPv4 içindir. IPv6 ACL gönderimi desteklenmiyor.")
+        result.add(str(value))
+    return result
+
+
+def build_removal_plan(adapter, profile, config, *, validated=False):
+    """Remove the NETRIX ACL, its port bindings and the controller alias. Foreign ACLs stop the plan."""
+    if not validated:
+        validate_config(adapter, config)
+    parsed = blocks(config)
+    _, _, interface_blocks = config_interfaces(adapter, parsed)
+    header, bind = acl_identity(adapter, profile)
+    alias = alias_for(header) if adapter == "aruba_7200" else ""
+    if adapter == "aruba_7200":
+        body, hosts = session_rules(parsed, header, alias)
+        alias_present = matching_acl(parsed, "netdestination " + alias, adapter) is not None
+    else:
+        body = matching_acl(parsed, header, adapter)
+        hosts = set(rules(adapter, profile, body)[0].values())
+        alias_present = False
+    bound = sorted(port for port, lines in interface_blocks.items() if bind in lines)
+    if body is None and bound:
+        raise ACLError("Portlarda NETRIX ACL bağlantısı var ancak ACL tanımı bulunamadı; işlem durduruldu.")
+    commands = []
+    end = "quit" if adapter == "hp_1950" else "exit"
+    for port in bound:
+        commands += ["interface " + port, undo(adapter, bind), end]
+    if body is not None:
+        commands.append(undo(adapter, header))
+    if alias_present:
+        commands.append("no netdestination " + alias)
+    if commands:
+        commands = ["system-view" if adapter == "hp_1950" else "configure terminal", *commands]
+        commands.append("return" if adapter == "hp_1950" else "end")
+    return Plan(
+        commands, bound, [], header, bind, "", profile, adapter, alias,
+        removed=tuple(sorted(hosts)), removal=True,
+    )
+
+
+def build_plan(adapter, profile, address, config, ports_output, *, log_host=None, log_port=5515):
+    """Add one address and keep every NETRIX address already present."""
+    return build_sync_plan(
+        adapter, profile, {address}, config, ports_output, log_host=log_host, log_port=log_port, keep=True
+    )
+
+
+def build_sync_plan(
+    adapter, profile, desired, config, ports_output, *, log_host=None, log_port=5515, keep=False
+):
+    """Make the NETRIX ACL contain exactly the desired addresses on every port.
+
+    An empty desired set removes the ACL and its bindings. With keep=True the
+    current NETRIX addresses are preserved and only missing ones are added.
+    """
+    desired = canonical_addresses(desired)
+    validate_config(adapter, config)
+    if not desired and not keep:
+        return build_removal_plan(adapter, profile, config, validated=True)
     parsed = blocks(config)
     ports, port_blocks, physical = port_inventory(adapter, ports_output, parsed)
     header, bind = acl_identity(adapter, profile)
@@ -275,11 +359,13 @@ def build_plan(adapter, profile, address, config, ports_output, *, log_host=None
         commands.extend(log_config.configuration(adapter, log_host, log_port))
     alias = ""
     if adapter == "aruba_7200":
-        alias = "nxbl_" + hashlib.sha256(header.encode()).hexdigest()[:16]
+        alias = alias_for(header)
         body, hosts = session_rules(parsed, header, alias)
+        target = desired | hosts if keep else desired
         commands += ["netdestination " + alias, "description " + MARKER]
-        if address not in hosts:
-            commands.append("host " + address)
+        # Add before removing so the alias never becomes empty.
+        commands += ["host " + address for address in sorted(target - hosts)]
+        commands += ["no host " + address for address in sorted(hosts - target)]
         commands += ["exit", header, "description " + MARKER]
         if log_host and body is not None and f"alias {alias} any any deny log" not in body:
             commands.append(f"alias {alias} any any deny log position 1")
@@ -291,9 +377,12 @@ def build_plan(adapter, profile, address, config, ports_output, *, log_host=None
         if body is None or "any any any permit" not in body:
             commands.append("any any any permit")
         commands.append("exit")
+        present = hosts
     else:
         body = matching_acl(parsed, header, adapter)
         entries, permit = rules(adapter, profile, body)
+        present = set(entries.values())
+        target = desired | present if keep else desired
         if adapter == "hp_1950":
             marker, permit_line = "description " + MARKER, "rule 60000 permit"
             if profile["type"] == "advanced":
@@ -306,20 +395,21 @@ def build_plan(adapter, profile, address, config, ports_output, *, log_host=None
                 permit_line = "60000 permit ip any any"
         commands += [header, marker]
         if log_host:
-            commands.extend(log_config.logging_rules(adapter, profile, entries, body, address))
-        elif address not in entries.values():
-            sequence = next((n for n in range(10, PERMIT_SEQUENCE) if n not in entries), None)
-            if sequence is None:
-                raise ACLError("NETRIX ACL sıra alanı doldu.")
-            if adapter == "hp_1950":
-                protocol = "ip " if profile["type"] == "advanced" else ""
-                commands.append(f"rule {sequence} deny {protocol}source {address} 0")
-            elif adapter == "aruba_6100":
-                commands.append(f"{sequence} deny any {address}/32 any")
-            elif profile["type"] == "standard":
-                commands.append(f"{sequence} deny host {address}")
-            else:
-                commands.append(f"{sequence} deny ip host {address} any")
+            commands.extend(log_config.logging_rules(adapter, profile, entries, body, target))
+        else:
+            used = set(entries)
+            for address in sorted(target - present):
+                sequence = next((n for n in range(10, PERMIT_SEQUENCE) if n not in used), None)
+                if sequence is None:
+                    raise ACLError("NETRIX ACL sıra alanı doldu.")
+                used.add(sequence)
+                commands.append(log_config.deny(adapter, profile, sequence, address))
+            kept = set()
+            for sequence, address in sorted(entries.items()):
+                # Extra addresses and duplicate rules of one address are removed.
+                if address not in target or address in kept:
+                    commands.append(("undo rule " if adapter == "hp_1950" else "no ") + str(sequence))
+                kept.add(address)
         if not permit:
             commands.append(permit_line)
         commands.append("quit" if adapter == "hp_1950" else "exit")
@@ -329,10 +419,29 @@ def build_plan(adapter, profile, address, config, ports_output, *, log_host=None
     commands.append("return" if adapter == "hp_1950" else "end")
     if log_host:
         commands.extend(log_config.debug_configuration(adapter))
-    return Plan(commands, ports, physical, header, bind, address, profile, adapter, alias, log_host, log_port)
+    first = min(desired, key=lambda value: ip_address(value)) if desired else ""
+    return Plan(
+        commands, ports, physical, header, bind, first, profile, adapter, alias, log_host, log_port,
+        addresses=tuple(sorted(target, key=ip_address)),
+        added=tuple(sorted(target - present, key=ip_address)),
+        removed=tuple(sorted(present - target, key=ip_address)),
+    )
+
+
+def verify_removed(plan, config):
+    parsed = blocks(config)
+    _, _, interface_blocks = config_interfaces(plan.adapter, parsed)
+    if any(plan.bind in lines for lines in interface_blocks.values()):
+        raise ACLError("NETRIX ACL bazı portlardan kaldırılamadı; sonuç kısmi olabilir.")
+    if matching_acl(parsed, plan.acl_header, plan.adapter) is not None:
+        raise ACLError("NETRIX ACL tanımı cihazdan kaldırılamadı.")
+    if plan.alias and matching_acl(parsed, "netdestination " + plan.alias, plan.adapter) is not None:
+        raise ACLError("Controller adres nesnesi kaldırılamadı.")
 
 
 def verify(plan, config, ports_output):
+    if plan.removal:
+        return verify_removed(plan, config)
     parsed = blocks(config)
     ports, port_blocks, physical = port_inventory(plan.adapter, ports_output, parsed)
     if ports != plan.ports or physical != plan.physical_ports:
@@ -343,16 +452,16 @@ def verify(plan, config, ports_output):
         )
     if plan.log_host:
         log_config.verify_target(plan, parsed)
+    expected = set(plan.addresses)
     if plan.adapter == "aruba_7200":
         body, hosts = session_rules(parsed, plan.acl_header, plan.alias)
-        if (not body or plan.address not in hosts or body[-1] != "any any any permit"
+        if (not body or hosts != expected or body[-1] != "any any any permit"
                 or (plan.log_host and f"alias {plan.alias} any any deny log" not in body)):
             raise ACLError("Controller deny/izin sırası doğrulanamadı.")
     else:
-        entries, permit = rules(
-            plan.adapter, plan.profile, matching_acl(parsed, plan.acl_header, plan.adapter)
-        )
-        if plan.log_host and set(entries) != log_config.logged_sequences(matching_acl(parsed, plan.acl_header, plan.adapter)):
+        body = matching_acl(parsed, plan.acl_header, plan.adapter)
+        entries, permit = rules(plan.adapter, plan.profile, body)
+        if plan.log_host and set(entries) != log_config.logged_sequences(body):
             raise ACLError("ACL deny kurallarında log üretimi doğrulanamadı.")
-        if plan.address not in entries.values() or not permit:
-            raise ACLError("Deny ve son izin kuralı doğrulanamadı.")
+        if set(entries.values()) != expected or len(entries) != len(expected) or not permit:
+            raise ACLError("Deny listesi ve son izin kuralı doğrulanamadı.")

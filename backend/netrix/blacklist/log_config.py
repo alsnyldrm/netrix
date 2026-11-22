@@ -53,26 +53,31 @@ def logged_sequences(body):
     }
 
 
-def logging_rules(adapter, profile, entries, body, address):
-    """Install the logged replacement before removing its old unlogged deny."""
+def logging_rules(adapter, profile, entries, body, addresses):
+    """Make exactly one logged deny per address; install it before removing old rules."""
+    if isinstance(addresses, str):
+        addresses = set(entries.values()) | {addresses}
     used = set(entries)
     logged = logged_sequences(body)
     by_address = {}
     for sequence, existing_address in entries.items():
         by_address.setdefault(existing_address, []).append(sequence)
-    by_address.setdefault(address, [])
-    commands = []
-    for target, sequences in by_address.items():
-        if not any(sequence in logged for sequence in sequences):
+    commands, removals = [], []
+    for target in sorted(set(addresses) | set(by_address)):
+        sequences = sorted(by_address.get(target, []))
+        if target not in addresses:
+            removals += sequences
+            continue
+        keep = next((sequence for sequence in sequences if sequence in logged), None)
+        if keep is None:
             free = next((number for number in range(10, 60000) if number not in used), None)
             if free is None:
                 raise ACLError("Loglu ACL kuralı için sıra alanı kalmadı.")
             used.add(free)
             commands.append(deny(adapter, profile, free, target, logging=True))
-        for old in sequences:
-            if old not in logged:
-                commands.append(("undo rule " if adapter == "hp_1950" else "no ") + str(old))
-    return commands
+        removals += [sequence for sequence in sequences if sequence != keep]
+    prefix = "undo rule " if adapter == "hp_1950" else "no "
+    return commands + [prefix + str(sequence) for sequence in removals]
 
 
 def verify_target(plan, parsed):

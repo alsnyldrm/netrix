@@ -32,6 +32,12 @@ def tick(*, include_ping=True):
     from .job_archives import archive_jobs, midnight
 
     dispatch_due()
+    try:
+        from .blacklist.actions import expire_due
+
+        expire_due()
+    except Exception:
+        log.exception("Kara Liste süre kontrolü başarısız")
     if include_ping:
         dispatch_pings()
     with session_factory()() as db:

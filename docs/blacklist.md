@@ -1,37 +1,56 @@
 # Kara Liste
 
-Kara Liste, **IP kayıtları**, **ACL grupları** ve **Loglar** ekranlarından yönetilir. Gruplar merkezi envantere referans verir. Bir IP birden fazla gruba bağlanabilir. **Gönder → Cihazlara gönder**, seçili cihazlarda yeni ACL oluşturulmasını ve tüm fiziksel portlarda giriş yönüne uygulanmasını worker kuyruğuna alır.
+Kara Liste, **IP kayıtları**, **ACL grupları**, **Cihaz durumu** ve **Loglar** ekranlarından yönetilir. Gruplar merkezi envantere referans verir. Bir IP birden fazla gruba bağlanabilir. Cihazlara yazma, **istenen durum eşitlemesi** ile yapılır: her cihazdaki NETRIX ACL’si, cihazın etkin gruplarındaki etkin IP kayıtlarıyla birebir eşitlenir. Ekleme, kaldırma, silme, grup silme ve ACL kimliği değişikliği aynı güvenli motordan geçer.
+
+## Kayıt durumları
+
+| Kayıt durumu | Anlamı |
+| --- | --- |
+| Taslak (`draft`) | Hiç gönderilmedi; cihazlara yazılmaz. Toplu ekleme ve yeni kayıt taslak oluşturur. |
+| Etkin (`active`) | **Gönder** ile istendi; gruplarındaki tüm cihazlarda engellenmelidir. |
+| Kaldırıldı (`disabled`) | **Kaldır** veya süre dolumuyla engel cihazlardan kaldırılır; kayıt saklanır ve yeniden gönderilebilir. |
+| Siliniyor (`deleting`) | **Sil** ile engel cihazlardan kaldırılır; tüm cihazlarda doğrulandıktan sonra kayıt silinir. Hiç uygulanmamış kayıt hemen silinir. |
+
+Listede gösterilen durum, kayıt durumu ile cihazların son doğrulanmış içeriğinden hesaplanır: Engelli, Kısmi, Gönderilmeyi bekliyor, Kaldırılmayı bekliyor, Sırada, Uygulanıyor, Hata, Silinemedi ve Hedef yok. Uygulanmış veya sonucu belirsiz cihaz “belirsiz” olarak gösterilir; başarı varsayılmaz.
 
 ## Kullanım
 
-1. Grubu oluşturun, cihazları seçin ve her aile için ACL türü ile adını veya numarasını girin. Mevcut SQL grupları da kullanılabilir.
-2. Bir IPv4 adresini ve hedef grupları kaydedin.
-3. Satırdaki **Gönder** eylemini açıp hedef cihaz sayısını inceleyin ve **Cihazlara gönder** düğmesine basın.
-4. **Sonuçlar** penceresinde her cihazın aşamasını, durumunu, port sayısını ve hatasını izleyin. **Durdur** ilerleyen komutları keser. Uygulanmış kurallar geçerliliğini korur. Tekrar **Gönder**, cihazın mevcut durumunu okuyarak eksik adımları tamamlar.
+1. **ACL grupları** ekranında grubu oluşturun, cihazları seçin ve her aile için ACL türü ile adını veya numarasını girin.
+2. **IP kayıtları** ekranında **Yeni IP** veya **Toplu ekle** (en çok 500 adres; satır, boşluk, virgül veya noktalı virgülle) ile kayıt ekleyin. İsteğe bağlı bitiş zamanı süreli engel oluşturur.
+3. Satırdaki veya seçim çubuğundaki **Gönder**, **Kaldır** ve **Sil** eylemleri onay penceresiyle çalışır. Arama ve durum filtresi yalnız SQL verisini süzer.
+4. **Ayrıntı** penceresi her cihaz için istenen durumu, cihazdaki son doğrulanmış durumu, son işin aşamasını, eklenen/kaldırılan adresleri ve hatayı gösterir. **Durdur** ilerleyen komutları keser.
+5. **ACL grupları** ekranındaki **Eşitle**, grup cihazlarını ve gruptan çıkarılmış ancak grubun engellerini hâlâ taşıyan cihazları eşitler. **Sil**, grubun engellerini cihazlardan kaldırır; doğrulandıktan sonra grubu siler. IP kayıtları korunur.
+6. **Cihaz durumu** ekranı her cihazda istenen ve doğrulanmış ACL’yi, IP sayısını ve eşitlik durumunu gösterir. **Eşitle**, **Seçilenleri eşitle** ve **Bekleyenleri eşitle** açık eylemlerdir. Yönetici, erişilemeyen veya elle temizlenmiş cihaz için **Durumu unut** ile kayıtlı durumu cihaza bağlanmadan silebilir.
 
-Liste/ayrıntı açılışı ve kayıt değişiklikleri pasiftir. Gönderim yalnız açık kullanıcı eylemiyle başlar. Sayfa açıkken devam eden işler WebSocket ve görünür sayfada beş saniyelik SQL yenilemesiyle izlenir. Arayüz kapandığında worker devam eder.
+Liste, ayrıntı ve önizleme açılışı ile kayıt/grup düzenlemesi pasiftir. Cihaza yazma yalnız açık kullanıcı eylemiyle veya kullanıcının girdiği bitiş zamanıyla başlar. Zamanlayıcı süresi dolan etkin kaydı Kaldırıldı durumuna alır ve süreyi giren kullanıcının yetkisiyle kaldırma işini kuyruğa alır; yetki geçersizse iş kuyruğa alınmaz ve cihaz Eşitleme bekliyor görünür. Sayfa açıkken devam eden işler WebSocket ve görünür sayfada beş saniyelik SQL yenilemesiyle izlenir. Arayüz kapandığında worker devam eder.
 
-Grup tanımlarını yöneticiler, IP kayıtlarını ve gönderimleri operatörler/yöneticiler yönetir. Worker kullanıcı yetkisini, cihazın yaşam döngüsünü, modelini ve SSH hedefini bağlantı öncesinde yeniden doğrular. Firewall, router, gateway, VIP ve arşivlenmiş cihazlar kapsam dışıdır. SSH profili ve kayıtlı host anahtarı politikası kullanılır. Gerçek cihaza yazma test için otomatik tetiklenmez.
+Grup tanımlarını ve silmeyi yöneticiler; IP kayıtlarını, gönderim/kaldırma/silmeyi ve eşitlemeyi operatörler/yöneticiler yönetir. Worker kullanıcı yetkisini, cihazın yaşam döngüsünü, modelini ve SSH hedefini bağlantı öncesinde yeniden doğrular. Firewall, router, gateway, VIP ve arşivlenmiş cihazlar kapsam dışıdır. SSH profili ve kayıtlı host anahtarı politikası kullanılır. Gerçek cihaza yazma test için otomatik tetiklenmez.
 
 ## Uygulama davranışı
 
-- Engel kaynak IPv4 adresine ve giriş yönüne uygulanır. IPv6 gönderimi açık hatayla reddedilir.
-- NETRIX, deny kurallarını son izin kuralından önce ekler. Diğer adreslerin iletişimi için son izin kuralı korunur.
+- Engel kaynak IPv4 adresine ve giriş yönüne uygulanır. IPv6 kaydı saklanabilir, gönderimi açık hatayla reddedilir.
+- Eşitleme işi istenen içeriği bağlantı anında SQL’den okur. Cihazdaki NETRIX ACL’sinde eksik adresler eklenir, istenmeyen adresler ve aynı adresin yinelenen kuralları kaldırılır. Yeni kural eskisi kaldırılmadan önce eklenir. Deny kuralları son izin kuralından önce kalır.
+- İstenen küme boşsa NETRIX ACL’si tüm portlardan ayrılır, ACL silinir; 7205’te `nxbl_…` adres nesnesi de silinir. Cihaz Kara Liste öncesi port durumuna döner. Syslog hedefi ve debug ayarları bu adımda değiştirilmez.
+- Grup ACL kimliği değişirse veya cihaz gruptan çıkarılırsa önce eski NETRIX ACL’si kaldırılır, sonra yeni ACL oluşturulur. Bu aralıkta cihazda engel bulunmaz.
+- Kaldırma komutları üretici biçimlerini kullanır: AOS-S/CX/ArubaOS için `no <sıra>`, `no ip access-group …`, `no apply access-list ip … in`, `no ip access-list …`, `no access-list ip …`, `no host <IP>`, `no netdestination …`; Comware için `undo rule <sıra>`, `undo packet-filter … inbound`, `undo acl number <N>`.
+- Yalnız `NETRIX-BLACKLIST` işaretli ACL değiştirilir veya silinir. Aynı kimlikte başka ACL, beklenmeyen kural içeriği ya da ACL tanımı olmadan NETRIX bağlantısı görülürse ilk yazmadan önce işlem durur. Hedef portta başka ACL varsa mevcut politika otomatik değiştirilmez.
 - Tüm fiziksel portlar cihazdan SSH ile okunur. LAG üyeleri ilgili LAG arayüzü üzerinden kapsanır. Eksik/çelişkili port listesinde yazma başlamaz.
-- Hedef portta başka ACL varsa cihazda ilk yazma başlamadan çakışma raporlanır. Mevcut politika otomatik değiştirilmez. Aynı cihazın tüm portları için farklı ACL isteyen grup tanımları gönderim öncesinde reddedilir.
-- Yeni ACL’ler `NETRIX-BLACKLIST` açıklamasıyla işaretlenir. Aynı kimlikte başka bir ACL veya beklenmeyen kural içeriği varsa işlem durur.
-- 7205’te session ACL, IP listesini bir `netdestination` nesnesi üzerinden kullanır. Bu yardımcı nesnenin adı ACL kimliğinin hash’inden `nxbl_…` biçiminde üretilir. IP eklerken izin kuralını kaldırmak gerekmez.
-- Tekrar gönderim önce güncel konfigürasyonu okur. Eşdeğer deny çoğaltılmaz. Kısmi uygulama sonrası eksik port bağlantıları ve kayıt doğrulaması tamamlanır.
-- Başarı için hem çalışan hem kalıcı konfigürasyonda deny, son izin ve tüm port bağlantıları doğrulanır. Bu durum gönderim anındaki konfigürasyon doğrulamasıdır. Trafik üretip uçtan uca paket testi yapılmaz.
-- Cihaz başına tek ACL gönderimi yürür. Diğer cihaz işleriyle çakışma kuyrukta bekletilir. Mevcut worker kapasitesi en fazla dört arka plan işidir. SSH okuması 45 saniye, cihaz işi toplam 600 saniye ile sınırlıdır.
+- Başarı için çalışan ve kalıcı konfigürasyonda deny listesinin istenen kümeyle tam eşitliği, son izin kuralı ve tüm port bağlantıları; kaldırmada ACL, adres nesnesi ve tüm port bağlantılarının yokluğu doğrulanır. Kalıcı konfigürasyon zaten eşitse kayıt komutu tekrar çalıştırılmaz. Trafik üretip uçtan uca paket testi yapılmaz.
+- Cihaz başına tek Kara Liste işi yürür. Aynı cihaz için yeni istek, sıradaki veya çalışan işi yeniden kullanır. Çalışan iş bitmeden önce SQL’deki istenen durumu yeniden okur ve en çok üç geçişte sonradan yapılan değişiklikleri de uygular. Diğer cihaz işleriyle çakışma kuyrukta bekletilir. SSH okuması 45 saniye, cihaz işi toplam 600 saniye ile sınırlıdır.
 - İptal her yazma komutu öncesinde kontrol edilir. Zaman aşımı ve worker kaybında mevcut sınırlı yeniden deneme davranışı uygulanır. Her deneme güncel cihaz okumasıyla yeni plan hazırlar.
-- Gönderim geçmişi bulunan bir kaydın IP adresi değiştirilemez. Yeni IP ayrı kayıt olarak eklenir. Bu sürüm ekleme ve tekrar gönderimi kapsar. Önceki engellerin kaldırılması uygulanmaz.
+- Toplu kaldırma, silme, grup silme ve cihaz eşitlemesi uygun olmayan cihazları (SSH profili yok, firmware sürüyor, ACL çakışması, cihaz artık uygun değil) atlar ve gerekçeyle bildirir. Tek kayıt gönderimi bu durumlarda hiçbir işi kuyruğa almadan reddedilir.
+- Uygulanmış veya etkin kaydın IP adresi değiştirilemez. Silinmekte olan kayıt veya grup düzenlenemez.
 
 ## Kalıcı kayıtlar
 
-Veri sahibi `kara_liste` şemasıdır. `acl_groups`, `blacklist_entries` ve ilişki tablolarına ek olarak `blacklist_deliveries`, değişmez hedef/IP/ACL tanımını cihaz ve `operasyon.jobs` kaydıyla ilişkilendirir. Her cihaz ayrı iş olduğundan bir cihazın hatası diğer cihaz sonuçlarını kaybettirmez. Aynı aktif gönderimin tekrar isteği aynı iş kimliğini döndürür. İş ve teslim kaydı aynı SQL transaction içinde oluşturulur. Kuyruk ve durumun sahibi SQL’dir, Redis bildirim için kullanılır.
+Veri sahibi `kara_liste` şemasıdır. `acl_groups` (`status`: `active`/`deleting`), `blacklist_entries` (`status`, `expires_at`, `updated_by`) ve ilişki tablolarına ek olarak:
 
-PostgreSQL migration’ları `20261122_01`, `20261122_02` ve `20261122_03` olur. `acl_logs`, cihazdan gelen ACL olaylarını tutar. Cihaz kimliği yalnız `envanter.devices` içinde tutulur. Protokol kaynağı veya IPAM tablosuna yazılmaz. Ham SSH çıktısı, konfigürasyon sırları ve erişim parolaları teslim kayıtlarına veya loglara eklenmez.
+- `blacklist_deliveries`, her eşitleme işini cihaz, `operasyon.jobs` kaydı, SSH hedef kimliği ve tetikleyiciyle ilişkilendirir. Kayıt silindiğinde geçmiş korunur, `entry_id` boşalır.
+- `device_acl_states`, cihaz başına son doğrulanmış NETRIX ACL profilini, IP listesini ve katkı veren grupları tutar. Yazma başlarken satır `dirty` olur ve hedeflenen içerik `attempted` alanına yazılır; doğrulama başarısızsa bu içerik “belirsiz” sayılır. Kaldırma doğrulandığında satır silinir. Silinmekte olan kayıt ve grup, hiçbir cihaz durumu onları taşımadığında silinir.
+
+Her cihaz ayrı iş olduğundan bir cihazın hatası diğer cihaz sonuçlarını kaybettirmez. İş ve teslim kaydı aynı SQL transaction içinde oluşturulur. Kuyruk ve durumun sahibi SQL’dir, Redis bildirim için kullanılır.
+
+PostgreSQL migration’ları `20261122_01`, `20261122_02`, `20261122_03` ve `20261122_04` olur. `20261122_04`, önceki yalnız-ekleme motorunun başarılı teslimlerinden cihaz durumlarını oluşturur ve gönderilmiş kayıtları `active` yapar; başarısız teslimler belirsiz (`dirty`) durum olarak taşınır. `acl_logs`, cihazdan gelen ACL olaylarını tutar. Cihaz kimliği yalnız `envanter.devices` içinde tutulur. Protokol kaynağı veya IPAM tablosuna yazılmaz. Ham SSH çıktısı, konfigürasyon sırları ve erişim parolaları teslim kayıtlarına veya loglara eklenmez.
 
 ## Üretici araştırması
 
@@ -60,7 +79,9 @@ AOS-S port ve trunk bağlantısı, CX fiziksel/LAG bağlantısı, ArubaOS Ethern
 
 ## Doğrulama
 
-Sahte SSH cihazlarıyla 5412/5406, 2930, 6100, 7205 ve HP 1950 için ilk ACL, ikinci IP, tekrar gönderim, mevcut ACL çakışması ve tüm port bağlantıları sınandı. Normal worker girişinden başarılı gönderim, port hatası, kalıcı kayıt uyuşmazlığı, iptal, iptal sonrası tekrar gönderim, gateway elemesi ve meşgul cihazın diğer hedefleri bekletmemesi doğrulandı.
+Eşitleme sürümünde sahte SSH cihazlarıyla 5412/5406, 2930, 6100, 7205 ve HP 1950 için fazla adres kaldırma, yinelenen kural temizliği, boş kümede ACL/port bağlantısı/adres nesnesi kaldırma, kaldırmanın tekrarlanabilirliği ve yabancı ACL reddi sınandı. Normal worker girişinden IP kaldırma, silme, hiç gönderilmemiş taslağın işsiz silinmesi, grup silme, ACL kimliği değişimi, gruptan çıkarılan cihazın temizlenmesi, çalışan işin sonradan gelen değişikliği alması, toplu ekleme, süre dolumu ve başarısız kaldırmada kaydın korunup **Durumu unut** ile tamamlanması doğrulandı.
+
+Önceki sürümde sahte SSH cihazlarıyla 5412/5406, 2930, 6100, 7205 ve HP 1950 için ilk ACL, ikinci IP, tekrar gönderim, mevcut ACL çakışması ve tüm port bağlantıları sınandı. Normal worker girişinden başarılı gönderim, port hatası, kalıcı kayıt uyuşmazlığı, iptal, iptal sonrası tekrar gönderim, gateway elemesi ve meşgul cihazın diğer hedefleri bekletmemesi doğrulandı.
 
 Yerel fixture tarayıcısında 1440, 768 ve 375 piksel açık/koyu temada 48 görünüm ve son hizalama için altı ek görünüm kontrol edildi. Gönderim, sonuçlar ve durdurma API üzerinden denendi. Axe ihlali veya JavaScript hatası bulunmadı. Gerçek cihazlarda ACL yazma ve paket engelleme testi yapılmadı.
 

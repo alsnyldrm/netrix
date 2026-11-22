@@ -276,3 +276,180 @@
 .blacklist-targets li button {
   justify-self: start;
 }
+
+/* Toolbar filters, selection and feedback */
+.blacklist-toolbar {
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+.blacklist-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.blacklist-filters .search-box {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 360px;
+}
+.blacklist-filters select {
+  flex: 0 1 220px;
+  height: 40px;
+  min-width: 0;
+}
+.blacklist-count {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blacklist-selection,
+.blacklist-feedback {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.blacklist-selection {
+  flex-wrap: nowrap;
+}
+.blacklist-selection > span {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blacklist-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.blacklist-feedback {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  background: var(--accent-soft);
+}
+.blacklist-feedback > div {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 10px;
+}
+.blacklist-feedback p {
+  margin: 0;
+}
+.blacklist-skipped {
+  display: grid;
+  gap: 4px;
+  color: var(--warning);
+  font-size: 13px;
+}
+.blacklist-skipped ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.blacklist-check {
+  width: 48px;
+  text-align: center;
+}
+.blacklist-check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  vertical-align: middle;
+}
+.blacklist-panel td > .badge + small {
+  margin-top: 6px;
+}
+.blacklist-row-actions .icon-button,
+.blacklist-slot {
+  width: 36px;
+  height: 36px;
+  flex: none;
+}
+.blacklist-danger svg {
+  color: var(--danger);
+}
+.blacklist-danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+.blacklist-panel td:last-child {
+  max-width: none;
+  width: 1%;
+}
+.blacklist-panel td:last-child > .blacklist-row-actions {
+  flex-wrap: nowrap;
+}
+.blacklist-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+.blacklist-meta {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.blacklist-address-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px 16px;
+  max-height: 180px;
+  margin: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+.blacklist-job {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.blacklist-job small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .blacklist-filters,
+  .blacklist-filters .search-box,
+  .blacklist-filters select {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .blacklist-toolbar > .blacklist-row-actions {
+    width: 100%;
+  }
+  .blacklist-toolbar > .blacklist-row-actions > button {
+    flex: 1;
+  }
+  .blacklist-selection,
+  .blacklist-feedback {
+    padding: 12px 16px;
+  }
+  .blacklist-selection {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .blacklist-selection-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-left: 0;
+  }
+  .blacklist-selection-actions > button {
+    flex: 1;
+  }
+}

@@ -792,6 +792,8 @@ class ACLGroup(Entity, Base):
     profiles: Mapped[dict] = mapped_column(
         JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql")
     )
+    status: Mapped[str] = mapped_column(String(12), default="active")
+    __table_args__ = (CheckConstraint("status in ('active','deleting')", name="ck_acl_groups_status"),)
 
 
 class ACLGroupDevice(Base):
@@ -808,6 +810,16 @@ class BlacklistEntry(Entity, Base):
     __tablename__ = "blacklist_entries"
     address: Mapped[str] = mapped_column(String(45), unique=True)
     description: Mapped[str] = mapped_column(String(300), default="")
+    # draft: never requested on devices, active: must be blocked,
+    # disabled: must be absent, deleting: removed from devices, then deleted.
+    status: Mapped[str] = mapped_column(String(12), default="draft", index=True)
+    expires_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("yonetim.users.id"), nullable=True)
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('draft','active','disabled','deleting')", name="ck_blacklist_entries_status"
+        ),
+    )
 
 
 class BlacklistEntryGroup(Base):
@@ -822,12 +834,40 @@ class BlacklistEntryGroup(Base):
 
 class BlacklistDelivery(Entity, Base):
     __tablename__ = "blacklist_deliveries"
-    entry_id: Mapped[str] = mapped_column(ForeignKey("kara_liste.blacklist_entries.id"), index=True)
+    entry_id: Mapped[str | None] = mapped_column(
+        ForeignKey("kara_liste.blacklist_entries.id", ondelete="SET NULL"), index=True, nullable=True
+    )
     device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"), index=True)
     job_id: Mapped[str] = mapped_column(ForeignKey("operasyon.jobs.id"), unique=True)
     payload: Mapped[dict] = mapped_column(
         JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql")
     )
+
+
+class DeviceACLState(Base):
+    """Last verified NETRIX blacklist ACL content on one device."""
+
+    __tablename__ = "device_acl_states"
+    device_id: Mapped[str] = mapped_column(
+        ForeignKey("envanter.devices.id", ondelete="CASCADE"), primary_key=True
+    )
+    profile: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), nullable=True
+    )
+    addresses: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
+    group_ids: Mapped[list] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), default=list
+    )
+    # dirty: a write started and was not verified; attempted keeps its intended content.
+    status: Mapped[str] = mapped_column(String(12), default="synced")
+    attempted: Mapped[dict | None] = mapped_column(
+        JSON().with_variant(PostgreSQLValue(JSONB()), "postgresql"), nullable=True
+    )
+    verified_at: Mapped[object | None] = mapped_column(UTCDateTime(), nullable=True)
+    updated_at: Mapped[object] = mapped_column(UTCDateTime(), default=now, onupdate=now)
+    __table_args__ = (CheckConstraint("status in ('synced','dirty')", name="ck_device_acl_states_status"),)
 
 
 class ACLLog(Base):

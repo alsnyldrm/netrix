@@ -241,8 +241,9 @@ async def test_send_entry_runs_through_normal_worker_and_never_claims_unverified
         assert job.status == ("failed" if failure else "succeeded"), job.error
         assert job.active_key is None
     result = admin_client.get("/api/v1/blacklist/entries").json()["items"][0]
-    assert result["deliveries"][0]["status"] == ("failed" if failure else "succeeded")
-    assert not result["needs_send"]
+    assert result["devices"][0]["job"]["status"] == ("failed" if failure else "succeeded")
+    assert result["state"] == ("failed" if failure else "blocked")
+    assert result["devices"][0]["applied"] is (None if failure else True)
 
 
 async def test_cancelled_and_reclassified_gateway_jobs_never_connect(admin_client, env, devices, monkeypatch):

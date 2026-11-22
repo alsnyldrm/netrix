@@ -83,6 +83,7 @@ import {
   WarningCircle,
   X,
   ArrowsClockwise,
+  ListChecks,
   Play,
   Stop,
   DownloadSimple,
@@ -703,7 +704,7 @@ export const PAGES: Page[] = [
   {
     key: "blacklist",
     title: "IP kayıtları",
-    desc: "Engellenecek IP adreslerini ve hedef ACL gruplarını hazırlayın.",
+    desc: "IP engellerini ekleyin, cihazlara gönderin, kaldırın veya silin.",
     group: "Kara Liste",
     icon: ShieldSlash,
   },
@@ -713,6 +714,13 @@ export const PAGES: Page[] = [
     desc: "Envanter cihazlarını gruplandırın ve her aile için hedef ACL’yi tanımlayın.",
     group: "Kara Liste",
     icon: Stack,
+  },
+  {
+    key: "blacklist-devices",
+    title: "Cihaz durumu",
+    desc: "Cihazlardaki NETRIX ACL içeriğini istenen durumla karşılaştırın ve eşitleyin.",
+    group: "Kara Liste",
+    icon: ListChecks,
   },
   {
     key: "blacklist-logs",
@@ -1104,7 +1112,7 @@ const LABELS: Record<string, string> = {
   discovery: "Keşif",
   backup: "Yedekleme",
   firmware_backup: "Firmware öncesi yedek",
-  blacklist_send: "Kara Liste gönderimi",
+  blacklist_send: "Kara Liste eşitlemesi",
   compare: "Aktif config karşılaştırması",
   integration: "Entegrasyon eşitleme",
   ipam_ping: "IP durum kontrolü",
@@ -3545,7 +3553,13 @@ function App() {
                   <BlacklistLogs refresh={refresh} />
                 ) : (
                   <BlacklistWorkspace
-                    groupsPage={page.key === "blacklist-groups"}
+                    page={
+                      page.key === "blacklist-groups"
+                        ? "groups"
+                        : page.key === "blacklist-devices"
+                          ? "devices"
+                          : "entries"
+                    }
                     canEditGroups={isAdmin}
                     canEditEntries={canWrite}
                     refresh={refresh}

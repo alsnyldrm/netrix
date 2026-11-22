@@ -1,6 +1,7 @@
 """Inventory eligibility and validation for blacklist drafts."""
 
 import re
+from datetime import datetime
 from ipaddress import ip_address
 from typing import Annotated, Literal
 
@@ -78,20 +79,62 @@ class GroupInput(Input):
         return self
 
 
+def canonical(address):
+    if "%" in address:
+        raise ValueError("Bir IPv4 veya IPv6 adresi girin.")
+    try:
+        return str(ip_address(address.strip()))
+    except ValueError:
+        raise ValueError("Bir IPv4 veya IPv6 adresi girin.") from None
+
+
+def future(value):
+    if value is not None:
+        if value.tzinfo is None:
+            raise ValueError("Bitiş zamanı saat dilimi içermelidir.")
+        if value <= now():
+            raise ValueError("Bitiş zamanı gelecekte olmalıdır.")
+    return value
+
+
 class EntryInput(Input):
     address: str = Field(min_length=1, max_length=45)
     description: str = Field(default="", max_length=300)
     group_ids: list[ID] = Field(min_length=1, max_length=100)
+    expires_at: datetime | None = None
 
     @field_validator("address")
     @classmethod
-    def canonical_address(cls, address):
-        if "%" in address:
-            raise ValueError("Bir IPv4 veya IPv6 adresi girin.")
-        try:
-            return str(ip_address(address))
-        except ValueError:
-            raise ValueError("Bir IPv4 veya IPv6 adresi girin.") from None
+    def canonical_address(cls, value):
+        return canonical(value)
+
+    @field_validator("expires_at")
+    @classmethod
+    def future_expiry(cls, value):
+        return future(value)
+
+
+class BulkEntryInput(Input):
+    addresses: list[Annotated[str, StringConstraints(min_length=1, max_length=45)]] = Field(
+        min_length=1, max_length=500
+    )
+    description: str = Field(default="", max_length=300)
+    group_ids: list[ID] = Field(min_length=1, max_length=100)
+    expires_at: datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def future_expiry(cls, value):
+        return future(value)
+
+
+class EntryAction(Input):
+    action: Literal["send", "remove", "delete"]
+    entry_ids: list[ID] = Field(min_length=1, max_length=500)
+
+
+class DeviceSync(Input):
+    device_ids: list[ID] = Field(min_length=1, max_length=1000)
 
 
 def catalog():
@@ -158,7 +201,13 @@ def inventory_choices(db):
 
 
 def group_view(row, ids):
-    return {"id": row.id, "name": row.name, "profiles": row.profiles, "device_ids": sorted(ids)}
+    return {
+        "id": row.id,
+        "name": row.name,
+        "profiles": row.profiles,
+        "device_ids": sorted(ids),
+        "status": row.status or "active",
+    }
 
 
 def entry_view(row, ids):
@@ -167,12 +216,16 @@ def entry_view(row, ids):
         "address": row.address,
         "description": row.description,
         "group_ids": sorted(ids),
+        "status": row.status or "draft",
+        "expires_at": row.expires_at,
         "updated_at": row.updated_at,
     }
 
 
 def save_group(db, user, payload, group_id=None):
-    row = get(db, m.ACLGroup, group_id) if group_id else m.ACLGroup()
+    row = get(db, m.ACLGroup, group_id) if group_id else m.ACLGroup(status="active")
+    if row.status == "deleting":
+        raise HTTPException(409, "Silinmekte olan grup düzenlenemez.")
     device_ids = set(payload.device_ids)
     selected = db.scalars(eligible_inventory().where(m.Device.id.in_(device_ids)))
     families = {device.id: device_family(device) for device in selected}
@@ -199,27 +252,37 @@ def save_group(db, user, payload, group_id=None):
     return group_view(row, device_ids)
 
 
-def save_entry(db, user, payload, entry_id=None):
-    row = get(db, m.BlacklistEntry, entry_id) if entry_id else m.BlacklistEntry()
+def save_entry(db, user, payload, entry_id=None, *, commit=True):
+    from .state import devices_holding
+
+    row = get(db, m.BlacklistEntry, entry_id) if entry_id else m.BlacklistEntry(status="draft")
+    if row.status == "deleting":
+        raise HTTPException(409, "Silinmekte olan IP kaydı düzenlenemez.")
     group_ids = set(payload.group_ids)
-    found = set(db.scalars(select(m.ACLGroup.id).where(m.ACLGroup.id.in_(group_ids))))
+    found = set(
+        db.scalars(
+            select(m.ACLGroup.id).where(m.ACLGroup.id.in_(group_ids), m.ACLGroup.status == "active")
+        )
+    )
     if found != group_ids:
-        raise HTTPException(422, "Seçili ACL gruplarından biri bulunamadı.")
+        raise HTTPException(422, "Seçili ACL gruplarından biri bulunamadı veya silinmekte.")
     if db.scalar(
         select(m.BlacklistEntry.id).where(
             m.BlacklistEntry.address == payload.address,
             m.BlacklistEntry.id != (entry_id or ""),
         )
     ):
-        raise HTTPException(409, "Bu IP için bir taslak var. Grup seçimini mevcut kayıttan düzenleyin.")
-    if (
-        row.id
-        and row.address != payload.address
-        and db.scalar(select(m.BlacklistDelivery.id).where(m.BlacklistDelivery.entry_id == row.id).limit(1))
+        raise HTTPException(409, "Bu IP için bir kayıt var. Grup seçimini mevcut kayıttan düzenleyin.")
+    if row.id and row.address != payload.address and (
+        row.status == "active" or devices_holding(db, address=row.address)
     ):
-        raise HTTPException(409, "Gönderilmiş IP değiştirilemez. Yeni adres için ayrı kayıt oluşturun.")
+        raise HTTPException(
+            409, "Cihazlara uygulanmış IP değiştirilemez. Önce kaldırın veya yeni adres için ayrı kayıt oluşturun."
+        )
     row.address = payload.address
     row.description = payload.description
+    row.expires_at = payload.expires_at
+    row.updated_by = user.id
     row.updated_at = now()
     db.add(row)
     db.flush()
@@ -231,9 +294,10 @@ def save_entry(db, user, payload, entry_id=None):
         "update" if entry_id else "create",
         "blacklist_entries",
         row.id,
-        "Kara Liste IP taslağı kaydedildi",
+        "Kara Liste IP kaydı kaydedildi",
     )
-    db.commit()
+    if commit:
+        db.commit()
     return entry_view(row, group_ids)
 
 
@@ -242,7 +306,7 @@ def preview_entry(db, entry_id):
     groups = db.scalars(
         select(m.ACLGroup)
         .join(m.BlacklistEntryGroup)
-        .where(m.BlacklistEntryGroup.entry_id == entry.id)
+        .where(m.BlacklistEntryGroup.entry_id == entry.id, m.ACLGroup.status == "active")
         .order_by(m.ACLGroup.name, m.ACLGroup.id)
     ).all()
     group_ids = [group.id for group in groups]

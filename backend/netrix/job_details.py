@@ -8,7 +8,7 @@ from . import models as m
 from .core import now
 
 DESCRIPTIONS = {
-    "blacklist_send": ("Kara Liste gönderimi", "Kaynak IP engelini tüm fiziksel portlarda SSH ile uygular ve kalıcı konfigürasyonu doğrular."),
+    "blacklist_send": ("Kara Liste eşitlemesi", "Cihazdaki NETRIX ACL’yi etkin IP kayıtlarıyla SSH üzerinden eşitler; eklenen ve kaldırılan engelleri tüm fiziksel portlarda ve kalıcı konfigürasyonda doğrular."),
     "test_integration": (
         "Entegrasyon bağlantı testi",
         "DHCP veya vCenter bağlantısını, kullanıcı doğrulamasını ve temel okuma erişimini formdaki ayarlarla kontrol eder. Entegrasyon ayarlarını ve IPAM kayıtlarını değiştirmez.",
