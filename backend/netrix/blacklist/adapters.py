@@ -8,6 +8,7 @@ from ipaddress import ip_address
 
 from ..discovery.aruba import validate_aruba_config
 from ..discovery.comware import validate_comware_config
+from . import log_config
 from .cli import ACLError
 
 MARKER = "NETRIX-BLACKLIST"
@@ -149,6 +150,8 @@ class Plan:
     profile: dict
     adapter: str
     alias: str = ""
+    log_host: str | None = None
+    log_port: int = 5515
 
 
 def acl_identity(adapter, profile):
@@ -211,7 +214,7 @@ def rules(adapter, profile, body):
         ):
             permit = True
             continue
-        match = re.fullmatch(pattern, line)
+        match = re.fullmatch(pattern, re.sub(r" (?:log|logging)$", "", line))
         if not match or not 0 <= int(match[1]) < PERMIT_SEQUENCE or int(match[1]) in entries:
             raise ACLError("NETRIX ACL içeriği değiştirilmiş veya kural sırası belirsiz; işlem durdu.")
         try:
@@ -227,7 +230,7 @@ def rules(adapter, profile, body):
 def session_rules(config_blocks, header, alias):
     body = matching_acl(config_blocks, header, "aruba_7200")
     if body is not None:
-        allowed = {f"description {MARKER}", f"alias {alias} any any deny", "any any any permit"}
+        allowed = {f"description {MARKER}", f"alias {alias} any any deny", f"alias {alias} any any deny log", "any any any permit"}
         if f"description {MARKER}" not in body or any(line not in allowed for line in body):
             raise ACLError("Session ACL başka bir yapılandırmaya ait veya değiştirilmiş.")
     alias_body = matching_acl(config_blocks, "netdestination " + alias, "aruba_7200")
@@ -245,7 +248,7 @@ def session_rules(config_blocks, header, alias):
     return body, hosts
 
 
-def build_plan(adapter, profile, address, config, ports_output):
+def build_plan(adapter, profile, address, config, ports_output, *, log_host=None, log_port=5515):
     address = str(ip_address(address))
     if ":" in address:
         raise ACLError("Bu gönderim IPv4 içindir. IPv6 ACL gönderimi desteklenmiyor.")
@@ -267,6 +270,9 @@ def build_plan(adapter, profile, address, config, ports_output):
                         f"{port} portunda başka ACL var; mevcut politika korunarak işlem durduruldu."
                     )
     commands = ["system-view" if adapter == "hp_1950" else "configure terminal"]
+    if log_host:
+        log_config.check_existing_target(adapter, parsed, log_host, log_port)
+        commands.extend(log_config.configuration(adapter, log_host, log_port))
     alias = ""
     if adapter == "aruba_7200":
         alias = "nxbl_" + hashlib.sha256(header.encode()).hexdigest()[:16]
@@ -275,11 +281,13 @@ def build_plan(adapter, profile, address, config, ports_output):
         if address not in hosts:
             commands.append("host " + address)
         commands += ["exit", header, "description " + MARKER]
-        if body is None or f"alias {alias} any any deny" not in body:
+        if log_host and body is not None and f"alias {alias} any any deny log" not in body:
+            commands.append(f"alias {alias} any any deny log position 1")
+        elif body is None or not any(line.startswith(f"alias {alias} any any deny") for line in body):
             # A partial ACL containing permit already cannot be safely appended.
             if body and "any any any permit" in body:
                 raise ACLError("Session ACL kural sırası değişmiş.")
-            commands.append(f"alias {alias} any any deny")
+            commands.append(f"alias {alias} any any deny" + (" log" if log_host else ""))
         if body is None or "any any any permit" not in body:
             commands.append("any any any permit")
         commands.append("exit")
@@ -297,7 +305,9 @@ def build_plan(adapter, profile, address, config, ports_output):
             if profile["type"] == "extended":
                 permit_line = "60000 permit ip any any"
         commands += [header, marker]
-        if address not in entries.values():
+        if log_host:
+            commands.extend(log_config.logging_rules(adapter, profile, entries, body, address))
+        elif address not in entries.values():
             sequence = next((n for n in range(10, PERMIT_SEQUENCE) if n not in entries), None)
             if sequence is None:
                 raise ACLError("NETRIX ACL sıra alanı doldu.")
@@ -317,7 +327,9 @@ def build_plan(adapter, profile, address, config, ports_output):
         if bind not in port_blocks.get(port, []):
             commands += ["interface " + port, bind, "quit" if adapter == "hp_1950" else "exit"]
     commands.append("return" if adapter == "hp_1950" else "end")
-    return Plan(commands, ports, physical, header, bind, address, profile, adapter, alias)
+    if log_host:
+        commands.extend(log_config.debug_configuration(adapter))
+    return Plan(commands, ports, physical, header, bind, address, profile, adapter, alias, log_host, log_port)
 
 
 def verify(plan, config, ports_output):
@@ -329,13 +341,18 @@ def verify(plan, config, ports_output):
         raise ACLError(
             "ACL tüm portlarda doğrulanamadı; sonuç kısmi olabilir. Yeniden göndererek doğrulayın."
         )
+    if plan.log_host:
+        log_config.verify_target(plan, parsed)
     if plan.adapter == "aruba_7200":
         body, hosts = session_rules(parsed, plan.acl_header, plan.alias)
-        if not body or plan.address not in hosts or body[-1] != "any any any permit":
+        if (not body or plan.address not in hosts or body[-1] != "any any any permit"
+                or (plan.log_host and f"alias {plan.alias} any any deny log" not in body)):
             raise ACLError("Controller deny/izin sırası doğrulanamadı.")
     else:
         entries, permit = rules(
             plan.adapter, plan.profile, matching_acl(parsed, plan.acl_header, plan.adapter)
         )
+        if plan.log_host and set(entries) != log_config.logged_sequences(matching_acl(parsed, plan.acl_header, plan.adapter)):
+            raise ACLError("ACL deny kurallarında log üretimi doğrulanamadı.")
         if plan.address not in entries.values() or not permit:
             raise ACLError("Deny ve son izin kuralı doğrulanamadı.")

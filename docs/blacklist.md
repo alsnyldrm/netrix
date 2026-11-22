@@ -1,6 +1,6 @@
 # Kara Liste
 
-Kara Liste, **IP kayıtları** ve **ACL grupları** ekranlarından yönetilir. Gruplar merkezi envantere referans verir. Bir IP birden fazla gruba bağlanabilir. **Gönder → Cihazlara gönder**, seçili cihazlarda yeni ACL oluşturulmasını ve tüm fiziksel portlarda giriş yönüne uygulanmasını worker kuyruğuna alır.
+Kara Liste, **IP kayıtları**, **ACL grupları** ve **Loglar** ekranlarından yönetilir. Gruplar merkezi envantere referans verir. Bir IP birden fazla gruba bağlanabilir. **Gönder → Cihazlara gönder**, seçili cihazlarda yeni ACL oluşturulmasını ve tüm fiziksel portlarda giriş yönüne uygulanmasını worker kuyruğuna alır.
 
 ## Kullanım
 
@@ -31,7 +31,7 @@ Grup tanımlarını yöneticiler, IP kayıtlarını ve gönderimleri operatörle
 
 Veri sahibi `kara_liste` şemasıdır. `acl_groups`, `blacklist_entries` ve ilişki tablolarına ek olarak `blacklist_deliveries`, değişmez hedef/IP/ACL tanımını cihaz ve `operasyon.jobs` kaydıyla ilişkilendirir. Her cihaz ayrı iş olduğundan bir cihazın hatası diğer cihaz sonuçlarını kaybettirmez. Aynı aktif gönderimin tekrar isteği aynı iş kimliğini döndürür. İş ve teslim kaydı aynı SQL transaction içinde oluşturulur. Kuyruk ve durumun sahibi SQL’dir, Redis bildirim için kullanılır.
 
-PostgreSQL migration’ları `20261122_01` ve `20261122_02` olur. Cihaz kimliği yalnız `envanter.devices` içinde tutulur. Protokol kaynağı veya IPAM tablosuna yazılmaz. Ham SSH çıktısı, konfigürasyon sırları ve erişim parolaları teslim kayıtlarına veya loglara eklenmez.
+PostgreSQL migration’ları `20261122_01`, `20261122_02` ve `20261122_03` olur. `acl_logs`, cihazdan gelen ACL olaylarını tutar. Cihaz kimliği yalnız `envanter.devices` içinde tutulur. Protokol kaynağı veya IPAM tablosuna yazılmaz. Ham SSH çıktısı, konfigürasyon sırları ve erişim parolaları teslim kayıtlarına veya loglara eklenmez.
 
 ## Üretici araştırması
 
@@ -65,3 +65,28 @@ Sahte SSH cihazlarıyla 5412/5406, 2930, 6100, 7205 ve HP 1950 için ilk ACL, ik
 Yerel fixture tarayıcısında 1440, 768 ve 375 piksel açık/koyu temada 48 görünüm ve son hizalama için altı ek görünüm kontrol edildi. Gönderim, sonuçlar ve durdurma API üzerinden denendi. Axe ihlali veya JavaScript hatası bulunmadı. Gerçek cihazlarda ACL yazma ve paket engelleme testi yapılmadı.
 
 Gönderime yönelik son hedefli koşuda 31 test geçti. Geniş regresyon koşusunda 166 test geçti, ayrı PostgreSQL test veritabanı gerektiren iki test atlandı. Sonrasında eklenen controller/config-mode istemleri ve modüler VSF portları hedefli koşuda doğrulandı. Değişen Python dosyalarının Ruff, Git boşluk ve frontend üretim derlemesi kontrolleri geçti. Vite’ın mevcut ana paket boyutu uyarısı sürüyor.
+
+
+## Cihaz ACL logları
+
+**Kara Liste → Loglar**, cihazların ürettiği ACL eşleşme olaylarını gösterir. Cihaz, ACL, kaynak/hedef IPv4, engelleme/izin sonucu, alınma zamanı ve temizlenmiş cihaz mesajı gösterilir. Saat dilimi taşıyan cihaz zamanları ayrıca tutulur; diğer zamanlardan UTC tahmin edilmez. Cihaz, metin ve son 1 saat / 24 saat / 7 gün / 30 gün filtreleri vardır. Alınma zamanı ve UUID ile 50 satırlık cursor sayfalaması kullanılır.
+
+Ortak aktarım Syslog’dur. SNMP sayaçları paket olay günlüğü değildir. Comware ACL SNMP trap seçeneği bulunur, ancak bütün hedef ailelerde ortak bir okunabilir SNMP olay tablosu doğrulanmadığından SNMP log toplaması uygulanmaz. [AOS-S ACL log etkinleştirme](https://arubanetworking.hpe.com/techdocs/AOS-S/16.11/IPV6/WC/content/common%20files/ena-acl-log-swi.htm), [6100 CLI ve ACL log](https://arubanetworking.hpe.com/techdocs/AOS-CX/10.16/PDF/cli_6000-6100.pdf), [ArubaOS Syslog](https://arubanetworking.hpe.com/techdocs/CLI-Bank/Content/aos8/logging.htm), [Comware ACL log ve trap komutları](https://www.h3c.com/en/Support/Resource_Center/EN/Home/Routers/00-Public/Reference_Guides/Command_References/H3C_MSR_Comware_7_CR-R0615/11/202210/1709612_294551_0.htm).
+
+### Etkinleştirme ve alıcı
+
+- **Gönder → Cihazlara gönder**, deny kurallarına AOS-S/CX/ArubaOS için `log`, Comware için `logging` ekler ve Syslog hedefini ayarlar. Daha önce uygulanmış IP kaydını bir kez yeniden göndermek log üretimini açar. Yeni loglu deny doğrulanabilir sıraya eklenmeden eski deny kaldırılmaz. Aynı ACL’deki diğer NETRIX IP engelleri de loglu kurallara yükseltilir.
+- AOS-S için `debug destination logging` / `debug acl`, CX için `debug destination syslog severity info` / `debug acl log severity info` kullanılır. Controller’da güvenlik/firewall kategorisi, Comware’de ACL bilgi kategorisi etkinleştirilir. Kalıcı ve çalışan konfigürasyonda hedef ve deny log bayrağı okunarak doğrulanır. Bu doğrulama uzak sunucuya olay ulaştığının kanıtı değildir.
+- Alıcı mevcut `netrix` container’ında `netrix-acl-logs` sürecidir. Host **10.2.0.87:5515/UDP ve TCP** kullanır. Sunucudaki 514 ve 5514 portları başka log servislerine aittir. `NETRIX_ACL_LOG_HOST` boşsa `NETRIX_FIRMWARE_ADVERTISE_HOST` kullanılır. `NETRIX_ACL_LOG_PORT` varsayılan 5515’tir; host LAN bind adresi `NETRIX_FIRMWARE_BIND_IP` olur. Yeni servis/container veya veritabanı kurulmaz.
+- Bir cihazda aynı sunucu adresi başka Syslog portuyla tanımlıysa mevcut hedef otomatik değiştirilmez; gönderim yazma öncesinde açıklayıcı çakışma hatası verir. Ayrı alıcı adresi veya mevcut Syslog servisi üzerinden, kaynak cihaz adresini koruyan yönlendirme gerekir.
+- Sayfa açma, yenileme ve migration cihaza bağlantı açmaz. Liste ilk sayfası görünürken SQL’den 10 saniyede bir yenilenir. WebSocket bildirimi de yalnız SQL görünümünü yeniler. Alıcı durumu ve son gerçek ACL kaydının zamanı görünür.
+
+### Saklama ve sınırlar
+
+Alıcı yalnız ACL grubunda bulunan uygun cihazların yönetim IP’sinden gelen ACL eşleşmelerini kaydeder. Syslog mesajındaki iddia edilen hostname kullanılmaz; aynı IP için belirsiz cihaz varsa kayıt alınmaz. Cihaz kendi yönetim IP’sinden göndermelidir. UDP/TCP aktarımı kimliği kriptografik olarak doğrulamaz ve TLS içermez; erişim yetkili yönetim ağıyla sınırlandırılmalıdır. Relay/NAT kaynağı cihaz IP’sini değiştirirse mesaj kabul edilmez.
+
+Her olay 30 gün saklanır; süresi dolan kayıtlar dakikada en fazla 10.000 satırla temizlenir. Kuyruk 4096 mesaj, mesaj 8192 bayt, TCP bağlantısı 32 ile sınırlıdır. TCP satır ve RFC6587 octet-counted çerçeveleri desteklenir. SQL hatasında üç sınırlı deneme yapılır; dolu kuyruk/bozuk çerçeve/başarısız kayıt sayısı ekranda belirtilir. UDP ağ kayıpları ölçülemez. Ham cihaz mesajı 2000 karakterle sınırlanır, kontrol karakterleri çıkarılır ve sır belirteçlerinden sonrası gizlenir.
+
+Cihazlar logları örnekleyebilir, hız sınırlayabilir veya aralıklarla birleştirebilir. CX’in log-timer varsayılanı 300 saniyedir; Comware için bir dakikalık ACL log aralığı seçilir. Her paket için ayrı kayıt garantisi verilmez. AOS-S `debug` ayarları yeniden başlatmada korunmayabilir; yeniden **Gönder** ile etkinleştirilebilir. [AOS-S debug çalışma notları](https://arubanetworking.hpe.com/techdocs/AOS-S/16.10/MCG/WC/content/common%20files/ope-not-deb-sys.htm). Gerçek cihazlarda sürüm ve olay biçimi doğrulaması henüz yapılmamıştır; testlerde sahte SSH ve yerel Syslog çerçeveleri kullanılır.
+
+ACL log eklemesinin son doğrulamasında 98 test geçti; ayrı PostgreSQL test veritabanı gerektiren iki test atlandı. UDP/TCP çerçeveleri, kaynak cihaz elemesi, sır gizleme, sayfalama/saklama, Syslog hedef çakışması, loglu kural yükseltmesi ve normal worker üzerinden açık gönderim sınandı. Yerel tarayıcıda dört ekran boyutu ve iki temada dolu/boş liste ile ayrıntı penceresi toplam 24 görünümde kontrol edildi; filtreler, sayfalama, alan hizaları, taşma ve Axe kontrolleri geçti. Frontend üretim derlemesi ve değişen Python dosyalarının Ruff kontrolü başarılıdır. Ana Vite paketinin mevcut boyut uyarısı devam eder.

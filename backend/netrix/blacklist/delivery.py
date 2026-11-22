@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from .. import models as m
-from ..core import session_factory
+from ..core import session_factory, settings
 from ..identity.permissions import can_operate
 from ..identity.security import audit, secret_data
 from ..runtime_limits import device_slot, sql_quick
@@ -177,7 +177,11 @@ async def execute(job_id):
             read_config, read_ports, read_saved = READS[device.adapter]
             config = await shell.command(read_config)
             ports = await shell.command(read_ports)
-            plan = adapters.build_plan(device.adapter, profile, address, config, ports)
+            plan = adapters.build_plan(
+                device.adapter, profile, address, config, ports,
+                log_host=settings().acl_log_host or settings().firmware_advertise_host or None,
+                log_port=settings().acl_log_port,
+            )
             await sql_quick(progress, job_id, "applying", ports=plan.physical_ports)
             for command in plan.commands:
                 await sql_quick(check_cancel, job_id)
@@ -203,7 +207,7 @@ async def execute(job_id):
             saved_ports = await shell.command(read_ports)
             adapters.verify(plan, saved, saved_ports)
             await sql_quick(progress, job_id, "verified", ports=plan.physical_ports)
-    return {"phase": "verified", "ports": plan.physical_ports, "address": address}
+    return {"phase": "verified", "ports": plan.physical_ports, "address": address, "acl_logging": bool(plan.log_host)}
 
 
 def entry_list(db):

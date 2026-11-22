@@ -1,12 +1,14 @@
 """Persist and preview blacklist drafts without contacting devices."""
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
 from .. import models as m
 from ..core import db_session
 from ..identity.security import admin, current_user, operator
-from . import delivery, service
+from . import delivery, logs, service
 from .service import EntryInput, GroupInput
 
 router = APIRouter(prefix="/api/v1/blacklist", tags=["Kara Liste"])
@@ -63,3 +65,15 @@ def preview_entry(entry_id: str, db=Depends(db_session), user=Depends(current_us
 @router.post("/entries/{entry_id}/send", status_code=202)
 def send_entry(entry_id: str, db=Depends(db_session), user=Depends(operator)):
     return delivery.submit(db, user, entry_id)
+
+
+@router.get("/logs")
+def acl_logs(
+    q: str = Query("", max_length=120),
+    device_id: str | None = Query(None, max_length=36),
+    hours: int = Query(24, ge=0, le=720),
+    before: datetime | None = None,
+    before_id: str | None = Query(None, max_length=36),
+    db=Depends(db_session), user=Depends(current_user),
+):
+    return logs.list_logs(db, q=q, device_id=device_id, hours=hours, before=before, before_id=before_id)

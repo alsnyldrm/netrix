@@ -152,6 +152,7 @@ import {
 
 const FirmwareWorkspace = React.lazy(() => import("./firmware"));
 const BlacklistWorkspace = React.lazy(() => import("./blacklist"));
+const BlacklistLogs = React.lazy(() => import("./blacklist-logs"));
 const IPAMSettings = React.lazy(() => import("./ipam-settings"));
 
 type Row = Record<string, any>;
@@ -712,6 +713,13 @@ export const PAGES: Page[] = [
     desc: "Envanter cihazlarını gruplandırın ve her aile için hedef ACL’yi tanımlayın.",
     group: "Kara Liste",
     icon: Stack,
+  },
+  {
+    key: "blacklist-logs",
+    title: "Loglar",
+    desc: "Cihazlardan alınan ACL eşleşme ve engelleme olaylarını inceleyin.",
+    group: "Kara Liste",
+    icon: ClockCounterClockwise,
   },
   {
     key: "alerts",
@@ -3533,12 +3541,16 @@ function App() {
               <React.Suspense
                 fallback={<p role="status">Kara Liste yükleniyor…</p>}
               >
-                <BlacklistWorkspace
-                  groupsPage={page.key === "blacklist-groups"}
-                  canEditGroups={isAdmin}
-                  canEditEntries={canWrite}
-                  refresh={refresh}
-                />
+                {page.key === "blacklist-logs" ? (
+                  <BlacklistLogs refresh={refresh} />
+                ) : (
+                  <BlacklistWorkspace
+                    groupsPage={page.key === "blacklist-groups"}
+                    canEditGroups={isAdmin}
+                    canEditEntries={canWrite}
+                    refresh={refresh}
+                  />
+                )}
               </React.Suspense>
             ) : page.key === "job-archives" ? (
               <JobArchives refresh={refresh} canWrite={canWrite} />
