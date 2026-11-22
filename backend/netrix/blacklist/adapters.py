@@ -336,15 +336,15 @@ def build_plan(adapter, profile, address, config, ports_output):
     return build_sync_plan(adapter, profile, {address}, config, ports_output, keep=True)
 
 
-def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=False):
+def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=False, retain_empty=False):
     """Make the NETRIX ACL contain exactly the desired addresses on every port.
 
-    An empty desired set removes the ACL and its bindings. With keep=True the
+    With retain_empty=True an empty set retains a permit-only ACL; otherwise it removes the ACL and its bindings. With keep=True the
     current NETRIX addresses are preserved and only missing ones are added.
     """
     desired = canonical_addresses(desired)
     validate_config(adapter, config)
-    if not desired and not keep:
+    if not desired and not keep and not retain_empty:
         return build_removal_plan(adapter, profile, config, validated=True)
     parsed = blocks(config)
     ports, port_blocks, physical = port_inventory(adapter, ports_output, parsed)
@@ -363,16 +363,14 @@ def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=Fal
         alias = alias_for(header)
         body, hosts = session_rules(parsed, header, alias)
         target = desired | hosts if keep else desired
-        commands += ["netdestination " + alias, "description " + MARKER]
-        # Add before removing so the alias never becomes empty.
-        commands += ["host " + address for address in sorted(target - hosts)]
-        commands += ["no host " + address for address in sorted(hosts - target)]
-        commands += ["exit", header, "description " + MARKER]
-        if body is None or not any(line.startswith(f"alias {alias} any any deny") for line in body):
-            # A partial ACL containing permit already cannot be safely appended.
-            if body and "any any any permit" in body:
-                raise ACLError("Session ACL kural sırası değişmiş.")
-            commands.append(f"alias {alias} any any deny")
+        if target:
+            commands += ["netdestination " + alias, "description " + MARKER]
+            commands += ["host " + address for address in sorted(target - hosts)]
+            commands += ["no host " + address for address in sorted(hosts - target)]
+            commands.append("exit")
+        commands += [header, "description " + MARKER]
+        if target and (body is None or not any(line.startswith(f"alias {alias} any any deny") for line in body)):
+            commands.append(f"alias {alias} any any deny" + (" position 1" if body and "any any any permit" in body else ""))
         if body is None or "any any any permit" not in body:
             commands.append("any any any permit")
         commands.append("exit")
@@ -447,7 +445,9 @@ def verify(plan, config, ports_output):
     expected = set(plan.addresses)
     if plan.adapter == "aruba_7200":
         body, hosts = session_rules(parsed, plan.acl_header, plan.alias)
-        if not body or hosts != expected or body[-1] != "any any any permit":
+        if (not body or hosts != expected or body[-1] != "any any any permit"
+                or (expected and f"alias {plan.alias} any any deny" not in body)
+                or (not expected and any(" deny" in line for line in body))):
             raise ACLError("Controller deny/izin sırası doğrulanamadı.")
     else:
         body = matching_acl(parsed, plan.acl_header, plan.adapter)

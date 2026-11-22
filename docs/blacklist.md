@@ -19,7 +19,7 @@ Listede gösterilen durum, kayıt durumu ile cihazların son doğrulanmış içe
 2. **IP kayıtları** ekranında **Yeni IP** veya **Toplu ekle** (en çok 500 adres; satır, boşluk, virgül veya noktalı virgülle) ile kayıt ekleyin. İsteğe bağlı bitiş zamanı süreli engel oluşturur.
 3. Satırdaki veya seçim çubuğundaki **Gönder**, **Kaldır** ve **Sil** eylemleri onay penceresiyle çalışır. Arama ve durum filtresi yalnız SQL verisini süzer.
 4. **Ayrıntı** penceresi her cihaz için istenen durumu, cihazdaki son doğrulanmış durumu, son işin aşamasını, eklenen/kaldırılan adresleri ve hatayı gösterir. **Durdur** ilerleyen komutları keser.
-5. **ACL grupları** ekranındaki **Eşitle**, grup cihazlarını ve gruptan çıkarılmış ancak grubun engellerini hâlâ taşıyan cihazları eşitler. **Sil**, grubun engellerini cihazlardan kaldırır; doğrulandıktan sonra grubu siler. IP kayıtları korunur.
+5. **ACL grupları** ekranındaki **Eşitle**, hiç IP yokken de ACL adı/ID’sini oluşturur ve tüm fiziksel portlara giriş yönünde bağlar. Son izin kuralı diğer iletişimi korur. Ayrıca grup cihazlarını ve gruptan çıkarılmış ancak grubun engellerini hâlâ taşıyan cihazları eşitler. **Sil**, grubun engellerini cihazlardan kaldırır; doğrulandıktan sonra grubu siler. IP kayıtları korunur.
 6. **Cihaz durumu** ekranı her cihazda istenen ve doğrulanmış ACL’yi, IP sayısını ve eşitlik durumunu gösterir. **Eşitle**, **Seçilenleri eşitle** ve **Bekleyenleri eşitle** açık eylemlerdir. Yönetici, erişilemeyen veya elle temizlenmiş cihaz için **Durumu unut** ile kayıtlı durumu cihaza bağlanmadan silebilir.
 
 Liste, ayrıntı ve önizleme açılışı ile kayıt/grup düzenlemesi pasiftir. Cihaza yazma yalnız açık kullanıcı eylemiyle veya kullanıcının girdiği bitiş zamanıyla başlar. Zamanlayıcı süresi dolan etkin kaydı Kaldırıldı durumuna alır ve süreyi giren kullanıcının yetkisiyle kaldırma işini kuyruğa alır; yetki geçersizse iş kuyruğa alınmaz ve cihaz Eşitleme bekliyor görünür. Sayfa açıkken devam eden işler WebSocket ve görünür sayfada beş saniyelik SQL yenilemesiyle izlenir. Arayüz kapandığında worker devam eder.
@@ -30,7 +30,7 @@ Grup tanımlarını ve silmeyi yöneticiler; IP kayıtlarını, gönderim/kaldı
 
 - Engel kaynak IPv4 adresine ve giriş yönüne uygulanır. IPv6 kaydı saklanabilir, gönderimi açık hatayla reddedilir.
 - Eşitleme işi istenen içeriği bağlantı anında SQL’den okur. Cihazdaki NETRIX ACL’sinde eksik adresler eklenir, istenmeyen adresler ve aynı adresin yinelenen kuralları kaldırılır. Yeni kural eskisi kaldırılmadan önce eklenir. Deny kuralları son izin kuralından önce kalır.
-- İstenen küme boşsa NETRIX ACL’si tüm portlardan ayrılır, ACL silinir; 7205’te `nxbl_…` adres nesnesi de silinir. Cihaz Kara Liste öncesi port durumuna döner. Cihazdaki Syslog ve debug ayarlarına dokunulmaz.
+- Son IP kaldırıldığında etkin gruba ait ACL ve port bağlantıları korunur; yalnız engel kuralları kaldırılır. ACL, grup silindiğinde veya cihaz ilgili bütün gruplardan çıkarıldığında portlardan ayrılıp silinir. 7205 boş ACL’si yalnız son izin kuralını içerir; boş adres nesnesine deny bağlanmaz. Cihazdaki Syslog ve debug ayarlarına dokunulmaz.
 - Grup ACL kimliği değişirse veya cihaz gruptan çıkarılırsa önce eski NETRIX ACL’si kaldırılır, sonra yeni ACL oluşturulur. Bu aralıkta cihazda engel bulunmaz.
 - Kaldırma komutları üretici biçimlerini kullanır: AOS-S/CX/ArubaOS için `no <sıra>`, `no ip access-group …`, `no apply access-list ip … in`, `no ip access-list …`, `no access-list ip …`, `no host <IP>`, `no netdestination …`; Comware için `undo rule <sıra>`, `undo packet-filter … inbound`, `undo acl number <N>`.
 - Yalnız `NETRIX-BLACKLIST` işaretli ACL değiştirilir veya silinir. Aynı kimlikte başka ACL, beklenmeyen kural içeriği ya da ACL tanımı olmadan NETRIX bağlantısı görülürse ilk yazmadan önce işlem durur. Hedef portta başka ACL varsa mevcut politika otomatik değiştirilmez.
@@ -90,3 +90,7 @@ Gönderime yönelik son hedefli koşuda 31 test geçti. Geniş regresyon koşusu
 ## ACL logları kaldırıldı (22 Kasım 2026)
 
 Proje sahibinin kararıyla Kara Liste → Loglar menüsü, `netrix-acl-logs` Syslog alıcısı, 5515/UDP-TCP port yayını, `NETRIX_ACL_LOG_*` ayarları, `/api/v1/blacklist/logs` uç noktası ve `kara_liste.acl_logs` tablosu kaldırıldı; bunlar yeniden eklenmez. Gönderim artık deny kurallarına `log`/`logging` bayrağı, Syslog hedefi veya debug ayarı eklemez. Önceki sürümün cihazlara yazdığı loglu deny kuralları, Syslog hedefleri ve debug ayarları cihazda olduğu gibi bırakılır; NETRIX bunları değiştirmez, loglu deny kuralını mevcut engel olarak okur.
+
+## IP olmadan ACL hazırlama düzeltmesi
+
+Grup **Eşitle**, etkin IP bulunmasa da profil adı/ID’sini cihazda oluşturup bütün portlara uygular ve kalıcı konfigürasyondan doğrular. **IP → Gönder** ilgili grupların cihazlarına deny ekler. Son IP kaldırıldığında boş, son izin kuralı bulunan ACL korunur. Grup silme/cihazı gruptan çıkarma ACL kaldırmayı yönetir. Hiç gönderilmemiş taslağın silinmesi cihaz işi oluşturmaz. 82 hedefli test ve masaüstü/mobil tarayıcı kontrolü geçti; gerçek cihazlara test gönderimi yapılmadı.

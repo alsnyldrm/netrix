@@ -35,6 +35,12 @@ class SyncCLI(DeviceCLI):
     fail_removal = False
 
     async def command(self, command, **kwargs):
+        if command.endswith(" position 1"):
+            self.commands.append(command)
+            parsed = dict(adapters.blocks(self.config))
+            parsed[self.context].insert(1, command.removesuffix(" position 1"))
+            self.rebuild(parsed)
+            return ""
         if not command.startswith(("no ", "undo ")) or command in ("no page", "no paging"):
             return await super().command(command, **kwargs)
         self.commands.append(command)
@@ -188,14 +194,15 @@ async def test_remove_and_delete_entries_reconcile_device_and_remove_last_acl(
     assert response.status_code == 202, response.text
     assert entry_by_address(admin_client, "192.0.2.101")["state"] in ("queued", "deleting")
     await drain(env)
-    assert "BLOCKED_IPS" not in fixture_cli.saved
-    assert "ip access-group" not in fixture_cli.saved
+    assert "BLOCKED_IPS" in fixture_cli.saved
+    assert "ip access-group" in fixture_cli.saved
+    assert "deny ip host" not in fixture_cli.saved
     addresses = {item["address"] for item in admin_client.get(ROOT + "/entries").json()["items"]}
     assert addresses == {"192.0.2.100"}
     with env() as db:
-        assert db.scalar(select(func.count()).select_from(m.DeviceACLState)) == 0
+        assert db.scalar(select(func.count()).select_from(m.DeviceACLState)) == 1
         job = db.scalar(select(m.Job).order_by(m.Job.created_at.desc()))
-        assert job.result["acl_removed"] and job.result["phase"] == "removed"
+        assert not job.result["acl_removed"] and job.result["phase"] == "verified"
         # History survives the deleted entry.
         assert db.scalar(select(func.count()).select_from(m.BlacklistDelivery)) == 3
 
@@ -368,3 +375,65 @@ def test_reads_are_passive(admin_client, env, devices):
         assert admin_client.get(ROOT + path).status_code == 200
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.Job)) == 0
+
+
+@pytest.mark.parametrize("adapter,profile", PROFILES)
+async def test_group_acl_can_be_prepared_before_any_ip(adapter, profile):
+    cli = SyncCLI(adapter)
+    for desired in (set(), {"192.0.2.10"}, set()):
+        if adapter == "aruba_7200" and not desired:
+            removal = adapters.build_removal_plan(adapter, profile, cli.config)
+            await run(cli, removal)
+        plan = adapters.build_sync_plan(adapter, profile, desired, cli.config, cli.ports, retain_empty=True)
+        assert not plan.removal
+        await run(cli, plan)
+        adapters.verify(plan, cli.config, cli.ports)
+        assert acl_addresses(adapter, profile, cli.config) == desired
+        assert not any(c.startswith(("logging ", "debug ", "info-center ")) for c in cli.commands)
+
+
+async def test_empty_group_sync_creates_acl_and_preserves_it_after_ip_removal(admin_client, env, devices, fixture_cli):
+    group = prepare(admin_client, env, devices["2930"])
+    response = admin_client.post(ROOT + f"/groups/{group['id']}/sync")
+    assert response.status_code == 202 and response.json()["devices"] == 1
+    await drain(env)
+    assert "ip access-list extended BLOCKED_IPS" in fixture_cli.saved
+    assert fixture_cli.saved.count("ip access-group BLOCKED_IPS in") == 2
+    listed = admin_client.get(ROOT + "/groups").json()["items"][0]
+    assert listed["active_entries"] == 0 and listed["pending_devices"] == 0 and listed["applied_devices"] == 1
+    entry = add_entry(admin_client, group["id"], "192.0.2.100")
+    assert "192.0.2.100" not in fixture_cli.saved
+    admin_client.post(ROOT + f"/entries/{entry}/send")
+    await drain(env)
+    assert "192.0.2.100" in fixture_cli.saved
+    admin_client.post(ROOT + "/entries/actions", json={"action":"remove", "entry_ids":[entry]})
+    await drain(env)
+    assert "192.0.2.100" not in fixture_cli.saved and "BLOCKED_IPS" in fixture_cli.saved
+    admin_client.delete(ROOT + f"/groups/{group['id']}")
+    await drain(env)
+    assert "BLOCKED_IPS" not in fixture_cli.saved
+
+
+async def test_controller_empty_group_roundtrip_through_worker(admin_client, env, devices, monkeypatch):
+    cli = SyncCLI("aruba_7200")
+    @asynccontextmanager
+    async def connection(device, secret):
+        yield cli
+    monkeypatch.setattr(delivery, "connect", connection)
+    group = prepare(admin_client, env, devices["7205"], {
+        "name":"Controller", "device_ids":[devices["7205"]],
+        "profiles":{"aruba_os":PROFILES[3][1]},
+    })
+    for _ in range(2):
+        response = admin_client.post(ROOT + f"/groups/{group['id']}/sync")
+        assert response.json()["devices"] == 1
+        await drain(env)
+    assert "any any any permit" in cli.saved and " deny" not in cli.saved
+    entry = add_entry(admin_client, group["id"], "192.0.2.100")
+    admin_client.post(ROOT + f"/entries/{entry}/send")
+    await drain(env)
+    assert "192.0.2.100" in cli.saved
+    admin_client.post(ROOT + "/entries/actions", json={"action":"remove", "entry_ids":[entry]})
+    await drain(env)
+    assert "192.0.2.100" not in cli.saved and " deny" not in cli.saved
+    assert "ip access-list session BLOCK" in cli.saved

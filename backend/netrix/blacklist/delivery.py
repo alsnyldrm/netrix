@@ -53,7 +53,7 @@ def enqueue(db, user, device_ids, *, entry_id=None, reason="entry", strict=True)
         if item.issue:
             refuse(device, 422, f"{device.name if device else 'Cihaz'} · {item.issue}")
             continue
-        if not item.addresses and device_id not in recorded:
+        if item.profile is None and device_id not in recorded:
             continue  # Nothing was ever written and nothing is wanted.
         if not device or not connection_profile(db, device, "ssh"):
             refuse(device, 422, f"{device.name if device else 'Cihaz'} için SSH erişim profili gerekli.")
@@ -189,7 +189,7 @@ def mark_attempt(job_id, device_id, target):
 def record_verified(job_id, device_id, target):
     with session_factory()() as db:
         row = db.get(m.DeviceACLState, device_id)
-        if not target["addresses"]:
+        if target["profile"] is None:
             if row is not None:
                 db.delete(row)
         else:
@@ -248,7 +248,7 @@ async def reconcile(shell, job_id, device, target):
     plans = []
     config = await shell.command(read_config)
     stale = list(target["stale_profiles"])
-    if not target["addresses"] and target["profile"]:
+    if device.adapter == "aruba_7200" and not target["addresses"] and target["profile"]:
         stale.append(target["profile"])
     for profile in stale:
         plan = adapters.build_removal_plan(device.adapter, profile, config)
@@ -257,12 +257,13 @@ async def reconcile(shell, job_id, device, target):
             await apply_plan(shell, job_id, plan)
             config = await shell.command(read_config)
         adapters.verify_removed(plan, config)
-        plans.append(plan)
+        if state.profile_key(profile) != state.profile_key(target["profile"]):
+            plans.append(plan)
     ports = None
-    if target["addresses"]:
+    if target["profile"] is not None:
         ports = await shell.command(read_ports)
         plan = adapters.build_sync_plan(
-            device.adapter, target["profile"], set(target["addresses"]), config, ports
+            device.adapter, target["profile"], set(target["addresses"]), config, ports, retain_empty=True
         )
         await sql_quick(progress, job_id, "applying", ports=plan.physical_ports)
         await apply_plan(shell, job_id, plan)
@@ -272,7 +273,7 @@ async def reconcile(shell, job_id, device, target):
     current_ports = await shell.command(read_ports) if ports is not None else ""
     for plan in plans:
         adapters.verify(plan, current, current_ports)
-    if device.adapter == "aruba_6100" and target["addresses"]:
+    if device.adapter == "aruba_6100" and target["profile"]:
         name = target["profile"]["name"]
         active = await shell.command("show access-list ip " + name)
         if (
@@ -315,13 +316,13 @@ async def execute(job_id):
                         ports = plan.physical_ports
                 await sql_quick(record_verified, job_id, device.id, target)
                 fresh = await sql_quick(current_target, job_id, device.id)
-                if not fresh["addresses"] and not fresh["stale_profiles"] or (
+                if fresh["profile"] is None and not fresh["stale_profiles"] or (
                     (fresh["profile"], fresh["addresses"]) == (target["profile"], target["addresses"])
                 ):
                     break
                 target = fresh
                 await sql_quick(mark_attempt, job_id, device.id, target)
-        phase = "verified" if target["addresses"] else "removed"
+        phase = "verified" if target["profile"] else "removed"
         await sql_quick(progress, job_id, phase, ports=ports)
     return {
         "phase": phase,

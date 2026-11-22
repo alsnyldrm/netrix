@@ -2,7 +2,7 @@
 
 Desired state comes only from SQL: active groups, their member devices and
 active IPv4 entries. A device sync job makes the NETRIX ACL equal to it; an
-empty desired set removes the ACL and its port bindings.
+an active group keeps its ACL even without IP entries.
 """
 
 from dataclasses import dataclass, field
@@ -92,11 +92,11 @@ def states(db, device_ids=None):
 def in_sync(desired, state):
     """True when the verified device content equals the desired content."""
     if state is None:
-        return not desired.addresses
+        return desired.profile is None
     if state.status != "synced":
         return False
-    if not desired.addresses:
-        return False  # A recorded ACL must be removed.
+    if desired.profile is None:
+        return False  # No group wants this ACL anymore.
     return profile_key(state.profile) == profile_key(desired.profile) and set(state.addresses) == set(
         desired.addresses
     )

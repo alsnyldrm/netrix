@@ -91,7 +91,8 @@ def entry_action(db, user, action, entry_ids):
                 raise HTTPException(422, f"{entry.address} kaydının bitiş zamanı geçmiş. Kaydı düzenleyin.")
         entry.status = {"send": "active", "remove": "disabled", "delete": "deleting"}[action]
         entry.updated_by, entry.updated_at = user.id, now()
-        devices |= entry_targets(db, entry, groups_by_entry, devices_by_group)
+        devices |= (entry_targets(db, entry, groups_by_entry, devices_by_group)
+                    if action == "send" else state.devices_holding(db, address=entry.address))
     db.flush()
     result = delivery.enqueue(
         db,
@@ -344,7 +345,7 @@ def device_list(db):
             "recorded": row is not None,
             "status": status,
             "issue": item.issue,
-            "will_remove_acl": bool(row and row.profile and not item.addresses),
+            "will_remove_acl": bool(row and row.profile and item.profile is None),
             "job": job,
         })
     result.sort(key=lambda value: (value["name"], value["device_id"]))
