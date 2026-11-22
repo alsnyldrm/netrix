@@ -65,7 +65,7 @@ async def scan(job_id, collector):
 
     async def ready_batches():
         for start in range(0, len(addresses), SCAN_BATCH_SIZE):
-            context.check()
+            await sql_read(context.check)
             async with aclosing(
                 completed_batches(ping(address) for address in addresses[start : start + SCAN_BATCH_SIZE])
             ) as batches:
@@ -75,7 +75,7 @@ async def scan(job_id, collector):
     checked = reached = problems = resolved = ping_failed = removed = 0
     async with aclosing(ready_batches()) as batches:
         async for ready in batches:
-            context.check()
+            await sql_read(context.check)
 
             def store(ready):
                 nonlocal checked, reached, ping_failed
@@ -145,14 +145,17 @@ async def scan(job_id, collector):
             publish(ipam_vlan=vlan.id)
 
             async def process(id, up):
-                context.check()
-                with session_factory()() as db:
-                    row = db.get(m.IPAddress, id)
-                    if not row or row.vlan_id != vlan.id:
-                        return None
-                    sources = context.for_row(row)
-                result = await pipeline.resolve(row.address, sources)
-                context.check()
+                def load():
+                    context.check()
+                    with session_factory()() as db:
+                        row = db.get(m.IPAddress, id)
+                        return row if row and row.vlan_id == vlan.id else None
+
+                row = await sql_read(load)
+                if row is None:
+                    return None
+                result = await pipeline.resolve(row.address, context.for_row(row))
+                await sql_read(context.check)
                 may_remove = (
                     up is False
                     and result.get("absence_candidate")

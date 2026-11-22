@@ -1,11 +1,12 @@
 """IPAM never opens switch sessions; inventory owns MAC/port and neighbor facts."""
 
 from copy import deepcopy
+from threading import get_ident
 
 import pytest
 from netrix import models as m
 from netrix import worker
-from netrix.ipam import adapters, point_sources, service
+from netrix.ipam import adapters, inventory_sources, point_sources, service
 from netrix.ipam.bulk_sources import BulkContext
 from netrix.sources.network import read
 from sqlalchemy import select
@@ -73,6 +74,15 @@ async def test_scheduled_scan_reads_switch_sql_without_touching_or_refreshing_it
             for g in db.scalars(select(m.GatewayBinding).order_by(m.GatewayBinding.id))
         ]
     calls = []
+    attachment_threads = []
+    event_loop_thread = get_ident()
+    attachment = inventory_sources.attachment
+
+    def track_attachment(*args, **kwargs):
+        attachment_threads.append(get_ident())
+        return attachment(*args, **kwargs)
+
+    monkeypatch.setattr(inventory_sources, "attachment", track_attachment)
 
     class Collector:
         async def ipam(self, host, *_):
@@ -109,6 +119,7 @@ async def test_scheduled_scan_reads_switch_sql_without_touching_or_refreshing_it
         job = db.get(m.Job, jid)
         assert job.status == ("succeeded" if available else "partial"), job.error
         assert calls == []
+        assert attachment_threads and event_loop_thread not in attachment_threads
         assert [
             (g.id, g.address, g.mac_address, g.present, g.observed_at)
             for g in db.scalars(select(m.GatewayBinding).order_by(m.GatewayBinding.id))

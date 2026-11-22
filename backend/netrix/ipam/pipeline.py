@@ -72,6 +72,7 @@ async def resolve(address, sources, progress=None):
             )
             return data
         except Exception as exc:
+            from ..discovery.protocols import NetworkError
             from ..worker import Cancelled
             from .dhcp_errors import DHCPReadError
 
@@ -82,6 +83,14 @@ async def resolve(address, sources, progress=None):
             if isinstance(exc, DHCPReadError):
                 code = exc.public_code
                 detail = exc.public_message + " Önceki doğrulanmış bilgiler korundu."
+            elif name == "dns" and isinstance(exc, TimeoutError):
+                detail = (
+                    "DNS PTR sorgusu süre sınırı içinde tamamlanamadı. Önceki doğrulanmış bilgiler korundu."
+                )
+            elif name == "dns" and isinstance(exc, NetworkError):
+                detail = (
+                    "DNS sunucusundan geçerli bir PTR yanıtı alınamadı. Önceki doğrulanmış bilgiler korundu."
+                )
             issues.append(
                 {
                     "source": name,

@@ -112,18 +112,50 @@ async def test_scheduled_gateway_gap_checks_inventory_before_deciding(
             assert any(s["source"] == "dns" and s["status"] == "error" for s in item["scan_result"]["steps"])
 
 
-@pytest.mark.parametrize("error_name, expected", [("NXDOMAIN", ""), ("LifetimeTimeout", None)])
-async def test_ptr_negative_and_transport_failure_are_different(monkeypatch, error_name, expected):
+@pytest.mark.parametrize("error_name", ["NXDOMAIN", "NoAnswer"])
+async def test_ptr_negative_answer_does_not_retry(monkeypatch, error_name):
     import dns.asyncresolver
     import dns.resolver
-    from netrix.discovery.protocols import NetworkError
 
-    async def resolve(*_):
+    attempts = []
+
+    async def resolve(_resolver, _name, _kind, *, tcp=False, lifetime=None):
+        attempts.append(tcp)
         raise getattr(dns.resolver, error_name)()
 
     monkeypatch.setattr(dns.asyncresolver.Resolver, "resolve", resolve)
-    if expected is None:
-        with pytest.raises(NetworkError):
-            await adapters.reverse_dns("192.0.2.10", None)
+    assert await adapters.reverse_dns("192.0.2.10", None) == ""
+    assert attempts == [False]
+
+
+@pytest.mark.parametrize("first_error", ["LifetimeTimeout", "NoNameservers"])
+@pytest.mark.parametrize("tcp_succeeds", [True, False])
+async def test_ptr_retries_transient_failure_on_the_same_server(monkeypatch, first_error, tcp_succeeds):
+    from types import SimpleNamespace
+
+    import dns.asyncresolver
+    import dns.resolver
+
+    attempts = []
+    server = SimpleNamespace(address="192.0.2.53", port=5353)
+
+    async def resolve(resolver, name, kind, *, tcp=False, lifetime=None):
+        assert str(name) == "10.2.0.192.in-addr.arpa."
+        assert kind == "PTR"
+        assert resolver.nameservers == [server.address]
+        assert resolver.port == server.port
+        attempts.append((tcp, resolver.lifetime if lifetime is None else lifetime))
+        if not tcp:
+            raise getattr(dns.resolver, first_error)()
+        if not tcp_succeeds:
+            raise dns.resolver.LifetimeTimeout()
+        return ["host.example.test."]
+
+    monkeypatch.setattr(dns.asyncresolver.Resolver, "resolve", resolve)
+    if tcp_succeeds:
+        assert await adapters.reverse_dns("192.0.2.10", server) == "host.example.test"
     else:
-        assert await adapters.reverse_dns("192.0.2.10", None) == expected
+        with pytest.raises(TimeoutError):
+            await adapters.reverse_dns("192.0.2.10", server)
+    assert [tcp for tcp, _ in attempts] == [False, True]
+    assert sum(lifetime for _, lifetime in attempts) <= 2

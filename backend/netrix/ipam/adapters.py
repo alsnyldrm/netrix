@@ -366,14 +366,22 @@ async def reverse_dns(address, server):
     import dns.reversename
 
     resolver = dns.asyncresolver.Resolver(configure=server is None)
-    resolver.lifetime = 2
     if server:
         resolver.nameservers, resolver.port = [server.address], server.port
+    name = dns.reversename.from_address(address)
     try:
-        answer = await resolver.resolve(dns.reversename.from_address(address), "PTR")
+        async with asyncio.timeout(2):
+            try:
+                answer = await resolver.resolve(name, "PTR", lifetime=0.6)
+            except (dns.exception.Timeout, dns.resolver.NoNameservers):
+                # Retry transport failures against the same configured resolver.
+                # A negative DNS answer bypasses the retry.
+                answer = await resolver.resolve(name, "PTR", tcp=True, lifetime=1.4)
         return str(answer[0]).rstrip(".")[:190]
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return ""
+    except dns.exception.Timeout as exc:
+        raise TimeoutError("PTR lookup timed out") from exc
     except dns.exception.DNSException as exc:
         raise NetworkError("PTR lookup failed") from exc
 

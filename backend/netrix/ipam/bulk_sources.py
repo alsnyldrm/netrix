@@ -4,6 +4,7 @@ import asyncio
 import copy
 import ipaddress
 import json
+import threading
 from collections import defaultdict
 from types import SimpleNamespace
 
@@ -11,7 +12,7 @@ from .. import models as m
 from ..core import now, session_factory
 from ..discovery.protocols import NetworkError
 from ..identity.security import decrypt
-from ..runtime_limits import sql_read
+from ..runtime_limits import sql_read, sql_write
 from . import adapters
 from .connections import Evidence
 from .gateway_sources import binding_view, bindings_query
@@ -29,6 +30,7 @@ class BulkContext:
         self.indexes = {}
         self.errors = {}
         self.locks = {key: asyncio.Lock() for key in ("gateway", "switch", "vcenter", "windows_dhcp")}
+        self.attachment_lock = threading.Lock()
         self.failed_devices = set()
         self.read_counts = {"gateway": 0, "switch": 0}
         self.gateway_bindings = {}
@@ -63,7 +65,7 @@ class BulkContext:
         async with self.locks[kind]:
             if kind in self.values:
                 return
-            self.check()
+            await sql_read(self.check)
             if kind == "switch":
                 # Inventory is the only switch collector. IPAM reads its canonical
                 # facts even when they are absent/incomplete; never probe a fallback.
@@ -100,7 +102,7 @@ class BulkContext:
     async def integration(self, kind):
         async with self.locks[kind]:
             if kind not in self.values:
-                self.check()
+                await sql_read(self.check)
                 rows = []
                 try:
                     for config in self.base.configs:
@@ -115,21 +117,7 @@ class BulkContext:
                                     adapters.windows_dhcp, config, secret, preserve_conflicts=True
                                 )
                             )
-                        from ..worker import Cancelled
-
-                        with session_factory()() as db:
-                            current = db.get(m.Integration, config.id)
-                            if (
-                                not current
-                                or not current.enabled
-                                or integration_signature(current) != integration_signature(config)
-                            ):
-                                raise Cancelled()
-                            from ..sources.records import save_integration
-
-                            save_integration(db, current, values, complete=True)
-                            current.last_run_at = current.last_success_at = now()
-                            db.commit()
+                        await sql_write(self.save_integration, config, values)
                         rows.extend({**r, "integration_id": config.id} for r in values)
                     self.values[kind] = rows
                 except Exception as exc:
@@ -157,6 +145,23 @@ class BulkContext:
                         )
                 self.indexes[kind] = (by_ip, by_mac, owners)
             return self.values[kind]
+
+    @staticmethod
+    def save_integration(config, values):
+        from ..sources.records import save_integration
+        from ..worker import Cancelled
+
+        with session_factory()() as db:
+            current = db.get(m.Integration, config.id)
+            if (
+                not current
+                or not current.enabled
+                or integration_signature(current) != integration_signature(config)
+            ):
+                raise Cancelled()
+            save_integration(db, current, values, complete=True)
+            current.last_run_at = current.last_success_at = now()
+            db.commit()
 
     def for_row(self, row):
         result = copy.copy(self.base)
@@ -197,8 +202,14 @@ class BulkSources:
         await self.context.network("switch")
         from .inventory_sources import attachment
 
-        with session_factory()() as db:
-            return attachment(db, self.point.row, self.point.vlan, mac, evidence=self.context.switch_evidence)
+        def resolve():
+            # Evidence caches are shared by this VLAN job's address resolutions.
+            with self.context.attachment_lock, session_factory()() as db:
+                return attachment(
+                    db, self.point.row, self.point.vlan, mac, evidence=self.context.switch_evidence
+                )
+
+        return await sql_read(resolve)
 
     async def dhcp(self, address, mac):
         await self.context.integration("windows_dhcp")
@@ -206,5 +217,5 @@ class BulkSources:
         return list(by_ip.get(address, [])) + [r for r in by_mac.get(mac, []) if r.get("address") != address]
 
     async def dns(self, address):
-        self.context.check()
+        await sql_read(self.context.check)
         return await adapters.reverse_dns(address, self.point.dns_server)
