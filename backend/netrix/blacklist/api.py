@@ -1,12 +1,10 @@
 """Persist and preview blacklist drafts without contacting devices."""
 
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 
 from ..core import db_session
 from ..identity.security import admin, current_user, operator
-from . import actions, logs, service
+from . import actions, service
 from .service import BulkEntryInput, DeviceSync, EntryAction, EntryInput, GroupInput
 
 router = APIRouter(prefix="/api/v1/blacklist", tags=["Kara Liste"])
@@ -98,15 +96,3 @@ def sync_devices(payload: DeviceSync, db=Depends(db_session), user=Depends(opera
 def forget_device(device_id: str, db=Depends(db_session), user=Depends(admin)):
     """Forget a recorded device state without contacting the device."""
     return actions.forget_device(db, user, device_id)
-
-
-@router.get("/logs")
-def acl_logs(
-    q: str = Query("", max_length=120),
-    device_id: str | None = Query(None, max_length=36),
-    hours: int = Query(24, ge=0, le=720),
-    before: datetime | None = None,
-    before_id: str | None = Query(None, max_length=36),
-    db=Depends(db_session), user=Depends(current_user),
-):
-    return logs.list_logs(db, q=q, device_id=device_id, hours=hours, before=before, before_id=before_id)

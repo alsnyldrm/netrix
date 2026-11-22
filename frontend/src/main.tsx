@@ -153,7 +153,6 @@ import {
 
 const FirmwareWorkspace = React.lazy(() => import("./firmware"));
 const BlacklistWorkspace = React.lazy(() => import("./blacklist"));
-const BlacklistLogs = React.lazy(() => import("./blacklist-logs"));
 const IPAMSettings = React.lazy(() => import("./ipam-settings"));
 
 type Row = Record<string, any>;
@@ -721,13 +720,6 @@ export const PAGES: Page[] = [
     desc: "Cihazlardaki NETRIX ACL içeriğini istenen durumla karşılaştırın ve eşitleyin.",
     group: "Kara Liste",
     icon: ListChecks,
-  },
-  {
-    key: "blacklist-logs",
-    title: "Loglar",
-    desc: "Cihazlardan alınan ACL eşleşme ve engelleme olaylarını inceleyin.",
-    group: "Kara Liste",
-    icon: ClockCounterClockwise,
   },
   {
     key: "alerts",
@@ -3549,22 +3541,18 @@ function App() {
               <React.Suspense
                 fallback={<p role="status">Kara Liste yükleniyor…</p>}
               >
-                {page.key === "blacklist-logs" ? (
-                  <BlacklistLogs refresh={refresh} />
-                ) : (
-                  <BlacklistWorkspace
-                    page={
-                      page.key === "blacklist-groups"
-                        ? "groups"
-                        : page.key === "blacklist-devices"
-                          ? "devices"
-                          : "entries"
-                    }
-                    canEditGroups={isAdmin}
-                    canEditEntries={canWrite}
-                    refresh={refresh}
-                  />
-                )}
+                <BlacklistWorkspace
+                  page={
+                    page.key === "blacklist-groups"
+                      ? "groups"
+                      : page.key === "blacklist-devices"
+                        ? "devices"
+                        : "entries"
+                  }
+                  canEditGroups={isAdmin}
+                  canEditEntries={canWrite}
+                  refresh={refresh}
+                />
               </React.Suspense>
             ) : page.key === "job-archives" ? (
               <JobArchives refresh={refresh} canWrite={canWrite} />

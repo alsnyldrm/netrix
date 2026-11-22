@@ -8,7 +8,6 @@ from ipaddress import ip_address
 
 from ..discovery.aruba import validate_aruba_config
 from ..discovery.comware import validate_comware_config
-from . import log_config
 from .cli import ACLError
 
 MARKER = "NETRIX-BLACKLIST"
@@ -156,8 +155,6 @@ class Plan:
     profile: dict
     adapter: str
     alias: str = ""
-    log_host: str | None = None
-    log_port: int = 5515
     addresses: tuple = ()
     added: tuple = ()
     removed: tuple = ()
@@ -323,16 +320,23 @@ def build_removal_plan(adapter, profile, config, *, validated=False):
     )
 
 
-def build_plan(adapter, profile, address, config, ports_output, *, log_host=None, log_port=5515):
+def deny(adapter, profile, sequence, address):
+    if adapter == "hp_1950":
+        protocol = "ip " if profile["type"] == "advanced" else ""
+        return f"rule {sequence} deny {protocol}source {address} 0"
+    if adapter == "aruba_6100":
+        return f"{sequence} deny any {address}/32 any"
+    if profile["type"] == "standard":
+        return f"{sequence} deny host {address}"
+    return f"{sequence} deny ip host {address} any"
+
+
+def build_plan(adapter, profile, address, config, ports_output):
     """Add one address and keep every NETRIX address already present."""
-    return build_sync_plan(
-        adapter, profile, {address}, config, ports_output, log_host=log_host, log_port=log_port, keep=True
-    )
+    return build_sync_plan(adapter, profile, {address}, config, ports_output, keep=True)
 
 
-def build_sync_plan(
-    adapter, profile, desired, config, ports_output, *, log_host=None, log_port=5515, keep=False
-):
+def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=False):
     """Make the NETRIX ACL contain exactly the desired addresses on every port.
 
     An empty desired set removes the ACL and its bindings. With keep=True the
@@ -354,9 +358,6 @@ def build_sync_plan(
                         f"{port} portunda başka ACL var; mevcut politika korunarak işlem durduruldu."
                     )
     commands = ["system-view" if adapter == "hp_1950" else "configure terminal"]
-    if log_host:
-        log_config.check_existing_target(adapter, parsed, log_host, log_port)
-        commands.extend(log_config.configuration(adapter, log_host, log_port))
     alias = ""
     if adapter == "aruba_7200":
         alias = alias_for(header)
@@ -367,13 +368,11 @@ def build_sync_plan(
         commands += ["host " + address for address in sorted(target - hosts)]
         commands += ["no host " + address for address in sorted(hosts - target)]
         commands += ["exit", header, "description " + MARKER]
-        if log_host and body is not None and f"alias {alias} any any deny log" not in body:
-            commands.append(f"alias {alias} any any deny log position 1")
-        elif body is None or not any(line.startswith(f"alias {alias} any any deny") for line in body):
+        if body is None or not any(line.startswith(f"alias {alias} any any deny") for line in body):
             # A partial ACL containing permit already cannot be safely appended.
             if body and "any any any permit" in body:
                 raise ACLError("Session ACL kural sırası değişmiş.")
-            commands.append(f"alias {alias} any any deny" + (" log" if log_host else ""))
+            commands.append(f"alias {alias} any any deny")
         if body is None or "any any any permit" not in body:
             commands.append("any any any permit")
         commands.append("exit")
@@ -394,22 +393,19 @@ def build_sync_plan(
             if profile["type"] == "extended":
                 permit_line = "60000 permit ip any any"
         commands += [header, marker]
-        if log_host:
-            commands.extend(log_config.logging_rules(adapter, profile, entries, body, target))
-        else:
-            used = set(entries)
-            for address in sorted(target - present):
-                sequence = next((n for n in range(10, PERMIT_SEQUENCE) if n not in used), None)
-                if sequence is None:
-                    raise ACLError("NETRIX ACL sıra alanı doldu.")
-                used.add(sequence)
-                commands.append(log_config.deny(adapter, profile, sequence, address))
-            kept = set()
-            for sequence, address in sorted(entries.items()):
-                # Extra addresses and duplicate rules of one address are removed.
-                if address not in target or address in kept:
-                    commands.append(("undo rule " if adapter == "hp_1950" else "no ") + str(sequence))
-                kept.add(address)
+        used = set(entries)
+        for address in sorted(target - present):
+            sequence = next((n for n in range(10, PERMIT_SEQUENCE) if n not in used), None)
+            if sequence is None:
+                raise ACLError("NETRIX ACL sıra alanı doldu.")
+            used.add(sequence)
+            commands.append(deny(adapter, profile, sequence, address))
+        kept = set()
+        for sequence, address in sorted(entries.items()):
+            # Extra addresses and duplicate rules of one address are removed.
+            if address not in target or address in kept:
+                commands.append(("undo rule " if adapter == "hp_1950" else "no ") + str(sequence))
+            kept.add(address)
         if not permit:
             commands.append(permit_line)
         commands.append("quit" if adapter == "hp_1950" else "exit")
@@ -417,11 +413,9 @@ def build_sync_plan(
         if bind not in port_blocks.get(port, []):
             commands += ["interface " + port, bind, "quit" if adapter == "hp_1950" else "exit"]
     commands.append("return" if adapter == "hp_1950" else "end")
-    if log_host:
-        commands.extend(log_config.debug_configuration(adapter))
     first = min(desired, key=lambda value: ip_address(value)) if desired else ""
     return Plan(
-        commands, ports, physical, header, bind, first, profile, adapter, alias, log_host, log_port,
+        commands, ports, physical, header, bind, first, profile, adapter, alias,
         addresses=tuple(sorted(target, key=ip_address)),
         added=tuple(sorted(target - present, key=ip_address)),
         removed=tuple(sorted(present - target, key=ip_address)),
@@ -450,18 +444,13 @@ def verify(plan, config, ports_output):
         raise ACLError(
             "ACL tüm portlarda doğrulanamadı; sonuç kısmi olabilir. Yeniden göndererek doğrulayın."
         )
-    if plan.log_host:
-        log_config.verify_target(plan, parsed)
     expected = set(plan.addresses)
     if plan.adapter == "aruba_7200":
         body, hosts = session_rules(parsed, plan.acl_header, plan.alias)
-        if (not body or hosts != expected or body[-1] != "any any any permit"
-                or (plan.log_host and f"alias {plan.alias} any any deny log" not in body)):
+        if not body or hosts != expected or body[-1] != "any any any permit":
             raise ACLError("Controller deny/izin sırası doğrulanamadı.")
     else:
         body = matching_acl(parsed, plan.acl_header, plan.adapter)
         entries, permit = rules(plan.adapter, plan.profile, body)
-        if plan.log_host and set(entries) != log_config.logged_sequences(body):
-            raise ACLError("ACL deny kurallarında log üretimi doğrulanamadı.")
         if set(entries.values()) != expected or len(entries) != len(expected) or not permit:
             raise ACLError("Deny listesi ve son izin kuralı doğrulanamadı.")

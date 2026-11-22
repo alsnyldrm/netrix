@@ -870,27 +870,6 @@ class DeviceACLState(Base):
     __table_args__ = (CheckConstraint("status in ('synced','dirty')", name="ck_device_acl_states_status"),)
 
 
-class ACLLog(Base):
-    __tablename__ = "acl_logs"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
-    device_id: Mapped[str] = mapped_column(ForeignKey("envanter.devices.id"))
-    received_at: Mapped[object] = mapped_column(UTCDateTime(), default=now)
-    occurred_at: Mapped[object | None] = mapped_column(UTCDateTime())
-    peer_address: Mapped[str] = mapped_column(String(45))
-    transport: Mapped[str] = mapped_column(String(12))
-    acl: Mapped[str | None] = mapped_column(String(64))
-    source_address: Mapped[str | None] = mapped_column(String(45))
-    destination_address: Mapped[str | None] = mapped_column(String(45))
-    action: Mapped[str] = mapped_column(String(12))
-    message: Mapped[str] = mapped_column(String(2000))
-    __table_args__ = (
-        Index("ix_acl_logs_received", "received_at", "id"),
-        Index("ix_acl_logs_device_received", "device_id", "received_at"),
-        CheckConstraint("action in ('deny','permit','unknown')", name="ck_acl_logs_action"),
-        CheckConstraint("transport in ('syslog_udp','syslog_tcp')", name="ck_acl_logs_transport"),
-    )
-
-
 class FirmwareImage(Entity, Base):
     __tablename__ = "firmware_images"
     name: Mapped[str] = mapped_column(String(120))

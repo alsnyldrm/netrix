@@ -27,8 +27,6 @@ class Settings(BaseSettings):
     secure_cookies: bool = True
     known_hosts: str = "/run/secrets/known_hosts"
     setup_token: str = ""
-    acl_log_host: str = ""
-    acl_log_port: int = 5515
     firmware_directory: str = "/data/firmware"
     firmware_advertise_host: str = ""
     firmware_sftp_port: int = 2222

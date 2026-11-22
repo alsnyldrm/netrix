@@ -168,3 +168,7 @@ Bu karar, yukarıdaki IPAM ve tarama gruplarının switch toplamasıyla ilgili e
 - Manuel IP/VLAN **Tara** yalnız SQL’den eşleştirme yapar. Zamanlanmış işin switch dışındaki gateway, VMware, DHCP, DNS ve ICMP adımları devam eder.
 - Eksik/eski/çelişkili envanter verisinde önceki doğrulanmış sonuç korunur ve sorun belirtilir. Envanter keşif işini IPAM otomatik başlatmaz.
 - IPAM kaynak veya zamanlama değişikliğinde `docs/ipam-integrations.md` içindeki **Envanterden salt okunur switch kanıtı** sözleşmesini ve `tests/test_ipam_inventory_only.py` regresyonlarını uygula.
+
+## Kara Liste ACL log kaldırma kararı (22 Kasım 2026)
+
+Kara Liste → Loglar menüsü, Syslog alıcısı (`netrix-acl-logs`), 5515 port yayını, ACL log ayarları, API ucu ve `acl_logs` tablosu kalıcı olarak kaldırıldı; yeniden eklenmez. Gönderim cihazlara log bayrağı, Syslog hedefi veya debug ayarı yazmaz; cihazlarda önceden kalan log ayarlarına dokunulmaz. Kara Liste işi yaparken [Kara Liste belgesini](docs/blacklist.md) oku.

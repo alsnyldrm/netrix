@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from .. import models as m
-from ..core import now, session_factory, settings
+from ..core import now, session_factory
 from ..identity.permissions import can_operate
 from ..identity.security import audit, secret_data
 from ..runtime_limits import device_slot, sql_quick
@@ -245,7 +245,6 @@ async def apply_plan(shell, job_id, plan):
 async def reconcile(shell, job_id, device, target):
     """Remove stale NETRIX ACLs, then make the desired ACL exact. Returns the verified plans."""
     read_config, read_ports, read_saved = READS[device.adapter]
-    log_host = settings().acl_log_host or settings().firmware_advertise_host or None
     plans = []
     config = await shell.command(read_config)
     stale = list(target["stale_profiles"])
@@ -263,8 +262,7 @@ async def reconcile(shell, job_id, device, target):
     if target["addresses"]:
         ports = await shell.command(read_ports)
         plan = adapters.build_sync_plan(
-            device.adapter, target["profile"], set(target["addresses"]), config, ports,
-            log_host=log_host, log_port=settings().acl_log_port,
+            device.adapter, target["profile"], set(target["addresses"]), config, ports
         )
         await sql_quick(progress, job_id, "applying", ports=plan.physical_ports)
         await apply_plan(shell, job_id, plan)
@@ -332,5 +330,4 @@ async def execute(job_id):
         "added": sorted(added - removed, key=ip_address),
         "removed": sorted(removed - added, key=ip_address),
         "acl_removed": acl_removed,
-        "acl_logging": bool(settings().acl_log_host or settings().firmware_advertise_host),
     }
