@@ -386,3 +386,38 @@ def test_modular_vsf_physical_port_names_are_preserved():
     plan = adapters.build_plan("aruba_5400", PROFILES[0][1], "192.0.2.100", base_config("aruba_5400"), output)
     assert plan.physical_ports == ["1/A1", "1/A2"]
     assert "interface 1/A1" in plan.commands
+
+
+async def test_ssh_config_read_tolerates_device_non_utf8_output(monkeypatch):
+    from types import SimpleNamespace
+
+    import asyncssh
+    from netrix.blacklist import cli
+
+    class Server(asyncssh.SSHServer):
+        def begin_auth(self, username):
+            return False
+
+    async def process(session):
+        session.stdout.write(b'<Fixture>')
+        async for line in session.stdin:
+            command = line.strip()
+            assert command in (b'screen-length disable', b'display current-configuration')
+            if command == b'display current-configuration':
+                session.stdout.write(b'display current-configuration\nversion 7.1\nsysname Fixture\n#\n description legacy-\xc5-text\nreturn\n')
+            session.stdout.write(b'<Fixture>')
+
+    async with await asyncssh.listen('127.0.0.1', 0, server_factory=Server,
+            server_host_keys=[asyncssh.generate_private_key('ssh-ed25519')],
+            process_factory=process, encoding=None) as server:
+        import _socket
+        import socket
+        def loopback_only(sock, address):
+            assert address == ('127.0.0.1', server.get_port())
+            return _socket.socket.connect(sock, address)
+        monkeypatch.setattr(socket.socket, 'connect', loopback_only)
+        device = SimpleNamespace(management_ip='127.0.0.1', config_port=server.get_port(), adapter='hp_1950')
+        monkeypatch.setattr(cli, 'ssh_known_hosts', lambda device: None)
+        async with cli.connect(device, {'username':'fixture','password':'fixture-only'}) as shell:
+            config = await shell.command('display current-configuration')
+            assert 'legacy-\ufffd-text' in config and 'sysname Fixture' in config

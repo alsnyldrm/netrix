@@ -95,6 +95,8 @@ async def connect(device, secret):
             term_type="vt100",
             term_size=(240, 40),
             stderr=asyncssh.STDOUT,
+            encoding="utf-8",
+            errors="replace",
         ) as process:
             shell = Shell(process, device.adapter)
             _, prompt = await shell.read()
