@@ -480,3 +480,22 @@ async def test_unrecorded_group_removal_can_retry_after_device_error(admin_clien
     admin_client.post(ROOT + f"/groups/{group['id']}/sync")
     await drain(env)
     assert admin_client.get(ROOT + "/groups").json()["items"] == []
+
+
+async def test_cx_host_address_rendered_without_prefix_can_be_removed():
+    adapter, profile = PROFILES[2]
+    cli = SyncCLI(adapter)
+    await run(cli, adapters.build_sync_plan(adapter, profile, {'10.3.0.3'}, cli.config, cli.ports))
+    cli.config = cli.config.replace('10.3.0.3/32 any', '10.3.0.3 any')
+    plan = adapters.build_sync_plan(adapter, profile, set(), cli.config, cli.ports, retain_empty=True)
+    assert plan.removed == ('10.3.0.3',) and 'no 10' in plan.commands
+    await run(cli, plan)
+    adapters.verify(plan, cli.config, cli.ports)
+    assert '10.3.0.3' not in cli.config
+    assert '60000 permit any any any' in cli.config
+
+
+@pytest.mark.parametrize('source', ['10.3.0.0/24', '10.3.0.0/255.255.255.0', '999.3.0.3', 'any'])
+def test_cx_host_parser_does_not_accept_network_or_invalid_source(source):
+    with pytest.raises(ACLError):
+        adapters.rules('aruba_6100', PROFILES[2][1], ['60000 comment NETRIX-BLACKLIST', f'10 deny any {source} any', '60000 permit any any any'])

@@ -206,7 +206,7 @@ def rules(adapter, profile, body):
             )
         elif adapter == "aruba_6100":
             permit_line = "60000 permit any any any"
-            pattern = r"(\d+) deny (?:any|ip) (\S+)/(?:32|255\.255\.255\.255) any"
+            pattern = r"(\d+) deny (?:any|ip) (\d+\.\d+\.\d+\.\d+)(?:/(?:32|255\.255\.255\.255))? any"
         else:
             permit_line = "rule 60000 permit" if profile["type"] == "basic" else "rule 60000 permit ip"
             pattern = (
