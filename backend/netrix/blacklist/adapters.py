@@ -32,6 +32,13 @@ def blocks(config):
                 result.append((header, body))
             header, body = None, []
             continue
+        if (
+            header
+            and header.startswith(("ip access-list session ", "netdestination "))
+            and line.lstrip().startswith("Description:")
+        ):
+            body.append("description " + " ".join(words(line.split(":", 1)[1])))
+            continue
         if line[0].isspace() and header is not None:
             body.append(" ".join(words(line)))
             continue

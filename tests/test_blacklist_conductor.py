@@ -143,7 +143,9 @@ class Reader:
     async def command(self, command, **kwargs):
         self.commands.append(command)
         assert command in ("show running-config", "show interface"), command
-        return self.config if command == "show running-config" else self.ports
+        if command == "show running-config":
+            return self.config.replace(" description NETRIX-BLACKLIST", "Description: NETRIX-BLACKLIST")
+        return self.ports
 
 
 class Writer:
@@ -297,6 +299,19 @@ def routed(admin_client, env, devices, monkeypatch):
 
 def test_device_node_comes_from_hierarchy_not_debug_group_path():
     assert conductor.resolve_node(*mapping_tables(), TARGET) == conductor.Node(NODE, MAC)
+
+
+def test_managed_description_metadata_stays_inside_acl_and_foreign_marker_is_rejected():
+    config = "ip access-list session BLOCK\nDescription: NETRIX-BLACKLIST\n    any any any permit\n!\n"
+    assert adapters.blocks(config) == [
+        ("ip access-list session BLOCK", ["description NETRIX-BLACKLIST", "any any any permit"])
+    ]
+    with pytest.raises(ACLError):
+        adapters.session_rules(
+            adapters.blocks(config.replace("NETRIX-BLACKLIST", "MANUAL-POLICY")),
+            "ip access-list session BLOCK",
+            adapters.alias_for("ip access-list session BLOCK"),
+        )
 
 
 @pytest.mark.parametrize("path", ["/md", "/md/../" + MAC, "/mm/" + MAC, "/md/group;write/" + MAC])
