@@ -1178,15 +1178,14 @@ function GroupDeleteDialog({
     <Dialog title="ACL grubunu sil" onClose={busy ? () => {} : close}>
       <form className="blacklist-preview" onSubmit={submit} aria-busy={busy}>
         <p>
-          <strong>{group.name}</strong>{" "}
-          {group.applied_devices
-            ? `grubunun engelleri ${group.applied_devices} cihazdan kaldırılacak; doğrulandıktan sonra grup silinecek.`
-            : "grubu hiçbir cihazda uygulanmamış. Grup hemen silinecek."}
+          <strong>{group.name}</strong> grubunun cihazlarına SSH ile
+          bağlanılarak ACL ve port bağlantıları kaldırılacak. Cihazlardan
+          doğrulama alındıktan sonra grup silinecek.
         </p>
         <Notice>
           Cihaz başka bir etkin grupta da bulunuyorsa yalnız bu gruba ait IP’ler
-          kaldırılır. Başka engel kalmazsa NETRIX ACL’si ve port bağlantıları
-          silinir. IP kayıtları korunur.
+          kaldırılır; diğer grubun ACL’si korunur. Ulaşılamayan cihazlarda işlem
+          bekler ve hata gösterilir. IP kayıtları korunur.
         </Notice>
         <ErrorText>{error}</ErrorText>
         <FormActions

@@ -437,3 +437,46 @@ async def test_controller_empty_group_roundtrip_through_worker(admin_client, env
     await drain(env)
     assert "192.0.2.100" not in cli.saved and " deny" not in cli.saved
     assert "ip access-list session BLOCK" in cli.saved
+
+
+@pytest.mark.parametrize("already_present", [False, True])
+async def test_delete_group_checks_every_member_without_recorded_state(admin_client, env, devices, fixture_cli, already_present):
+    group = prepare(admin_client, env, devices["2930"])
+    if already_present:
+        plan = adapters.build_sync_plan("aruba_2900", group["profiles"]["aos_switch"], set(), fixture_cli.config, fixture_cli.ports, retain_empty=True)
+        await run(fixture_cli, plan)
+        fixture_cli.saved = fixture_cli.config
+    response = admin_client.delete(ROOT + f"/groups/{group['id']}")
+    assert response.status_code == 200 and response.json()["devices"] == 1
+    assert response.json()["deleted"] == 0
+    assert admin_client.get(ROOT + "/groups").json()["items"][0]["status"] == "deleting"
+    await drain(env)
+    assert admin_client.get(ROOT + "/groups").json()["items"] == []
+    assert "BLOCKED_IPS" not in fixture_cli.saved
+    assert "show running-config" in fixture_cli.commands
+
+
+def test_delete_group_keeps_unreachable_member_pending(admin_client, env, devices):
+    group = create_group(admin_client, group_payload(devices["2930"]))
+    response = admin_client.delete(ROOT + f"/groups/{group['id']}")
+    assert response.status_code == 200 and response.json()["skipped"]
+    assert response.json()["deleted"] == 0
+    assert admin_client.get(ROOT + "/groups").json()["items"][0]["status"] == "deleting"
+
+
+async def test_unrecorded_group_removal_can_retry_after_device_error(admin_client, env, devices, fixture_cli):
+    group = prepare(admin_client, env, devices["2930"])
+    plan = adapters.build_sync_plan("aruba_2900", group["profiles"]["aos_switch"], set(), fixture_cli.config, fixture_cli.ports, retain_empty=True)
+    await run(fixture_cli, plan)
+    fixture_cli.saved = fixture_cli.config
+    fixture_cli.fail_removal = True
+    admin_client.delete(ROOT + f"/groups/{group['id']}")
+    job_id = claim()
+    await execute(job_id)
+    with env() as db:
+        assert db.get(m.Job, job_id).status == "failed"
+        assert db.get(m.DeviceACLState, devices["2930"]).attempted["profile"] == group["profiles"]["aos_switch"]
+    fixture_cli.fail_removal = False
+    admin_client.post(ROOT + f"/groups/{group['id']}/sync")
+    await drain(env)
+    assert admin_client.get(ROOT + "/groups").json()["items"] == []

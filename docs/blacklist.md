@@ -94,3 +94,6 @@ Proje sahibinin kararıyla Kara Liste → Loglar menüsü, `netrix-acl-logs` Sys
 ## IP olmadan ACL hazırlama düzeltmesi
 
 Grup **Eşitle**, etkin IP bulunmasa da profil adı/ID’sini cihazda oluşturup bütün portlara uygular ve kalıcı konfigürasyondan doğrular. **IP → Gönder** ilgili grupların cihazlarına deny ekler. Son IP kaldırıldığında boş, son izin kuralı bulunan ACL korunur. Grup silme/cihazı gruptan çıkarma ACL kaldırmayı yönetir. Hiç gönderilmemiş taslağın silinmesi cihaz işi oluşturmaz. 82 hedefli test ve masaüstü/mobil tarayıcı kontrolü geçti; gerçek cihazlara test gönderimi yapılmadı.
+
+
+ACL grubu silme, SQL’de önceki cihaz uygulama kaydı bulunmasa bile mevcut bütün üyelere SSH kaldırma işi oluşturur. Her üyeye doğrulanmamış kaldırma yükümlülüğü kaydedilir; cihazda ACL bulunmadığı veya kaldırıldığı çalışan/kalıcı konfigürasyondan doğrulanmadan grup silinmez. Eksik SSH profili veya bağlantı hatasında grup Siliniyor durumunda kalır ve cihaz gerekçesi gösterilir. Başka etkin grubun kullandığı ortak ACL korunur.

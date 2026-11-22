@@ -16,7 +16,7 @@ from ..identity.permissions import can_operate
 from ..identity.security import audit
 from ..services import get, publish
 from . import delivery, state
-from .service import BulkEntryInput, EntryInput, canonical, entry_view, group_view, save_entry
+from .service import ADAPTERS, BulkEntryInput, EntryInput, canonical, entry_view, group_view, save_entry
 
 log = logging.getLogger("netrix.blacklist")
 
@@ -118,6 +118,15 @@ def delete_group(db, user, group_id):
     if group is None:
         raise HTTPException(404, "ACL grubu bulunamadı.")
     members = set(db.scalars(select(m.ACLGroupDevice.device_id).where(m.ACLGroupDevice.group_id == group.id)))
+    # SQL may have no verified state even though the ACL exists on a device.
+    # Keep a pending removal obligation for every current member until SSH verifies it.
+    for device in db.scalars(select(m.Device).where(m.Device.id.in_(members))):
+        if db.get(m.DeviceACLState, device.id) is None:
+            profile = group.profiles.get(ADAPTERS.get(device.adapter))
+            db.add(m.DeviceACLState(
+                device_id=device.id, profile=None, addresses=[], group_ids=[], status="dirty",
+                attempted={"profile": profile, "addresses": [], "group_ids": [group.id]},
+            ))
     group.status, group.updated_at = "deleting", now()
     db.flush()
     devices = members | state.devices_holding(db, group_id=group.id)

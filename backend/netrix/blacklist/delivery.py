@@ -179,7 +179,7 @@ def mark_attempt(job_id, device_id, target):
         previous = (row.attempted or {}) if row.status == "dirty" else {}
         row.status = "dirty"
         row.attempted = {
-            "profile": target["profile"] or row.profile,
+            "profile": target["profile"] or row.profile or previous.get("profile"),
             "addresses": sorted(set(target["addresses"]) | set(previous.get("addresses", []))),
             "group_ids": sorted(set(target["group_ids"]) | set(previous.get("group_ids", []))),
         }
