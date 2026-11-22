@@ -97,3 +97,12 @@ Grup **Eşitle**, etkin IP bulunmasa da profil adı/ID’sini cihazda oluşturup
 
 
 ACL grubu silme, SQL’de önceki cihaz uygulama kaydı bulunmasa bile mevcut bütün üyelere SSH kaldırma işi oluşturur. Her üyeye doğrulanmamış kaldırma yükümlülüğü kaydedilir; cihazda ACL bulunmadığı veya kaldırıldığı çalışan/kalıcı konfigürasyondan doğrulanmadan grup silinmez. Eksik SSH profili veya bağlantı hatasında grup Siliniyor durumunda kalır ve cihaz gerekçesi gösterilir. Başka etkin grubun kullandığı ortak ACL korunur.
+
+## Ayrı gönderim kuyruğu — 22 Kasım 2026
+
+Kara Liste işleri aynı container içindeki `netrix-blacklist` sürecinde çalışır.
+Bu süreç yalnız `blacklist_send` işlerini alır ve aynı anda en fazla beş cihazı
+işler. Genel worker bu işleri almaz. Keşif, yedekleme ve IPAM işleri bu beş
+kapasiteyi tüketmez. Cihaz başına tek iş, firmware çakışma kontrolü, iptal,
+kalıcı SQL kuyruğu ve yeniden deneme davranışı korunur. Sürecin heartbeat'i
+container sağlık kontrolüne dahildir.

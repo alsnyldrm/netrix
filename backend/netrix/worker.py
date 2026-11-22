@@ -37,7 +37,7 @@ from .identity.security import decrypt, encrypt, secret_data
 from .inventory.identity import apply_identity
 from .ipam.connection_tests import KIND as INTEGRATION_TEST
 from .ipam.connection_tests import execute as test_integration_connection
-from .runtime_limits import device_slot, sql_point, sql_quick, sql_write
+from .runtime_limits import device_slot, sql_point, sql_quick, sql_read, sql_write
 from .services import (
     CONNECTION_TESTS,
     IDENTITY_CONNECTION_FIELDS,
@@ -56,6 +56,7 @@ BACKGROUND_CAPACITY = 4
 PING_CAPACITY = 2
 DISCOVERY_CAPACITY = 2
 POINT_CAPACITY = 1
+BLACKLIST_CAPACITY = 5
 DISCOVERY_TARGETS = 16
 
 
@@ -877,9 +878,15 @@ async def worker_loop():
                     scans = sum(kind in ("discovery", "ipam_discover") for kind, _ in tasks.values())
                     job_id = claim(
                         interactive=False,
-                        exclude_kinds=("ipam_ping", "discovery", "ipam_discover", "ipam_address_scan")
+                        exclude_kinds=(
+                            "blacklist_send",
+                            "ipam_ping",
+                            "discovery",
+                            "ipam_discover",
+                            "ipam_address_scan",
+                        )
                         if scans >= DISCOVERY_CAPACITY
-                        else ("ipam_ping", "ipam_address_scan"),
+                        else ("blacklist_send", "ipam_ping", "ipam_address_scan"),
                         exclude_targets=tuple(
                             target for kind, target in tasks.values() if target and kind != "ipam_ping"
                         ),
@@ -894,6 +901,28 @@ async def worker_loop():
             except Exception as exc:
                 log.warning("worker_cycle_failed error_class=%s", type(exc).__name__)
                 await asyncio.sleep(1)
+    finally:
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def blacklist_loop():
+    """A dedicated process owns five ACL slots, independent of discovery work."""
+    tasks = set()
+    try:
+        while not stop:
+            heartbeat("blacklist")
+            for task in list(tasks):
+                if task.done():
+                    if not task.cancelled() and task.exception():
+                        log.warning("blacklist_task_failed error_class=%s", type(task.exception()).__name__)
+                    tasks.remove(task)
+            while not stop and len(tasks) < BLACKLIST_CAPACITY:
+                job_id = await sql_read(claim, interactive=False, include_kinds=("blacklist_send",))
+                if not job_id:
+                    break
+                tasks.add(asyncio.create_task(execute(job_id, heartbeat_role="blacklist")))
+            await asyncio.sleep(0.25)
     finally:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -939,6 +968,14 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interactive-tests", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--interactive-tests", action="store_true")
+    mode.add_argument("--blacklist", action="store_true")
     args = parser.parse_args()
-    asyncio.run(interactive_test_loop() if args.interactive_tests else worker_loop())
+    asyncio.run(
+        blacklist_loop()
+        if args.blacklist
+        else interactive_test_loop()
+        if args.interactive_tests
+        else worker_loop()
+    )

@@ -15,6 +15,7 @@ PROCESSES = {
     "netrix-api",
     "netrix-redis",
     "netrix-worker",
+    "netrix-blacklist",
     "netrix-scheduler",
     "netrix-tests",
     "netrix-firmware",
@@ -72,7 +73,7 @@ def health():
     with urllib.request.urlopen("http://127.0.0.1:8000/api/v1/health/ready", timeout=3) as response:
         if json.load(response).get("status") != "ok":
             raise RuntimeError("NETRIX dependencies are unavailable")
-    for role in ("worker", "scheduler", "tests", "firmware"):
+    for role in ("worker", "blacklist", "scheduler", "tests", "firmware"):
         value = redis_client().get(f"netrix:{role}:heartbeat")
         if not value:
             raise RuntimeError("A NETRIX process has no heartbeat")
