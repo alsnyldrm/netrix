@@ -137,6 +137,7 @@ class Registry:
 class Reader:
     def __init__(self):
         self.config = base_config("aruba_7200") + f"conductorip {HOST}\ncontroller-ip vlan 10\n"
+        self.config += "".join(f"interface port-channel {n}\n!\n" for n in range(8))
         self.ports = "GE 0/0/0 is up\nGE 0/0/1 is down\n"
         self.commands = []
 
@@ -240,6 +241,9 @@ class Writer:
         if command.startswith("ip access-group in "):
             if "ip access-list session " + command.split()[-1] not in committed:
                 raise ACLError("Invalid access group configuration")
+            if (self.cli.context or "").startswith("interface port-channel "):
+                # Aruba lists empty channel templates but does not activate their ACL bindings.
+                return ""
         if command.startswith("alias "):
             if "netdestination " + command.split()[1] not in committed:
                 raise ACLError("Alias dependency is not committed")
@@ -308,6 +312,31 @@ def routed(admin_client, env, devices, monkeypatch):
 
 def test_device_node_comes_from_hierarchy_not_debug_group_path():
     assert conductor.resolve_node(*mapping_tables(), TARGET) == conductor.Node(NODE, MAC)
+
+
+@pytest.mark.parametrize("members", [False, True])
+def test_controller_targets_only_physical_ports_or_channels_with_proven_members(members):
+    config = Reader().config
+    if members:
+        config += "interface gigabitethernet 0/0/0\n lacp group 0 mode active\n!\ninterface gigabitethernet 0/0/1\n lacp group 0 mode passive\n!\n"
+    plan = adapters.build_sync_plan("aruba_7200", PROFILE, set(), config, Reader().ports, retain_empty=True)
+    assert plan.ports == (
+        ["port-channel 0"] if members else ["gigabitethernet 0/0/0", "gigabitethernet 0/0/1"]
+    )
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "interface gigabitethernet 0/0/0\n lacp group 0 mode active\n lacp group 1 mode active\n!\n",
+        "interface port-channel 0\n gigabitethernet 0/0/99\n!\n",
+    ],
+)
+def test_controller_conflicting_or_missing_physical_members_stop_planning(extra):
+    with pytest.raises(ACLError):
+        adapters.build_sync_plan(
+            "aruba_7200", PROFILE, set(), Reader().config + extra, Reader().ports, retain_empty=True
+        )
 
 
 def test_managed_description_metadata_stays_inside_acl_and_foreign_marker_is_rejected():

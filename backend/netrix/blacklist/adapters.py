@@ -128,6 +128,15 @@ def port_inventory(adapter, output, config_blocks):
 def config_interfaces(adapter, config_blocks):
     """Interface blocks and LAG membership read from configuration only."""
     members, aggregates, interface_blocks = set(), set(), {}
+    controller_memberships = {}
+
+    def controller_member(member, aggregate):
+        if member in controller_memberships and controller_memberships[member] != aggregate:
+            raise ACLError("Controller fiziksel portu birden fazla LAG grubunda görünüyor.")
+        controller_memberships[member] = aggregate
+        members.add(member)
+        aggregates.add(aggregate)
+
     for header, body in config_blocks:
         if header.startswith("trunk ") and adapter in ("aruba_5400", "aruba_2900"):
             parts = words(header)
@@ -158,10 +167,17 @@ def config_interfaces(adapter, config_blocks):
                         members.add(name)
                         aggregates.add("Bridge-Aggregation" + match[1])
             if adapter == "aruba_7200" and re.fullmatch(r"port-channel \d+", name):
-                aggregates.add(name)
                 for line in body:
                     if re.fullmatch(r"gigabitethernet \d+/\d+/\d+", line):
-                        members.add(line)
+                        controller_member(line, name)
+            if adapter == "aruba_7200" and re.fullmatch(r"gigabitethernet \d+/\d+/\d+", name):
+                for line in body:
+                    if not line.startswith("lacp group "):
+                        continue
+                    match = re.fullmatch(r"lacp group ([0-7])(?: mode (?:active|passive))?", line)
+                    if not match:
+                        raise ACLError("Controller LACP üyeliği doğrulanamadı.")
+                    controller_member(name, "port-channel " + match[1])
     return members, aggregates, interface_blocks
 
 
