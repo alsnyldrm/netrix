@@ -55,6 +55,13 @@ def ip(value):
 def _mac(value):
     from .service import normalized_mac
 
+    # Some LLDP agents encode a textual MAC as octets instead of six binary
+    # bytes. Existing inventory rows preserve those octets as a hex string.
+    if isinstance(value, str) and value.startswith("0x") and len(value) in (26, 30, 36):
+        try:
+            value = bytes.fromhex(value[2:]).decode("ascii")
+        except (ValueError, UnicodeDecodeError):
+            return ""
     return normalized_mac(value)
 
 
@@ -249,6 +256,7 @@ class Evidence:
             )
             if network_device(d)
         }
+        self.devices_by_address = {(d.vrf_id, ip(d.management_ip)): d.id for d in self.devices.values()}
         self.snapshots = {}
         self.attached = {}
         self.static = {}
@@ -466,7 +474,7 @@ class Evidence:
         return self.static[key]
 
     def _link_record(self, order, link, snapshots):
-        id, port, _remote, data, when, _proof_id = link
+        id, port, remote, data, when, proof_id = link
         if not port:
             return None
         aggregate = (data.get("local_aggregate") or {}).get("name")
@@ -481,6 +489,21 @@ class Evidence:
                 uuid = str(UUID(lldp.get("chassis_id", "")))
         except (ValueError, TypeError, AttributeError):
             pass
+        addresses = {
+            address
+            for protocol in ("lldp", "cdp")
+            if (address := ip((data.get(protocol) or {}).get("management_address")))
+        }
+        network_peers = {
+            peer
+            for address in addresses
+            if (peer := self.devices_by_address.get((self.devices[id].vrf_id, address))) and peer != id
+        }
+        # An unresolved directory link can still prove a forwarding hop through
+        # its advertised management IP and the same-VRF inventory identity.
+        if not remote and len(network_peers) == 1:
+            remote = next(iter(network_peers))
+            link = id, port, remote, data, when, proof_id
         snapshot = snapshots.get(id)
         return {
             "order": order,
@@ -491,11 +514,8 @@ class Evidence:
             "chassis_mac": chassis_mac or None,
             "macs": advertised | ({chassis_mac} if chassis_mac else set()),
             "uuid": uuid,
-            "addresses": {
-                address
-                for protocol in ("lldp", "cdp")
-                if (address := ip((data.get(protocol) or {}).get("management_address")))
-            },
+            "addresses": addresses,
+            "network_peers": network_peers,
             "down": bool(snapshot and snapshot[0].created_at >= when and port in snapshot[1]["down"]),
         }
 

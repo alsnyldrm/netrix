@@ -21,6 +21,8 @@ def topology(static):
         if stp_port:
             transit.add((local, stp_port))
         if not remote or remote == local:
+            if record["network_peers"]:
+                transit.update(record["blocks"])
             continue
         for key in record["blocks"]:
             transit.add(key)

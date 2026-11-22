@@ -291,6 +291,7 @@ async def test_old_dns_is_queried_again_without_stale_value_age(admin_client, ne
     ("ptr", "peer_mac", "expected", "source"),
     [
         ("", "00:11:22:33:44:55", "AVX178D19", "lldp"),
+        ("", "0x30303a31313a32323a33333a34343a3535", "AVX178D19", "lldp"),
         ("ptr.example", "00:11:22:33:44:55", "ptr.example", "dns"),
         ("", "00:11:22:33:44:99", "", None),
     ],
@@ -313,10 +314,15 @@ async def test_manual_hostname_uses_only_verified_inventory_neighbor(
             remote_port=peer_mac,
             source="lldp",
             last_seen_at=now(),
-            evidence={"lldp": dict(
-                system_name="AVX178D19", chassis_subtype=5, chassis_id="0x01c000020a",
-                port_subtype=3, port_id=peer_mac,
-            )},
+            evidence={
+                "lldp": dict(
+                    system_name="AVX178D19",
+                    chassis_subtype=5,
+                    chassis_id="10:00:00:00:00:00" if peer_mac.startswith("0x") else "0x01c000020a",
+                    port_subtype=3,
+                    port_id=peer_mac,
+                )
+            },
         )
         db.add(link)
         db.commit()

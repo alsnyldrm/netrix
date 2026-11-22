@@ -51,6 +51,17 @@ def point_evidence(db, row, vlan, mac):
     def normalized(column):
         return func.lower(func.replace(func.replace(func.replace(column, ":", ""), "-", ""), " ", ""))
 
+    # Match the canonical LLDP encoding when the selected MAC was saved as
+    # ASCII octets. A link-only peer may have no FDB snapshot in the device set.
+    encoded_macs = (
+        {
+            "0x" + value.encode("ascii").hex()
+            for form in (mac, mac.replace(":", "-"), mac.replace(":", ""))
+            for value in (form.lower(), form.upper())
+        }
+        if mac
+        else set()
+    )
     devices.update(
         db.scalars(
             select(m.Link.device_id)
@@ -60,6 +71,11 @@ def point_evidence(db, row, vlan, mac):
                 or_(
                     m.LLDPNeighbor.management_address == row.address,
                     m.CDPNeighbor.management_address == row.address,
+                    *(
+                        func.lower(column).in_(encoded_macs)
+                        for column in (m.LLDPNeighbor.chassis_id, m.LLDPNeighbor.port_id)
+                        if encoded_macs
+                    ),
                     *(
                         normalized(c) == mac.replace(":", "")
                         for c in (
