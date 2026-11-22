@@ -1,6 +1,6 @@
 # Mobility Conductor üzerinden 7205 ACL yönetimi
 
-22 Kasım 2026 araştırması. Yalnız resmi HPE Aruba belgeleri incelendi; bu not canlı cihaza komut uygulandığı veya NETRIX motorunun Conductor desteğinin tamamlandığı anlamına gelmez. Oturum bağlamında Conductor adresi `10.1.0.30`, yönetilen 7205 adresleri `10.1.0.23` ve `10.1.0.24` olarak bildirilmiştir. Gerçek düğüm yolları ve Conductor erişim yetkileri bu araştırmada sorgulanmadı.
+22 Kasım 2026 resmi HPE Aruba kaynak araştırması ve NETRIX uygulama notu. Conductor adresi `10.1.0.30`, yönetilen 7205 adresleri `10.1.0.23` ve `10.1.0.24` için merkezi envanterin mevcut SSH profilleri kullanılır. Gerçek cihazlardan salt okunur ön kontrollerle IP/MAC/cihaz düğümü eşleşmesi doğrulandı. Gerçek ACL yazması ve commit teslim testinde başlatılmadı.
 
 ## Sonuç
 
@@ -61,4 +61,4 @@ Silme de aynı Conductor cihaz düğümünde yapılır: önce ilgili arayüzdeki
 
 Bir alt düğümde tanımın silinmesi, aynı tanım üst düğümde hâlâ varsa etkin politikadan kaldırıldığı anlamına gelmez. Bu nedenle silme de miras kaynağı, commit ve hedef cihaz geri okumasıyla doğrulanmalıdır. [Kısmi dağıtım ve miras](https://arubanetworking.hpe.com/techdocs/Archived/AOS-8/ArubaOS_81_Web_Help/Content/ArubaFrameStyles/Configuration_Hierarchy/Config_Hierarchy.htm).
 
-NETRIX’te uygulanmadan önce Conductor envanter kaydı/SSH profili, hedef controller–MAC–düğüm eşlemesi, lisans/yetki ve mevcut pending durum doğrulanmalıdır. Bu not bu değerleri uydurmaz; donanımda çalıştırılmış konfigürasyon testi sunmaz.
+NETRIX uygulaması `blacklist/conductor.py` içindedir; ayarı ve güvenlik/başarı koşulları [Kara Liste davranışında](blacklist.md#aos-s-trunk-satırları-ve-yönetilen-7205-cihazları) açıklanır. Cihaz düğümü her işte dinamik olarak doğrulanır; bu nottaki örneklerden tahmin edilmez. Canlı ArubaOS 8.10 çıktısında `show switches debug` ve provisioning tablosundaki Nodepath ortak grup yoludur; tam cihaz düğümü hiyerarşi tablosundan alınır. `show configuration committed` seçili düğümün kalıcı yerel içeriğini verir; `show switches` hedefin Config ID ve dağıtım durumunu sağlar. Yönetilen 7205 üzerinde desteklenmeyen `show startup-config` yerine Conductor kalıcı kaydı ve hedef cihaz çalışan konfigürasyonu birlikte doğrulanır.

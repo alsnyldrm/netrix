@@ -350,14 +350,15 @@ def build_plan(adapter, profile, address, config, ports_output):
     return build_sync_plan(adapter, profile, {address}, config, ports_output, keep=True)
 
 
-def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=False, retain_empty=False):
+def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=False, retain_empty=False, validated=False):
     """Make the NETRIX ACL contain exactly the desired addresses on every port.
 
     With retain_empty=True an empty set retains a permit-only ACL; otherwise it removes the ACL and its bindings. With keep=True the
     current NETRIX addresses are preserved and only missing ones are added.
     """
     desired = canonical_addresses(desired)
-    validate_config(adapter, config)
+    if not validated:
+        validate_config(adapter, config)
     if not desired and not keep and not retain_empty:
         return build_removal_plan(adapter, profile, config, validated=True)
     parsed = blocks(config)

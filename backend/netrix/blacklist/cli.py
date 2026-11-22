@@ -12,7 +12,7 @@ from ..discovery.protocols import ssh_known_hosts
 
 CONFIG_PROMPT = re.compile(
     r"(?m)^(?:[\w.:-]+(?:\([^\r\n()]*\))?"
-    r"|\([^()\r\n]+\)(?:\s*\[[^\]\r\n]+\])?(?:\s*\([^()\r\n]+\))?)\s*[#>]\s*\Z"
+    r"|\([^()\r\n]+\)\s*[*^]*(?:\s*\[[^\]\r\n]+\])?(?:\s*\([^()\r\n]+\))?)\s*[#>]\s*\Z"
 )
 HP_CONFIG_PROMPT = re.compile(r"(?m)^(?:<[^<>\r\n]+>|\[[^\[\]\r\n]+\])[ \t\r\n]*\Z")
 

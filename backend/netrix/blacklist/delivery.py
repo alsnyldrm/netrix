@@ -13,7 +13,7 @@ from ..identity.permissions import can_operate
 from ..identity.security import audit, secret_data
 from ..runtime_limits import device_slot, sql_quick
 from ..services import connection_profile, get, publish
-from . import adapters, state
+from . import adapters, conductor, state
 from .cli import ACLError, connect
 from .service import ACLProfile, GroupInput, device_family, eligible_inventory
 
@@ -21,13 +21,7 @@ ACTIVE_KEY = "blacklist_send:"
 
 
 def endpoint(device):
-    return [
-        device.management_ip,
-        device.adapter,
-        device.config_port,
-        device.config_credential_id,
-        device.ssh_trust_host_key,
-    ]
+    return conductor.access_identity(device)
 
 
 def enqueue(db, user, device_ids, *, entry_id=None, reason="entry", strict=True):
@@ -66,6 +60,11 @@ def enqueue(db, user, device_ids, *, entry_id=None, reason="entry", strict=True)
         ):
             refuse(device, 409, f"{device.name} cihazında firmware işlemi sürüyor.")
             continue
+        try:
+            route = conductor.route_snapshot(db, device)
+        except ACLError as exc:
+            refuse(device, 422, str(exc))
+            continue
         active = db.scalar(select(m.Job).where(m.Job.active_key == ACTIVE_KEY + device_id))
         if active:
             jobs.append(active)
@@ -85,7 +84,7 @@ def enqueue(db, user, device_ids, *, entry_id=None, reason="entry", strict=True)
                 entry_id=entry_id,
                 device_id=device_id,
                 job_id=job.id,
-                payload={"endpoint": endpoint(device), "reason": reason},
+                payload={"endpoint": endpoint(device), "reason": reason, "conductor": route},
             )
         )
         audit(db, user, "enqueue", "jobs", job.id, f"Kara Liste eşitlemesi kuyruğa alındı · {device.name}")
@@ -136,7 +135,9 @@ def load_context(job_id):
         device = db.scalar(eligible_inventory().where(m.Device.id == submission.device_id))
         if not device or not device_family(device) or endpoint(device) != submission.payload["endpoint"]:
             raise ACLError("Cihazın uygunluğu veya SSH hedefi değişti. Kaydı kontrol edip yeniden gönderin.")
+        route = conductor.load_route(db, device, submission.payload.get("conductor"))
         target = desired_target(db, device)
+        target["_conductor"] = route
         if target["profile"] is None and not target["stale_profiles"]:
             raise ACLError("Cihazda kaldırılacak veya uygulanacak NETRIX ACL kaydı yok.")
         credential = connection_profile(db, device, "ssh")
@@ -242,7 +243,7 @@ async def apply_plan(shell, job_id, plan):
         await shell.command(command)
 
 
-async def reconcile(shell, job_id, device, target):
+async def reconcile(shell, job_id, device, target, *, verifier=None):
     """Remove stale NETRIX ACLs, then make the desired ACL exact. Returns the verified plans."""
     read_config, read_ports, read_saved = READS[device.adapter]
     plans = []
@@ -251,7 +252,7 @@ async def reconcile(shell, job_id, device, target):
     if device.adapter == "aruba_7200" and not target["addresses"] and target["profile"]:
         stale.append(target["profile"])
     for profile in stale:
-        plan = adapters.build_removal_plan(device.adapter, profile, config)
+        plan = adapters.build_removal_plan(device.adapter, profile, config, validated=verifier is not None)
         if plan.commands:
             await sql_quick(progress, job_id, "removing", ports=plan.ports)
             await apply_plan(shell, job_id, plan)
@@ -263,12 +264,15 @@ async def reconcile(shell, job_id, device, target):
     if target["profile"] is not None:
         ports = await shell.command(read_ports)
         plan = adapters.build_sync_plan(
-            device.adapter, target["profile"], set(target["addresses"]), config, ports, retain_empty=True
+            device.adapter, target["profile"], set(target["addresses"]), config, ports, retain_empty=True, validated=verifier is not None
         )
         await sql_quick(progress, job_id, "applying", ports=plan.physical_ports)
         await apply_plan(shell, job_id, plan)
         plans.append(plan)
     await sql_quick(progress, job_id, "verifying")
+    if verifier is not None:
+        await verifier(plans)
+        return plans
     current = await shell.command(read_config)
     current_ports = await shell.command(read_ports) if ports is not None else ""
     for plan in plans:
@@ -298,37 +302,57 @@ async def reconcile(shell, job_id, device, target):
     return plans
 
 
+async def run_target(job_id, device, target, shell, *, verifier=None):
+    added, removed, ports, acl_removed = set(), set(), [], False
+    for _ in range(3):
+        plans = await reconcile(shell, job_id, device, target, verifier=verifier)
+        for plan in plans:
+            added |= set(plan.added)
+            removed |= set(plan.removed)
+            acl_removed = acl_removed or bool(plan.removal and plan.commands)
+            if not plan.removal:
+                ports = plan.physical_ports
+        await sql_quick(record_verified, job_id, device.id, target)
+        fresh = await sql_quick(current_target, job_id, device.id)
+        if fresh["profile"] is None and not fresh["stale_profiles"] or (
+            (fresh["profile"], fresh["addresses"]) == (target["profile"], target["addresses"])
+        ):
+            break
+        target = fresh
+        await sql_quick(mark_attempt, job_id, device.id, target)
+        if verifier is not None:
+            shell.target = target
+            shell.profiles = [p for p in [target["profile"], *target["stale_profiles"]] if p]
+            shell.allowed.clear()
+            await shell.ownership()
+    else:
+        raise ACLError("İstenen ACL durumu işlem sırasında sürekli değişti; yeniden eşitleyin.")
+    phase = "verified" if target["profile"] else "removed"
+    await sql_quick(progress, job_id, phase, ports=ports)
+    return {
+        "phase": phase, "ports": ports, "addresses": len(target["addresses"]),
+        "added": sorted(added - removed, key=ip_address),
+        "removed": sorted(removed - added, key=ip_address), "acl_removed": acl_removed,
+    }
+
+
 async def execute(job_id):
     async with device_slot(), asyncio.timeout(600):
         device, secret, target = await sql_quick(load_context, job_id)
         await sql_quick(progress, job_id, "preflight")
-        await sql_quick(mark_attempt, job_id, device.id, target)
-        added, removed, ports, acl_removed = set(), set(), [], False
-        async with connect(device, secret) as shell:
-            # Changes saved while this job runs are picked up by a bounded re-check.
-            for _ in range(3):
-                plans = await reconcile(shell, job_id, device, target)
-                for plan in plans:
-                    added |= set(plan.added)
-                    removed |= set(plan.removed)
-                    acl_removed = acl_removed or bool(plan.removal and plan.commands)
-                    if not plan.removal:
-                        ports = plan.physical_ports
-                await sql_quick(record_verified, job_id, device.id, target)
-                fresh = await sql_quick(current_target, job_id, device.id)
-                if fresh["profile"] is None and not fresh["stale_profiles"] or (
-                    (fresh["profile"], fresh["addresses"]) == (target["profile"], target["addresses"])
-                ):
-                    break
-                target = fresh
+        route = target.pop("_conductor", None)
+        if route is None:
+            await sql_quick(mark_attempt, job_id, device.id, target)
+            async with connect(device, secret) as shell:
+                return await run_target(job_id, device, target, shell)
+        async def check():
+            await sql_quick(check_cancel, job_id)
+        async def report(phase, **values):
+            await sql_quick(progress, job_id, phase, **values)
+        async with conductor.lease(route) as lock:
+            async with connect(device, secret) as reader, connect(route.device, route.secret) as writer:
+                shell = conductor.Session(writer, reader, route, device, target, lock, check, report)
+                await shell.prepare()
                 await sql_quick(mark_attempt, job_id, device.id, target)
-        phase = "verified" if target["profile"] else "removed"
-        await sql_quick(progress, job_id, phase, ports=ports)
-    return {
-        "phase": phase,
-        "ports": ports,
-        "addresses": len(target["addresses"]),
-        "added": sorted(added - removed, key=ip_address),
-        "removed": sorted(removed - added, key=ip_address),
-        "acl_removed": acl_removed,
-    }
+                result = await run_target(job_id, device, target, shell, verifier=shell.finish)
+                return {**result, "conductor_ip": route.device.management_ip, "node_path": shell.node.path}

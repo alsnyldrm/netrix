@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     secure_cookies: bool = True
     known_hosts: str = "/run/secrets/known_hosts"
     setup_token: str = ""
+    blacklist_conductor_host: str = ""
     firmware_directory: str = "/data/firmware"
     firmware_advertise_host: str = ""
     firmware_sftp_port: int = 2222
