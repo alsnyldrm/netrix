@@ -207,9 +207,9 @@ class Writer:
         if command == "show configuration committed":
             return node_config(self.committed)
         if command == "show configuration effective":
-            return node_config(self.cli.config) + self.inherited
+            return node_config(self.committed) + self.inherited
         if command == "show configuration effective detail":
-            config = node_config(self.cli.config)
+            config = node_config(self.committed)
             return (
                 "\n".join(
                     line + f" # local [{NODE}]" if line.strip() not in ("", "!") else line
@@ -225,6 +225,22 @@ class Writer:
             return "Saved Configuration"
         if self.on_write:
             await self.on_write(command)
+        committed = dict(adapters.blocks(self.committed))
+        if command.startswith("ip access-group session "):
+            if "ip access-list session " + command.split()[-1] not in committed:
+                raise ACLError("Invalid access group configuration")
+        if command.startswith("alias "):
+            if "netdestination " + command.split()[1] not in committed:
+                raise ACLError("Alias dependency is not committed")
+        if command.startswith("no ip access-list session "):
+            bind = "ip access-group session " + command.split()[-1]
+            if any(bind in body for header, body in committed.items() if header.startswith("interface ")):
+                raise ACLError("Committed interface still references ACL")
+        if command.startswith("interface gigabitethernet "):
+            result = await self.cli.command(command, **kwargs)
+            if command not in dict(adapters.blocks(self.cli.config)):
+                await self.cli.command("description GE" + command.split()[-1])
+            return result
         return await self.cli.command(command, **kwargs)
 
 
@@ -376,6 +392,51 @@ async def test_delayed_managed_apply_is_polled_before_success(admin_client, env,
     admin_client.post(ROOT + f"/groups/{routed.group['id']}/sync")
     await drain(env)
     assert "ip access-list session BLOCK" in routed.reader.config
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+async def test_resume_recorded_empty_acl_pending_without_committing_foreign_changes(
+    admin_client, env, routed, foreign
+):
+    await routed.writer.command("cd " + NODE)
+    for command in [
+        "configure terminal",
+        "ip access-list session BLOCK",
+        "description NETRIX-BLACKLIST",
+        "any any any permit",
+        "exit",
+        "interface gigabitethernet 0/0/0",
+        "exit",
+        "end",
+    ]:
+        await routed.writer.command(command)
+    if foreign:
+        routed.writer.inject_pending = "\nlogging 203.0.113.10\n"
+    with env() as db:
+        db.add(
+            m.DeviceACLState(
+                device_id=routed.device_id,
+                status="dirty",
+                profile=None,
+                addresses=[],
+                group_ids=[],
+                attempted={"profile": PROFILE, "addresses": [], "group_ids": [routed.group["id"]]},
+            )
+        )
+        db.commit()
+    admin_client.post(ROOT + f"/groups/{routed.group['id']}/sync")
+    job_id = claim()
+    await execute(job_id)
+    with env() as db:
+        job = db.get(m.Job, job_id)
+        assert job.status == ("failed" if foreign else "succeeded"), job.error
+    commits = [cmd for path, cmd in routed.writer.commands if cmd == "write memory"]
+    if foreign:
+        assert not commits
+    else:
+        assert commits
+        assert "ip access-group session BLOCK" in routed.reader.config
+        assert not routed.writer.pending().strip()
 
 
 async def test_changed_conductor_access_snapshot_never_opens_ssh(admin_client, env, routed, monkeypatch):

@@ -103,6 +103,31 @@ def check_route(device_id, snapshot):
             raise ACLError("Conductor hedefi veya erişimi işlem sırasında değişti.")
 
 
+def incomplete_empty_acl(device_id, profile):
+    """Only the recorded, harmless first-ACL attempt may be resumed automatically."""
+    with session_factory()() as db:
+        row = db.get(m.DeviceACLState, device_id)
+        attempted = row.attempted if row and row.status == "dirty" else None
+        return bool(attempted and attempted.get("profile") == profile and attempted.get("addresses") == [])
+
+
+def verify_delta(pending, config):
+    parsed = dict(adapters.blocks(config))
+    for header, body in adapters.blocks(pending):
+        if header.startswith("no "):
+            if header[3:] in parsed:
+                raise ACLError("Conductor ara aşama silmesi cihazda doğrulanamadı.")
+            continue
+        actual = parsed.get(header)
+        if actual is None:
+            raise ACLError("Conductor ara aşama tanımı cihazda doğrulanamadı.")
+        for line in body:
+            if (line.startswith("no ") and line[3:] in actual) or (
+                not line.startswith("no ") and line not in actual
+            ):
+                raise ACLError("Conductor ara aşama içeriği cihazda doğrulanamadı.")
+
+
 def table_rows(output, required):
     """Read fixed-width CLI tables; do not guess columns from row whitespace."""
     lines = output.splitlines()
@@ -224,6 +249,8 @@ class Session:
         self.original_unsaved = set()
         self.allowed = {}
         self.context = None
+        self.stage_kind = None
+        self.in_config = False
         self.profiles = [p for p in [target["profile"], *target["stale_profiles"]] if p]
 
     async def guard(self):
@@ -252,18 +279,51 @@ class Session:
             raise ACLError("7205'in Conductor adresi kayıtlı yönlendirmeyle eşleşmiyor.")
         self.node = await self.mapping()
         self.original_unsaved = unsaved_nodes(await self.writer.command("show configuration unsaved-nodes"))
-        if any(related(path, self.node.path) for path in self.original_unsaved):
+        if any(path != self.node.path and related(path, self.node.path) for path in self.original_unsaved):
             raise ACLError(
                 "Conductor cihaz düğümünde veya üst/alt düğümde bekleyen değişiklik var; otomatik commit yapılmadı."
             )
         await self.writer.command("cd " + self.node.path)
         await self.scope()
-        if (await self.writer.command("show configuration pending")).strip():
-            raise ACLError("Conductor düğümünde önceden bekleyen değişiklik var; işlem durdu.")
-        await self.ownership()
+        effective = await self.ownership()
+        pending = await self.writer.command("show configuration pending")
+        if pending.strip():
+            await self.resume_empty(pending, effective)
         await self.progress(
             "preflight", conductor_ip=self.route.device.management_ip, node_path=self.node.path
         )
+
+    async def resume_empty(self, pending, effective):
+        profile = self.target["profile"]
+        if (
+            not profile
+            or self.target["addresses"]
+            or not await sql_quick(incomplete_empty_acl, self.device.id, profile)
+        ):
+            raise ACLError("Conductor düğümünde önceden bekleyen değişiklik var; işlem durdu.")
+        header, _ = adapters.acl_identity("aruba_7200", profile)
+        parsed = dict(adapters.blocks(pending))
+        wanted = ["description " + adapters.MARKER, "any any any permit"]
+        ports = await self.reader.command("show interface")
+        physical = adapters.port_inventory("aruba_7200", ports, adapters.blocks(effective))[2]
+        if header in dict(adapters.blocks(effective)) or parsed.get(header) != wanted:
+            raise ACLError("Bekleyen içerik yarım kalan boş NETRIX ACL tanımıyla eşleşmiyor.")
+        for item, body in parsed.items():
+            if item == header:
+                continue
+            port = item.removeprefix("interface ")
+            if (
+                not item.startswith("interface ")
+                or port not in physical
+                or body != ["description GE" + port.split()[-1]]
+            ):
+                raise ACLError(
+                    "Bekleyen içerikte NETRIX ilk ACL tanımı dışında değişiklik var; commit yapılmadı."
+                )
+        self.allowed = {item: set(body) for item, body in parsed.items()}
+        await self.finish([], intermediate=True)
+        self.allowed.clear()
+        self.original_unsaved.discard(self.node.path)
 
     async def effective(self):
         await self.scope()
@@ -316,6 +376,7 @@ class Session:
 
     async def command(self, command, *, save=False):
         if command == "show running-config":
+            await self.checkpoint()
             return await self.effective()
         if command == "show interface":
             return await self.reader.command(command)
@@ -323,16 +384,50 @@ class Session:
         if command == "configure terminal":
             await self.scope()
             self.context = None
+            self.in_config = True
         elif command in ("exit", "end"):
             self.context = None
+            if command == "end":
+                self.in_config = False
         else:
             normalized = " ".join(adapters.words(command)).removesuffix(" position 1")
+            root = normalized.removeprefix("no ")
+            kind = next(
+                (
+                    prefix
+                    for prefix in ("ip access-list session ", "netdestination ", "interface ")
+                    if root.startswith(prefix)
+                ),
+                None,
+            )
+            if kind and self.stage_kind and kind != self.stage_kind:
+                await self.checkpoint()
+                await self.guard()
+                await self.writer.command("configure terminal")
+                self.in_config = True
+            if kind:
+                self.stage_kind = kind
             if command.startswith(("ip access-list session ", "netdestination ", "interface ")):
                 self.context = normalized
                 self.allowed.setdefault(normalized, set())
             else:
                 self.allowed.setdefault(self.context, set()).add(normalized)
-        return await self.writer.command(command, save=save)
+        try:
+            return await self.writer.command(command, save=save)
+        except ACLError:
+            # These are validated NETRIX plan commands, never credentials or raw config output.
+            raise ACLError(f"Conductor komutu reddetti: {command} · düğüm {self.node.path}") from None
+
+    async def checkpoint(self):
+        if not self.allowed:
+            return
+        if self.in_config:
+            await self.writer.command("end")
+            self.in_config = False
+        self.context = None
+        await self.finish([], intermediate=True)
+        self.allowed.clear()
+        self.stage_kind = None
 
     def validate_pending(self, output):
         for header, body in adapters.blocks(output):
@@ -342,12 +437,18 @@ class Session:
                         "Conductor pending farkında NETRIX planı dışında komut var; commit yapılmadı."
                     )
             for line in body:
-                if line not in self.allowed.get(header, set()) and line not in self.baseline_blocks.get(
-                    header, []
+                default_description = (
+                    header.startswith("interface gigabitethernet ")
+                    and line == "description GE" + header.split()[-1]
+                )
+                if (
+                    line not in self.allowed.get(header, set())
+                    and line not in self.baseline_blocks.get(header, [])
+                    and not default_description
                 ):
                     raise ACLError("Conductor pending farkında beklenmeyen kural var; commit yapılmadı.")
 
-    async def finish(self, plans):
+    async def finish(self, plans, *, intermediate=False):
         await self.guard()
         await self.scope()
         if await self.mapping() != self.node:
@@ -383,13 +484,21 @@ class Session:
                     current = await self.reader.command("show running-config")
                     ports = await self.reader.command("show interface")
                     try:
+                        for config in (effective, current):
+                            verify_delta(pending, config)
                         for plan in plans:
                             adapters.verify(plan, effective, ports)
                             adapters.verify(plan, current, ports)
                     except ACLError:
                         pass  # The managed device can lag behind the Conductor status.
                     else:
-                        await self.progress("verified", node_path=self.node.path, config_id=config_id)
+                        await self.progress(
+                            "verifying" if intermediate else "verified",
+                            node_path=self.node.path,
+                            config_id=config_id,
+                        )
+                        self.allowed.clear()
+                        self.stage_kind = None
                         return
             if asyncio.get_running_loop().time() >= stop_at:
                 raise ACLError(
