@@ -1,1 +1,1 @@
-{"name":"NETRIX","short_name":"netrix","start_url":"/","display":"standalone","background_color":"#f8fafc","theme_color":"#1d4ed8","icons":[{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml"}]}
+{"name":"NETRIX","short_name":"netrix","start_url":"/","display":"standalone","background_color":"#140d10","theme_color":"#a34f89","icons":[{"src":"/favicon.svg","sizes":"any","type":"image/svg+xml"},{"src":"/app-icon.png","sizes":"512x512","type":"image/png"}]}

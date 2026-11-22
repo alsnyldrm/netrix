@@ -1,1 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#1d4ed8"/><path d="M19 45V19l26 26V19" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/><g fill="#1d4ed8" stroke="#fff" stroke-width="3"><circle cx="19" cy="19" r="5"/><circle cx="45" cy="45" r="5"/></g><circle cx="45" cy="19" r="3.5" fill="#93c5fd"/><circle cx="19" cy="45" r="3.5" fill="#93c5fd"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="netrix-gradient" x1="4" y1="2" x2="60" y2="62" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff8cae"/>
+      <stop offset=".44" stop-color="#a34f89"/>
+      <stop offset="1" stop-color="#304d83"/>
+    </linearGradient>
+    <linearGradient id="netrix-node" x1="19" y1="19" x2="45" y2="45" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#eeafcb"/>
+      <stop offset="1" stop-color="#b8cdf4"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#netrix-gradient)"/>
+  <path d="M19 45V19l26 26V19" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="url(#netrix-gradient)" stroke="#fff" stroke-width="3">
+    <circle cx="19" cy="19" r="5"/>
+    <circle cx="45" cy="45" r="5"/>
+  </g>
+  <g fill="url(#netrix-node)">
+    <circle cx="45" cy="19" r="3.5"/>
+    <circle cx="19" cy="45" r="3.5"/>
+  </g>
+</svg>
