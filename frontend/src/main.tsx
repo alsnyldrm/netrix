@@ -131,6 +131,7 @@ import "@fontsource/ibm-plex-mono/500.css";
 import "./style.css";
 import "./appearance.css";
 import "./lumelle.css";
+import "./auth.css";
 import { Overview } from "./overview";
 import { deviceVendorLogo, deviceVendorNames } from "./device-vendors";
 import {
@@ -1328,6 +1329,9 @@ function Auth({
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [samlEnabled, setSamlEnabled] = useState(false);
+  const [local, setLocal] = useState(false);
+  const [mfa, setMfa] = useState<Row | null>(null);
+  const [code, setCode] = useState("");
   const [error, setError] = useState(() => {
     const state = new URLSearchParams(location.search).get("saml");
     if (state === "expired")
@@ -1377,13 +1381,27 @@ function Auth({
     setBusy(true);
     setError("");
     try {
-      if (setup) await api("/auth/setup", "POST", { ...values, role: "admin" });
-      onLogin(
-        await api("/auth/login", "POST", {
+      if (mfa) {
+        onLogin(
+          await api("/auth/mfa/verify", "POST", {
+            challenge: mfa.challenge,
+            code,
+          }),
+        );
+        setMfa(null);
+      } else {
+        if (setup) {
+          await api("/auth/setup", "POST", { ...values, role: "admin" });
+          setSetup(false);
+        }
+        const result = await api("/auth/login", "POST", {
           email: values.email,
           password: values.password,
-        }),
-      );
+        });
+        setValues({ ...values, password: "", setup_token: "" });
+        setMfa(result);
+        setCode("");
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -1394,19 +1412,99 @@ function Auth({
     <div className="auth-shell">
       <main className="auth-main">
         <div className="auth-card">
-          <header className="auth-top">
-            <Brand small />
-            <ThemeToggle theme={theme} onToggle={onTheme} />
+          <header className="login-heading">
+            <img src="/fbu-logo.svg" alt="Fenerbahçe Üniversitesi" />
+            <div>
+              <p>Fenerbahçe Üniversitesi</p>
+              <strong>NETRIX</strong>
+            </div>
           </header>
-          <h1>{setup ? "NETRIX kurulumu" : "NETRIX’e giriş yapın"}</h1>
+          {mfa && (
+            <div className="mfa-mark">
+              <ShieldCheck size={26} aria-hidden="true" />
+            </div>
+          )}
+          <h1>
+            {mfa
+              ? mfa.mfa_setup_required
+                ? "Authenticator Kurulumu"
+                : "İki Adımlı Doğrulama"
+              : setup
+                ? "NETRIX kurulumu"
+                : local || !samlEnabled
+                  ? "Yerel giriş"
+                  : "Giriş yapın"}
+          </h1>
           <p className="auth-lead">
-            {setup
-              ? "Yönetici hesabınızı oluşturun ve çalışma alanınızı başlatın."
-              : "Ağ operasyon merkezinize kurumsal hesabınızla giriş yapın."}
+            {mfa
+              ? mfa.mfa_setup_required
+                ? "QR kodunu Microsoft Authenticator, Google Authenticator veya uyumlu bir uygulamayla tarayın; ardından oluşan kodu girin."
+                : "Authenticator uygulamanızdaki güncel 6 haneli doğrulama kodunu girin."
+              : setup
+                ? "Yönetici hesabınızı oluşturun ve çalışma alanınızı başlatın."
+                : local || !samlEnabled
+                  ? "Yerel hesabınız ve Authenticator kodunuzla güvenli giriş yapın."
+                  : "Üniversite Microsoft hesabınızla devam edin. Kurumsal oturum açma sayfasına yönlendirileceksiniz."}
           </p>
           {checking ? (
             <div className="loading">Sunucuya bağlanılıyor…</div>
-          ) : (
+          ) : mfa ? (
+            <>
+              {mfa.mfa_setup_required && (
+                <div className="mfa-setup">
+                  <div className="mfa-qr-frame">
+                    <img
+                      src={mfa.qr_code}
+                      alt="NETRIX Authenticator kurulum QR kodu"
+                    />
+                  </div>
+                  <p>
+                    Manuel anahtar<code>{mfa.secret}</code>
+                  </p>
+                </div>
+              )}
+              <form onSubmit={submit}>
+                {error && (
+                  <div className="error" role="alert">
+                    {error}
+                  </div>
+                )}
+                <label>
+                  6 Haneli Doğrulama Kodu
+                  <input
+                    autoFocus
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    required
+                    value={code}
+                    onChange={(e) =>
+                      setCode(e.target.value.replace(/[^0-9]/g, ""))
+                    }
+                    className="mfa-code"
+                    placeholder="000000"
+                  />
+                </label>
+                <button className="primary" disabled={busy}>
+                  {busy ? "Doğrulanıyor…" : "Doğrula ve Giriş Yap"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setMfa(null);
+                    setCode("");
+                    setError("");
+                    setLocal(true);
+                  }}
+                >
+                  ← Giriş ekranına dön
+                </button>
+              </form>
+            </>
+          ) : setup || local || !samlEnabled ? (
             <form onSubmit={submit}>
               {setup && (
                 <>
@@ -1421,10 +1519,6 @@ function Auth({
                         setValues({ ...values, setup_token: e.target.value })
                       }
                     />
-                    <small>
-                      Dağıtımda oluşturulan güvenli kurulum dosyanızdaki
-                      anahtar.
-                    </small>
                   </label>
                   <label>
                     Ad soyad
@@ -1449,7 +1543,7 @@ function Auth({
                   onChange={(e) =>
                     setValues({ ...values, email: e.target.value })
                   }
-                  placeholder="adiniz@kurumunuz.com"
+                  placeholder="adiniz@fbu.edu.tr"
                 />
               </label>
               <label>
@@ -1468,7 +1562,6 @@ function Auth({
               </label>
               {error && (
                 <div className="error" role="alert">
-                  <WarningCircle size={20} />
                   {error}
                 </div>
               )}
@@ -1476,21 +1569,61 @@ function Auth({
                 {busy
                   ? "Bağlanılıyor…"
                   : setup
-                    ? "Çalışma alanını oluştur"
-                    : "Çalışma alanına gir"}
-                <ArrowRight size={19} />
+                    ? "Hesabı oluştur ve devam et"
+                    : "Giriş Yap"}
+                <ArrowRight size={19} aria-hidden="true" />
               </button>
+              {!setup && samlEnabled && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setLocal(false);
+                    setError("");
+                  }}
+                >
+                  ← Microsoft girişine dön
+                </button>
+              )}
             </form>
+          ) : (
+            <>
+              {error && (
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              )}
+              <a className="auth-saml" href="/api/v1/auth/saml/login">
+                <span className="ms-grid" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                Microsoft ile Giriş Yap
+              </a>
+              <div className="login-divider">
+                <span>veya</span>
+              </div>
+              <button
+                className="secondary local-login-link"
+                onClick={() => {
+                  setLocal(true);
+                  setError("");
+                }}
+              >
+                Yerel Giriş
+              </button>
+            </>
           )}
-          {!checking && !setup && samlEnabled && (
-            <a className="auth-saml" href="/api/v1/auth/saml/login">
-              <LockKey size={18} aria-hidden="true" /> Microsoft Entra ID ile
-              giriş yap
-            </a>
-          )}
-          <div className="secure-note">
-            <LockKey size={16} /> Şifreli bağlantı · Merkezi yetkilendirme
-          </div>
+          <footer className="login-footer">
+            <span>
+              <img src="/favicon.svg" alt="" />
+              Akıllı Ağ Yönetim Platformu
+            </span>
+            <ThemeToggle theme={theme} onToggle={onTheme} />
+          </footer>
         </div>
       </main>
     </div>

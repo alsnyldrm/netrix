@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 import pytest
+from auth_helpers import local_login
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -102,8 +103,8 @@ def fixture(env, monkeypatch):
             == 201
         )
         assert (
-            admin.post(
-                "/api/v1/auth/login",
+            local_login(
+                admin,
                 json={
                     "email": OWNER,
                     "password": "fixture-owner-only-password",
@@ -226,7 +227,7 @@ def test_settings_disabled_metadata_and_management_access(fixture):
     activate(admin, config)
     assert browser.get("/api/v1/auth/status").json()["saml_enabled"] is True
     assert browser.get("/api/v1/users").status_code == 401
-    assert browser.post("/api/v1/auth/login", json={}).status_code == 403
+    assert local_login(browser, json={}).status_code == 403
     assert (
         browser.post(saml.ACS, content=b"bad", follow_redirects=False).headers["location"] == "/?saml=invalid"
     )
@@ -260,9 +261,7 @@ def test_signed_login_provisions_reader_and_blocks_local_password(fixture, env):
         == 403
     )
     assert (
-        browser.post(
-            "/api/v1/auth/login", headers=headers, json={"email": ACCOUNT, "password": "fixture"}
-        ).status_code
+        local_login(browser, headers=headers, json={"email": ACCOUNT, "password": "fixture"}).status_code
         == 401
     )
     activate(admin, {**config, "enabled": False})
@@ -376,8 +375,8 @@ def test_entra_and_local_owner_can_sign_in_with_same_email(fixture, env):
 
     # Both entries exist: the password form must still select the local one.
     assert admin.post("/api/v1/auth/logout").status_code == 204
-    authenticated = admin.post(
-        "/api/v1/auth/login",
+    authenticated = local_login(
+        admin,
         json={
             "email": OWNER,
             "password": "fixture-owner-only-password",

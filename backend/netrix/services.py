@@ -63,7 +63,11 @@ IDENTITY_CONNECTION_FIELDS = (
 def serialize(obj):
     result = {}
     for col in inspect(obj).mapper.column_attrs:
-        if col.key in HIDDEN or (isinstance(obj, m.Integration) and col.key == "evidence"):
+        if (
+            col.key in HIDDEN
+            or col.key.startswith(("encrypted_mfa_", "mfa_"))
+            or (isinstance(obj, m.Integration) and col.key == "evidence")
+        ):
             continue
         value = getattr(obj, col.key)
         if isinstance(obj, m.Link) and col.key in ("remote_name", "remote_port", "interface_name"):
@@ -75,6 +79,8 @@ def serialize(obj):
         if isinstance(value, Decimal):
             value = int(value)
         result[col.key] = value
+    if isinstance(obj, m.User):
+        result["mfa_enabled"] = bool(obj.encrypted_mfa_secret)
     if isinstance(obj, m.IPObservation):
         result["data"] = obj.data
     if isinstance(obj, m.Observation):

@@ -1,5 +1,6 @@
 """User deletion revokes access and leaves historical references intact."""
 
+from auth_helpers import local_login
 from fastapi.testclient import TestClient
 from netrix import models as m
 from netrix.identity.security import DUMMY_HASH
@@ -24,7 +25,7 @@ def create(client, name, role="viewer"):
 
 
 def sign_in(client, user):
-    return client.post("/api/v1/auth/login", json={"email": user["email"], "password": PASSWORD})
+    return local_login(client, json={"email": user["email"], "password": PASSWORD})
 
 
 def test_single_deletion_revokes_sessions_cleans_private_data_and_preserves_history(admin_client, env):
@@ -79,7 +80,10 @@ def test_bulk_deletion_is_atomic_and_cannot_delete_self_or_recovery_account(admi
         assert sign_in(other, delegate).status_code == 200
         assert other.delete(f"{USERS}/{first['id']}").status_code == 403
         assert other.post(BULK, json={"ids": [first["id"]]}).status_code == 403
-        assert admin_client.put(f"{USERS}/{delegate['id']}/roles", json={"role": "super_admin"}).status_code == 200
+        assert (
+            admin_client.put(f"{USERS}/{delegate['id']}/roles", json={"role": "super_admin"}).status_code
+            == 200
+        )
         for invalid, status in ((owner["id"], 409), (delegate["id"], 409), (m.uid(), 404)):
             assert other.post(BULK, json={"ids": [first["id"], invalid]}).status_code == status
             assert admin_client.get(f"{USERS}/{first['id']}").status_code == 200
@@ -89,5 +93,7 @@ def test_bulk_deletion_is_atomic_and_cannot_delete_self_or_recovery_account(admi
     assert admin_client.get(USERS).json()["total"] == 2
     with env() as db:
         assert db.get(m.User, owner["id"]).is_active
-        rows = db.scalars(select(m.Audit).where(m.Audit.actor_id == delegate["id"], m.Audit.action == "delete"))
+        rows = db.scalars(
+            select(m.Audit).where(m.Audit.actor_id == delegate["id"], m.Audit.action == "delete")
+        )
         assert {row.entity_id for row in rows} == {first["id"], second["id"]}

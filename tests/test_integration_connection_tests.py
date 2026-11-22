@@ -3,6 +3,7 @@ import ssl
 from unittest.mock import Mock
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix import worker
 from netrix.core import now
@@ -137,7 +138,7 @@ def test_credentials_validation_and_role_boundary(admin_client):
         },
     )
     c.post("/api/v1/auth/logout")
-    c.post("/api/v1/auth/login", json={"email": "viewer@example.test", "password": "viewer-fixture-password"})
+    local_login(c, json={"email": "viewer@example.test", "password": "viewer-fixture-password"})
     assert c.post(base, json=values).status_code == 403
 
 

@@ -1,13 +1,11 @@
+from auth_helpers import local_login
 from netrix.core import settings
 
 
 def test_no_auth_and_csrf_guard(client):
     assert client.get("/api/v1/devices").status_code == 401
-    assert client.post("/api/v1/auth/login", json={}, headers={"X-Netrix-Request": ""}).status_code == 403
-    assert (
-        client.post("/api/v1/auth/login", json={}, headers={"Origin": "https://evil.example"}).status_code
-        == 403
-    )
+    assert local_login(client, json={}, headers={"X-Netrix-Request": ""}).status_code == 403
+    assert local_login(client, json={}, headers={"Origin": "https://evil.example"}).status_code == 403
 
 
 def test_setup_single_use_password_hash_and_session_revocation(admin_client, env):
@@ -41,8 +39,8 @@ def test_setup_single_use_password_hash_and_session_revocation(admin_client, env
     assert r.status_code == 204
     assert c.get("/api/v1/auth/me").status_code == 401
     assert (
-        c.post(
-            "/api/v1/auth/login", json={"email": "ALISAN.YILDIRIM@fbu.edu.tr", "password": "changed-test-password"}
+        local_login(
+            c, json={"email": "ALISAN.YILDIRIM@fbu.edu.tr", "password": "changed-test-password"}
         ).status_code
         == 200
     )
@@ -64,8 +62,8 @@ def test_roles_are_enforced_on_server(admin_client, institution):
     c.post("/api/v1/auth/logout")
     for role in ("viewer", "operator"):
         assert (
-            c.post(
-                "/api/v1/auth/login",
+            local_login(
+                c,
                 json={"email": role + "@example.test", "password": "role-test-password-long"},
             ).status_code
             == 200
@@ -94,17 +92,9 @@ def test_validation_does_not_echo_secret(client):
 def test_login_rate_limit_and_generic_failure(client):
     for _ in range(15):
         assert (
-            client.post(
-                "/api/v1/auth/login", json={"email": "nobody@example.test", "password": "wrong"}
-            ).status_code
-            == 401
+            local_login(client, json={"email": "nobody@example.test", "password": "wrong"}).status_code == 401
         )
-    assert (
-        client.post(
-            "/api/v1/auth/login", json={"email": "nobody@example.test", "password": "wrong"}
-        ).status_code
-        == 429
-    )
+    assert local_login(client, json={"email": "nobody@example.test", "password": "wrong"}).status_code == 429
 
 
 def test_openapi_and_live_independent_of_dependencies(client, monkeypatch):

@@ -2,6 +2,7 @@ import csv
 import io
 
 import pytest
+from auth_helpers import local_login
 from fastapi import HTTPException
 from netrix import models as m
 from netrix import services as svc
@@ -254,9 +255,7 @@ def test_limits_and_viewer_permissions(admin_client):
         },
     )
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@csv.test", "password": "long-fixture-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@csv.test", "password": "long-fixture-password"})
     assert admin_client.get(BASE + "/template").status_code == 403
     assert admin_client.post(BASE + "/import", json={"content": content}).status_code == 403
     assert admin_client.post(BASE + "/export", json={"ids": ["absent"]}).status_code == 403

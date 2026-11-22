@@ -165,6 +165,8 @@ export function UserRoleEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const owner = isRecoveryOwner(user);
+  const [mfaEnabled, setMfaEnabled] = useState(Boolean(user.mfa_enabled));
+  const [confirmReset, setConfirmReset] = useState(false);
   return (
     <Dialog title="Kullanıcı rollerini düzenle" onClose={onClose} drawer>
       <form
@@ -233,6 +235,68 @@ export function UserRoleEditor({
               : "Envanter cihazlarına kendi SSH bilgileriyle bağlantı ve toplu komut gönderme yetkisi verir."}
           </p>
         </fieldset>
+        {user.auth_source === "local" && (
+          <fieldset className="mfa-management">
+            <legend>Authenticator MFA</legend>
+            <p>
+              {mfaEnabled
+                ? "Authenticator etkin. Yerel girişlerde kod zorunlu."
+                : "Sonraki yerel girişte Authenticator kurulumu zorunlu."}
+            </p>
+            <label className="checkbox-label">
+              <input type="checkbox" checked disabled />
+              Girişte MFA zorunlu
+            </label>
+            {confirmReset ? (
+              <>
+                <p>
+                  Mevcut oturumlar kapatılacak ve sonraki girişte yeniden
+                  kurulum istenecek.
+                </p>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => setConfirmReset(false)}
+                  >
+                    Vazgeç
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setError("");
+                      try {
+                        await api(`/users/${user.id}/mfa/reset`, "POST");
+                        setMfaEnabled(false);
+                        setConfirmReset(false);
+                        onSaved();
+                      } catch (e: any) {
+                        setError(e.message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  >
+                    Sıfırlamayı onayla
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => setConfirmReset(true)}
+              >
+                MFA’yı sıfırla
+              </button>
+            )}
+          </fieldset>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}

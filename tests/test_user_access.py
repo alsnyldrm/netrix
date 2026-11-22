@@ -5,6 +5,7 @@ import time
 from contextlib import nullcontext
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.access import ephemeral as e
 from netrix.access import runtime, service
@@ -188,8 +189,8 @@ def test_ssh_role_enforced_and_groups_are_personal(admin_client, target, env):
         assert service.authorize_device(db, db.get(m.User, user_id), device_id).id == device_id
     admin_client.post("/api/v1/auth/logout")
     assert (
-        admin_client.post(
-            "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
+        local_login(
+            admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"}
         ).status_code
         == 200
     )
@@ -405,9 +406,7 @@ def test_admission_is_bounded_and_owner_isolation(admin_client, target, env, mon
         db.get(m.User, user_id).ssh_access = True
         db.commit()
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"})
     assert admin_client.get("/api/v1/access/sessions/" + id).status_code == 404
     assert admin_client.delete("/api/v1/access/sessions/" + id).status_code == 204
     assert memory.get(e.key("cancel", id)) is None
@@ -691,9 +690,7 @@ def test_named_profiles_route_by_group_and_prevent_duplicate_membership(
         db.get(m.User, other_user_id).ssh_access = True
         db.commit()
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"})
     assert admin_client.get("/api/v1/access/ssh-profiles").json()["items"] == []
     assert (
         admin_client.put(f"/api/v1/access/ssh-profiles/{replacement.json()['id']}", json=payload).status_code
@@ -731,9 +728,7 @@ def test_appearance_defaults_and_isolation(admin_client, target, env):
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.UserWorkspace)) == 1
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"})
     prefs = admin_client.get("/api/v1/access/preferences").json()
     assert prefs["palette"] == "cobalt" and prefs["design"] == "atlas"
     assert prefs["ui_font"] == "theme"
@@ -774,9 +769,7 @@ def test_application_fonts_persist_validate_and_remain_personal(admin_client, ta
     with env() as db:
         assert db.scalar(select(func.count()).select_from(m.UserWorkspace)) == 1
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"})
     assert admin_client.get("/api/v1/access/preferences").json()["ui_font"] == "theme"
 
 
@@ -807,9 +800,7 @@ def test_batch_tab_draft_is_encrypted_bounded_and_never_executes(admin_client, t
         db.get(m.User, other_user).ssh_access = True
         db.commit()
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "fixture-long-password"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "fixture-long-password"})
     assert admin_client.get("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
     assert admin_client.delete("/api/v1/access/batch-drafts/" + retained_id).status_code == 404
     assert admin_client.post("/api/v1/access/batch-drafts", json=payload).status_code == 409

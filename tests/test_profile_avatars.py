@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.access.avatars import MAX_UPLOAD, normalize
 from PIL import Image, PngImagePlugin
@@ -49,8 +50,8 @@ def test_preset_photo_persistence_reset_and_audit(admin_client, env):
         c.post(base, content=photo("JPEG"), headers={"Content-Type": "image/jpeg"}).json()["url"] != old_url
     )
     c.post("/api/v1/auth/logout")
-    c.post(
-        "/api/v1/auth/login",
+    local_login(
+        c,
         json={"email": "alisan.yildirim@fbu.edu.tr", "password": "test-only-password-long"},
     )
     assert c.get(base).json()["url"] is not None
@@ -81,15 +82,15 @@ def test_viewer_owns_only_own_avatar(admin_client):
         },
     )
     c.post("/api/v1/auth/logout")
-    c.post("/api/v1/auth/login", json={"email": "viewer@example.test", "password": "viewer-avatar-password"})
+    local_login(c, json={"email": "viewer@example.test", "password": "viewer-avatar-password"})
     assert c.get(owner_url).status_code == 404
     assert c.get(base).json()["url"] is None
     assert c.put(base, json={"preset_id": "luffy"}).status_code == 200
     assert c.post(base, content=photo(), headers={"Content-Type": "image/png"}).status_code == 200
     assert c.delete(base).status_code == 200
     c.post("/api/v1/auth/logout")
-    c.post(
-        "/api/v1/auth/login",
+    local_login(
+        c,
         json={"email": "alisan.yildirim@fbu.edu.tr", "password": "test-only-password-long"},
     )
     assert c.get(base).json()["url"] == owner_url

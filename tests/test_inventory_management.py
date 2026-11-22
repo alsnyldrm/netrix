@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix import schemas as s
 from netrix.core import now
@@ -260,7 +261,7 @@ def test_viewer_cannot_mutate_selection_bulk_or_backups(admin_client, records):
         },
     )
     c.post("/api/v1/auth/logout")
-    c.post("/api/v1/auth/login", json={"email": "viewer@test.test", "password": "long-test-password"})
+    local_login(c, json={"email": "viewer@test.test", "password": "long-test-password"})
     assert c.get("/api/v1/inventory/devices").status_code == 200
     assert c.put(f"/api/v1/devices/{records['devices'][0]}/interfaces", json={"ids": []}).status_code == 403
     for path in ("inventory/devices/bulk", "inventory/interfaces/bulk", "backup-settings"):

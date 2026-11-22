@@ -6,6 +6,7 @@ Python doğrudan sürümleri `requirements.txt`, çözülmüş üretim ağacı `
 
 | Paket | Sürüm | Lisans (dağıtım metadata) |
 | --- | --- | --- |
+| qrcode | 8.2 | BSD-3-Clause; QR üretimi yerel, mevcut Pillow kullanılır |
 | Pillow | 13.0.0 | MIT-CMU |
 | Mako | 1.4.3 | MIT |
 | MarkupSafe | 3.0.4 | BSD-3-Clause |
@@ -106,3 +107,5 @@ Debian `iputils-ping` (BSD-3-Clause/GPL-2.0-or-later, paket copyright dosyası i
 SSH terminali için xterm.js ve boyutlandırma eklentisi değiştirilmeden kullanılır; sürümler `package-lock.json` içinde sabittir ve iki paketin MIT bildirimleri `frontend/public/third-party-notices.txt` içinde dağıtılır. Terminal ilk açılışta yerel paketten yüklenir; CDN, URL veya sistem panosu eklentisi yoktur. [Terminal güvenlik rehberi](https://xtermjs.org/docs/guides/security/) ve [AsyncSSH API](https://asyncssh.readthedocs.io/en/latest/api.html) uygulanmıştır.
 
 PostgreSQL çalışma zamanı sürücüsü Psycopg 3'tür; binary dağıtım libpq kullanır. PostgreSQL 18 istemci araçları mevcut sunucu kümesinin yedekleri için kullanılır. PyMySQL ve MariaDB istemcisi eski kaynaktan doğrulanmış aktarım/geri dönüş içindir.
+
+Giriş ekranındaki Fenerbahçe Üniversitesi amblemi, proje sahibinin belirttiği EMC giriş sayfasının `/static/img/fbu-logo.svg` kaynağından alınan kurumsal varlıktır; üçüncü taraf kütüphane değildir. NETRIX uygulama ikonu korunur.

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.discovery import connection_tests as probes
 from netrix.discovery import protocols as protocols
@@ -213,9 +214,7 @@ def test_connection_tests_are_independent_of_discovery_but_enforce_roles(admin_c
         },
     )
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "viewer-test-password-long"}
-    )
+    local_login(admin_client, json={"email": "viewer@example.test", "password": "viewer-test-password-long"})
     assert admin_client.get(url).status_code == 403
     assert admin_client.post(url, json={"protocol": "snmpv3"}).status_code == 403
 

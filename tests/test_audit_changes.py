@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from auth_helpers import local_login
 from fastapi.testclient import TestClient
 from netrix import models as m
 from netrix.identity.security import audit
@@ -27,8 +28,8 @@ def test_all_users_and_background_separation(admin_client, env):
     assert user.status_code == 201, user.text
     with TestClient(app, headers={"X-Netrix-Request": "1"}) as other:
         assert (
-            other.post(
-                "/api/v1/auth/login",
+            local_login(
+                other,
                 json={
                     "email": "operator@example.test",
                     "password": "fixture-long-password",

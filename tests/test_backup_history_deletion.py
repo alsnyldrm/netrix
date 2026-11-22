@@ -1,4 +1,5 @@
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.core import now
 from sqlalchemy import select
@@ -107,8 +108,8 @@ def test_operator_cannot_clear_backup_history(admin_client, env, histories):
         )
         db.commit()
     assert (
-        admin_client.post(
-            "/api/v1/auth/login", json={"email": "operator@example.test", "password": "fixture-only-password"}
+        local_login(
+            admin_client, json={"email": "operator@example.test", "password": "fixture-only-password"}
         ).status_code
         == 200
     )

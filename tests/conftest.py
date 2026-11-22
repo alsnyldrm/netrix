@@ -133,6 +133,18 @@ def admin_client(client):
         json={"email": "alisan.yildirim@fbu.edu.tr", "password": "test-only-password-long"},
     )
     assert response.status_code == 200, response.text
+    data = response.json()
+    from netrix.core import now
+    from netrix.identity.mfa import totp
+
+    response = client.post(
+        "/api/v1/auth/mfa/verify",
+        json={
+            "challenge": data["challenge"],
+            "code": totp(data["secret"], int(now().timestamp()) // 30),
+        },
+    )
+    assert response.status_code == 200, response.text
     return client
 
 

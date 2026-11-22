@@ -1,4 +1,5 @@
 import pytest
+from auth_helpers import local_login
 from test_ipam_hierarchy import site as make_site
 
 
@@ -56,9 +57,7 @@ def test_catalog_viewer_cannot_mutate(admin_client, resource):
     )
     c.post("/api/v1/auth/logout")
     assert (
-        c.post(
-            "/api/v1/auth/login", json={"email": "viewer@example.test", "password": "test-only-viewer-long"}
-        ).status_code
+        local_login(c, json={"email": "viewer@example.test", "password": "test-only-viewer-long"}).status_code
         == 200
     )
     assert c.get("/api/v1/" + resource).status_code == 200

@@ -20,3 +20,5 @@ dnspython==2.9.1
 Pillow==13.0.0
 psycopg[binary]==3.3.8
 python3-saml==1.16.0
+
+qrcode==8.2

@@ -332,6 +332,11 @@ class LoginInput(Input):
     password: str = Field(max_length=200)
 
 
+class MFAVerifyInput(Input):
+    challenge: str = Field(min_length=40, max_length=100)
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
 class PasswordInput(Input):
     current_password: str = Field(max_length=200)
     new_password: str = Field(min_length=12, max_length=200)

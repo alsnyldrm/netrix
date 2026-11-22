@@ -59,6 +59,9 @@ def toggle(db, actor_id, target_id):
         raise HTTPException(404, "Kullanıcı bulunamadı")
     if is_super_admin(target) or is_recovery_owner(target):
         raise HTTPException(403, "Süper yönetici hesabı devre dışı bırakılamaz")
+    from .mfa import clear_challenge
+
+    clear_challenge(target)
     target.is_active = not target.is_active
     db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == target_id))
     audit(db, actor, "toggle_user", "users", target_id, "Hesap erişimi değiştirildi")
@@ -95,6 +98,10 @@ def remove(db, actor_id, ids):
         target.deleted_at = deleted_at
         target.is_active = target.ssh_access = False
         target.role = "viewer"
+        from .mfa import clear_challenge
+
+        clear_challenge(target)
+        target.encrypted_mfa_secret = target.mfa_last_step = None
         target.password_hash = DUMMY_HASH
         method = "Microsoft Entra ID" if target.auth_source == "saml" else "Yerel parola"
         audit(db, actor, "delete", "users", id, f"Kullanıcı “{target.email}” ({method}) silindi")

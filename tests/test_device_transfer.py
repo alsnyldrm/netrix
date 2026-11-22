@@ -3,6 +3,7 @@ import io
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.inventory.csv_transfer import render as render_csv
 from netrix.inventory.xlsx_transfer import from_csv
@@ -353,9 +354,7 @@ def test_transfer_permissions_and_job_status_scope(admin_client, env):
         },
     )
     admin_client.post("/api/v1/auth/logout")
-    admin_client.post(
-        "/api/v1/auth/login", json={"email": "viewer@transfer.test", "password": "test-password-long"}
-    )
+    local_login(admin_client, json={"email": "viewer@transfer.test", "password": "test-password-long"})
     assert admin_client.get(f"{BASE}/xlsx/template").status_code == 403
     assert admin_client.post(f"{BASE}/xlsx/import", json={"content": "x"}).status_code == 403
     assert admin_client.post(f"{BASE}/xlsx/export", json={"ids": [id]}).status_code == 403

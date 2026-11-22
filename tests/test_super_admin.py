@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from auth_helpers import local_login
 from netrix import models as m
 from netrix.identity.permissions import SUPER_ADMIN_EMAIL, can_operate, can_ssh, is_admin, is_super_admin
 from sqlalchemy import select
@@ -45,8 +46,8 @@ def test_recovery_owner_protected_and_regular_admin_cannot_grant_roles(admin_cli
     assert not target["ssh_access"]
     admin_client.post("/api/v1/auth/logout")
     assert (
-        admin_client.post(
-            "/api/v1/auth/login", json={"email": payload["email"], "password": payload["password"]}
+        local_login(
+            admin_client, json={"email": payload["email"], "password": payload["password"]}
         ).status_code
         == 200
     )
@@ -122,9 +123,7 @@ def test_delegated_super_admin_can_grant_and_revoke_but_cannot_demote_recovery_o
     assert admin_client.put(roles(delegate["id"]), json=promote).status_code == 200
 
     with TestClient(app, headers={"X-Netrix-Request": "1"}) as delegated:
-        response = delegated.post(
-            "/api/v1/auth/login", json={"email": data["email"], "password": data["password"]}
-        )
+        response = local_login(delegated, json={"email": data["email"], "password": data["password"]})
         assert response.json()["role"] == "super_admin"
         assert delegated.get("/api/v1/access/ssh-profiles").status_code == 200
         assert delegated.put(roles(another["id"]), json=promote).status_code == 200

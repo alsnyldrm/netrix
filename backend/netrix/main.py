@@ -228,11 +228,31 @@ def login(payload: s.LoginInput, request: Request, response: Response, db=Depend
     )
     if not valid or not user or not user.is_active or user.auth_source != "local":
         raise HTTPException(401, "E-posta veya parola hatalı")
+    from .identity.mfa import begin
+
+    response.headers["Cache-Control"] = "no-store"
+    return begin(db, user)
+
+
+@app.post(P + "/auth/mfa/verify")
+def verify_mfa(payload: s.MFAVerifyInput, request: Request, response: Response, db=Depends(db_session)):
+    from .identity.mfa import complete
+
+    rate_limit("mfa:" + request.client.host)
+    response.headers["Cache-Control"] = "no-store"
+    user = complete(db, payload.challenge, payload.code)
     token = issue_session(db, user)
-    audit(db, user, "login", "users", user.id, "Oturum açıldı")
+    audit(db, user, "login", "users", user.id, "Authenticator ile oturum açıldı")
     db.commit()
     set_session_cookie(response, token)
     return svc.serialize(user)
+
+
+@app.post(P + "/users/{id}/mfa/reset", status_code=204)
+def reset_user_mfa(id: str, user=Depends(super_admin), db=Depends(db_session)):
+    from .identity.mfa import reset
+
+    reset(db, user.id, id)
 
 
 @app.get(P + "/auth/me")
@@ -267,6 +287,9 @@ def password(
         raise HTTPException(401, "Oturum açmanız gerekiyor")
     if not verify(payload.current_password, user.password_hash):
         raise HTTPException(403, "Mevcut parola hatalı")
+    from .identity.mfa import clear_challenge
+
+    clear_challenge(user)
     user.password_hash = hasher.hash(payload.new_password)
     db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == user.id))
     audit(db, user, "password_change", "users", user.id, "Parola değiştirildi; oturumlar kapatıldı")
