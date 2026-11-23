@@ -403,6 +403,12 @@ def build_sync_plan(adapter, profile, desired, config, ports_output, *, keep=Fal
         alias = alias_for(header)
         body, hosts = session_rules(parsed, header, alias)
         target = desired | hosts if keep else desired
+        if (
+            not target
+            and not any(" deny" in line for line in body or [])
+            and matching_acl(parsed, "netdestination " + alias, adapter) is not None
+        ):
+            commands.append("no netdestination " + alias)
         if target:
             commands += ["netdestination " + alias, "description " + MARKER]
             commands += ["host " + address for address in sorted(target - hosts)]

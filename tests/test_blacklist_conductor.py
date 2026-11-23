@@ -115,9 +115,9 @@ class Registry:
         class Lock:
             held = False
 
-            def acquire(self, *, blocking, blocking_timeout):
-                assert blocking and blocking_timeout == 120
-                self.held = underlying.acquire(timeout=2)
+            def acquire(self, *, blocking):
+                assert blocking is False
+                self.held = underlying.acquire(blocking=False)
                 if self.held:
                     owner.active += 1
                     owner.max_active = max(owner.max_active, owner.active)
@@ -166,6 +166,7 @@ class Writer:
         self.pending_apply = None
         self.remap = False
         self.on_write = None
+        self.saved_configs = []
 
     def pending(self):
         old = dict(adapters.blocks(node_config(self.committed)))
@@ -173,7 +174,15 @@ class Writer:
         lines = []
         for header, body in new.items():
             if header not in old or body != old[header]:
-                lines += [header, *[" " + line for line in body], "!"]
+                delta = body
+                if header.startswith("ip access-list session ") and header in old:
+                    delta = [
+                        line + " position 1" if line.startswith("alias ") else line
+                        for line in body
+                        if line not in old[header]
+                    ]
+                    delta += ["no " + line for line in old[header] if line not in body]
+                lines += [header, *[" " + line for line in delta], "!"]
         lines += ["no " + header for header in old if header not in new]
         return "\n".join(lines) + self.inject_pending
 
@@ -223,9 +232,15 @@ class Writer:
         if command == "write memory":
             assert kwargs.get("save")
             self.committed = self.cli.config
+            self.saved_configs.append(self.committed)
             self.cid += 1
             self.pending_apply = self.committed
             return "Saved Configuration"
+        if command.startswith("configuration purge-pending-config "):
+            assert command == "configuration purge-pending-config " + NODE
+            self.cli.config = self.committed
+            self.cli.context = None
+            return ""
         if self.on_write:
             await self.on_write(command)
         committed = dict(adapters.blocks(self.committed))
@@ -403,6 +418,75 @@ async def test_full_acl_and_ip_lifecycle_uses_only_target_node(admin_client, env
         last = db.scalar(select(m.Job).order_by(m.Job.created_at.desc()))
         assert last.result["conductor_ip"] == HOST and last.result["node_path"] == NODE
         assert db.get(m.DeviceACLState, routed.device_id) is None
+
+
+@pytest.mark.parametrize("scenario", ["expired", "active", "legacy", "foreign", "changed_baseline"])
+async def test_interrupted_ip_send_recovers_only_recorded_pending_and_replans_current_state(
+    admin_client, env, routed, scenario
+):
+    admin_client.post(ROOT + f"/groups/{routed.group['id']}/sync")
+    await drain(env)
+    entry = add_entry(admin_client, routed.group["id"], "192.0.2.100")
+
+    async def interrupt(command):
+        if command == "end" and " position 1" in routed.writer.pending():
+            raise ACLError("Interrupted after pending deny insertion")
+
+    routed.writer.on_write = interrupt
+    admin_client.post(ROOT + f"/entries/{entry}/send")
+    failed_job = claim()
+    await execute(failed_job)
+    with env() as db:
+        assert db.get(m.Job, failed_job).status == "failed"
+        row = db.get(m.DeviceACLState, routed.device_id)
+        assert "conductor_pending" in row.attempted
+        if scenario == "legacy":
+            row.attempted = {k: v for k, v in row.attempted.items() if k != "conductor_pending"}
+            db.commit()
+    assert " position 1" in routed.writer.pending()
+    routed.writer.on_write = None
+    if scenario == "foreign":
+        routed.writer.inject_pending = "\nlogging 203.0.113.10\n"
+    if scenario == "changed_baseline":
+        routed.writer.committed += "ntp server manual-change\n"
+        routed.reader.config = routed.writer.committed
+    if scenario == "active":
+        admin_client.post(ROOT + f"/entries/{entry}/send")
+    else:
+        admin_client.post(ROOT + "/entries/actions", json={"action": "remove", "entry_ids": [entry]})
+    job_id = claim()
+    await execute(job_id)
+    rejected = scenario in ("foreign", "changed_baseline")
+    with env() as db:
+        job = db.get(m.Job, job_id)
+        assert job.status == ("failed" if rejected else "succeeded"), job.error
+        row = db.get(m.DeviceACLState, routed.device_id)
+        assert row.status == ("dirty" if rejected else "synced")
+        if not rejected:
+            assert not row.attempted
+            assert row.addresses == (["192.0.2.100"] if scenario == "active" else [])
+    purges = [
+        cmd for path, cmd in routed.writer.commands if cmd.startswith("configuration purge-pending-config")
+    ]
+    assert purges == ([] if rejected else ["configuration purge-pending-config " + NODE])
+    if not rejected:
+        assert not routed.writer.pending().strip()
+        if scenario != "active":
+            assert all(" any any deny" not in config for config in routed.writer.saved_configs)
+            assert "netdestination " not in routed.reader.config
+            assert not any(cmd.startswith("no ip access-list") for path, cmd in routed.writer.commands)
+
+
+def test_only_expected_first_position_is_normalized_in_pending_acl_rules():
+    header = "ip access-list session BLOCK"
+    rule = "alias " + adapters.alias_for(header) + " any any deny"
+    shell = object.__new__(conductor.Session)
+    shell.allowed = {header: {rule}}
+    shell.baseline_blocks = {}
+    shell.validate_pending(header + "\n " + rule + " position 1\n!\n")
+    with pytest.raises(ACLError):
+        shell.validate_pending(header + "\n " + rule + " position 2\n!\n")
+    conductor.verify_delta(header + "\n " + rule + " position 1\n!\n", header + "\n " + rule + "\n!\n")
 
 
 @pytest.mark.parametrize(
@@ -594,3 +678,29 @@ async def test_shared_conductor_lease_serializes_concurrent_tasks(monkeypatch):
 
     await asyncio.gather(run_job(1), run_job(2))
     assert registry.max_active == 1 and events[0][0] == "start" and events[1][0] == "end"
+
+
+async def test_conductor_waiter_can_be_cancelled_without_leaking_a_lease(monkeypatch):
+    registry = Registry()
+    monkeypatch.setattr(conductor, "redis_client", lambda: registry)
+    route = SimpleNamespace(device=SimpleNamespace(id="master"))
+
+    async def cancelled():
+        raise ACLError("Stopped while waiting")
+
+    async with conductor.lease(route):
+        with pytest.raises(ACLError, match="Stopped while waiting"):
+            async with conductor.lease(route, check=cancelled):
+                pytest.fail("Cancelled waiter acquired lease")
+
+        async def waiter():
+            async with conductor.lease(route):
+                pytest.fail("Waiter acquired the active lease")
+
+        task = asyncio.create_task(waiter())
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert registry.active == 1
+    assert registry.active == 0

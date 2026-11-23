@@ -5,6 +5,8 @@ Conductor SSH profile, a serialized lease, and a verified device-specific node.
 """
 
 import asyncio
+import hashlib
+import json
 import re
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -111,6 +113,54 @@ def incomplete_empty_acl(device_id, profile):
         return bool(attempted and attempted.get("profile") == profile and attempted.get("addresses") == [])
 
 
+def pending_intent(device, route, node):
+    with session_factory()() as db:
+        row = db.get(m.DeviceACLState, device.id)
+        attempted = dict(row.attempted or {}) if row and row.status == "dirty" else {}
+        proof = any(
+            job.result.get("node_path") == node.path
+            and submission.payload.get("conductor") == route.snapshot
+            and submission.payload.get("endpoint") == access_identity(device)
+            for submission, job in db.execute(
+                select(m.BlacklistDelivery, m.Job)
+                .join(m.Job, m.Job.id == m.BlacklistDelivery.job_id)
+                .where(m.BlacklistDelivery.device_id == device.id)
+                .order_by(m.Job.created_at.desc())
+                .limit(25)
+            )
+        )
+        return attempted, proof
+
+
+def journal_pending(device_id, journal):
+    with session_factory()() as db:
+        row = db.get(m.DeviceACLState, device_id)
+        if not row or row.status != "dirty":
+            raise ACLError("Conductor yazma niyeti için belirsiz cihaz kaydı bulunamadı.")
+        row.attempted = {**(row.attempted or {}), "conductor_pending": journal}
+        db.commit()
+
+
+def clear_pending_journal(device_id):
+    with session_factory()() as db:
+        row = db.get(m.DeviceACLState, device_id)
+        if row and row.attempted and "conductor_pending" in row.attempted:
+            row.attempted = {k: v for k, v in row.attempted.items() if k != "conductor_pending"}
+            db.commit()
+
+
+def config_digest(config):
+    return hashlib.sha256(json.dumps(adapters.blocks(config), separators=(",", ":")).encode()).hexdigest()
+
+
+def pending_line(header, line):
+    if header.startswith("ip access-list session ") and re.fullmatch(
+        r"alias nxbl_[0-9a-f]{16} any any deny position 1", line
+    ):
+        return line.removesuffix(" position 1")
+    return line
+
+
 def verify_delta(pending, config):
     parsed = dict(adapters.blocks(config))
     for header, body in adapters.blocks(pending):
@@ -122,6 +172,7 @@ def verify_delta(pending, config):
         if actual is None:
             raise ACLError("Conductor ara aşama tanımı cihazda doğrulanamadı.")
         for line in body:
+            line = pending_line(header, line)
             if line == "no ip access-group in" and any(
                 item.startswith("ip access-group in ") for item in actual
             ):
@@ -231,13 +282,28 @@ def switch_state(output, address):
 
 
 @asynccontextmanager
-async def lease(route):
+async def lease(route, *, check=None):
     lock = redis_client().lock(
         "netrix:blacklist:conductor:" + route.device.id, timeout=660, thread_local=False
     )
-    acquired = await asyncio.to_thread(lock.acquire, blocking=True, blocking_timeout=120)
-    if not acquired:
-        raise ACLError("Conductor başka bir NETRIX işi tarafından kullanılıyor; yeniden eşitleyin.")
+    deadline = asyncio.get_running_loop().time() + 540
+    while True:
+        if check:
+            await check()
+        acquisition = asyncio.create_task(asyncio.to_thread(lock.acquire, blocking=False))
+        try:
+            acquired = await asyncio.shield(acquisition)
+        except asyncio.CancelledError:
+            # Redis has a bounded socket timeout. If cancellation races with a
+            # successful acquisition, release it rather than leaving a stale lease.
+            if await acquisition:
+                await asyncio.to_thread(lock.release)
+            raise
+        if acquired:
+            break
+        if asyncio.get_running_loop().time() >= deadline:
+            raise ACLError("Conductor sırası cihaz işinin süre sınırında alınamadı; yeniden eşitleyin.")
+        await asyncio.sleep(0.5)
     try:
         yield lock
     finally:
@@ -292,10 +358,76 @@ class Session:
         effective = await self.ownership()
         pending = await self.writer.command("show configuration pending")
         if pending.strip():
-            await self.resume_empty(pending, effective)
+            if not await self.recover_pending(pending, effective):
+                await self.resume_empty(pending, effective)
         await self.progress(
             "preflight", conductor_ip=self.route.device.management_ip, node_path=self.node.path
         )
+
+    async def recover_pending(self, pending, effective):
+        attempted, proof = await sql_quick(pending_intent, self.device, self.route, self.node)
+        journal = attempted.get("conductor_pending")
+        if journal:
+            if (
+                journal.get("node_path") != self.node.path
+                or journal.get("route") != self.route.snapshot
+                or journal.get("endpoint") != access_identity(self.device)
+                or journal.get("baseline") != self.baseline_digest
+            ):
+                raise ACLError(
+                    "Bekleyen NETRIX işleminin düğüm, erişim veya kalıcı içeriği değişti; temizlenmedi."
+                )
+            self.allowed = {item["header"]: set(item["lines"]) for item in journal["commands"]}
+        else:
+            # Compatibility with the observed pre-journal failure: only the exact
+            # uncommitted deny insertion from a recorded attempt may be discarded.
+            profile = attempted.get("profile")
+            addresses = set(attempted.get("addresses", []))
+            if not proof or not addresses or profile not in self.profiles:
+                return False
+            header, _ = adapters.acl_identity("aruba_7200", profile)
+            alias = adapters.alias_for(header)
+            body, hosts = adapters.session_rules(adapters.blocks(effective), header, alias)
+            if (
+                body != ["description " + adapters.MARKER, "any any any permit"]
+                or not hosts
+                or not hosts <= addresses
+            ):
+                return False
+            ports = await self.reader.command("show interface")
+            plan = adapters.build_sync_plan(
+                "aruba_7200", profile, addresses, effective, ports, retain_empty=True, validated=True
+            )
+            parsed = adapters.blocks(pending)
+            rule = f"alias {alias} any any deny position 1"
+            if parsed != [(header, [rule])] or rule not in plan.commands:
+                return False
+            self.allowed = {header: {pending_line(header, rule)}}
+        self.validate_pending(pending)
+        await self.guard()
+        await self.scope()
+        if await self.mapping() != self.node:
+            raise ACLError("Bekleyen işlem temizlenmeden önce cihaz düğümü değişti.")
+        if await self.writer.command("show configuration pending") != pending:
+            raise ACLError("Bekleyen içerik kurtarma sırasında değişti; temizlenmedi.")
+        await self.writer.command("configure terminal")
+        await self.guard()
+        if await self.writer.command("show configuration pending") != pending:
+            raise ACLError("Bekleyen içerik kurtarma sırasında değişti; temizlenmedi.")
+        # The explicit, verified DEVICE path is mandatory. Omitting it would purge
+        # the entire hierarchy, including other administrators' changes.
+        await self.writer.command("configuration purge-pending-config " + self.node.path)
+        await self.writer.command("end")
+        await self.scope()
+        if (await self.writer.command("show configuration pending")).strip():
+            raise ACLError("NETRIX bekleyen işlemi düğümden temizlenemedi.")
+        if config_digest(await self.writer.command("show configuration committed")) != self.baseline_digest:
+            raise ACLError("Bekleyen işlem temizlenirken kalıcı düğüm içeriği değişti; işlem durdu.")
+        await sql_quick(clear_pending_journal, self.device.id)
+        self.original_unsaved.discard(self.node.path)
+        self.allowed.clear()
+        await self.progress("preflight", node_path=self.node.path, recovered_pending=True)
+        return True
 
     async def resume_empty(self, pending, effective):
         profile = self.target["profile"]
@@ -376,6 +508,7 @@ class Session:
         if not present <= seen:
             raise ACLError("ACL düğüm kaynağı detay çıktısında doğrulanamadı.")
         self.baseline_blocks = local_by_header
+        self.baseline_digest = config_digest(local)
         return effective
 
     async def command(self, command, *, save=False):
@@ -416,6 +549,19 @@ class Session:
                 self.allowed.setdefault(normalized, set())
             else:
                 self.allowed.setdefault(self.context, set()).add(normalized)
+            await sql_quick(
+                journal_pending,
+                self.device.id,
+                {
+                    "node_path": self.node.path,
+                    "route": self.route.snapshot,
+                    "endpoint": access_identity(self.device),
+                    "baseline": self.baseline_digest,
+                    "commands": [
+                        {"header": header, "lines": sorted(lines)} for header, lines in self.allowed.items()
+                    ],
+                },
+            )
         try:
             return await self.writer.command(command, save=save)
         except ACLError:
@@ -441,6 +587,7 @@ class Session:
                         "Conductor pending farkında NETRIX planı dışında komut var; commit yapılmadı."
                     )
             for line in body:
+                line = pending_line(header, line)
                 default_description = (
                     header.startswith("interface gigabitethernet ")
                     and line == "description GE" + header.split()[-1]
@@ -496,6 +643,7 @@ class Session:
                     except ACLError:
                         pass  # The managed device can lag behind the Conductor status.
                     else:
+                        await sql_quick(clear_pending_journal, self.device.id)
                         await self.progress(
                             "verifying" if intermediate else "verified",
                             node_path=self.node.path,

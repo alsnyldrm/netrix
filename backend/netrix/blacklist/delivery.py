@@ -254,9 +254,7 @@ async def reconcile(shell, job_id, device, target, *, verifier=None):
         alias = adapters.alias_for(header)
         parsed = adapters.blocks(config)
         body, _ = adapters.session_rules(parsed, header, alias)
-        if adapters.matching_acl(parsed, "netdestination " + alias, device.adapter) is not None or any(
-            " deny" in line for line in body or []
-        ):
+        if any(" deny" in line for line in body or []):
             stale.append(target["profile"])
     for profile in stale:
         plan = adapters.build_removal_plan(device.adapter, profile, config, validated=verifier is not None)
@@ -356,7 +354,7 @@ async def execute(job_id):
             await sql_quick(check_cancel, job_id)
         async def report(phase, **values):
             await sql_quick(progress, job_id, phase, **values)
-        async with conductor.lease(route) as lock:
+        async with conductor.lease(route, check=check) as lock:
             async with connect(device, secret) as reader, connect(route.device, route.secret) as writer:
                 shell = conductor.Session(writer, reader, route, device, target, lock, check, report)
                 await shell.prepare()
