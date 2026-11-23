@@ -917,7 +917,7 @@ function EntryActionDialog({
         <Notice>
           {action === "send"
             ? "Her cihazdaki NETRIX ACL’si etkin IP kayıtlarıyla eşitlenir, giriş yönünde tüm portlara uygulanır ve kalıcı konfigürasyona kaydedilir."
-            : "Cihazdaki deny kuralı silinir. ACL’de başka IP kalmazsa NETRIX ACL’si ve port bağlantıları da kaldırılır; değişiklik kalıcı konfigürasyonda doğrulanır."}
+            : "IP’nin engelleme kuralı cihazlardan kaldırılır. Son IP kaldırılsa da ACL ve port bağlantıları korunur; sonuç cihazlardan geri okunarak doğrulanır."}
         </Notice>
         {action === "send" && single && preview.loading && (
           <p role="status">Hedefler yükleniyor…</p>
