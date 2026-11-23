@@ -1,5 +1,7 @@
 import {
   HorizontalNavigation,
+  NavigationBadge,
+  type NavigationBadgeValue,
   SectionNavigation,
   useNavigationLayout,
 } from "./navigation-layout";
@@ -3285,11 +3287,28 @@ function App() {
       <kbd>Ctrl K</kbd>
     </button>
   );
+  const navigationBadges: Record<string, NavigationBadgeValue> = {
+    "backup-changes": {
+      count: dashboard.counts?.config_changes ?? 0,
+      label: "onay bekleyen değişiklik",
+    },
+    alerts: {
+      count: dashboard.counts?.firing_alerts ?? 0,
+      label: "aktif alarm",
+    },
+    jobs: {
+      count: dashboard.counts?.running_jobs ?? 0,
+      label: "çalışan görev",
+      neutral: true,
+    },
+  };
   const layoutPages = PAGES.filter(
     (item) =>
       (!["users", "audit"].includes(item.key) || isAdmin) &&
       (item.key !== "saml" || canAssignRoles),
-  ).sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group));
+  )
+    .sort((a, b) => GROUPS.indexOf(a.group) - GROUPS.indexOf(b.group))
+    .map((item) => ({ ...item, badge: navigationBadges[item.key] }));
   const workspaceUtilities = (
     <>
       <div
@@ -3471,27 +3490,7 @@ function App() {
                               weight={current === p.key ? "fill" : "regular"}
                             />
                             <span>{p.title}</span>
-                            {p.key === "backup-changes" &&
-                              !!dashboard.counts?.config_changes && (
-                                <b
-                                  className="nav-count"
-                                  aria-label={`${dashboard.counts.config_changes} onay bekleyen değişiklik`}
-                                >
-                                  {dashboard.counts.config_changes}
-                                </b>
-                              )}
-                            {p.key === "alerts" &&
-                              !!dashboard.counts?.firing_alerts && (
-                                <b className="nav-count">
-                                  {dashboard.counts.firing_alerts}
-                                </b>
-                              )}
-                            {p.key === "jobs" &&
-                              !!dashboard.counts?.running_jobs && (
-                                <b className="nav-count neutral">
-                                  {dashboard.counts.running_jobs}
-                                </b>
-                              )}
+                            <NavigationBadge value={navigationBadges[p.key]} />
                           </button>
                         ))}
                       </div>

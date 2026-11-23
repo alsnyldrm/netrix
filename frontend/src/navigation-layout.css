@@ -416,3 +416,22 @@
     grid-column: auto;
   }
 }
+
+.layout-menu-panel > button {
+  gap: 12px;
+}
+.layout-menu-panel > button > span {
+  flex: 1;
+  min-width: 0;
+}
+:is(.layout-menu-panel, .layout-section-tabs) .nav-count {
+  flex: none;
+  width: auto;
+  min-width: 22px;
+  white-space: nowrap;
+}
+.layout-section-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

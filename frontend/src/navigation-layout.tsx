@@ -32,7 +32,25 @@ export function useNavigationLayout() {
   return layout;
 }
 
+export type NavigationBadgeValue = {
+  count: number;
+  label: string;
+  neutral?: boolean;
+};
+export function NavigationBadge({ value }: { value?: NavigationBadgeValue }) {
+  if (!value || value.count <= 0) return null;
+  return (
+    <b
+      className={"nav-count" + (value.neutral ? " neutral" : "")}
+      aria-label={`${value.count} ${value.label}`}
+    >
+      {value.count}
+    </b>
+  );
+}
+
 type Entry = {
+  badge?: NavigationBadgeValue;
   key: string;
   title: string;
   group: string;
@@ -153,7 +171,8 @@ function SectionMenu({
                 navigate(page.key);
               }}
             >
-              {page.title}
+              <span>{page.title}</span>
+              <NavigationBadge value={page.badge} />
             </button>
           ))}
         </div>
@@ -189,7 +208,8 @@ export function SectionNavigation({ pages, current, navigate }: Props) {
             aria-current={p.key === current ? "page" : undefined}
             onClick={() => navigate(p.key)}
           >
-            {p.title}
+            <span>{p.title}</span>
+            <NavigationBadge value={p.badge} />
           </button>
         ))}
     </nav>
