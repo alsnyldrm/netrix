@@ -147,6 +147,9 @@ def assign(db, vlan, payload, user):
         ):
             raise HTTPException(409, "Seçilen IP artık boş değil. Boş IP listesinden başka bir adres seçin.")
     # Reuse inactive discovery rows: retain their observations, source result and identity.
-    saved = svc.save_resource(db, "addresses", payload.model_dump(), user, row.id if row else None)
+    data = payload.model_dump()
+    if row and "description" not in payload.model_fields_set:
+        data.pop("description", None)
+    saved = svc.save_resource(db, "addresses", data, user, row.id if row else None)
     svc.publish(ipam_vlan=vlan.id)
     return saved

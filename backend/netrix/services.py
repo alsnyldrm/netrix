@@ -335,6 +335,8 @@ def save_resource(db, name, payload, user, row_id=None, *, commit=True, manual_f
             if key not in value.model_fields_set:
                 data[key] = getattr(row, key)
     if name == "addresses" and row_id:
+        if "description" not in value.model_fields_set:
+            data["description"] = row.description
         if "mac_address" not in value.model_fields_set:
             data["mac_address"] = row.mac_address
         hierarchy = {"institution_id", "site_id", "sub_site_id"}

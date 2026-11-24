@@ -890,6 +890,7 @@ export const ADDRESS_PAGE: Page = {
     f("address", "IP adresi", { required: true }),
     ref("vrf_id", "VRF", "vrfs", true),
     ref("vlan_id", "VLAN", "vlans", true),
+    f("description", "Açıklama", { max: 400 }),
     f("hostname", "Hostname", {
       hint: "Manuel değer önceliklidir. Boşsa DNS, ardından doğrulanmış VMware veya DHCP adı gösterilir.",
     }),
@@ -1803,7 +1804,12 @@ function GenericResourceForm({
             site.id === row?.sub_site_id && site.parent_id === row?.site_id,
         )
       : undefined;
+  const publicAddress = page.key === "addresses" && (
+    refs.vlans?.find((vlan) => vlan.id === values.vlan_id)?.network_type
+    || vlanContext?.network_type || row?.network_type
+  ) === "public";
   const fields = (page.fields || [])
+    .filter((field) => page.key !== "addresses" || field.key !== "description" || publicAddress)
     .filter(
       (field) =>
         !cabinetRoom || !["site_id", "sub_site_id"].includes(field.key),

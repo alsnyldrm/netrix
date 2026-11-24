@@ -503,6 +503,7 @@ class IPAddress(Entity, Base):
     interface_id: Mapped[str | None] = mapped_column(
         ForeignKey("envanter.interfaces.id"), nullable=True, index=True
     )
+    description: Mapped[str] = mapped_column(String(400), default="", server_default="")
     hostname: Mapped[str] = mapped_column(String(190), default="")
     mac_address: Mapped[str] = mapped_column(String(17), default="", server_default="")
     operating_system: Mapped[str] = mapped_column(String(190), default="", server_default="")

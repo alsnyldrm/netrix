@@ -17,6 +17,7 @@ from . import service
 COLUMNS = {
     "scan_status": "Sonuç",
     "ping": "Ping",
+    "description": "Açıklama",
     "address": "IP adresi",
     "hostname": "Hostname",
     "mac_address": "MAC adresi",
@@ -256,7 +257,7 @@ def addresses(
         }
     result["columns"] = [
         {"key": k, "label": v} for k, v in COLUMNS.items()
-        if (k not in {"scan_status", "network", "vm_host"} if prefix and prefix.network_type == "public" else k != "ping")
+        if (k not in {"scan_status", "network", "vm_host"} if prefix and prefix.network_type == "public" else k not in {"ping", "description"})
     ]
     if prefix and include_summary:
         result["vlan"] = service.vlan_summary(db, prefix)

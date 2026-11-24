@@ -158,6 +158,7 @@ class DeviceInput(Input):
 
 
 class IPInput(Input):
+    description: str = Field(default="", max_length=400)
     institution_id: str | None = None
     site_id: str | None = None
     sub_site_id: str | None = None
