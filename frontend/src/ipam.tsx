@@ -785,7 +785,6 @@ export function IPAMWorkspace({
       if (saved.created_in_vlan) {
         setActiveOnly(false);
         setOffset("0");
-        setQuery(saved.address);
         setRules([]);
       }
       const fields = [
