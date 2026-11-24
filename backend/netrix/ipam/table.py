@@ -256,7 +256,7 @@ def addresses(
         }
     result["columns"] = [
         {"key": k, "label": v} for k, v in COLUMNS.items()
-        if (k != "scan_status" if prefix and prefix.network_type == "public" else k != "ping")
+        if (k not in {"scan_status", "network", "vm_host"} if prefix and prefix.network_type == "public" else k != "ping")
     ]
     if prefix and include_summary:
         result["vlan"] = service.vlan_summary(db, prefix)

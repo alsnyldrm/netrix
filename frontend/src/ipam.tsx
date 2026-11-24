@@ -729,8 +729,9 @@ export function IPAMWorkspace({
   const [listScanNotice, setListScanNotice] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const legacyStorageKey = `netrix.ipam.columns.${user.id}`;
-  const storageKey = `${legacyStorageKey}.v2`;
+  const storageKey = `${legacyStorageKey}.v3`;
   const defaults = [
+    "ping",
     "address",
     "hostname",
     "mac_address",
@@ -748,6 +749,8 @@ export function IPAMWorkspace({
     try {
       const value = JSON.parse(localStorage.getItem(storageKey) || "null");
       if (Array.isArray(value) && value.length) return value;
+      const previous = JSON.parse(localStorage.getItem(`${legacyStorageKey}.v2`) || "null");
+      if (Array.isArray(previous) && previous.length) return [...new Set([...previous, "ping"])];
       const legacy = JSON.parse(
         localStorage.getItem(legacyStorageKey) || "null",
       );
@@ -836,7 +839,7 @@ export function IPAMWorkspace({
     { key: "availability", label: "Durum" },
   ];
   const visible = columns.filter(
-    (c) => c.key === "scan_status" || c.key === "ping" || shown.includes(c.key),
+    (c) => c.key === "scan_status" || shown.includes(c.key),
   );
   useEffect(() => {
     if (listing.data?.vlan) setVLAN(listing.data.vlan);

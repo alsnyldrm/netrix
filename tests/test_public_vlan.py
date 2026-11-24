@@ -25,7 +25,7 @@ def test_public_includes_registered_no_reply_and_avoids_topology(network, monkey
         assert item["sources"] == ["icmp"]
         assert item["hostname"] == "manual.example"
         assert result["vlan"]["used"] == 1
-        assert "scan_status" not in {c["key"] for c in result["columns"]}
+        assert not {"scan_status", "network", "vm_host"} & {c["key"] for c in result["columns"]}
         assert "ping" in {c["key"] for c in result["columns"]}
         assert len(table.addresses(db, vlan, q=row.address, active_only=True)["items"]) == 1
 

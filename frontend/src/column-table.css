@@ -134,7 +134,7 @@ th:hover > .column-table-resize::after {
 }
 
 table[data-column-layout="fixed"] {
-  min-width: 0;
+  min-width: 100%;
   table-layout: fixed;
 }
 
