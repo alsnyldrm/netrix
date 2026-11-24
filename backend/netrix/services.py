@@ -168,7 +168,11 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
 
     validate_location_relations(db, name, data, row_id)
     if "vrf_id" in data:
-        if lock and name != "scopes":
+        vlan_metadata = False
+        if name == "vlans" and row_id:
+            current = get(db, m.VLAN, row_id)
+            vlan_metadata = current.vrf_id == data["vrf_id"] and current.cidr == data["cidr"]
+        if lock and name != "scopes" and not vlan_metadata:
             lock_vrf(db, data["vrf_id"])
         else:
             get(db, m.VRF, data["vrf_id"])
@@ -216,7 +220,10 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             other = ipaddress.ip_network(prefix.cidr)
             if other.version == network.version and other.overlaps(network):
                 raise HTTPException(409, "VLAN IP blokları çakışıyor")
-        if row_id:
+        if row_id and (
+            get(db, m.VLAN, row_id).cidr != data["cidr"]
+            or get(db, m.VLAN, row_id).vrf_id != data["vrf_id"]
+        ):
             for address in db.scalars(select(m.IPAddress).where(m.IPAddress.vlan_id == row_id)):
                 if data["vrf_id"] != address.vrf_id or ipaddress.ip_address(address.address) not in network:
                     raise HTTPException(409, "Mevcut IP atamaları yeni VLAN bloğuyla uyumsuz")
