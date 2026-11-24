@@ -266,6 +266,7 @@ class VRF(Entity, Base):
 
 class VLAN(Entity, Base):
     __tablename__ = "vlans"
+    network_type: Mapped[str] = mapped_column(String(10), default="local", server_default="local")
     name: Mapped[str] = mapped_column(String(120))
     domain: Mapped[str] = mapped_column(String(80), default="default")
     vid: Mapped[int] = mapped_column(Integer)
@@ -291,6 +292,7 @@ class VLAN(Entity, Base):
     __table_args__ = (
         UniqueConstraint("domain", "vid"),
         UniqueConstraint("vrf_id", "cidr"),
+        CheckConstraint("network_type IN ('local', 'public')", name="ck_vlan_network_type"),
         CheckConstraint("warning_threshold >= 1 AND warning_threshold <= 100", name="ck_vlan_threshold"),
         CheckConstraint("ping_interval >= 10 AND discovery_interval >= 60", name="ck_vlan_intervals"),
         CheckConstraint("vid >= 1 AND vid <= 4094", name="ck_vlan_vid"),

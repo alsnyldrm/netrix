@@ -360,6 +360,7 @@ export const PAGES: Page[] = [
     ],
     fields: [
       f("name", "VLAN adı", { required: true }),
+      f("network_type", "Ağ türü", { type: "select", options: [["local", "Local"], ["public", "Public"]], default: "local" }),
       f("vid", "VLAN ID (1–4094)", {
         type: "number",
         required: true,

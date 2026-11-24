@@ -16,6 +16,7 @@ from . import service
 
 COLUMNS = {
     "scan_status": "Sonuç",
+    "ping": "Ping",
     "address": "IP adresi",
     "hostname": "Hostname",
     "mac_address": "MAC adresi",
@@ -253,7 +254,10 @@ def addresses(
             "offset": str(offset),
             "registered_search": registered_only,
         }
-    result["columns"] = [{"key": k, "label": v} for k, v in COLUMNS.items()]
+    result["columns"] = [
+        {"key": k, "label": v} for k, v in COLUMNS.items()
+        if (k != "scan_status" if prefix and prefix.network_type == "public" else k != "ping")
+    ]
     if prefix and include_summary:
         result["vlan"] = service.vlan_summary(db, prefix)
     return result

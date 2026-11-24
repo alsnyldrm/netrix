@@ -221,10 +221,11 @@ async def scan(job_id, collector=None):
     def begin():
         with session_factory()() as db:
             job = get(db, m.Job, job_id)
-            if job.kind == "ipam_discover":
-                return True, []
             prefix = get(db, m.VLAN, job.target_id)
-            addresses = targets(db, prefix, False)
+            public = prefix.network_type == "public"
+            if job.kind == "ipam_discover" and not public:
+                return True, []
+            addresses = targets(db, prefix, public and job.kind == "ipam_discover")
             if job.cancel_requested:
                 raise Cancelled()
             prefix.last_ping_at = now()
@@ -272,7 +273,7 @@ async def scan(job_id, collector=None):
                                     "icmp",
                                     prefix.id,
                                     {"reachability": "reachable" if up else "no_reply"},
-                                    create=False,
+                                    create=prefix.network_type == "public" and up,
                                 )
                         job.progress += len(values)
                         db.commit()
@@ -314,7 +315,7 @@ async def integration(job_id, collector=None):
         from ..sources.records import save_integration
 
         save_integration(db, current, records, complete=True)
-        prefixes = db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None))).all()
+        prefixes = db.scalars(select(m.VLAN).where(m.VLAN.cidr.is_not(None), m.VLAN.network_type == "local")).all()
         count, matched = 0, 0
         address_evidence = list(
             db.execute(
@@ -494,6 +495,24 @@ async def integration(job_id, collector=None):
 
 async def execute(job_id, kind, collector):
     if kind == "ipam_address_scan":
+        with session_factory()() as db:
+            job = get(db, m.Job, job_id)
+            row = get(db, m.IPAddress, job.target_id)
+            vlan = get(db, m.VLAN, row.vlan_id)
+            public = vlan.network_type == "public"
+        if public:
+            up = await ping_result(row.address)
+            with session_factory()() as db:
+                from .address_scan import target
+                job = get(db, m.Job, job_id)
+                current, vlan = target(db, job, lock=True)
+                if up is not None:
+                    observe(db, vlan, current.address, "icmp", vlan.id,
+                            {"reachability": "reachable" if up else "no_reply"}, create=False)
+                job.total = job.progress = 1
+                db.commit()
+            publish(ping_vlan=vlan.id)
+            return {"checked": 1, "reachable": int(up is True), "ping_failed": int(up is None)}
         from .address_scan import execute as scan_address
 
         return await scan_address(job_id, collector)

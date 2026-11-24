@@ -540,3 +540,17 @@ switch/portun güncel, aynı IP veya MAC'i doğrulayan envanter kaydından alın
 Uyuşmayan IP/MAC ve çelişkili komşu adları kullanılmaz. Sonuç hostname metnini
 kopyalamaz, kanonik komşu satırına referans verir. Manuel ve VMware öncelikleri
 korunur ve IPAM switch bağlantısı açmaz.
+
+## Local/Public VLAN — 24 Kasım 2026
+
+VLAN'ın `network_type` alanı Local veya Public seçilir. Mevcut kayıtların
+varsayılanı Local olur. Public VLAN'da manuel/zamanlanmış tam tarama, tek IP
+taraması ve periyodik kontrol yalnız ICMP kullanır. Tam tarama yetkili CIDR'daki
+yanıt veren yeni IP'leri ekler, periyodik ping kayıtlı adreslerle sınırlıdır.
+DNS, gateway, VMware, DHCP ve switch çözümlemesi bu dalda çalışmaz.
+
+Public listesinde kayıt durumu ve ping ayrı gösterilir. Aktif olarak kaydedilen
+manuel IP ping yanıtından bağımsız aktif filtreye ve kullanım sayısına dahildir.
+Ping yeşil/kırmızı, kaynak Ping olarak gösterilir. Sonuç sütunu ve VLAN sonuç
+düğmesi gösterilmez. Public liste okuması fiziksel topolojiyi hazırlamaz, eski
+Local çözümleme sonuçlarını kullanmaz. Eski kanonik kaynaklar silinmez.

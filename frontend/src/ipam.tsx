@@ -836,7 +836,7 @@ export function IPAMWorkspace({
     { key: "availability", label: "Durum" },
   ];
   const visible = columns.filter(
-    (c) => c.key === "scan_status" || shown.includes(c.key),
+    (c) => c.key === "scan_status" || c.key === "ping" || shown.includes(c.key),
   );
   useEffect(() => {
     if (listing.data?.vlan) setVLAN(listing.data.vlan);
@@ -1021,6 +1021,11 @@ export function IPAMWorkspace({
       ) : (
         <span className="mono">{r.address}</span>
       );
+    if (key === "ping") {
+      return r.id ? <span className={`ipam-state ${r.ping === "active" ? "active" : "passive"}`}>
+        <i aria-hidden="true" />{r.ping === "active" ? "Yanıt var" : "Yanıt yok"}
+      </span> : "—";
+    }
     if (key === "availability") {
       const state = r.availability || (r.id ? "unknown" : r.status);
       return (
@@ -1175,7 +1180,7 @@ export function IPAMWorkspace({
                 </button>
               </>
             )}
-            <button
+            {prefix.network_type !== "public" && <button
               className="secondary"
               aria-haspopup="dialog"
               onClick={() => {
@@ -1185,7 +1190,7 @@ export function IPAMWorkspace({
             >
               <ClipboardText size={17} aria-hidden="true" />
               Sonuç
-            </button>
+            </button>}
           </div>
         </section>
       )}

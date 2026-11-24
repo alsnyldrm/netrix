@@ -70,6 +70,7 @@ class VRFInput(Input):
 
 
 class VLANInput(Input):
+    network_type: Literal["local", "public"] = "local"
     name: str = Field(min_length=1, max_length=120)
     domain: str = Field(default="default", min_length=1, max_length=80)
     vid: int = Field(ge=1, le=4094)

@@ -85,7 +85,14 @@ def active_address_ids(db, vrf_ids, *, address_id=None, cidr=None):
         query = query.where(m.IPObservation.address_id == address_id).limit(1)
     for observation in db.scalars(query):
         latest.setdefault(observation.address_id, observation.data)
-    return {
+    public_query = select(m.IPAddress.id).join(m.VLAN, m.VLAN.id == m.IPAddress.vlan_id).where(
+        m.VLAN.network_type == "public", m.IPAddress.vrf_id.in_(vrf_ids),
+        m.IPAddress.status == "active",
+    )
+    public_query = address_subnet(db, public_query, cidr)
+    if address_id is not None:
+        public_query = public_query.where(m.IPAddress.id == address_id)
+    return set(db.scalars(public_query)) | {
         id
         for id, data in latest.items()
         if data.get("present", True) and data.get("reachability") == "reachable"
@@ -429,14 +436,14 @@ def enrich(db, rows, *, details=True, include_options=False):
     stored = {
         row.id: stored[row.id]
         for row in rows
-        if row.id in stored and stored[row.id].address_scope == [row.address, row.vrf_id, row.vlan_id]
+        if row.id in stored and prefixes[row.vlan_id].network_type == "local"
+        and stored[row.id].address_scope == [row.address, row.vrf_id, row.vlan_id]
     }
     from ..sources.resolutions import prepare_read
 
     prepare_read(db, stored.values(), grouped)
-    network_evidence = (
-        Evidence(db, {r.vrf_id for r in rows if r.id not in stored}) if len(stored) < len(rows) else None
-    )
+    local_missing = [r for r in rows if r.id not in stored and prefixes[r.vlan_id].network_type == "local"]
+    network_evidence = Evidence(db, {r.vrf_id for r in local_missing}) if local_missing else None
     manual_connections = (
         {
             address_id: {"device_name": device_name, "port": port or ""}
@@ -473,6 +480,25 @@ def enrich(db, rows, *, details=True, include_options=False):
         item["cabinet"] = item["rack_position"] or item["cabinet"]
         obs = sorted(grouped[row.id], key=lambda o: o.observed_at, reverse=True)
         from .address_scan import NETWORK_SOURCE
+
+        if prefixes[row.vlan_id].network_type == "public":
+            vlan = prefixes[row.vlan_id]
+            item.update(
+                network_type="public", sources=["icmp"], scan_status="", scan_result=None,
+                availability="active" if row.status == "active" else "passive",
+                ping=ping_availability(obs), reachability=next(
+                    (o.data.get("reachability") for o in obs if o.source == "icmp"), "unknown"
+                ),
+                vlan=f"VLAN-{vlan.vid} / {vlan.name}", cidr=vlan.cidr,
+                location=getattr(sites.get(row.sub_site_id or row.site_id), "name", "") or row.location
+                    or getattr(sites.get(vlan.site_id), "name", ""),
+                field_sources={}, connections=[], connection_groups=[],
+                address_locked=bool(obs),
+            )
+            if details:
+                item["observations"] = [serialize(o) for o in obs if o.source == "icmp"]
+            result.append(item)
+            continue
 
         if row.id in stored:
             obs = [o for o in obs if o.source != NETWORK_SOURCE]
@@ -635,7 +661,7 @@ def enrich(db, rows, *, details=True, include_options=False):
         result.append(item)
     from .mac_cache import fallback
 
-    legacy_rows = [row for row in rows if row.id not in stored]
+    legacy_rows = local_missing
     if legacy_rows:
         legacy = fallback(
             db,
