@@ -172,3 +172,11 @@ Bu karar, yukarıdaki IPAM ve tarama gruplarının switch toplamasıyla ilgili e
 ## Kara Liste ACL log kaldırma kararı (22 Kasım 2026)
 
 Kara Liste → Loglar menüsü, Syslog alıcısı (`netrix-acl-logs`), 5515 port yayını, ACL log ayarları, API ucu ve `acl_logs` tablosu kalıcı olarak kaldırıldı; yeniden eklenmez. Gönderim cihazlara log bayrağı, Syslog hedefi veya debug ayarı yazmaz; cihazlarda önceden kalan log ayarlarına dokunulmaz. Kara Liste işi yaparken [Kara Liste belgesini](docs/blacklist.md) oku.
+
+
+## Sayfa geçiş animasyonlarını koruma kararı (24 Kasım 2026)
+
+- Uygulama içindeki herhangi bir sayfa geçişinin animasyonu asla kaldırılmayacak.
+- Ana menü, alt menü, sekme ve detay sayfaları dahil en küçük sayfa geçişinde bile animasyon olacak. VLAN listesi → VLAN içi sayfa ve geri dönüş de bu kapsamdadır.
+- Yeni gezinme yollarını mevcut ortak sayfa geçiş sistemiyle bağla. Performans veya hata düzeltmesi sırasında animasyon tetikleyicilerini devre dışı bırakma.
+- Geçiş değişikliklerini masaüstü ve mobil tarayıcıda hem ileri hem geri yönde doğrula. Veri yenilemesi kullanıcı gezinmesi sayılmaz.

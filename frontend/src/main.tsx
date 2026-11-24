@@ -2803,7 +2803,8 @@ function App() {
   const displayedPage = useRef(current);
   const requestedPage = useRef(current);
   const [previousPage, setPreviousPage] = useState(current);
-  const runPageMotion = usePageMotion(current, user?.id);
+  const motionPage = current === "vlans" ? `${current}/${ipamVLAN?.id || "list"}` : current;
+  const runPageMotion = usePageMotion(motionPage, user?.id);
   const changePage = useCallback(
     (key: string, update: () => void) => {
       const previous = displayedPage.current;
@@ -3727,6 +3728,7 @@ function App() {
             ) : page.key === "vlans" ? (
               <IPAMWorkspace
                 onVLANChange={setIPAMVLAN}
+                transitionPage={runPageMotion}
                 initialVLAN={shortcutVLAN}
                 key={page.key}
                 page={page.key}

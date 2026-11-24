@@ -668,6 +668,7 @@ export function AddressDetail({
 }
 
 export function IPAMWorkspace({
+  transitionPage,
   onVLANChange,
   initialVLAN,
   page,
@@ -679,6 +680,7 @@ export function IPAMWorkspace({
 }: {
   initialVLAN?: Row | null;
   onVLANChange: (vlan: Row | null) => void;
+  transitionPage: (backward: boolean, update: () => void) => void;
   page: string;
   refs: Record<string, Row[]>;
   refresh: number;
@@ -878,15 +880,18 @@ export function IPAMWorkspace({
     };
   }, [job]);
   const chooseVLAN = (row: Row | null) => {
-    setVLAN(row);
-    setRestoredVLAN(null);
-    rememberVLAN(row?.id);
-    setResultVLAN(null);
-    setActiveOnly(true);
-    setJob(null);
-    setOffset("0");
-    setQuery("");
-    setRules([]);
+    transitionPage(row === null, () => {
+      setVLAN(row);
+      setRestoredVLAN(null);
+      rememberVLAN(row?.id);
+      setResultVLAN(null);
+      setActiveOnly(true);
+      setJob(null);
+      setOffset("0");
+      setQuery("");
+      setRules([]);
+      onVLANChange(row);
+    });
   };
   const currentJob = job?.target_id === prefix?.id ? job : null;
   const jobActive =
