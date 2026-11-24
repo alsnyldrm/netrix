@@ -420,9 +420,24 @@ def enrich(db, rows, *, details=True, include_options=False):
 
     if not rows:
         return []
-    grouped = observations(db, rows)
-    locations = address_locations(db, rows)
     prefixes = {p.id: p for p in db.scalars(select(m.VLAN).where(m.VLAN.id.in_({r.vlan_id for r in rows})))}
+    local_rows = [r for r in rows if prefixes[r.vlan_id].network_type == "local"]
+    grouped = observations(db, local_rows)
+    public_vlans = {r.id: r.vlan_id for r in rows if prefixes[r.vlan_id].network_type == "public"}
+    public_ids = list(public_vlans)
+    grouped.update({id: [] for id in public_ids})
+    if public_ids:
+        from types import SimpleNamespace
+        for ping, observed_at in db.execute(
+            select(m.PingState, m.IPObservation.observed_at)
+            .join(m.IPObservation, m.IPObservation.ping_id == m.PingState.id)
+            .where(m.PingState.address_id.in_(public_ids), m.IPObservation.source == "icmp")
+        ):
+            grouped[ping.address_id].append(SimpleNamespace(
+                id=ping.id, source="icmp", source_key=public_vlans[ping.address_id],
+                observed_at=observed_at, data={"reachability": ping.reachability},
+            ))
+    locations = address_locations(db, rows)
     site_ids = {id for row in rows for id in (row.site_id, row.sub_site_id) if id}
     site_ids.update(p.site_id for p in prefixes.values() if p.site_id)
     sites = {site.id: site for site in db.scalars(select(m.Site).where(m.Site.id.in_(site_ids)))}
@@ -431,7 +446,7 @@ def enrich(db, rows, *, details=True, include_options=False):
 
     stored = {
         r.address_id: r
-        for r in db.scalars(select(m.IPAMResult).where(m.IPAMResult.address_id.in_([r.id for r in rows])))
+        for r in db.scalars(select(m.IPAMResult).where(m.IPAMResult.address_id.in_([r.id for r in local_rows])))
     }
     stored = {
         row.id: stored[row.id]
@@ -496,7 +511,7 @@ def enrich(db, rows, *, details=True, include_options=False):
                 address_locked=bool(obs),
             )
             if details:
-                item["observations"] = [serialize(o) for o in obs if o.source == "icmp"]
+                item["observations"] = [dict(id=o.id, source="icmp", source_key=o.source_key, observed_at=o.observed_at.isoformat(), data=o.data) for o in obs]
             result.append(item)
             continue
 

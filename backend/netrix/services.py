@@ -232,6 +232,8 @@ def validate_relations(db, name, data, row_id=None, *, lock=True):
             if device.archived or device.vrf_id != data["vrf_id"]:
                 raise HTTPException(422, "Bağlı cihaz aynı VRF içinde ve aktif envanterde olmalı")
         prefix = get(db, m.VLAN, data["vlan_id"])
+        if prefix.network_type == "public" and not row_id:
+            data["status"] = "active"
         address, network = ipaddress.ip_address(data["address"]), ipaddress.ip_network(prefix.cidr)
         if prefix.vrf_id != data["vrf_id"] or address not in network:
             raise HTTPException(422, "Adres seçilen VLAN veya VRF içinde değil")

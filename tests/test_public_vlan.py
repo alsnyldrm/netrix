@@ -69,3 +69,17 @@ async def test_public_scan_only_calls_ping(network, monkeypatch, kind):
         if kind == "ipam_discover":
             assert db.scalar(select(m.IPAddress).where(m.IPAddress.address == "192.0.2.9"))
         assert db.get(m.IPAddress, rid).status == "active"
+
+
+def test_public_manual_creation_defaults_to_active(admin_client, network):
+    sf, vid, _, _ = network
+    with sf() as db:
+        v = db.get(m.VLAN, vid)
+        v.network_type = "public"
+        vrf = v.vrf_id
+        db.commit()
+    response = admin_client.post("/api/v1/addresses", json={
+        "address": "192.0.2.22", "vlan_id": vid, "vrf_id": vrf,
+    })
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "active"
